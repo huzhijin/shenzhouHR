@@ -1,8 +1,8 @@
 ## 1. Reservation Domain and Port
 
-- [ ] 1.1 Add validated payroll period, item-definition, employee-profile-reference, frozen-snapshot-reference, and calculation-result-reference domain types without monetary/statutory/payment fields.
-- [ ] 1.2 Add the application-owned read-only `FrozenAttendanceSnapshotPort` and immutable W5 snapshot contract with no adapter implementation.
-- [ ] 1.3 Add domain boundary tests for precise IDs, periods, versions, states, unique item codes, digests, and forbidden scope.
+- [x] 1.1 Add validated payroll period, item-definition, employee-profile-reference, frozen-snapshot-reference, and calculation-result-reference domain types without monetary/statutory/payment fields.
+- [x] 1.2 Add the application-owned read-only `FrozenAttendanceSnapshotPort` and immutable W5 snapshot contract with no adapter implementation.
+- [x] 1.3 Add domain boundary tests for precise IDs, periods, versions, states, unique item codes, digests, and forbidden scope.
 
 ## 2. Default-Off and Default-Deny Access Boundary
 
