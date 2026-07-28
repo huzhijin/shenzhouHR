@@ -364,8 +364,21 @@ describe('App session and route authorization', () => {
     });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const target = new URL(String(input), window.location.origin);
+      if (target.pathname === '/api/v1/attendance-reports/legal-entities') {
+        return new Response(JSON.stringify({
+          period: target.searchParams.get('period'),
+          legalEntities: [{
+            legalEntityId: reportFixture.filters.legalEntityId,
+            name: '神州半导体',
+          }],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       const reportType = target.searchParams.get('reportType')!;
       const period = target.searchParams.get('period')!;
+      const legalEntityId = target.searchParams.get('legalEntityId')!;
       const page = Number(target.searchParams.get('page'));
       const size = Number(target.searchParams.get('size'));
       return new Response(JSON.stringify({
@@ -379,6 +392,7 @@ describe('App session and route authorization', () => {
         filters: {
           ...reportFixture.filters,
           period,
+          legalEntityId,
         },
         page,
         size,
@@ -399,7 +413,7 @@ describe('App session and route authorization', () => {
     )).toBeInTheDocument();
     expect(screen.getByText('ATTENDANCE_DETAIL_FORMULA_V1'))
       .toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();
     expect(screen.getByTestId('current-location'))
