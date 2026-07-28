@@ -574,6 +574,17 @@ def validate_fixed_semantic_oracles() -> tuple[dict[str, Any], dict[str, Any]]:
     return dict(w2), dict(seed)
 
 
+def require_public_contract_match(
+    actual: Mapping[str, Any],
+    expected_fixture: Mapping[str, Any],
+) -> None:
+    expected_contract = expected_fixture.get("contract")
+    if not isinstance(expected_contract, Mapping):
+        fail("fixed W2 public oracle contract is missing or invalid")
+    if actual != expected_contract:
+        fail("W2 public actual JSON differs from the fixed oracle contract")
+
+
 def validate_unique_v7_migration(
     migration_dir: Path = (
         REPOSITORY_ROOT / "backend/src/main/resources/db/migration"
@@ -4367,8 +4378,7 @@ def produce(
         )
         actual_public = load_json(actual_a, "W2 public actual export")
         expected_public = load_json(PUBLIC_EXPECTED, "W2 public oracle")
-        if actual_public != expected_public:
-            fail("W2 public actual JSON differs from the fixed oracle")
+        require_public_contract_match(actual_public, expected_public)
         try:
             public_summary = json.loads(exact_output)
         except json.JSONDecodeError as error:

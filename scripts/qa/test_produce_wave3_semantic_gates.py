@@ -162,6 +162,26 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
         loader.assert_called_once_with(verifier, run_root, context)
         self.assertEqual(plan, {"leaves": leaves})
 
+    def test_public_contract_matches_nested_fixed_fixture(self) -> None:
+        expected = producer.load_json(
+            producer.PUBLIC_EXPECTED, "W2 public oracle"
+        )
+        actual = copy.deepcopy(expected["contract"])
+        producer.require_public_contract_match(actual, expected)
+
+        actual["boundary"]["violations"].append("mutated")
+        with self.assertRaisesRegex(
+            producer.ProducerError,
+            "differs from the fixed oracle contract",
+        ):
+            producer.require_public_contract_match(actual, expected)
+
+        with self.assertRaisesRegex(
+            producer.ProducerError,
+            "contract is missing or invalid",
+        ):
+            producer.require_public_contract_match(actual, {})
+
     def test_openapi_controller_and_request_schema_closure(self) -> None:
         comparison = producer.compare_operation_closure(
             self.controllers, self.operations, self.openapi
