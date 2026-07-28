@@ -63,13 +63,29 @@ final class SyntheticAttendanceFixtures {
             Collections.reverse(punches);
             Collections.reverse(evidence);
         }
+        return snapshot(
+                segments,
+                punches,
+                evidence,
+                adjustments,
+                defaultPolicy(),
+                KNOWLEDGE_CUTOFF);
+    }
+
+    static CalculationInputSnapshot snapshot(
+            List<ScheduledWorkSegment> segments,
+            List<PunchEvent> punches,
+            List<IntervalEvidence> evidence,
+            List<AdjustmentFact> adjustments,
+            CalculationPolicy policy,
+            Instant knowledgeCutoff) {
         return new CalculationInputSnapshot(
                 "synthetic-legal-entity",
                 "synthetic-employee-001",
                 "synthetic-employment-period",
                 BUSINESS_DATE,
                 ZoneId.of("Asia/Shanghai"),
-                KNOWLEDGE_CUTOFF,
+                knowledgeCutoff,
                 segments,
                 punches,
                 evidence,
@@ -79,14 +95,7 @@ final class SyntheticAttendanceFixtures {
                         YearMonth.from(BUSINESS_DATE),
                         0,
                         "synthetic-grace-digest"),
-                new CalculationPolicy(
-                        15,
-                        1,
-                        Instant.parse("2026-07-23T15:59:59Z"),
-                        false,
-                        null,
-                        48 * 60,
-                        List.of()),
+                policy,
                 "synthetic-config-snapshot",
                 "synthetic-config-digest",
                 "synthetic-evidence-snapshot",
@@ -98,6 +107,17 @@ final class SyntheticAttendanceFixtures {
                 "w5-domain-v1",
                 "synthetic-request",
                 "synthetic-correlation");
+    }
+
+    static CalculationPolicy defaultPolicy() {
+        return new CalculationPolicy(
+                15,
+                1,
+                Instant.parse("2026-07-23T15:59:59Z"),
+                false,
+                null,
+                48 * 60,
+                List.of());
     }
 
     static ScheduledWorkSegment segment(

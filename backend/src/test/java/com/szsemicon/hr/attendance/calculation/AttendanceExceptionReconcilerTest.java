@@ -40,6 +40,9 @@ class AttendanceExceptionReconcilerTest {
                 Instant.parse("2026-07-23T04:00:00Z"));
 
         assertThat(reopened).hasSize(1);
+        assertThat(opened.getFirst().observations()).hasSize(1);
+        assertThat(opened.getFirst().transitions()).hasSize(1);
+        assertThat(resolved.getFirst().resolved()).isTrue();
         assertThat(reopened.getFirst().observations()).hasSize(3);
         assertThat(reopened.getFirst().transitions())
                 .extracting(value -> value.type())

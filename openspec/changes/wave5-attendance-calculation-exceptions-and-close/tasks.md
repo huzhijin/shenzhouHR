@@ -7,50 +7,50 @@
 
 ## 2. Deterministic Calculation And Explanation
 
-- [ ] 2.1 Implement canonical calculation-input ordering/digest using explicit UTF-8 fields, UTC instants, enum names and stable ID ordering.
-- [ ] 2.2 Implement half-open atomic interval splitting and fixed-priority evidence resolution with fail-closed same-level conflict.
-- [ ] 2.3 Implement deterministic punch candidate selection, consumed-event single-use and ambiguous-match decisions.
-- [ ] 2.4 Implement work-segment result items and integer-minute `S/W_in/E/O/L/A/actualWork` summaries that recompute from items.
-- [ ] 2.5 Implement late/early raw-versus-chargeable minutes and employee-month grace boundary decisions.
-- [ ] 2.6 Implement pending/timely/overdue missing-punch decisions without inventing endpoints or widening default absence beyond the affected segment.
-- [ ] 2.7 Implement cross-midnight ownership/consumption and overtime authorization/deadline/meal-deduction decisions.
-- [ ] 2.8 Implement a complete result → item → rule/evidence/adjustment/exception/request explanation graph and stable semantic result digest.
-- [ ] 2.9 Make the deterministic calculation/explanation golden tests pass without weakening their RED assertions.
+- [x] 2.1 Implement canonical calculation-input ordering/digest using explicit UTF-8 fields, UTC instants, enum names and stable ID ordering.
+- [x] 2.2 Implement half-open atomic interval splitting and fixed-priority evidence resolution with fail-closed same-level conflict.
+- [x] 2.3 Implement deterministic punch candidate selection, consumed-event single-use and ambiguous-match decisions.
+- [x] 2.4 Implement work-segment result items and integer-minute `S/W_in/E/O/L/A/actualWork` summaries that recompute from items.
+- [x] 2.5 Implement late/early raw-versus-chargeable minutes and employee-month grace boundary decisions.
+- [x] 2.6 Implement pending/timely/overdue missing-punch decisions without inventing endpoints or widening default absence beyond the affected segment.
+- [x] 2.7 Implement cross-midnight ownership/consumption and overtime authorization/deadline/meal-deduction decisions.
+- [x] 2.8 Implement a complete result → item → rule/evidence/adjustment/exception/request explanation graph and stable semantic result digest.
+- [x] 2.9 Make the deterministic calculation/explanation golden tests pass without weakening their RED assertions.
 
 ## 3. Exception And Correction Domain
 
-- [ ] 3.1 Implement stable exception fingerprints, controlled type/severity/blocking metadata and append-only case observations/transitions.
-- [ ] 3.2 Implement reconciliation of previous cases with recalculated findings for observe, resolve and reopen behavior.
-- [ ] 3.3 Implement immutable authorized adjustment/reversal facts and validate interval, reason, approval, scope-decision, period-token and optimistic-version inputs.
-- [ ] 3.4 Prove correction/adjustment behavior never edits source evidence, prior results, prior exceptions or close snapshots.
-- [ ] 3.5 Make exception/correction synthetic tests pass and retain minimized audit/reference fields.
+- [x] 3.1 Implement stable exception fingerprints, controlled type/severity/blocking metadata and append-only case observations/transitions.
+- [x] 3.2 Implement reconciliation of previous cases with recalculated findings for observe, resolve and reopen behavior.
+- [x] 3.3 Implement immutable authorized adjustment/reversal facts and validate interval, reason, approval, scope-decision, period-token and optimistic-version inputs.
+- [x] 3.4 Prove correction/adjustment behavior never edits source evidence, prior results, prior exceptions or close snapshots.
+- [x] 3.5 Make exception/correction synthetic tests pass and retain minimized audit/reference fields.
 
 ## 4. Recalculation Version And Difference Domain
 
-- [ ] 4.1 Implement exact deduplicated recalculation targets and controlled batch lifecycle/idempotency request model.
-- [ ] 4.2 Implement immutable calculation-version selection that reuses identical input+algorithm versions and appends changed versions.
-- [ ] 4.3 Implement stable semantic item keys and added/removed/modified result, metric, rule, evidence and exception differences with causal categories.
-- [ ] 4.4 Prove unrelated employee/date current versions and record fingerprints remain unchanged for narrow recalculation.
-- [ ] 4.5 Implement provider-neutral intent inbox claim/acknowledge/retry interface skeleton without claiming W4 integration.
-- [ ] 4.6 Make version/difference/idempotency synthetic tests pass.
+- [x] 4.1 Implement exact deduplicated recalculation targets and controlled batch lifecycle/idempotency request model.
+- [x] 4.2 Implement immutable calculation-version selection that reuses identical input+algorithm versions and appends changed versions.
+- [x] 4.3 Implement stable semantic item keys and added/removed/modified result, metric, rule, evidence and exception differences with causal categories.
+- [x] 4.4 Prove unrelated employee/date current versions and record fingerprints remain unchanged for narrow recalculation.
+- [x] 4.5 Implement provider-neutral intent inbox claim/acknowledge/retry interface skeleton without claiming W4 integration.
+- [x] 4.6 Make version/difference/idempotency synthetic tests pass.
 
 ## 5. Period Close And Freeze Domain
 
-- [ ] 5.1 Implement versioned period states/transitions and provider response records compatible with `OPEN/FROZEN/CLOSED/REOPENED/UNKNOWN` protection semantics.
-- [ ] 5.2 Implement reusable `FrozenPeriodProtection` for ordinary mutations, stale tokens and immutable close snapshots.
-- [ ] 5.3 Implement close-precheck input/report/token models for calculation coverage, blockers, running work, freshness, provider versions and control totals.
-- [ ] 5.4 Implement immutable close snapshot/member/control-total models and domain close token revalidation/idempotency rules.
-- [ ] 5.5 Implement authorized reopen domain behavior that preserves old snapshots and issues a new period version/token.
-- [ ] 5.6 Implement post-close difference references and same-snapshot report reconciliation helpers.
-- [ ] 5.7 Make frozen/closed/stale/reopen/immutability synthetic tests pass.
+- [x] 5.1 Implement versioned period states/transitions and provider response records compatible with `OPEN/FROZEN/CLOSED/REOPENED/UNKNOWN` protection semantics.
+- [x] 5.2 Implement reusable `FrozenPeriodProtection` for ordinary mutations, stale tokens and immutable close snapshots.
+- [x] 5.3 Implement close-precheck input/report/token models for calculation coverage, blockers, running work, freshness, provider versions and control totals.
+- [x] 5.4 Implement immutable close snapshot/member/control-total models and domain close token revalidation/idempotency rules.
+- [x] 5.5 Implement authorized reopen domain behavior that preserves old snapshots and issues a new period version/token.
+- [x] 5.6 Implement post-close difference references and same-snapshot report reconciliation helpers.
+- [x] 5.7 Make frozen/closed/stale/reopen/immutability synthetic tests pass.
 
 ## 6. Isolated-Tree Verification And Handoff
 
-- [ ] 6.1 Run OpenSpec strict validation and confirm proposal/design/five specs/tasks are apply-ready.
-- [ ] 6.2 Run focused W5 domain tests and backend full tests; classify any unrelated retained failure without suppressing it.
-- [ ] 6.3 Verify no W5 Flyway file/migration number, main OpenAPI product path, Controller/Mapper/W4 concrete import, real data or PAYROLL surface was added.
-- [ ] 6.4 Document exact provider-neutral W4 handoff interfaces and keep real adapter status `NOT_VERIFIED`.
-- [ ] 6.5 Review staged changes for W1-W4 gate weakening, secret/path/personal-data leakage and scope drift before the implementation commit.
+- [x] 6.1 Run OpenSpec strict validation and confirm proposal/design/five specs/tasks are apply-ready.
+- [x] 6.2 Run focused W5 domain tests and backend full tests; classify any unrelated retained failure without suppressing it.
+- [x] 6.3 Verify no W5 Flyway file/migration number, main OpenAPI product path, Controller/Mapper/W4 concrete import, real data or PAYROLL surface was added.
+- [x] 6.4 Document exact provider-neutral W4 handoff interfaces and keep real adapter status `NOT_VERIFIED`.
+- [x] 6.5 Review staged changes for W1-W4 gate weakening, secret/path/personal-data leakage and scope drift before the implementation commit.
 
 ## 7. Synchronize W4 FINAL Contracts — BLOCKED_ON_W4_FINAL
 

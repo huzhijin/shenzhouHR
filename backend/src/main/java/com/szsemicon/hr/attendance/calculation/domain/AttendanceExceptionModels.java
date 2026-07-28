@@ -4,7 +4,6 @@ import static com.szsemicon.hr.attendance.calculation.domain.AttendanceCalculati
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -111,24 +110,22 @@ public final class AttendanceExceptionModels {
         public AttendanceExceptionCase {
             caseId = requireText(caseId, "caseId");
             Objects.requireNonNull(initialFinding, "initialFinding");
-            observations = Objects.requireNonNull(
-                            observations, "observations")
-                    .stream()
-                    .sorted(Comparator.comparing(
-                            ExceptionFinding::calculationVersionId))
-                    .toList();
-            transitions = Objects.requireNonNull(
-                            transitions, "transitions")
-                    .stream()
-                    .sorted(Comparator.comparing(ExceptionTransition::occurredAt)
-                            .thenComparing(
-                                    ExceptionTransition::transitionId))
-                    .toList();
+            observations = List.copyOf(Objects.requireNonNull(
+                    observations, "observations"));
+            transitions = List.copyOf(Objects.requireNonNull(
+                    transitions, "transitions"));
             if (observations.stream().anyMatch(value ->
                     !initialFinding.fingerprint().equals(
                             value.fingerprint()))) {
                 throw new IllegalArgumentException(
                         "all observations must share the case fingerprint");
+            }
+            for (int index = 1; index < transitions.size(); index++) {
+                if (transitions.get(index).occurredAt().isBefore(
+                        transitions.get(index - 1).occurredAt())) {
+                    throw new IllegalArgumentException(
+                            "exception transitions must preserve append order");
+                }
             }
         }
 

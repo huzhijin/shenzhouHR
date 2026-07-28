@@ -41,6 +41,13 @@ public final class AttendancePeriodModels {
         ATTENDANCE_CLOSE_SNAPSHOT_IMMUTABLE
     }
 
+    public enum PeriodTransitionType {
+        FROZE_FOR_CLOSE,
+        RELEASED_CLOSE_FREEZE,
+        CLOSED,
+        REOPENED
+    }
+
     public record PeriodIdentity(
             String periodId,
             String legalEntityId,
@@ -79,6 +86,36 @@ public final class AttendancePeriodModels {
                 throw new IllegalArgumentException(
                         "close snapshot reference must be null or non-blank");
             }
+        }
+    }
+
+    public record PeriodTransition(
+            String transitionId,
+            String periodId,
+            long fromVersion,
+            long toVersion,
+            PeriodState fromState,
+            PeriodState toState,
+            PeriodTransitionType type,
+            String actorId,
+            String reason,
+            String requestId,
+            Instant occurredAt) {
+
+        public PeriodTransition {
+            transitionId = requireText(transitionId, "transitionId");
+            periodId = requireText(periodId, "periodId");
+            if (fromVersion < 0 || toVersion < fromVersion) {
+                throw new IllegalArgumentException(
+                        "period transition versions are invalid");
+            }
+            Objects.requireNonNull(fromState, "fromState");
+            Objects.requireNonNull(toState, "toState");
+            Objects.requireNonNull(type, "type");
+            actorId = requireText(actorId, "actorId");
+            reason = requireText(reason, "reason");
+            requestId = requireText(requestId, "requestId");
+            Objects.requireNonNull(occurredAt, "occurredAt");
         }
     }
 
@@ -231,6 +268,31 @@ public final class AttendancePeriodModels {
             requestId = requireText(requestId, "requestId");
             correlationId = requireText(correlationId, "correlationId");
             Objects.requireNonNull(closedAt, "closedAt");
+        }
+    }
+
+    public record PostCloseDifferenceReference(
+            String referenceId,
+            String closeSnapshotId,
+            String employeeId,
+            LocalDate businessDate,
+            String closedCalculationVersionId,
+            String reopenedCalculationVersionId,
+            String differenceId) {
+
+        public PostCloseDifferenceReference {
+            referenceId = requireText(referenceId, "referenceId");
+            closeSnapshotId = requireText(
+                    closeSnapshotId, "closeSnapshotId");
+            employeeId = requireText(employeeId, "employeeId");
+            Objects.requireNonNull(businessDate, "businessDate");
+            closedCalculationVersionId = requireText(
+                    closedCalculationVersionId,
+                    "closedCalculationVersionId");
+            reopenedCalculationVersionId = requireText(
+                    reopenedCalculationVersionId,
+                    "reopenedCalculationVersionId");
+            differenceId = requireText(differenceId, "differenceId");
         }
     }
 }
