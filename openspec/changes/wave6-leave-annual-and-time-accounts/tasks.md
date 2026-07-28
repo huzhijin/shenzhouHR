@@ -17,7 +17,7 @@
 - [x] 2.7 Implement immutable time-account ledger entries, direction/precision validation, deterministic sequence replay, per-type totals and negative-balance protection.
 - [x] 2.8 Implement reversal creation and validation as a single exact inverse append that retains the original entry.
 - [x] 2.9 Add architecture and data-safety tests proving W6 domain has no Spring/MyBatis/REST/W5 dependency and fixtures use only synthetic identities.
-- [ ] 2.10 Pass the focused W6 tests and the full backend regression suite on Java 21.
+- [x] 2.10 Pass the focused W6 tests and the full backend regression suite on Java 21.
 
 ## 3. W2/W5 application ports after dependency acceptance
 
