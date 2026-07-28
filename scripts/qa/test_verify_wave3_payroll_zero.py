@@ -21,6 +21,12 @@ import verify_wave3_payroll_zero as producer
 
 
 class ZeroDiscoverabilityProducerTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        (
+            producer.REPOSITORY_ROOT / "docs/verification/wave3/runs"
+        ).mkdir(parents=True, exist_ok=True)
+
     def test_nfkc_casefold_matcher_catches_compatibility_and_case_variants(
         self,
     ) -> None:

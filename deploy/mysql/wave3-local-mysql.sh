@@ -10,13 +10,13 @@ umask 077
 export LC_ALL=C
 export LANG=C
 
-readonly EXPECTED_REPOSITORY_ROOT="/Users/huzhijin/Downloads/shenzhouHR"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly EXPECTED_REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
 if [[ "$(pwd -P)" != "$EXPECTED_REPOSITORY_ROOT" ]]; then
   printf 'PROJECT_ROOT_SCOPE_ERROR\n' >&2
   exit 1
 fi
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 if [[ "$(cd "${SCRIPT_DIR}/../.." && pwd -P)" != "$EXPECTED_REPOSITORY_ROOT" ]]; then
   printf 'PROJECT_ROOT_SCOPE_ERROR\n' >&2
   exit 1

@@ -28,7 +28,9 @@ export default defineConfig(({ mode }) => {
     }),
     test: {
       environment: 'jsdom',
+      fileParallelism: false,
       include: ['src/**/*.test.{ts,tsx}'],
+      maxWorkers: 1,
       setupFiles: ['src/test/setup.ts'],
       testTimeout: 15000,
       deps: {

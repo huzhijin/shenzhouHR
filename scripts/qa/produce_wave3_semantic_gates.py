@@ -56,7 +56,7 @@ except ImportError as error:  # pragma: no cover - import failure is fail-closed
     raise SystemExit(f"W3_SEMANTIC_GATE_PRODUCER=FAIL import: {error}") from error
 
 
-REPOSITORY_ROOT = Path("/Users/huzhijin/Downloads/shenzhouHR")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WAVE3_RUNS_ROOT = REPOSITORY_ROOT / "docs/verification/wave3/runs"
 CONTRACT_PATH = REPOSITORY_ROOT / "scripts/qa/wave3-evidence-contract-v1.json"
 PUBLIC_DRIVER = REPOSITORY_ROOT / "scripts/qa/verify_w2_public_contract_v2.py"

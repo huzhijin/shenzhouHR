@@ -29,7 +29,6 @@ import {
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const EXPECTED_REPOSITORY_ROOT = '/Users/huzhijin/Downloads/shenzhouHR';
 export const EVIDENCE_ID_NORMAL_BROWSER = 'W3-VER-NORMAL-BROWSER';
 export const EVIDENCE_ID_W2_CURRENT_SMOKE = 'W3-VER-W2-CURRENT-SMOKE';
 export const EVIDENCE_ID_DEMO_ISOLATION = 'W3-VER-DEMO-ISOLATION';
@@ -59,6 +58,7 @@ export const RUNTIME_PROVENANCE_PREFIX = 'W3_RUNTIME_PROVENANCE_JSON=';
 
 const scriptPath = fileURLToPath(import.meta.url);
 export const repositoryRoot = resolve(dirname(scriptPath), '../..');
+export const EXPECTED_REPOSITORY_ROOT = repositoryRoot;
 
 assert(
   process.cwd() === EXPECTED_REPOSITORY_ROOT

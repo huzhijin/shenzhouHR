@@ -33,7 +33,7 @@ except ImportError as error:  # pragma: no cover - import failure is fail-closed
     raise SystemExit(f"W3_MYSQL_SEMANTIC_CAPTURE=FAIL import: {error}") from error
 
 
-REPOSITORY_ROOT = Path("/Users/huzhijin/Downloads/shenzhouHR")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ISOLATED_MYSQL_CLIENT = Path(
     "/Users/huzhijin/.local/share/shenzhouhr/"
     "mysql-8.4.10-isolated/install/bin/mysql"
