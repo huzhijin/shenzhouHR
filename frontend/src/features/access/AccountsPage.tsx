@@ -129,7 +129,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
           <Form.Item label={t('access.displayName')} name="displayName" rules={[{ required: true, message: t('access.displayNameRequired') }]}><Input /></Form.Item>
           <Form.Item label={t('access.initialPassword')} name="temporaryPassword" rules={[{ required: true, min: 12, message: t('access.initialPasswordRule') }]}><Input.Password autoComplete="new-password" /></Form.Item>
           <Form.Item label={t('access.initialRole')} name="roleId" rules={[{ required: true, message: t('access.roleRequired') }]}>
-            <Select options={Array.from(roles, (role) => ({ value: role.roleId, label: `${role.roleName}（${role.roleCode}）` }))} />
+            <Select options={Array.from(roles, (role) => ({ value: role.roleId, label: role.roleName }))} />
           </Form.Item>
           <Form.Item label={t('access.scopeType')} name="scopeType" initialValue="LEGAL_ENTITY" rules={[{ required: true }]}>
             <Select options={[

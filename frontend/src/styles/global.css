@@ -251,6 +251,190 @@ a:hover {
   animation: page-reveal var(--duration-normal) var(--ease-standard);
 }
 
+/* Demo routes use the same white OpenDesign shell as the V1.9 workbench. */
+.app-layout--demo-open-design {
+  --demo-od-deep: #00265f;
+  --demo-od-accent: #25449a;
+  --demo-od-support: #003c95;
+  --demo-od-border: #cbd5e1;
+  --demo-od-muted: #64748b;
+  --demo-od-canvas: #f6f9fd;
+  --demo-od-soft: #eaf1fb;
+  background: var(--demo-od-canvas);
+}
+
+.app-layout--demo-open-design .app-workspace {
+  background: var(--demo-od-canvas);
+}
+
+.app-layout--demo-open-design .app-sidebar {
+  background: #fff !important;
+  color: var(--demo-od-deep);
+  border-right: 1px solid var(--demo-od-border);
+}
+
+.app-layout--demo-open-design .app-brand {
+  background: #fff;
+  border-bottom-color: var(--demo-od-border);
+}
+
+.app-layout--demo-open-design .app-sidebar .ant-menu,
+.app-layout--demo-open-design .app-sidebar .ant-menu-dark,
+.app-layout--demo-open-design .app-sidebar .ant-menu-dark > .ant-menu {
+  background: #fff !important;
+  color: #334155;
+}
+
+.app-layout--demo-open-design .app-sidebar .ant-menu-item {
+  min-height: 40px;
+  margin-block: 3px;
+  color: #334155;
+  border-radius: 6px;
+}
+
+.app-layout--demo-open-design .app-sidebar .ant-menu-item:hover {
+  color: var(--demo-od-deep) !important;
+  background: #eef2f7 !important;
+}
+
+.app-layout--demo-open-design .app-sidebar .ant-menu-item-selected,
+.app-layout--demo-open-design .app-sidebar .ant-menu-item-selected:hover {
+  color: var(--demo-od-deep) !important;
+  font-weight: 600;
+  background: var(--demo-od-soft) !important;
+}
+
+.app-layout--demo-open-design .app-sidebar .ant-menu-item .ant-menu-item-icon {
+  color: currentcolor;
+}
+
+.app-layout--demo-open-design .ant-layout-sider-trigger {
+  color: var(--demo-od-deep);
+  background: #fff;
+  border-top: 1px solid var(--demo-od-border);
+}
+
+.app-layout--demo-open-design .ant-layout-sider-trigger:hover {
+  background: var(--demo-od-soft);
+}
+
+.app-layout--demo-open-design .app-topbar {
+  height: 64px;
+  padding-inline: 24px;
+  color: var(--demo-od-deep);
+  background: #fff;
+  border-bottom-color: var(--demo-od-border);
+}
+
+.app-layout--demo-open-design .app-topbar__title {
+  color: var(--demo-od-deep);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.app-layout--demo-open-design .app-environment--demo {
+  color: #6b4808;
+  background: #fff7e8;
+  border: 1px solid #d7b98a;
+  border-radius: 6px;
+}
+
+.app-layout--demo-open-design .app-topbar .ant-btn {
+  color: #334155;
+  border-radius: 6px;
+}
+
+.app-layout--demo-open-design .app-topbar .ant-btn:hover {
+  color: var(--demo-od-support);
+  background: var(--demo-od-soft);
+}
+
+.app-layout--demo-open-design .app-content {
+  max-width: 1680px;
+  padding: 26px clamp(20px, 3vw, 44px) 56px;
+}
+
+.app-layout--demo-open-design .page-header h1 {
+  color: var(--demo-od-deep);
+  font-family: var(--font-ui);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -.015em;
+}
+
+.app-layout--demo-open-design .page-header p,
+.app-layout--demo-open-design .section-heading p {
+  color: var(--demo-od-muted);
+}
+
+.app-layout--demo-open-design .content-surface,
+.app-layout--demo-open-design .content-card,
+.app-layout--demo-open-design .ant-card {
+  background: #fff;
+  border-color: var(--demo-od-border);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgb(0 38 95 / 3%);
+}
+
+.app-layout--demo-open-design .ant-card-head {
+  min-height: 54px;
+  padding-inline: 16px;
+  color: var(--demo-od-deep);
+  background: #fff;
+  border-bottom-color: var(--demo-od-border);
+}
+
+.app-layout--demo-open-design .ant-card-head-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.app-layout--demo-open-design .ant-alert,
+.app-layout--demo-open-design .ant-btn,
+.app-layout--demo-open-design .ant-input,
+.app-layout--demo-open-design .ant-input-affix-wrapper,
+.app-layout--demo-open-design .ant-input-number,
+.app-layout--demo-open-design .ant-picker,
+.app-layout--demo-open-design .ant-select-selector {
+  border-radius: 6px !important;
+}
+
+.app-layout--demo-open-design .ant-btn-primary {
+  background: var(--demo-od-accent);
+  border-color: var(--demo-od-accent);
+  box-shadow: 0 5px 14px rgb(37 68 154 / 18%);
+}
+
+.app-layout--demo-open-design .ant-btn-primary:not(:disabled):hover {
+  background: var(--demo-od-deep);
+  border-color: var(--demo-od-deep);
+}
+
+.app-layout--demo-open-design .ant-table-wrapper .ant-table {
+  border-radius: 6px;
+}
+
+.app-layout--demo-open-design .ant-table-wrapper .ant-table-thead > tr > th {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  background: #eef2f7;
+  border-bottom-color: var(--demo-od-border);
+}
+
+.app-layout--demo-open-design .ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom-color: #e7ecf2;
+}
+
+.app-layout--demo-open-design .ant-tabs .ant-tabs-tab-active .ant-tabs-tab-btn,
+.app-layout--demo-open-design .ant-tabs .ant-tabs-tab:hover {
+  color: var(--demo-od-deep);
+}
+
+.app-layout--demo-open-design .ant-tabs .ant-tabs-ink-bar {
+  background: var(--demo-od-accent);
+}
+
 .page-header {
   display: flex;
   align-items: flex-start;
@@ -1032,25 +1216,57 @@ a:hover {
 .login-page {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(26rem, 0.9fr);
-  background: var(--color-canvas);
+  grid-template-columns: minmax(22.5rem, 42%) minmax(0, 58%);
+  background: #fff;
   color: var(--color-on-canvas);
 }
 
 .login-brand {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
   display: grid;
-  align-content: center;
+  align-content: end;
   gap: var(--space-8);
-  padding: var(--space-12);
-  background: var(--color-brand-deep);
+  padding: clamp(2rem, 5vw, 4.5rem);
+  overflow: hidden;
+  background: #00265f;
   color: var(--color-on-brand-deep);
 }
 
 .login-brand .brand-logo {
-  width: min(100%, var(--size-brand-logo-login));
-  padding: var(--space-2);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
+  display: none;
+}
+
+.login-brand::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background-image:
+    linear-gradient(rgb(255 255 255 / 4.5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 4.5%) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: linear-gradient(to bottom, black, transparent 86%);
+}
+
+.login-brand::after {
+  position: absolute;
+  top: -10.625rem;
+  right: -13.125rem;
+  width: 32.5rem;
+  height: 32.5rem;
+  content: "";
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 5rem rgb(255 255 255 / 2.5%),
+    0 0 0 10rem rgb(255 255 255 / 1.8%);
+}
+
+.login-brand > div,
+.login-security-note {
+  position: relative;
+  z-index: 1;
 }
 
 .login-brand__mark {
@@ -1069,7 +1285,11 @@ a:hover {
 
 .login-brand h1 {
   margin: var(--space-0);
-  font-size: var(--text-3xl);
+  max-width: 35rem;
+  font-size: clamp(1.75rem, 3.2vw, 2.875rem);
+  font-weight: 500;
+  line-height: 1.22;
+  letter-spacing: -.025em;
 }
 
 .login-security-note {
@@ -1092,21 +1312,40 @@ a:hover {
 }
 
 .login-panel {
-  display: grid;
-  place-items: center;
-  padding: var(--space-8);
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: clamp(1.5rem, 4vw, 3.5rem);
+}
+
+.login-panel__brand {
+  display: flex;
+  gap: .875rem;
+  align-items: center;
+  min-height: 3rem;
+  color: #00265f;
+  font-weight: 600;
+}
+
+.login-panel__brand .brand-logo {
+  width: 11rem;
+  padding-right: .875rem;
+  border-right: 1px solid #cbd5e1;
 }
 
 .login-card {
-  width: min(100%, var(--size-login-card));
+  width: min(100%, 26.25rem);
   display: grid;
   gap: var(--space-4);
-  padding: var(--space-8);
-  border: var(--border-width-default) solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
+  padding: 2.75rem 0;
+  margin: auto;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
   color: var(--color-on-surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
 }
 
 .login-card__heading {
@@ -1262,7 +1501,7 @@ a:hover {
   }
 
   .login-page {
-    grid-template-columns: minmax(16rem, 0.8fr) minmax(24rem, 1.2fr);
+    grid-template-columns: minmax(20rem, 42%) minmax(0, 58%);
   }
 
   .login-brand {
@@ -1279,6 +1518,34 @@ a:hover {
 
   .organization-workbench {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-topbar__title {
+    display: none;
+  }
+
+  .login-page {
+    display: block;
+  }
+
+  .login-brand {
+    display: none;
+  }
+
+  .login-security-note {
+    display: none;
+  }
+
+  .login-panel {
+    min-height: 100vh;
+    padding: var(--space-4);
+  }
+
+  .login-card {
+    padding: var(--space-8) 0;
+    box-shadow: none;
   }
 }
 
@@ -1358,7 +1625,7 @@ a:hover {
   }
 
   .login-card {
-    padding: var(--space-4);
+    padding: var(--space-6) 0;
     box-shadow: none;
   }
 

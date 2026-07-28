@@ -165,7 +165,7 @@ describe('Wave 7 fixture-driven pages', () => {
       />,
     );
     expect(screen.getByRole('button', { name: '下载文件' })).toBeDisabled();
-    expect(screen.getByText('QUEUED')).toBeInTheDocument();
+    expect(screen.getByText('排队中')).toBeInTheDocument();
 
     const ready = {
       ...queuedExportFixture,

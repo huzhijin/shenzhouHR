@@ -21,16 +21,27 @@ import type {
 } from './punchImportTypes';
 
 const demoMode = import.meta.env.MODE === 'demo' && isDemoMode();
+let demoPunchImportStore = copyDemoPunchImports();
+let demoUploadSequence = 0;
+
+export function resetPunchImportDemoState(): void {
+  demoPunchImportStore = copyDemoPunchImports();
+  demoUploadSequence = 0;
+}
 
 export function listPunchImports(page = 0, size = 20): Promise<PunchImportPage> {
-  if (demoMode) return Promise.resolve(demoPage(demoPunchImports, page, size));
+  if (demoMode) {
+    return Promise.resolve(
+      demoPage(demoPunchImportStore.map(copyPunchImport), page, size),
+    );
+  }
   return requestJson(`/api/v1/attendance-punch-imports?page=${page}&size=${size}`);
 }
 
 export function getPunchImport(batchId: string): Promise<PunchImportBatchView> {
   if (demoMode) {
-    const batch = demoPunchImports.find((item) => item.batchId === batchId);
-    if (batch) return Promise.resolve(batch);
+    const batch = demoPunchImportStore.find((item) => item.batchId === batchId);
+    if (batch) return Promise.resolve(copyPunchImport(batch));
     return Promise.reject(new ApiRequestError(404, {
       code: 'PUNCH_IMPORT_NOT_FOUND',
       retryable: false,
@@ -62,7 +73,21 @@ export function listPunchImportRows(
 }
 
 export async function downloadPunchTemplate(): Promise<void> {
-  if (demoMode) return;
+  if (demoMode) {
+    const fileName = '神州HR_考勤打卡导入模板_V1.0.xlsx';
+    const response = await fetch(new URL(fileName, document.baseURI));
+    if (!response.ok) {
+      throw new ApiRequestError(response.status, {
+        code: 'DEMO_PUNCH_TEMPLATE_UNAVAILABLE',
+        retryable: true,
+      });
+    }
+    saveDownloadedFile({
+      blob: await response.blob(),
+      fileName,
+    });
+    return;
+  }
   saveDownloadedFile(await requestFile('/api/v1/attendance-punch-imports/template'));
 }
 
@@ -73,10 +98,14 @@ export function uploadPunchImport(
   reason: string,
 ): Promise<PunchImportBatchView> {
   if (demoMode) {
-    return Promise.resolve({
+    demoUploadSequence += 1;
+    const uploaded: PunchImportBatchView = {
       ...demoPunchImports[0]!,
-      batchId: 'synthetic-punch-batch-uploaded',
+      batchId: `ATT-XLS-UPLOAD-${String(demoUploadSequence).padStart(3, '0')}`,
+      legalEntityId,
+      sourceId,
       originalFilename: file.name,
+      fileSha256: 'c'.repeat(64),
       state: 'DRAFT',
       totalRows: 0,
       validRows: 0,
@@ -88,8 +117,11 @@ export function uploadPunchImport(
       affectedDateTo: null,
       precheckTokenPresent: false,
       precheckToken: null,
+      createdAt: '2026-07-28T05:30:00Z',
       rowVersion: 1,
-    });
+    };
+    demoPunchImportStore = [uploaded, ...demoPunchImportStore];
+    return Promise.resolve(copyPunchImport(uploaded));
   }
   const form = new FormData();
   form.append('file', file);
@@ -113,13 +145,21 @@ export function precheckPunchImport(
   reason: string,
 ): Promise<PunchImportBatchView> {
   if (demoMode) {
-    return Promise.resolve({
-      ...batch,
+    return Promise.resolve(updateDemoPunchImport(batch.batchId, (current) => ({
+      ...current,
       state: 'AWAITING_CONFIRMATION',
+      totalRows: demoPunchImports[0]!.totalRows,
+      validRows: demoPunchImports[0]!.validRows,
+      invalidRows: demoPunchImports[0]!.invalidRows,
+      exactDuplicateRows: demoPunchImports[0]!.exactDuplicateRows,
+      nearDuplicateRows: demoPunchImports[0]!.nearDuplicateRows,
+      affectedEmployees: demoPunchImports[0]!.affectedEmployees,
+      affectedDateFrom: demoPunchImports[0]!.affectedDateFrom,
+      affectedDateTo: demoPunchImports[0]!.affectedDateTo,
       precheckTokenPresent: true,
-      precheckToken: 'synthetic-precheck-token-not-for-production',
-      rowVersion: batch.rowVersion + 1,
-    });
+      precheckToken: 'demo-precheck-token',
+      rowVersion: current.rowVersion + 1,
+    })));
   }
   return mutate(batch, 'precheck', reason, 'VALIDATING');
 }
@@ -130,11 +170,20 @@ export function publishPunchImport(
   reason: string,
 ): Promise<PunchImportBatchView> {
   if (demoMode) {
-    return Promise.resolve({
-      ...batch,
+    if (mode === 'STRICT' && batch.invalidRows > 0) {
+      return Promise.reject(new ApiRequestError(409, {
+        code: 'STRICT_PUBLISH_BLOCKED_BY_INVALID_ROWS',
+        message: `当前批次仍有 ${batch.invalidRows} 条阻断行，请先修正或仅发布有效行。`,
+        retryable: false,
+      }));
+    }
+    return Promise.resolve(updateDemoPunchImport(batch.batchId, (current) => ({
+      ...current,
       state: mode === 'STRICT' ? 'PUBLISHED' : 'PARTIALLY_PUBLISHED',
-      rowVersion: batch.rowVersion + 1,
-    });
+      precheckTokenPresent: false,
+      precheckToken: null,
+      rowVersion: current.rowVersion + 1,
+    })));
   }
   if (!batch.precheckToken) {
     return Promise.reject(new ApiRequestError(409, {
@@ -179,11 +228,13 @@ async function mutate(
   body?: object,
 ): Promise<PunchImportBatchView> {
   if (demoMode) {
-    return {
-      ...batch,
+    return updateDemoPunchImport(batch.batchId, (current) => ({
+      ...current,
       state: demoState,
-      rowVersion: batch.rowVersion + 1,
-    };
+      precheckTokenPresent: false,
+      precheckToken: null,
+      rowVersion: current.rowVersion + 1,
+    }));
   }
   return requestJson(
     `/api/v1/attendance-punch-imports/${encodeURIComponent(batch.batchId)}/${action}`,
@@ -199,6 +250,32 @@ async function mutate(
       body: body ? JSON.stringify(body) : undefined,
     },
   );
+}
+
+function updateDemoPunchImport(
+  batchId: string,
+  update: (current: PunchImportBatchView) => PunchImportBatchView,
+): PunchImportBatchView {
+  const index = demoPunchImportStore.findIndex((item) => item.batchId === batchId);
+  if (index < 0) {
+    throw new ApiRequestError(404, {
+      code: 'PUNCH_IMPORT_NOT_FOUND',
+      retryable: false,
+    });
+  }
+  const next = update(demoPunchImportStore[index]!);
+  demoPunchImportStore = demoPunchImportStore.map((item, itemIndex) => (
+    itemIndex === index ? next : item
+  ));
+  return copyPunchImport(next);
+}
+
+function copyDemoPunchImports(): PunchImportBatchView[] {
+  return demoPunchImports.map(copyPunchImport);
+}
+
+function copyPunchImport(batch: PunchImportBatchView): PunchImportBatchView {
+  return { ...batch };
 }
 
 function demoPage<T>(items: T[], page: number, size: number) {

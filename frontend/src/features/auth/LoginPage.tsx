@@ -12,6 +12,10 @@ import { ApiRequestError } from '../../shared/api/apiClient';
 import { BrandLogo } from '../../shared/components/BrandLogo';
 import { isDemoMode } from '../../shared/config/runtimeMode';
 import {
+  DEMO_PASSWORD,
+  DEMO_USERNAME,
+} from '../session/demoAuthSession';
+import {
   completeFirstPasswordChange,
   login,
 } from './authApi';
@@ -35,6 +39,7 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
   );
   const [errorDescription, setErrorDescription] = useState<string>();
   const navigate = useNavigate();
+  const demoMode = isDemoMode();
 
   const submitLogin = async (values: { username: string; password: string }) => {
     setState('processing');
@@ -88,6 +93,10 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
         </dl>
       </section>
       <section className="login-panel" aria-live="polite">
+        <div className="login-panel__brand" aria-label={t('app.name')}>
+          <BrandLogo />
+          <span>{t('app.name')}</span>
+        </div>
         <div className="login-card">
           <div className="login-card__heading">
             <IconLock aria-hidden="true" stroke={2} />
@@ -119,7 +128,15 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
               <Button block type="primary" htmlType="submit">{t('login.completeFirstChange')}</Button>
             </Form>
           ) : (
-            <Form form={form} layout="vertical" onFinish={(values) => void submitLogin(values)}>
+            <Form
+              form={form}
+              layout="vertical"
+              initialValues={demoMode ? {
+                username: DEMO_USERNAME,
+                password: DEMO_PASSWORD,
+              } : undefined}
+              onFinish={(values) => void submitLogin(values)}
+            >
               <Form.Item label={t('login.username')} name="username" rules={[{ required: true, message: t('login.usernameRequired') }]}>
                 <Input autoComplete="username" aria-describedby="login-help login-error" />
               </Form.Item>
@@ -130,7 +147,21 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
               <Button block type="primary" htmlType="submit" loading={state === 'processing'}>{t('login.submit')}</Button>
             </Form>
           )}
-          {isDemoMode() ? <Alert className="login-demo-note" showIcon type="warning" title={t('login.demoNotice')} /> : null}
+          {demoMode ? (
+            <Alert
+              className="login-demo-note"
+              showIcon
+              type="warning"
+              title={`演示账号：${DEMO_USERNAME}`}
+              description={(
+                <>
+                  <span>演示密码：</span><code>{DEMO_PASSWORD}</code>
+                  <br />
+                  <span>{t('login.demoNotice')}</span>
+                </>
+              )}
+            />
+          ) : null}
         </div>
       </section>
     </main>

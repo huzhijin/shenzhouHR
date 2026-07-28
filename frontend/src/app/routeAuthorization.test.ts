@@ -177,6 +177,7 @@ describe('firstAuthorizedPath', () => {
   it('exposes each WAVE-7 route only with its exact read capability', () => {
     const menu = [
       { key: 'workbench', label: '管理看板', path: '/workbench' },
+      { key: 'attendance-screen', label: '考勤大屏', path: '/attendance/screen' },
       { key: 'attendance-reports', label: '统计报表', path: '/attendance/reports' },
       { key: 'self-today', label: '今日', path: '/me/today' },
       { key: 'self-records', label: '记录', path: '/me/records' },

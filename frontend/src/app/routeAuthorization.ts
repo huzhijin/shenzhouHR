@@ -24,6 +24,7 @@ const capabilitiesByPath: Readonly<Record<string, readonly string[]>> = {
   '/access/roles': ['ROLE:READ'],
   '/access/audit': ['AUDIT:READ'],
   '/workbench': ['ATTENDANCE_DASHBOARD:READ'],
+  '/attendance/screen': ['ATTENDANCE_DASHBOARD:READ'],
   '/attendance/reports': ['ATTENDANCE_REPORT:READ'],
   '/me/today': ['ATTENDANCE_SELF:READ'],
   '/me/records': ['ATTENDANCE_SELF:READ'],

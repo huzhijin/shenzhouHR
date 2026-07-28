@@ -15,6 +15,7 @@ import {
 import type { AttendanceSourceJobView } from './attendanceSourceTypes';
 
 export function SourceJobsPage({ capabilities }: { capabilities: string[] }) {
+  const [messageApi, messageContextHolder] = message.useMessage();
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(20);
   const [retryTarget, setRetryTarget] = useState<AttendanceSourceJobView>();
@@ -35,11 +36,11 @@ export function SourceJobsPage({ capabilities }: { capabilities: string[] }) {
     setRetrying(true);
     try {
       await retryAttendanceSourceJob(retryTarget, '人工确认从最后已提交水位重试');
-      void message.success('已提交安全重试；不会越过最后已提交水位。');
+      void messageApi.success('已提交安全重试；不会越过最后已提交水位。');
       setRetryTarget(undefined);
       jobs.reload();
     } catch {
-      void message.error('重试未提交，请刷新作业状态后再试。');
+      void messageApi.error('重试未提交，请刷新作业状态后再试。');
     } finally {
       setRetrying(false);
     }
@@ -47,6 +48,7 @@ export function SourceJobsPage({ capabilities }: { capabilities: string[] }) {
 
   return (
     <>
+      {messageContextHolder}
       <PageHeader
         title="来源作业与水位"
         description="作业重试只从最后完整提交的水位继续；传输、整页解析或数据库失败不会推进水位。"
@@ -98,7 +100,7 @@ function JobsTable({
   onRetry: (job: AttendanceSourceJobView) => void;
 }) {
   const columns: Array<DataColumn<AttendanceSourceJobView>> = [
-    { key: 'id', title: '作业 ID', render: (job) => job.jobId },
+    { key: 'id', title: '作业编号', render: (job) => jobDisplayNumber(job.jobId) },
     { key: 'source', title: '来源', render: (job) => job.sourceDisplayName },
     { key: 'status', title: '状态', render: (job) => <StatusBadge status={job.state} /> },
     { key: 'pages', title: '已提交页', render: (job) => String(job.committedPages) },
@@ -112,7 +114,7 @@ function JobsTable({
         ? (
           <AccessibleButton
             size="small"
-            label={`重试作业 ${job.jobId}`}
+            label={`重试${jobDisplayNumber(job.jobId)}`}
             icon={<IconRefresh aria-hidden="true" stroke={2} />}
             onClick={() => onRetry(job)}
           >
@@ -155,6 +157,11 @@ function JobsState({
     );
   }
   return null;
+}
+
+function jobDisplayNumber(value: string): string {
+  const demoMatch = /^JOB-\d{8}-(\d+)$/.exec(value);
+  return demoMatch ? `同步作业 ${Number(demoMatch[1])}` : value;
 }
 
 export default SourceJobsPage;

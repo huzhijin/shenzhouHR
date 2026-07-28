@@ -1,14 +1,16 @@
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
 import { LoginPage } from '../features/auth/LoginPage';
 import type { CurrentCapabilities } from '../features/session/sessionApi';
+import { logout } from '../features/session/sessionApi';
 import { useSession } from '../features/session/useSession';
 import { AppErrorBoundary } from '../shared/components/AppErrorBoundary';
 import { AppShell } from '../shared/components/AppShell';
 import { StatePanel } from '../shared/components/StatePanel';
+import { isDemoMode } from '../shared/config/runtimeMode';
 import { translate } from '../shared/i18n/messages';
 import { readCspNonce } from '../shared/security/cspNonce';
 import { authorizedMenu } from './routeAuthorization';
@@ -36,7 +38,10 @@ const SourceJobsPage = lazy(() => import('../features/attendanceSources/SourceJo
 const PunchImportsPage = lazy(() => import('../features/punchImport/PunchImportsPage'));
 const PunchImportDetailPage = lazy(() => import('../features/punchImport/PunchImportDetailPage'));
 const DashboardRoute = lazy(() => import('../features/wave7/DashboardPage'));
-const ReportsRoute = lazy(() => import('../features/wave7/ReportsPage'));
+const OpenDesignWorkbenchRoute = lazy(() => import('../features/wave7/OpenDesignWorkbenchPage'));
+const CustomerReportsRoute = lazy(() => import('../features/reports/CustomerReportCenterPage'));
+const ProjectionReportsRoute = lazy(() => import('../features/wave7/ReportsPage'));
+const AttendanceScreenRoute = lazy(() => import('../features/wave7/AttendanceBigScreenPage'));
 const EmployeeTodayRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
   .then((module) => ({ default: module.EmployeeTodayRoute })));
 const EmployeeRecordsRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
@@ -119,11 +124,41 @@ export function App() {
 function AuthorizedApplication({ session, reloadSession }: { session: CurrentCapabilities; reloadSession: () => void }) {
   const menu = authorizedMenu(session);
   const defaultPath = menu[0]?.path;
+  const demoMode = isDemoMode();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const canReadDashboard = session.capabilities.includes('ATTENDANCE_DASHBOARD:READ');
   const rulesLanding = session.capabilities.includes('POLICY:READ')
     ? <RulesHomePage />
     : session.capabilities.includes('ATTENDANCE_SETUP:READ')
       ? <Navigate to="/rules/attendance-groups" replace />
       : <AccessDenied />;
+
+  const signOutOfDemo = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+    reloadSession();
+  };
+
+  if (demoMode && canReadDashboard && location.pathname === '/workbench') {
+    return (
+      <Suspense fallback={<StatePanel state="loading" />}>
+        <OpenDesignWorkbenchRoute onLogout={() => void signOutOfDemo()} />
+      </Suspense>
+    );
+  }
+
+  if (
+    demoMode
+    && canReadDashboard
+    && ['/attendance/screen', '/display/attendance'].includes(location.pathname)
+  ) {
+    return (
+      <Suspense fallback={<StatePanel state="loading" />}>
+        <AttendanceScreenRoute />
+      </Suspense>
+    );
+  }
 
   return (
     <AppShell menu={menu} onSessionChanged={reloadSession}>
@@ -224,8 +259,21 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
           {session.capabilities.includes('ATTENDANCE_DASHBOARD:READ')
             ? <Route path="/workbench" element={<DashboardRoute />} />
             : <Route path="/workbench" element={<AccessDenied />} />}
+          {demoMode && session.capabilities.includes('ATTENDANCE_DASHBOARD:READ')
+            ? <Route path="/attendance/screen" element={<AttendanceScreenRoute />} />
+            : <Route path="/attendance/screen" element={<AccessDenied />} />}
+          {demoMode && session.capabilities.includes('ATTENDANCE_DASHBOARD:READ')
+            ? <Route path="/display/attendance" element={<AttendanceScreenRoute />} />
+            : <Route path="/display/attendance" element={<AccessDenied />} />}
           {session.capabilities.includes('ATTENDANCE_REPORT:READ')
-            ? <Route path="/attendance/reports" element={<ReportsRoute capabilities={session.capabilities} />} />
+            ? (
+              <Route
+                path="/attendance/reports"
+                element={demoMode
+                  ? <CustomerReportsRoute capabilities={session.capabilities} />
+                  : <ProjectionReportsRoute capabilities={session.capabilities} />}
+              />
+            )
             : <Route path="/attendance/reports" element={<AccessDenied />} />}
           {session.capabilities.includes('ATTENDANCE_SELF:READ') ? (
             <>

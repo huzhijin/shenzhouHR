@@ -53,7 +53,7 @@ export function ProjectionMetadata({ metadata }: { metadata: Wave7ProjectionMeta
       </div>
       <div>
         <dt>投影版本</dt>
-        <dd><code>{metadata.projectionVersion}</code></dd>
+        <dd>{isSyntheticMetadata(metadata) ? '演示固定版本' : <code>{metadata.projectionVersion}</code>}</dd>
       </div>
     </dl>
   );
@@ -72,11 +72,15 @@ export function FrozenHistoryNotice({ metadata }: { metadata: Wave7ProjectionMet
         </h2>
         <p>
           当前显示 {metadata.periodLabel} 的不可变历史版本
-          <code>{metadata.projectionVersion}</code>；后续变化不会静默覆盖本版本。
+          {isSyntheticMetadata(metadata) ? null : <code>{metadata.projectionVersion}</code>}；后续变化不会静默覆盖本版本。
         </p>
       </div>
     </section>
   );
+}
+
+export function isSyntheticMetadata(metadata: Wave7ProjectionMetadata): boolean {
+  return metadata.projectionVersion.startsWith('DEMO-');
 }
 
 export function DashboardMetricGrid({

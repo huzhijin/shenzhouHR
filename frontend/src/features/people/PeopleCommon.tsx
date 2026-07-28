@@ -4,6 +4,10 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { listAuditEvents } from '../audit/auditApi';
+import {
+  auditActionLabel,
+  auditActorLabel,
+} from '../audit/auditDisplayLabels';
 import { DataTable } from '../../shared/components/DataTable';
 import {
   CorrelationIdDisplay,
@@ -149,8 +153,8 @@ export function VersionAuditPanel({ versions, resourceType, resourceId, canReadA
                   rowKey={(row) => row.eventId}
                   columns={[
                     { key: 'time', title: t('people.changedAt'), render: (row) => formatDateTime(row.occurredAt) },
-                    { key: 'action', title: t('people.action'), render: (row) => row.action },
-                    { key: 'actor', title: t('people.actor'), render: (row) => row.actorDisplayName },
+                    { key: 'action', title: t('people.action'), render: (row) => auditActionLabel(row.action) },
+                    { key: 'actor', title: t('people.actor'), render: (row) => auditActorLabel(row.actorDisplayName) },
                     { key: 'result', title: t('people.result'), render: (row) => <StatusBadge status={row.result} /> },
                     { key: 'correlation', title: t('common.correlation'), render: (row) => <code>{row.correlationId}</code> },
                   ]}

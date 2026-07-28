@@ -2,7 +2,7 @@ import { Button, Checkbox, Descriptions } from 'antd';
 import { useTranslation } from 'react-i18next';
 
 import { StatusBadge } from '../../shared/components/FeedbackComponents';
-import type { AccountDetail, RoleView } from './accessApi';
+import type { AccountDetail, RoleAssignmentView, RoleView } from './accessApi';
 
 export function AccountStatusPanel({ account }: { account: AccountDetail }) {
   const { t } = useTranslation();
@@ -81,11 +81,11 @@ export function PermissionMatrix({ roles, selectedRoleIds, readOnly = false, onC
         <tbody>
           {Array.from(capabilities, (capability) => (
             <tr key={capability}>
-              <th scope="row"><code>{capability}</code></th>
+              <th scope="row">{capabilityLabel(capability)}</th>
               {Array.from(roles, (role) => (
                 <td key={role.roleId}>
                   <Checkbox
-                    aria-label={`${role.roleName} ${capability}`}
+                    aria-label={`${role.roleName} ${capabilityLabel(capability)}`}
                     disabled={readOnly || !role.capabilities.includes(capability)}
                     checked={role.capabilities.includes(capability) && selectedRoleIds.includes(role.roleId)}
                     onChange={(event) => {
@@ -106,10 +106,116 @@ export function PermissionMatrix({ roles, selectedRoleIds, readOnly = false, onC
   );
 }
 
+export function RoleScopeList({ assignments }: { assignments: RoleAssignmentView[] }) {
+  if (assignments.length === 0) {
+    return <p className="session-list__empty">当前账号尚未分配角色。</p>;
+  }
+  return (
+    <Descriptions
+      column={{ xs: 1, md: 2 }}
+      items={assignments.map((assignment) => ({
+        key: assignment.assignmentId,
+        label: assignment.roleName,
+        children: (
+          <span>
+            {roleScopeLabel(assignment.scopeType)}
+            {assignment.scopeType !== 'SELF' && assignment.scopeResourceId
+              ? ` · 范围 ID ${assignment.scopeResourceId}`
+              : ''}
+            {` · ${formatDate(assignment.validFrom)} 至 ${assignment.validTo ? formatDate(assignment.validTo) : '长期有效'}`}
+          </span>
+        ),
+      }))}
+    />
+  );
+}
+
+const capabilityDomainLabels: Readonly<Record<string, string>> = {
+  ACCOUNT: '账号',
+  ROLE: '角色',
+  AUDIT: '审计日志',
+  OPERATIONS: '系统运维',
+  MASTER_DATA: '主数据',
+  ORGANIZATION: '组织',
+  EMPLOYEE: '员工档案',
+  EMPLOYMENT: '任职记录',
+  PRIOR_SERVICE: '累计工龄',
+  PEOPLE_IMPORT: '组织与员工导入',
+  POLICY: '通用策略',
+  ATTENDANCE_SETUP: '考勤设置',
+  ATTENDANCE_SOURCE: '考勤数据源',
+  ATTENDANCE_PUNCH_IMPORT: '考勤打卡导入',
+  ATTENDANCE_DASHBOARD: '考勤工作台',
+  ATTENDANCE_REPORT: '考勤报表',
+  ATTENDANCE_SELF: '个人考勤',
+  LEAVE_SELF: '个人假期',
+  ATTENDANCE_FEEDBACK: '考勤反馈',
+};
+
+const capabilityActionLabels: Readonly<Record<string, string>> = {
+  READ: '查看',
+  CREATE: '新建',
+  EDIT: '编辑',
+  LOCK: '锁定',
+  UNLOCK: '解锁',
+  RESET_PASSWORD: '重置密码',
+  ASSIGN: '分配授权',
+  VALIDATE: '校验',
+  SIMULATE: '试算',
+  PUBLISH: '发布',
+  PARTIAL_PUBLISH: '部分发布',
+  DEACTIVATE: '停用',
+  ROLLBACK: '回滚',
+  TEMPLATE_DOWNLOAD: '下载模板',
+  UPLOAD: '上传文件',
+  MAP: '字段映射',
+  PRECHECK: '预检',
+  ERROR_REPORT_DOWNLOAD: '下载错误报告',
+  VOID: '作废',
+  VOID_OR_REVERSE: '作废或冲正',
+  CONFIGURE: '配置',
+  RUN: '执行同步',
+  RETRY: '重试同步',
+  QUARANTINE_READ: '查看隔离数据',
+  RAW_FILE_READ: '查看原始文件',
+  RAW_ROW_READ: '查看原始行',
+  DUPLICATE_REVIEW: '复核重复记录',
+  RECALCULATE: '触发重算',
+  ADJUST: '调整',
+  MANAGE_GROUP: '管理考勤组',
+  MANAGE_SHIFT: '管理班次',
+  MANAGE_CALENDAR: '管理工作日历',
+  MANAGE_POLICY: '管理考勤策略',
+  EXPORT_CREATE: '创建导出任务',
+  EXPORT_DOWNLOAD: '下载导出文件',
+};
+
+const roleScopeLabels: Readonly<Record<string, string>> = {
+  LEGAL_ENTITY: '公司范围',
+  ORGANIZATION: '组织范围',
+  SELF: '仅本人',
+};
+
+export function capabilityLabel(capability: string): string {
+  const [domain, action] = capability.trim().toUpperCase().split(':');
+  if (!domain || !action) return '未识别权限';
+  return `${capabilityDomainLabels[domain] ?? '其他功能'} · ${capabilityActionLabels[action] ?? '其他操作'}`;
+}
+
+export function roleScopeLabel(scopeType: string): string {
+  return roleScopeLabels[scopeType.trim().toUpperCase()] ?? '其他授权范围';
+}
+
 function formatTime(value: string): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) {
     return '—';
   }
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Shanghai' }).format(timestamp);
+}
+
+function formatDate(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return '未设置';
+  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeZone: 'Asia/Shanghai' }).format(timestamp);
 }

@@ -123,7 +123,14 @@ export function PolicyEditor({ template, version, onChange, disabled = false }: 
         {Array.from(template.fieldDefinitions ?? [], (field) => (
           <Form.Item key={field.key} label={field.label} required={field.required}>
             {field.valueType === 'ENUM' ? (
-              <Select value={String(valueByKey.get(field.key) ?? '')} options={Array.from(field.enumValues ?? [], (value) => ({ value, label: value }))} onChange={(value) => updateParameter(field.key, value)} />
+              <Select
+                value={String(valueByKey.get(field.key) ?? '')}
+                options={Array.from(field.enumValues ?? [], (value) => ({
+                  value,
+                  label: policyEnumLabel(value),
+                }))}
+                onChange={(value) => updateParameter(field.key, value)}
+              />
             ) : (
               <InputNumber value={Number(valueByKey.get(field.key) ?? 0)} onChange={(value) => updateParameter(field.key, value)} />
             )}
@@ -161,7 +168,7 @@ export function ConflictPanel({ result }: { result?: PolicyConflictResult }) {
           title={t('policy.conflictScopeOverlap')}
           description={t('policy.conflictVersion', {
             versionId: conflict.conflictingVersionId,
-            scopeType: conflict.scopeType,
+            scopeType: policyScopeTypeLabel(conflict.scopeType),
             scopeId: conflict.scopeResourceId,
           })}
         />
@@ -192,7 +199,9 @@ export function SimulationPanel({ result }: { result?: PolicySimulationResult })
   return (
     <section className="result-panel" data-state="success" aria-live="polite">
       <Alert showIcon type={result.matched ? 'success' : 'warning'} title={result.matched ? t('policy.simulationMatched') : t('policy.simulationUnmatched')} />
-      <pre>{JSON.stringify(result.resolvedParameters, null, 2)}</pre>
+      <pre>{JSON.stringify(result.resolvedParameters, (_key, value) => (
+        typeof value === 'string' ? policyEnumLabel(value) : value
+      ), 2)}</pre>
       <ul>{Array.from(result.explanation, (line) => <li key={line}>{line}</li>)}</ul>
     </section>
   );
@@ -216,4 +225,24 @@ export function PolicyResultTabs({ validation, conflicts, impact, simulation, ac
 
 function ResultPlaceholder({ title, description }: { title: string; description: string }) {
   return <section className="result-placeholder"><h3>{title}</h3><p>{description}</p></section>;
+}
+
+const policyEnumLabels: Readonly<Record<string, string>> = {
+  STRICT: '严格模式',
+  BALANCED: '均衡模式',
+};
+
+const policyScopeTypeLabels: Readonly<Record<string, string>> = {
+  COMPANY: '公司',
+  LOCATION: '地点',
+  ATTENDANCE_GROUP: '考勤组',
+  POLICY_GROUP: '政策组',
+};
+
+export function policyEnumLabel(value: string): string {
+  return policyEnumLabels[value.trim().toUpperCase()] ?? value;
+}
+
+export function policyScopeTypeLabel(value: string): string {
+  return policyScopeTypeLabels[value.trim().toUpperCase()] ?? value;
 }

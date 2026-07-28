@@ -1,16 +1,18 @@
-import { Button } from 'antd';
+import { Alert, Button } from 'antd';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { DataTable } from '../../shared/components/DataTable';
 import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatusBadge } from '../../shared/components/FeedbackComponents';
+import { wave7ProjectionGateway } from '../../shared/runtime/wave7ProjectionGateway';
 import type {
   AttendanceRecordsProjection,
   FeedbackProjection,
   LeaveProjection,
   TodayProjection,
 } from './wave7Contracts';
-import { wave7ProjectionGateway, type Wave7ProjectionGateway } from './wave7Gateway';
+import type { Wave7ProjectionGateway } from './wave7Gateway';
 import {
   formatDate,
   formatDateTime,
@@ -19,6 +21,7 @@ import {
   LockedActionReason,
   ProjectionMetadata,
   SelfServiceNavigation,
+  isSyntheticMetadata,
   Wave7AsyncBoundary,
 } from './Wave7Common';
 
@@ -76,6 +79,7 @@ export function EmployeeFeedbackRoute({
   capabilities = [],
   gateway = wave7ProjectionGateway,
 }: EmployeeRouteProps) {
+  const [demoSubmitted, setDemoSubmitted] = useState(false);
   return (
     <Wave7AsyncBoundary loader={gateway.loadFeedback} isEmpty={(value) => value.items.length === 0}>
       {(projection) => (
@@ -83,7 +87,18 @@ export function EmployeeFeedbackRoute({
           <EmployeeFeedbackView
             projection={projection}
             canCreate={capabilities.includes('ATTENDANCE_FEEDBACK:CREATE')}
+            onCreate={isSyntheticMetadata(projection.metadata)
+              ? () => setDemoSubmitted(true)
+              : undefined}
           />
+          {demoSubmitted ? (
+            <Alert
+              showIcon
+              type="success"
+              title="反馈已提交"
+              description="演示反馈单已进入主管处理队列。"
+            />
+          ) : null}
         </EmployeeSelfLayout>
       )}
     </Wave7AsyncBoundary>
@@ -135,7 +150,15 @@ export function EmployeeRecordsView({ projection }: { projection: AttendanceReco
             { key: 'hours', title: '确认工时', render: (row) => formatHours(row.confirmedMinutes) },
             { key: 'status', title: '状态', render: (row) => <StatusBadge status={row.statusLabel} /> },
             { key: 'issues', title: '说明', render: (row) => row.issueLabels.join('、') || '无' },
-            { key: 'evidence', title: '解释引用', render: (row) => row.explanationReference ? <code>{row.explanationReference}</code> : '无' },
+            {
+              key: 'evidence',
+              title: '计算依据',
+              render: (row) => row.explanationReference
+                ? isSyntheticMetadata(projection.metadata)
+                  ? '依据已生成'
+                  : <code>{row.explanationReference}</code>
+                : '无',
+            },
           ]}
         />
       </section>
@@ -154,7 +177,9 @@ export function EmployeeLeaveView({ projection }: { projection: LeaveProjection 
           <article className="content-surface wave7-account" key={account.accountReference}>
             <header>
               <h2>{account.label}</h2>
-              <code>{account.ledgerVersion}</code>
+              {isSyntheticMetadata(projection.metadata)
+                ? <span>台账已核对</span>
+                : <code>{account.ledgerVersion}</code>}
             </header>
             <dl className="wave7-detail-grid">
               <Detail label="已发放" value={`${account.grantedHours.toFixed(2)} 小时`} />
@@ -209,7 +234,9 @@ export function EmployeeFeedbackView({
             <header>
               <div>
                 <h2>{formatDate(item.attendanceDate)} · {item.problemTypeLabel}</h2>
-                <code>{item.feedbackReference}</code>
+                {isSyntheticMetadata(projection.metadata)
+                  ? <span>反馈单 {item.feedbackReference.slice(-12)}</span>
+                  : <code>{item.feedbackReference}</code>}
               </div>
               <StatusBadge status={item.state} />
             </header>

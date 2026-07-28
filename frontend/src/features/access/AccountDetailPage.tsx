@@ -9,7 +9,12 @@ import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import { revokeSession } from '../auth/authApi';
-import { AccountStatusPanel, PermissionMatrix, SessionStatusPanel } from './AccessComponents';
+import {
+  AccountStatusPanel,
+  PermissionMatrix,
+  RoleScopeList,
+  SessionStatusPanel,
+} from './AccessComponents';
 import {
   assignRoles,
   getAccount,
@@ -125,6 +130,7 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
           <div><h2>{t('access.rolesAndScopes')}</h2><p>{t('access.rolesAndScopesDescription')}</p></div>
           <Button icon={<IconRefresh stroke={2} />} onClick={handleLoadRoles}>{t('access.loadRoles')}</Button>
         </div>
+        <RoleScopeList assignments={account.roles} />
         {roles.length > 0 ? (
           <>
             <PermissionMatrix roles={roles} selectedRoleIds={selectedRoles} onChange={setSelectedRoles} />

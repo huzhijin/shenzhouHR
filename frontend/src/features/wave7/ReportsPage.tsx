@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ConfirmationDialog, StatusBadge } from '../../shared/components/FeedbackComponents';
 import { DataTable, type DataColumn } from '../../shared/components/DataTable';
 import { PageHeader } from '../../shared/components/PagePrimitives';
+import { wave7ProjectionGateway } from '../../shared/runtime/wave7ProjectionGateway';
 import type {
   ReportColumnKey,
   ReportExportProjection,
@@ -11,7 +12,7 @@ import type {
   ReportProjection,
   ReportRowProjection,
 } from './wave7Contracts';
-import { wave7ProjectionGateway, type Wave7ProjectionGateway } from './wave7Gateway';
+import type { Wave7ProjectionGateway } from './wave7Gateway';
 import {
   formatDateTime,
   FrozenHistoryNotice,

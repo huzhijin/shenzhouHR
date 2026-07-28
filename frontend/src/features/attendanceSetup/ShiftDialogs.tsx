@@ -124,9 +124,9 @@ export function ShiftVersionDialog({
                     rules={[required()]}
                   >
                     <Select options={[
-                      { value: 'WORK', label: 'WORK' },
-                      { value: 'BREAK', label: 'BREAK' },
-                      { value: 'MEAL', label: 'MEAL' },
+                      { value: 'WORK', label: '工作时段' },
+                      { value: 'BREAK', label: '休息时段' },
+                      { value: 'MEAL', label: '用餐时段' },
                     ]} />
                   </Form.Item>
                   <Form.Item

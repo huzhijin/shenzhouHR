@@ -55,6 +55,7 @@ const menuIcons = {
   'attendance-source-jobs': IconRefresh,
   'attendance-punch-imports': IconFileSpreadsheet,
   workbench: IconFileAnalytics,
+  'attendance-screen': IconFileAnalytics,
   'attendance-reports': IconFileAnalytics,
   'self-today': IconClock,
   'self-records': IconCalendar,
@@ -113,11 +114,12 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
       menu={menu}
       selectedKey={selectedKey}
       onOpen={openMenuItem}
+      theme={demoMode ? 'light' : 'dark'}
     />
   );
 
   return (
-    <Layout className="app-layout">
+    <Layout className={`app-layout${demoMode ? ' app-layout--demo-open-design' : ''}`}>
       <a
         className="skip-link"
         href="#main-content"
@@ -203,10 +205,11 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
   );
 }
 
-export function ResponsiveNavigation({ menu, selectedKey, onOpen }: {
+export function ResponsiveNavigation({ menu, selectedKey, onOpen, theme = 'dark' }: {
   menu: MenuItem[];
   selectedKey?: string;
   onOpen: (value: { key: string }) => void;
+  theme?: 'light' | 'dark';
 }) {
   const items = useMemo(() => {
     return menu.map((item) => {
@@ -221,7 +224,7 @@ export function ResponsiveNavigation({ menu, selectedKey, onOpen }: {
   return (
     <Menu
       mode="inline"
-      theme="dark"
+      theme={theme}
       items={items}
       selectedKeys={selectedKey ? [selectedKey] : []}
       onClick={onOpen}

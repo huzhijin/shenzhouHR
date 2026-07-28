@@ -10,18 +10,23 @@ const sessionHook = vi.hoisted(() => ({
   useSession: vi.fn(),
 }));
 
+const runtimeMode = vi.hoisted(() => ({
+  isDemoMode: vi.fn(() => false),
+}));
+
 vi.mock('../features/session/useSession', () => ({
   useSession: sessionHook.useSession,
 }));
 
 vi.mock('../shared/config/runtimeMode', () => ({
-  isDemoMode: () => true,
+  isDemoMode: runtimeMode.isDemoMode,
 }));
 
 describe('App session and route authorization', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    runtimeMode.isDemoMode.mockReturnValue(false);
   });
 
   it('renders the loading state while the session is unresolved', () => {
@@ -144,9 +149,12 @@ describe('App session and route authorization', () => {
 
       renderApp(path);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('current-location')).toHaveTextContent('/access/audit');
-      });
+      await waitFor(
+        () => {
+          expect(screen.getByTestId('current-location')).toHaveTextContent('/access/audit');
+        },
+        { timeout: 5_000 },
+      );
     },
   );
 
@@ -286,6 +294,7 @@ describe('App session and route authorization', () => {
 
   it.each([
     ['/workbench', 'ATTENDANCE_DASHBOARD:READ'],
+    ['/attendance/screen', 'ATTENDANCE_DASHBOARD:READ'],
     ['/attendance/reports', 'ATTENDANCE_REPORT:READ'],
     ['/me/today', 'ATTENDANCE_SELF:READ'],
     ['/me/records', 'ATTENDANCE_SELF:READ'],
@@ -339,6 +348,34 @@ describe('App session and route authorization', () => {
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();
     expect(screen.getByTestId('current-location')).toHaveTextContent(path);
+  });
+
+  it('renders the customer report center for an authorized demo session', async () => {
+    runtimeMode.isDemoMode.mockReturnValue(true);
+    sessionHook.useSession.mockReturnValue({
+      state: {
+        status: 'ready',
+        session: {
+          capabilities: ['ATTENDANCE_REPORT:READ'],
+          menu: [{
+            key: 'reports',
+            label: '统计报表',
+            path: '/attendance/reports',
+          }],
+        },
+      },
+      reload: vi.fn(),
+    });
+
+    renderApp('/attendance/reports');
+
+    expect(await screen.findByRole(
+      'heading',
+      { name: '考勤报表中心' },
+      { timeout: 5_000 },
+    ))
+      .toBeInTheDocument();
+    expect(screen.getByTestId('current-location')).toHaveTextContent('/attendance/reports');
   });
 
   it.each([

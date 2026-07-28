@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     cacheDir: 'node_modules/.cache/vite',
+    publicDir: demoMode ? '../outputs/attendance-import-template-v1' : undefined,
     html: {
       cspNonce: '__CSP_NONCE__',
     },

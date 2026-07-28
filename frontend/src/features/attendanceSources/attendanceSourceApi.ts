@@ -20,6 +20,11 @@ import {
 } from './attendanceSourceDemo';
 
 const demoMode = import.meta.env.MODE === 'demo' && isDemoMode();
+let demoSourceJobStore = copyDemoSourceJobs();
+
+export function resetAttendanceSourceDemoState(): void {
+  demoSourceJobStore = copyDemoSourceJobs();
+}
 
 export function listAttendanceSources(
   page = 0,
@@ -49,7 +54,11 @@ export function listAttendanceSourceJobs(
   page = 0,
   size = 20,
 ): Promise<StablePage<AttendanceSourceJobView>> {
-  if (demoMode) return Promise.resolve(demoPage(demoSourceJobs, page, size));
+  if (demoMode) {
+    return Promise.resolve(
+      demoPage(demoSourceJobStore.map(copySourceJob), page, size),
+    );
+  }
   return requestJson(`/api/v1/attendance-source-jobs?page=${page}&size=${size}`);
 }
 
@@ -58,12 +67,21 @@ export function retryAttendanceSourceJob(
   reason: string,
 ): Promise<AttendanceSourceJobView> {
   if (demoMode) {
-    return Promise.resolve({
-      ...job,
+    const index = demoSourceJobStore.findIndex((item) => item.jobId === job.jobId);
+    if (index < 0) return Promise.resolve(copySourceJob(job));
+    const current = demoSourceJobStore[index]!;
+    const retried: AttendanceSourceJobView = {
+      ...current,
       state: 'QUEUED',
-      rowVersion: job.rowVersion + 1,
+      rowVersion: current.rowVersion + 1,
       safeErrorSummary: null,
-    });
+      startedAt: null,
+      completedAt: null,
+    };
+    demoSourceJobStore = demoSourceJobStore.map((item, itemIndex) => (
+      itemIndex === index ? retried : item
+    ));
+    return Promise.resolve(copySourceJob(retried));
   }
   return requestJson(
     `/api/v1/attendance-source-jobs/${encodeURIComponent(job.jobId)}/retry`,
@@ -78,6 +96,14 @@ export function retryAttendanceSourceJob(
       ),
     },
   );
+}
+
+function copyDemoSourceJobs(): AttendanceSourceJobView[] {
+  return demoSourceJobs.map(copySourceJob);
+}
+
+function copySourceJob(job: AttendanceSourceJobView): AttendanceSourceJobView {
+  return { ...job };
 }
 
 function demoPage<T>(items: T[], page: number, size: number): StablePage<T> {

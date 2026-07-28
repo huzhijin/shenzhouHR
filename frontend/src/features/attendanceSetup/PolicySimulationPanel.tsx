@@ -93,8 +93,8 @@ export function PolicySimulationPanel({
                     rules={[{ required: true }]}
                   >
                     <Select options={[
-                      { value: 'ENTRY', label: 'ENTRY' },
-                      { value: 'EXIT', label: 'EXIT' },
+                      { value: 'ENTRY', label: '上班入场' },
+                      { value: 'EXIT', label: '下班离场' },
                     ]} />
                   </Form.Item>
                   <Form.Item

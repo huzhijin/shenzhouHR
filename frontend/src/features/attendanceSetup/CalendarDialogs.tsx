@@ -73,8 +73,8 @@ export function CalendarDialog({
         </Form.Item>
         <Form.Item label={t('attendanceSetup.timeZone')} name="timeZone" rules={[required()]}>
           <Select options={[
-            { value: 'Asia/Shanghai', label: 'Asia/Shanghai' },
-            { value: 'Asia/Singapore', label: 'Asia/Singapore' },
+            { value: 'Asia/Shanghai', label: '中国标准时间（上海）' },
+            { value: 'Asia/Singapore', label: '新加坡标准时间' },
           ]} />
         </Form.Item>
         <div className="form-grid">

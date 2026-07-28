@@ -5,6 +5,14 @@ import { peopleImportCapabilities } from '../../shared/security/peopleImportCapa
 export function getDemoSession(): CurrentCapabilities {
   return {
     capabilities: [
+      'ATTENDANCE_DASHBOARD:READ',
+      'ATTENDANCE_REPORT:READ',
+      'ATTENDANCE_REPORT:EXPORT_CREATE',
+      'ATTENDANCE_REPORT:EXPORT_DOWNLOAD',
+      'ATTENDANCE_SELF:READ',
+      'LEAVE_SELF:READ',
+      'ATTENDANCE_FEEDBACK:READ',
+      'ATTENDANCE_FEEDBACK:CREATE',
       'POLICY:READ',
       'POLICY:CREATE',
       'POLICY:EDIT',
@@ -69,6 +77,13 @@ export function getDemoSession(): CurrentCapabilities {
       'ATTENDANCE_PUNCH_IMPORT:RECALCULATE',
     ],
     menu: [
+      { key: 'workbench', label: '考勤工作台', path: '/workbench' },
+      { key: 'attendance-screen', label: '考勤大屏', path: '/attendance/screen' },
+      { key: 'attendance-reports', label: '统计报表', path: '/attendance/reports' },
+      { key: 'self-today', label: '今日状态', path: '/me/today' },
+      { key: 'self-records', label: '我的考勤', path: '/me/records' },
+      { key: 'self-leave', label: '我的假期', path: '/me/leave' },
+      { key: 'self-feedback', label: '反馈中心', path: '/me/feedback' },
       { key: 'rules', label: translate('rules.title'), path: '/rules' },
       { key: 'rule-templates', label: translate('rules.templates'), path: '/rules/templates' },
       { key: 'accounts', label: translate('access.accounts'), path: '/access/accounts' },
@@ -82,9 +97,9 @@ export function getDemoSession(): CurrentCapabilities {
       { key: 'attendance-calendars', label: translate('attendanceSetup.calendars'), path: '/rules/calendars' },
       { key: 'attendance-policies', label: translate('attendanceSetup.policy'), path: '/rules/attendance-policy' },
       { key: 'attendance-sources-online', label: '在线考勤来源', path: '/sources/online' },
-      { key: 'attendance-sources-oa', label: 'OA 考勤单据', path: '/sources/oa' },
+      { key: 'attendance-sources-oa', label: '办公系统考勤单据', path: '/sources/oa' },
       { key: 'attendance-source-jobs', label: '来源同步作业', path: '/sources/jobs' },
-      { key: 'attendance-punch-imports', label: '异构考勤 Excel', path: '/sources/attendance-excel' },
+      { key: 'attendance-punch-imports', label: '考勤电子表格导入', path: '/sources/attendance-excel' },
     ],
   };
 }
