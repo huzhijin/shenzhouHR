@@ -44,3 +44,34 @@
 - Ubuntu 24.04 的 `nginx -t`、`systemd-analyze verify`、健康检查、切流与回滚：`NOT_VERIFIED`
 
 上述项没有在本 worktree 执行，也不得用本地 mock、H2、demo 或模板验证替代。最终执行时必须使用同一 integrated commit/run ID/environment ID，并保存 SHA-256 绑定的证据。
+
+## 2026-07-29 集成分支验证追加记录
+
+本节追加记录后续集成分支的实际本地结果，保留上面的 2026-07-28 W9 独立
+worktree 历史，不回写或抹除当时的失败。集成后，产品本地回归已经通过；生产
+发布结论仍为 `NOT_VERIFIED`。
+
+| 验证项 | 2026-07-29 实际结果 |
+| --- | --- |
+| 后端 `./mvnw test` | 528/528 pass |
+| 前端 `npm test` | 44 files pass、2 files skipped；351 tests pass、4 tests skipped |
+| 前端 `npm run typecheck` | pass |
+| 前端 `npm run lint` | pass |
+| 前端生产构建 | pass |
+| W8 定向测试 | 22/22 pass |
+| `scripts/qa/verify_wave8_payroll_reservation.py self-test` | `PASS` |
+| `scripts/qa/verify_wave8_payroll_reservation.py verify` | `PASS` |
+| W9 `python3 -m unittest discover -s scripts/release/tests -v` | 75/75 pass |
+
+本次结果将“产品本地回归”从 2026-07-28 记录的 `FAIL` 关闭为集成分支
+`PASS`。它只证明本地代码、测试和离线发布合同；以下外部门仍未执行，发布结论
+不得提升：
+
+- 真实 OA MySQL metadata、最小只读 GRANT、审批/撤销/主从键/枚举/时区及脱敏业务样本联调：`NOT_VERIFIED`；
+- 真实得力 E+ 测试/生产租户初始化状态、权威配置时间线和端到端取数比对：`NOT_VERIFIED`；
+- 批准的 MySQL 8.4 LTS、36 个月数据、50 并发及真实容量/性能证据：`NOT_VERIFIED`；
+- 隔离 MySQL 8.4 的连续 binlog/PITR、业务勾稽、RPO ≤15 分钟、RTO ≤4 小时人工演练：`NOT_VERIFIED`；
+- 真实浏览器/设备矩阵以及 Ubuntu 24.04 原生部署、切流和回滚：`NOT_VERIFIED`。
+
+因此，2026-07-29 的综合结论是：产品本地回归 `PASS`，W8/W9 本地合同验证
+`PASS`，生产发布 `NOT_VERIFIED`。

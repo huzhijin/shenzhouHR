@@ -111,6 +111,11 @@ def require_secure_secret_file(path: Path, repository_root: Path) -> Path:
         raise ContractError("credential file must be owned by the current user")
     if stat.S_IMODE(file_stat.st_mode) != 0o600:
         raise ContractError("credential file mode must be exactly 0600")
+    parent_stat = resolved.parent.stat()
+    if parent_stat.st_uid != os.getuid():
+        raise ContractError("credential directory must be owned by the current user")
+    if stat.S_IMODE(parent_stat.st_mode) != 0o700:
+        raise ContractError("credential directory mode must be exactly 0700")
     return resolved
 
 

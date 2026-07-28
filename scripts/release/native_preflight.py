@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import stat
 import sys
 from dataclasses import asdict, dataclass
@@ -17,11 +18,73 @@ from scripts.release.common import ContractError, read_json, sha256_file  # noqa
 
 REQUIRED_ENVIRONMENT_KEYS = {
     "SPRING_PROFILES_ACTIVE",
+    "SHENZHOUHR_SERVER_ADDRESS",
+    "SHENZHOUHR_SESSION_COOKIE_SECURE",
     "SHENZHOUHR_DB_URL",
     "SHENZHOUHR_DB_USERNAME",
     "SHENZHOUHR_DB_PASSWORD",
     "SHENZHOUHR_FLYWAY_ENABLED",
 }
+ALLOWED_PRODUCTION_ENVIRONMENT_KEYS = frozenset(
+    REQUIRED_ENVIRONMENT_KEYS
+    | {
+        "SHENZHOUHR_SERVER_PORT",
+        "SHENZHOUHR_DB_POOL_SIZE",
+        "SHENZHOUHR_DB_MIN_IDLE",
+        "SHENZHOUHR_LOGIN_MAX_FAILURES",
+        "SHENZHOUHR_LOGIN_FAILURE_WINDOW",
+        "SHENZHOUHR_LOGIN_LOCK_DURATION",
+        "SHENZHOUHR_SESSION_IDLE_TIMEOUT",
+        "SHENZHOUHR_SESSION_ABSOLUTE_TIMEOUT",
+        "SHENZHOUHR_PAYROLL_RESERVATION_ENABLED",
+        "SHENZHOUHR_BOOTSTRAP_ENABLED",
+        "SHENZHOUHR_DEV_PRINCIPAL_ENABLED",
+        "DELI_EPLUS_ENABLED",
+        "DELI_EPLUS_BASE_URL",
+        "DELI_EPLUS_APP_KEY",
+        "DELI_EPLUS_APP_SECRET",
+        "DELI_EPLUS_PAGE_SIZE",
+        "DELI_EPLUS_CONNECT_TIMEOUT",
+        "DELI_EPLUS_REQUEST_TIMEOUT",
+        "DELI_EPLUS_MAX_RESPONSE_BYTES",
+        "DELI_EPLUS_SOURCE_TIME_ZONE",
+        "DELI_EPLUS_CREDENTIAL_REFERENCE_NAME",
+        "OA_MYSQL_ENABLED",
+        "OA_MYSQL_JDBC_URL",
+        "OA_MYSQL_USERNAME",
+        "OA_MYSQL_PASSWORD",
+        "OA_MYSQL_MAX_POOL_SIZE",
+        "OA_MYSQL_CONNECTION_TIMEOUT",
+        "OA_MYSQL_QUERY_TIMEOUT",
+    }
+)
+REQUIRED_ENVIRONMENT_VALUES = {
+    "SPRING_PROFILES_ACTIVE": "prod",
+    "SHENZHOUHR_SERVER_ADDRESS": "127.0.0.1",
+    "SHENZHOUHR_SESSION_COOKIE_SECURE": "true",
+    "SHENZHOUHR_FLYWAY_ENABLED": "false",
+    "SHENZHOUHR_BOOTSTRAP_ENABLED": "false",
+    "SHENZHOUHR_DEV_PRINCIPAL_ENABLED": "false",
+}
+BOOLEAN_ENVIRONMENT_KEYS = frozenset(
+    {
+        "SHENZHOUHR_PAYROLL_RESERVATION_ENABLED",
+        "DELI_EPLUS_ENABLED",
+        "OA_MYSQL_ENABLED",
+    }
+)
+POSITIVE_INTEGER_ENVIRONMENT_KEYS = frozenset(
+    {
+        "SHENZHOUHR_SERVER_PORT",
+        "SHENZHOUHR_DB_POOL_SIZE",
+        "SHENZHOUHR_DB_MIN_IDLE",
+        "SHENZHOUHR_LOGIN_MAX_FAILURES",
+        "DELI_EPLUS_PAGE_SIZE",
+        "DELI_EPLUS_MAX_RESPONSE_BYTES",
+        "OA_MYSQL_MAX_POOL_SIZE",
+    }
+)
+ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True)
@@ -115,29 +178,160 @@ def inspect_environment_file(path: Path) -> PreflightCheck:
         return PreflightCheck(
             "DEPLOY-ENV-FILE", "FAIL", "environment file must be an absolute regular file"
         )
-    mode = stat.S_IMODE(path.stat().st_mode)
-    if path.stat().st_uid != os.getuid() or mode != 0o600:
+    file_stat = path.stat()
+    mode = stat.S_IMODE(file_stat.st_mode)
+    if file_stat.st_uid != os.getuid() or mode != 0o600:
         return PreflightCheck(
             "DEPLOY-ENV-FILE", "FAIL", "environment file must be current-user 0600"
         )
-    names: set[str] = set()
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        raw_lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE", "FAIL", "environment file cannot be read as UTF-8"
+        )
+    values: dict[str, str] = {}
+    for raw_line in raw_lines:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        if "=" not in line:
+        if raw_line != line or line.count("=") < 1:
             return PreflightCheck(
-                "DEPLOY-ENV-FILE", "FAIL", "environment file has an invalid line"
+                "DEPLOY-ENV-FILE",
+                "FAIL",
+                "environment file contains unsupported assignment syntax",
             )
-        name, _ = line.split("=", 1)
-        names.add(name)
+        name, value = line.split("=", 1)
+        if not ENVIRONMENT_NAME_PATTERN.fullmatch(name):
+            return PreflightCheck(
+                "DEPLOY-ENV-FILE",
+                "FAIL",
+                "environment file contains an invalid variable name",
+            )
+        if name in values:
+            return PreflightCheck(
+                "DEPLOY-ENV-FILE",
+                "FAIL",
+                f"environment file contains duplicate variable name: {name}",
+            )
+        if (
+            value != value.strip()
+            or any(character in value for character in ("'", '"', "\\"))
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+        ):
+            return PreflightCheck(
+                "DEPLOY-ENV-FILE",
+                "FAIL",
+                f"environment variable uses unsupported value syntax: {name}",
+            )
+        values[name] = value
+    names = set(values)
+    unknown = names - ALLOWED_PRODUCTION_ENVIRONMENT_KEYS
+    if unknown:
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            f"environment file contains unknown variable names: {sorted(unknown)}",
+        )
     missing = REQUIRED_ENVIRONMENT_KEYS - names
     if missing:
         return PreflightCheck(
             "DEPLOY-ENV-FILE", "FAIL", f"missing variable names: {sorted(missing)}"
         )
+    empty = sorted(name for name, value in values.items() if not value)
+    if empty:
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            f"configured variable values must be non-empty: {empty}",
+        )
+    invalid_fixed_values = sorted(
+        name
+        for name, expected in REQUIRED_ENVIRONMENT_VALUES.items()
+        if name in values and values[name] != expected
+    )
+    if invalid_fixed_values:
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "production safety variables have invalid values: "
+            f"{invalid_fixed_values}",
+        )
+    invalid_booleans = sorted(
+        name
+        for name in BOOLEAN_ENVIRONMENT_KEYS & names
+        if values[name] not in {"true", "false"}
+    )
+    if invalid_booleans:
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            f"boolean variables have invalid values: {invalid_booleans}",
+        )
+    invalid_positive_integers = sorted(
+        name
+        for name in POSITIVE_INTEGER_ENVIRONMENT_KEYS & names
+        if not values[name].isdigit() or int(values[name]) <= 0
+    )
+    if invalid_positive_integers:
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "positive integer variables have invalid values: "
+            f"{invalid_positive_integers}",
+        )
+    if "SHENZHOUHR_SERVER_PORT" in values and int(
+        values["SHENZHOUHR_SERVER_PORT"]
+    ) > 65535:
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "server port variable has an invalid value",
+        )
+    dependent_requirements = {
+        "DELI_EPLUS_ENABLED": {
+            "DELI_EPLUS_APP_KEY",
+            "DELI_EPLUS_APP_SECRET",
+        },
+        "OA_MYSQL_ENABLED": {
+            "OA_MYSQL_JDBC_URL",
+            "OA_MYSQL_USERNAME",
+            "OA_MYSQL_PASSWORD",
+        },
+    }
+    for switch, required_names in dependent_requirements.items():
+        if values.get(switch) == "true":
+            missing_dependencies = sorted(required_names - names)
+            if missing_dependencies:
+                return PreflightCheck(
+                    "DEPLOY-ENV-FILE",
+                    "FAIL",
+                    f"{switch} requires variable names: {missing_dependencies}",
+                )
+    if (
+        values.get("DELI_EPLUS_ENABLED") == "true"
+        and "DELI_EPLUS_BASE_URL" in values
+        and not values["DELI_EPLUS_BASE_URL"].startswith("https://")
+    ):
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "DELI_EPLUS_BASE_URL must use HTTPS when the integration is enabled",
+        )
+    if (
+        values.get("OA_MYSQL_ENABLED") == "true"
+        and not values["OA_MYSQL_JDBC_URL"].startswith("jdbc:mysql://")
+    ):
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "OA_MYSQL_JDBC_URL must use the MySQL JDBC scheme",
+        )
     return PreflightCheck(
-        "DEPLOY-ENV-FILE", "PASS", "required variable names present; values not emitted"
+        "DEPLOY-ENV-FILE",
+        "PASS",
+        "required unique variables and production safety values verified; "
+        "values not emitted",
     )
 
 
