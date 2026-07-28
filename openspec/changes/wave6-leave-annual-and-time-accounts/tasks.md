@@ -10,13 +10,13 @@
 
 - [x] 2.1 Add RED tests named for qualification/tier separation, anniversary eve/day, 10-year eve/day, 20-year day, prior service, configurable qualification and invalid future/negative inputs.
 - [x] 2.2 Add RED tests named for grant validity/expiry, expiry-before-grant ordering, mid-cycle no top-up, rehire anchor/history isolation and February-29 `FEBRUARY_28`/`MARCH_1` policies.
-- [ ] 2.3 Implement complete-calendar-month and anniversary primitives without days/30 or days/365 conversion.
-- [ ] 2.4 Implement separate qualification, cumulative-service tier and entitlement composition with default `[12,120)`, `[120,240)`, `[240,+)` month tiers.
-- [ ] 2.5 Implement anniversary cycle and grant-plan values using `[anniversary,nextAnniversary)`, displayed expiry date and deterministic expiry-before-grant order.
+- [x] 2.3 Implement complete-calendar-month and anniversary primitives without days/30 or days/365 conversion.
+- [x] 2.4 Implement separate qualification, cumulative-service tier and entitlement composition with default `[12,120)`, `[120,240)`, `[240,+)` month tiers.
+- [x] 2.5 Implement anniversary cycle and grant-plan values using `[anniversary,nextAnniversary)`, displayed expiry date and deterministic expiry-before-grant order.
 - [x] 2.6 Add RED tests for signed entry categories, exact decimal replay, provenance, unique ID/sequence, missing/cross-account/duplicate reversal, reversing use/grant, expiry and negative-prefix rejection.
-- [ ] 2.7 Implement immutable time-account ledger entries, direction/precision validation, deterministic sequence replay, per-type totals and negative-balance protection.
-- [ ] 2.8 Implement reversal creation and validation as a single exact inverse append that retains the original entry.
-- [ ] 2.9 Add architecture and data-safety tests proving W6 domain has no Spring/MyBatis/REST/W5 dependency and fixtures use only synthetic identities.
+- [x] 2.7 Implement immutable time-account ledger entries, direction/precision validation, deterministic sequence replay, per-type totals and negative-balance protection.
+- [x] 2.8 Implement reversal creation and validation as a single exact inverse append that retains the original entry.
+- [x] 2.9 Add architecture and data-safety tests proving W6 domain has no Spring/MyBatis/REST/W5 dependency and fixtures use only synthetic identities.
 - [ ] 2.10 Pass the focused W6 tests and the full backend regression suite on Java 21.
 
 ## 3. W2/W5 application ports after dependency acceptance
