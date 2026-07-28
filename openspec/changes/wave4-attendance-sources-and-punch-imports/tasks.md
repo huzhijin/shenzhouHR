@@ -5,7 +5,7 @@
 - [ ] 1.3 Add RED migration tests for empty→latest, same-DB V7→V8→V9→latest, V1～V7 checksum immutability, registry exactness and second-migrate no-op.
 - [ ] 1.4 Add RED domain/HTTP tests for AC-PUNCH-01～15, AC-CALC-01/02/04 and AC-SOURCE-01 before implementing W4 behavior.
 - [ ] 1.5 Freeze W4 OpenAPI paths, closed DTOs, state/reason enums, multipart parts, headers, errors, pagination and correlation contracts with bidirectional-closure RED tests.
-- [ ] 1.6 Add module/ArchUnit RED tests enforcing controller→application→domain/port→adapter direction and forbidding vendor DTO, POI row, MultipartFile or W5 aggregate dependencies in W4 domain.
+- [x] 1.6 Add module/ArchUnit RED tests enforcing controller→application→domain/port→adapter direction and forbidding vendor DTO, POI row, MultipartFile or W5 aggregate dependencies in W4 domain.
 
 ## 2. V8 source and shared evidence persistence
 
