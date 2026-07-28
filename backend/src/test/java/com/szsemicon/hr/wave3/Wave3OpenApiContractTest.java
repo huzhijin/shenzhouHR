@@ -432,11 +432,40 @@ class Wave3OpenApiContractTest {
                 "usageProvenance", "OFFICIAL_USAGE_PROJECTION",
                 "usageKnowledgeTime", "2026-07-26T04:00:00Z",
                 "deductionMinutes", null,
+                "matchedMealWindows", List.of(),
                 "correctionDeadline", null, "affectedSegment", "WORK:0",
                 "explanation", "本自然月首次且迟到 5 分钟",
                 "writesFormalResult", false);
         assertThat(contract.validateSchema(
                 "AttendancePolicySimulationView", simulationResponse)).isEmpty();
+
+        Map<String, Object> holidayMealResponse = object(
+                "policyKind", "MEAL_DEDUCTION",
+                "status", "MATCHED",
+                "policyVersionId", "policy-version-holiday",
+                "configurationDigest", "d".repeat(64),
+                "matched", true,
+                "consumesAllowance", false,
+                "rawLateMinutes", null,
+                "predictedMonthlyConsumption", 0,
+                "usageProvenance", "OFFICIAL_USAGE_PROJECTION",
+                "usageKnowledgeTime", "2026-07-26T04:00:00Z",
+                "deductionMinutes", 45,
+                "matchedMealWindows", List.of(object(
+                        "windowId", "PUBLIC_HOLIDAY_DINNER",
+                        "mealType", "DINNER",
+                        "source", "PUBLIC_HOLIDAY_OVERRIDE",
+                        "windowStart", "18:30:00",
+                        "windowEnd", "19:15:00",
+                        "deductionMinutes", 45,
+                        "triggerMinutes", 180)),
+                "correctionDeadline", null,
+                "affectedSegment", null,
+                "explanation", "法定节假日晚餐独立覆盖",
+                "writesFormalResult", false);
+        assertThat(contract.validateSchema(
+                "AttendancePolicySimulationView", holidayMealResponse)).isEmpty();
+
         simulationResponse.put("writesFormalResult", true);
         assertThat(contract.validateSchema(
                 "AttendancePolicySimulationView", simulationResponse)).isNotEmpty();

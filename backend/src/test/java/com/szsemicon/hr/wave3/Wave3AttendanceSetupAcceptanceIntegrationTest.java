@@ -554,6 +554,10 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 .andExpect(jsonPath("$.configurationDigest").isNotEmpty())
                 .andExpect(jsonPath("$.results[0].matched").value(true))
                 .andExpect(jsonPath("$.results[0].deductionMinutes").value(30))
+                .andExpect(jsonPath("$.results[0].matchedMealWindows.length()")
+                        .value(1))
+                .andExpect(jsonPath("$.results[0].matchedMealWindows[0].windowId")
+                        .value("BASE_DINNER"))
                 .andExpect(jsonPath("$.results[0].writesFormalResult").value(false));
 
         write(

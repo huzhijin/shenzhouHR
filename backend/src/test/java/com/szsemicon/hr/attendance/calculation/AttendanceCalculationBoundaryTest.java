@@ -243,6 +243,249 @@ class AttendanceCalculationBoundaryTest {
     }
 
     @Test
+    void distinct_lunch_and_dinner_windows_each_deduct_once_and_never_below_zero() {
+        var interval = SyntheticAttendanceFixtures.interval(
+                "2026-07-15T10:00:00Z",
+                "2026-07-15T14:00:00Z");
+        var authorization = evidence(
+                "synthetic-two-meals",
+                EvidenceKind.OVERTIME,
+                interval,
+                interval.end().plusSeconds(60));
+        var lunch = new MealDeductionRule(
+                "SATURDAY_LUNCH",
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T10:30:00Z",
+                        "2026-07-15T11:30:00Z"),
+                60,
+                true);
+        var dinner = new MealDeductionRule(
+                "SATURDAY_DINNER",
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T12:00:00Z",
+                        "2026-07-15T12:30:00Z"),
+                30,
+                true);
+        var policy = new CalculationPolicy(
+                15,
+                1,
+                Instant.parse("2026-07-23T15:59:59Z"),
+                false,
+                null,
+                48 * 60,
+                List.of(dinner, lunch));
+        var result = calculator.calculate(
+                "synthetic-two-meals-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "synthetic-two-meals-in",
+                                        interval.start().toString(),
+                                        PunchDirection.ENTRY),
+                                SyntheticAttendanceFixtures.punch(
+                                        "synthetic-two-meals-out",
+                                        interval.end().toString(),
+                                        PunchDirection.EXIT)),
+                        List.of(authorization),
+                        List.of(),
+                        policy,
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().extendedPresenceMinutes()).isEqualTo(240);
+        assertThat(result.metrics().recognizedOvertimeMinutes()).isEqualTo(150);
+
+        var excessivePolicy = new CalculationPolicy(
+                15,
+                1,
+                Instant.parse("2026-07-23T15:59:59Z"),
+                false,
+                null,
+                48 * 60,
+                List.of(
+                        new MealDeductionRule(
+                                "SATURDAY_LUNCH",
+                                lunch.window(),
+                                240,
+                                true),
+                        new MealDeductionRule(
+                                "SATURDAY_DINNER",
+                                dinner.window(),
+                                240,
+                                true)));
+        var floored = calculator.calculate(
+                "synthetic-two-meals-floor-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "synthetic-two-meals-floor-in",
+                                        interval.start().toString(),
+                                        PunchDirection.ENTRY),
+                                SyntheticAttendanceFixtures.punch(
+                                        "synthetic-two-meals-floor-out",
+                                        interval.end().toString(),
+                                        PunchDirection.EXIT)),
+                        List.of(authorization),
+                        List.of(),
+                        excessivePolicy,
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+        assertThat(floored.metrics().recognizedOvertimeMinutes()).isZero();
+
+        assertThatThrownBy(() -> new CalculationPolicy(
+                15,
+                1,
+                Instant.parse("2026-07-23T15:59:59Z"),
+                false,
+                null,
+                48 * 60,
+                List.of(
+                        lunch,
+                        new MealDeductionRule(
+                                "SATURDAY_LUNCH",
+                                dinner.window(),
+                                240,
+                                true))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unique");
+    }
+
+    @Test
+    void overtime_meal_requires_one_continuous_presence_span_and_trigger() {
+        var authorizationInterval = SyntheticAttendanceFixtures.interval(
+                "2026-07-15T10:00:00Z",
+                "2026-07-15T14:00:00Z");
+        var authorization = evidence(
+                "synthetic-continuous-meal",
+                EvidenceKind.OVERTIME,
+                authorizationInterval,
+                authorizationInterval.end());
+        var window = SyntheticAttendanceFixtures.interval(
+                "2026-07-15T11:20:00Z",
+                "2026-07-15T11:40:00Z");
+        var policy = new CalculationPolicy(
+                15,
+                1,
+                Instant.parse("2026-07-23T15:59:59Z"),
+                false,
+                null,
+                48 * 60,
+                List.of(new MealDeductionRule(
+                        "SATURDAY_LUNCH",
+                        window,
+                        60,
+                        0,
+                        true)));
+        var result = calculator.calculate(
+                "synthetic-continuous-meal-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "continuous-in-1",
+                                        "2026-07-15T10:00:00Z",
+                                        PunchDirection.ENTRY),
+                                SyntheticAttendanceFixtures.punch(
+                                        "continuous-out-1",
+                                        "2026-07-15T11:15:00Z",
+                                        PunchDirection.EXIT),
+                                SyntheticAttendanceFixtures.punch(
+                                        "continuous-in-2",
+                                        "2026-07-15T11:45:00Z",
+                                        PunchDirection.ENTRY),
+                                SyntheticAttendanceFixtures.punch(
+                                        "continuous-out-2",
+                                        "2026-07-15T14:00:00Z",
+                                        PunchDirection.EXIT)),
+                        List.of(authorization),
+                        List.of(),
+                        policy,
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().extendedPresenceMinutes()).isEqualTo(210);
+        assertThat(result.metrics().recognizedOvertimeMinutes()).isEqualTo(210);
+
+        var belowTriggerPolicy = new CalculationPolicy(
+                15,
+                1,
+                Instant.parse("2026-07-23T15:59:59Z"),
+                false,
+                null,
+                48 * 60,
+                List.of(new MealDeductionRule(
+                        "TRIGGERED_DINNER",
+                        SyntheticAttendanceFixtures.interval(
+                                "2026-07-15T10:30:00Z",
+                                "2026-07-15T11:00:00Z"),
+                        30,
+                        180,
+                        true)));
+        var belowTrigger = calculator.calculate(
+                "synthetic-trigger-meal-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "trigger-in",
+                                        "2026-07-15T10:00:00Z",
+                                        PunchDirection.ENTRY),
+                                SyntheticAttendanceFixtures.punch(
+                                        "trigger-out",
+                                        "2026-07-15T12:00:00Z",
+                                        PunchDirection.EXIT)),
+                        List.of(new IntervalEvidence(
+                                "synthetic-trigger-overtime",
+                                EvidenceKind.OVERTIME,
+                                SyntheticAttendanceFixtures.interval(
+                                        "2026-07-15T10:00:00Z",
+                                        "2026-07-15T12:00:00Z"),
+                                "synthetic-trigger-document",
+                                Instant.parse("2026-07-15T12:00:00Z"),
+                                true)),
+                        List.of(),
+                        belowTriggerPolicy,
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+        assertThat(belowTrigger.metrics().recognizedOvertimeMinutes())
+                .isEqualTo(120);
+    }
+
+    @Test
+    void odd_auto_punch_count_does_not_silently_form_partial_overtime_presence() {
+        var authorizationInterval = SyntheticAttendanceFixtures.interval(
+                "2026-07-15T10:00:00Z",
+                "2026-07-15T14:00:00Z");
+        var result = calculator.calculate(
+                "synthetic-odd-auto-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "odd-auto-1",
+                                        "2026-07-15T10:00:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "odd-auto-2",
+                                        "2026-07-15T12:00:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "odd-auto-3",
+                                        "2026-07-15T13:00:00Z",
+                                        PunchDirection.AUTO)),
+                        List.of(evidence(
+                                "synthetic-odd-auto-overtime",
+                                EvidenceKind.OVERTIME,
+                                authorizationInterval,
+                                authorizationInterval.end())),
+                        List.of(),
+                        SyntheticAttendanceFixtures.defaultPolicy(),
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().extendedPresenceMinutes()).isZero();
+        assertThat(result.metrics().recognizedOvertimeMinutes()).isZero();
+        assertThat(result.consumedPunchEventIds()).isEmpty();
+    }
+
+    @Test
     void adjustment_requires_reason_approval_scope_and_period_metadata() {
         var interval = SyntheticAttendanceFixtures.interval(
                 "2026-07-15T01:00:00Z",

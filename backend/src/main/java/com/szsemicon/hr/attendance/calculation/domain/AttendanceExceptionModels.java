@@ -13,15 +13,27 @@ public final class AttendanceExceptionModels {
     }
 
     public enum ExceptionType {
+        LATE(false),
+        EARLY_DEPARTURE(false),
         MISSING_PUNCH_PENDING(true),
         MISSING_PUNCH_OVERDUE(true),
+        ABSENCE(true),
         EVIDENCE_CONFLICT(true),
+        LEAVE_PUNCH_CONFLICT(false),
+        OUTING_OR_TRIP_INCOMPLETE(true),
+        OA_APPROVAL_STATUS_UNKNOWN(true),
+        OA_PERSON_REFERENCE_INVALID(true),
+        EMPLOYEE_UNMATCHED(true),
+        DUPLICATE_SOURCE_RECORD(true),
+        SOURCE_SCHEMA_CHANGED(true),
+        SOURCE_SYNC_STALE(true),
         NO_ATTENDANCE_GROUP(true),
         NO_SHIFT_OR_CALENDAR(true),
         AMBIGUOUS_PUNCH_MATCH(true),
         CROSS_MIDNIGHT_REVIEW_REQUIRED(true),
         OVERTIME_DOCUMENT_MISSING_OR_LATE(false),
         EARLY_RETURN_CANDIDATE(false),
+        POST_CLOSE_SOURCE_CHANGE(true),
         INPUT_INTEGRITY_ERROR(true);
 
         private final boolean blockingClose;

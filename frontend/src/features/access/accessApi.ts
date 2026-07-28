@@ -160,6 +160,7 @@ export function createAccount(input: {
   username: string;
   displayName: string;
   temporaryPassword: string;
+  employeeId?: string | null;
   roleAssignments: RoleAssignmentRequest[];
 }): Promise<AccountDetail> {
   if (isDemoMode()) return getAccount('9100000000000000001');

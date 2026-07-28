@@ -15,6 +15,7 @@ import {
   buildCustomerReportCsv,
   downloadCustomerReportCsv,
 } from './customerReportExport';
+import { customerReportDemoScopes } from './customerReportAccess';
 import { CustomerReportCenterPage } from './CustomerReportCenterPage';
 
 describe('customer report center demo', () => {
@@ -22,13 +23,14 @@ describe('customer report center demo', () => {
     cleanup();
   });
 
-  it('provides the full eight-report catalog and the source color legend', () => {
-    expect(customerReportTabs).toHaveLength(8);
+  it('provides the full nine-report catalog and the source color legend', () => {
+    expect(customerReportTabs).toHaveLength(9);
     expect(customerReportTabs.map((tab) => tab.key)).toEqual([
       'attendance-detail',
       'leave',
       'overtime',
       'work-hours',
+      'exceptions',
       'late',
       'missed-punch',
       'attendance-rate',
@@ -66,6 +68,24 @@ describe('customer report center demo', () => {
     expect(filtered.attendanceRows).toHaveLength(1);
     expect(filtered.attendanceRows[0]?.employee).toBe('陈思远');
     expect(filtered.metadata.isDemo).toBe(true);
+  });
+
+  it('fails closed when forged filters request people outside the active data scope', () => {
+    const manufacturingScope = requiredManufacturingScope();
+    const forgedDepartment = getCustomerReportDemo({
+      month: '2026-06',
+      department: '研发中心',
+      employee: '全部员工',
+    }, manufacturingScope);
+    const forgedEmployee = getCustomerReportDemo({
+      month: '2026-06',
+      department: '制造中心',
+      employee: '吴昊',
+    }, manufacturingScope);
+
+    expect(forgedDepartment.metadata.dataScope.reference).toBe(manufacturingScope.reference);
+    expect(allVisibleEmployees(forgedDepartment)).toEqual([]);
+    expect(allVisibleEmployees(forgedEmployee)).toEqual([]);
   });
 
   it.each([
@@ -110,11 +130,28 @@ describe('customer report center demo', () => {
       'missed-punch',
       { ...defaultCustomerReportSpecificFilters, punchType: '上班缺卡' },
     );
+    const highOpenAbsence = applyCustomerReportSpecificFilters(
+      demo,
+      'exceptions',
+      {
+        ...defaultCustomerReportSpecificFilters,
+        exceptionType: '旷工',
+        exceptionSeverity: '高',
+        exceptionState: '处理中',
+      },
+    );
 
     expect(personalLeave.leaveRows.length).toBeLessThan(demo.leaveRows.length);
     expect(personalLeave.leaveRows.every((row) => row.type === '事假')).toBe(true);
     expect(missedMorningPunch.missedPunchRows.length).toBeLessThan(demo.missedPunchRows.length);
     expect(missedMorningPunch.missedPunchRows.every((row) => row.details.includes('上班'))).toBe(true);
+    expect(highOpenAbsence.attendanceExceptionRows).toHaveLength(1);
+    expect(highOpenAbsence.attendanceExceptionRows[0]).toMatchObject({
+      employee: '吴昊',
+      exceptionType: '旷工',
+      severity: '高',
+      state: '处理中',
+    });
   });
 
   it('normalizes annual-leave hierarchy against the global department', () => {
@@ -165,7 +202,7 @@ describe('customer report center demo', () => {
     expect(screen.getByLabelText('月份')).toBeInTheDocument();
     expect(screen.getByLabelText('部门')).toBeInTheDocument();
     expect(screen.getByLabelText('员工')).toBeInTheDocument();
-    expect(screen.getAllByRole('tab')).toHaveLength(8);
+    expect(screen.getAllByRole('tab')).toHaveLength(9);
     expect(screen.getByRole('tabpanel', { name: '月度考勤明细矩阵' })).toBeInTheDocument();
     expect(screen.getByLabelText('考勤状态颜色图例')).toHaveTextContent('迟到早退漏刷加班调休外出出差事假病假年假休息日补签');
     expect(screen.getByTestId('report-scroll-region')).toHaveClass('customer-report__table-scroll');
@@ -177,6 +214,79 @@ describe('customer report center demo', () => {
       month: '2026-06',
     }));
     expect(screen.getByRole('status')).toHaveTextContent('已生成“月度考勤明细矩阵”演示导出任务');
+  });
+
+  it('disables export without create permission and never invokes the export callback', () => {
+    const onExport = vi.fn();
+    render(
+      <CustomerReportCenterPage
+        capabilities={['ATTENDANCE_REPORT:READ']}
+        onExport={onExport}
+      />,
+    );
+
+    const exportButton = screen.getByRole('button', { name: '导出当前报表' });
+    expect(exportButton).toBeDisabled();
+
+    fireEvent.click(exportButton);
+
+    expect(onExport).not.toHaveBeenCalled();
+    expect(screen.queryByText('导出任务已创建')).not.toBeInTheDocument();
+  });
+
+  it('switches between department-owner and self scopes without leaking other people', () => {
+    const companyScope = requiredCompanyScope();
+    const manufacturingScope = requiredManufacturingScope();
+    const selfScope = requiredSelfScope();
+    render(
+      <CustomerReportCenterPage
+        dataScopes={[companyScope, manufacturingScope, selfScope]}
+      />,
+    );
+
+    selectPermissionRole(manufacturingScope.actorLabel);
+
+    const manufacturingTable = screen.getByTestId('report-table');
+    expect(within(manufacturingTable).getAllByRole('row')).toHaveLength(4);
+    expect(manufacturingTable).toHaveTextContent('陈思远');
+    expect(manufacturingTable).toHaveTextContent('周晴');
+    expect(manufacturingTable).toHaveTextContent('赵凯');
+    expect(manufacturingTable).not.toHaveTextContent('张伟');
+    expect(manufacturingTable).not.toHaveTextContent('林晓雯');
+    expect(manufacturingTable).not.toHaveTextContent('蒋宁');
+    expect(manufacturingTable).not.toHaveTextContent('吴昊');
+    expect(manufacturingTable).not.toHaveTextContent('沈佳');
+
+    selectPermissionRole(selfScope.actorLabel);
+
+    const selfTable = screen.getByTestId('report-table');
+    expect(within(selfTable).getAllByRole('row')).toHaveLength(2);
+    expect(selfTable).toHaveTextContent('陈思远');
+    expect(selfTable).not.toHaveTextContent('周晴');
+    expect(selfTable).not.toHaveTextContent('赵凯');
+    expect(selfTable).not.toHaveTextContent('张伟');
+  });
+
+  it('offers all four final demo roles in the permission selector', () => {
+    const expectedScopes = [
+      requiredCompanyScope(),
+      requiredExecutiveScope(),
+      requiredManufacturingScope(),
+      requiredSelfScope(),
+    ];
+    render(<CustomerReportCenterPage />);
+
+    fireEvent.mouseDown(screen.getByLabelText('权限角色'));
+
+    const expectedLabels = new Set(expectedScopes.map((scope) => scope.actorLabel));
+    const roleOptions = screen.getAllByRole('option').filter(
+      (option) => expectedLabels.has(option.textContent ?? ''),
+    );
+    expect(customerReportDemoScopes).toHaveLength(4);
+    expect(roleOptions).toHaveLength(4);
+    expectedScopes.forEach((scope) => {
+      expect(roleOptions.some((option) => option.textContent === scope.actorLabel)).toBe(true);
+    });
   });
 
   it('updates rendered report dates when the month selector changes', () => {
@@ -252,6 +362,41 @@ describe('customer report center demo', () => {
     }
   });
 
+  it('exports only rows authorized by the active data scope', () => {
+    const manufacturingScope = requiredManufacturingScope();
+    const report = getCustomerReportDemo({
+      month: '2026-06',
+      department: '全部部门',
+      employee: '全部员工',
+    }, manufacturingScope);
+    const download = buildCustomerReportCsv({
+      reportKey: 'exceptions',
+      reportTitle: '考勤异常总览',
+      month: '2026-06',
+      department: '全部部门',
+      employee: '全部员工',
+      generatedAt: '2026-07-28T14:00:00.000Z',
+      reportFilters: {
+        异常类型: '全部异常',
+        异常级别: '全部级别',
+        处理状态: '全部状态',
+      },
+      report,
+    });
+
+    expect(download.csv).toContain('"考勤异常总览"');
+    expect(download.csv).toContain('"陈思远"');
+    expect(download.csv).toContain('"周晴"');
+    expect(download.csv).toContain('"赵凯"');
+    expect(download.csv).not.toContain('"张伟"');
+    expect(download.csv).not.toContain('"林晓雯"');
+    expect(download.csv).not.toContain('"蒋宁"');
+    expect(download.csv).not.toContain('"吴昊"');
+    expect(download.csv).not.toContain('"沈佳"');
+    expect(download.csv).not.toContain('"研发中心"');
+    expect(download.csv).not.toContain('"职能中心"');
+  });
+
   it('switches to the annual-leave report with the orange source-table treatment', () => {
     render(<CustomerReportCenterPage />);
 
@@ -306,6 +451,18 @@ describe('customer report center demo', () => {
     fireEvent.click(screen.getByRole('tab', { name: '个人月度工时' }));
     expect(screen.getByLabelText('在职状态')).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('tab', { name: '考勤异常总览' }));
+    expect(screen.getByLabelText('异常类型')).toBeInTheDocument();
+    expect(screen.getByLabelText('异常级别')).toBeInTheDocument();
+    expect(screen.getByLabelText('处理状态')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('异常类型'), { target: { value: '旷工' } });
+    fireEvent.change(screen.getByLabelText('异常级别'), { target: { value: '高' } });
+    fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: '处理中' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询考勤异常总览' }));
+    expect(screen.getByTestId('specific-result-count')).toHaveTextContent('1 条');
+    expect(screen.getByTestId('report-table')).toHaveTextContent('吴昊');
+    expect(screen.getByTestId('report-table')).not.toHaveTextContent('沈佳');
+
     fireEvent.click(screen.getByRole('tab', { name: '迟到统计' }));
     expect(screen.getByLabelText('迟到次数')).toBeInTheDocument();
     expect(screen.getByLabelText('迟到时长级别')).toBeInTheDocument();
@@ -332,4 +489,62 @@ function restoreUrlMethod(
     return;
   }
   Reflect.deleteProperty(URL, key);
+}
+
+function requiredCompanyScope() {
+  const scope = customerReportDemoScopes.find((candidate) => (
+    candidate.type === 'LEGAL_ENTITY'
+    && candidate.actorLabel.toLowerCase().includes('hr')
+  ));
+  if (!scope) throw new Error('缺少公司 HR 演示数据范围');
+  return scope;
+}
+
+function requiredExecutiveScope() {
+  const scope = customerReportDemoScopes.find((candidate) => (
+    candidate.type === 'LEGAL_ENTITY'
+    && !candidate.actorLabel.toLowerCase().includes('hr')
+  ));
+  if (!scope) throw new Error('缺少高管演示数据范围');
+  return scope;
+}
+
+function requiredManufacturingScope() {
+  const scope = customerReportDemoScopes.find((candidate) => (
+    candidate.type === 'ORGANIZATION'
+    && candidate.allowedDepartments.includes('制造中心')
+  ));
+  if (!scope) throw new Error('缺少制造中心部门负责人演示数据范围');
+  return scope;
+}
+
+function requiredSelfScope() {
+  const scope = customerReportDemoScopes.find((candidate) => (
+    candidate.type === 'SELF'
+    && candidate.allowedEmployees.includes('陈思远')
+  ));
+  if (!scope) throw new Error('缺少陈思远本人演示数据范围');
+  return scope;
+}
+
+function selectPermissionRole(actorLabel: string) {
+  fireEvent.mouseDown(screen.getByLabelText('权限角色'));
+  const options = screen.getAllByText(actorLabel);
+  fireEvent.click(options.at(-1)!);
+}
+
+function allVisibleEmployees(
+  report: ReturnType<typeof getCustomerReportDemo>,
+): string[] {
+  return [
+    ...report.attendanceRows,
+    ...report.leaveRows,
+    ...report.overtimeRows,
+    ...report.workHoursRows,
+    ...report.attendanceExceptionRows,
+    ...report.lateRows,
+    ...report.missedPunchRows,
+    ...report.attendanceRateRows,
+    ...report.annualLeaveRows,
+  ].map((row) => row.employee);
 }

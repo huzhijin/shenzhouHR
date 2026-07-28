@@ -69,6 +69,18 @@ public interface IdentityAccessRepository
             Instant validTo) {
     }
 
+    /**
+     * A role assignment whose data scope has been resolved and authorized by the
+     * server in the current transaction. API input must never be converted to
+     * this type without the grant-scope checks in {@link AccountPersistence}.
+     */
+    record ResolvedRoleAssignmentInput(
+            String roleId,
+            String dataScopeId,
+            Instant validFrom,
+            Instant validTo) {
+    }
+
     record RoleAssignmentRecord(
             String assignmentId,
             String roleId,

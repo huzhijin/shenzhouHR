@@ -2,6 +2,7 @@ package com.szsemicon.hr.evidenceingestion.infrastructure.synthetic;
 
 import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.Direction;
 import com.szsemicon.hr.evidenceingestion.port.DeliPunchSourcePort;
+import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort.ConfirmedBindingKind;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.context.annotation.Profile;
@@ -20,7 +21,8 @@ public class SyntheticDeliPunchAdapter implements DeliPunchSourcePort {
                 "922337203685477580812345",
                 "1",
                 "SYNTHETIC-PERSON-001",
-                "SYNTHETIC-E001",
+                ConfirmedBindingKind.DELI_EXT_ID,
+                null,
                 Instant.parse("2026-07-28T01:00:00Z"),
                 "2026-07-28 09:00:00",
                 "Asia/Shanghai",

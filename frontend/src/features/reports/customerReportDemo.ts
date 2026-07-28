@@ -1,8 +1,16 @@
+import {
+  defaultCustomerReportDataScope,
+  isCustomerReportQueryWithinScope,
+  isWithinCustomerReportScope,
+  type CustomerReportDataScope,
+} from './customerReportAccess';
+
 export type CustomerReportKey =
   | 'attendance-detail'
   | 'leave'
   | 'overtime'
   | 'work-hours'
+  | 'exceptions'
   | 'late'
   | 'missed-punch'
   | 'attendance-rate'
@@ -34,6 +42,9 @@ export interface CustomerReportSpecificFilters {
   overtimeType: '全部类型' | '工作日加班' | '周末加班' | '法定节假日加班';
   overtimeDay: string;
   employmentStatus: '全部状态' | '在职' | '本月入职' | '本月离职';
+  exceptionType: '全部异常' | AttendanceExceptionType;
+  exceptionSeverity: '全部级别' | AttendanceExceptionSeverity;
+  exceptionState: '全部状态' | AttendanceExceptionState;
   lateCount: '全部次数' | '2次及以上' | '3次及以上';
   lateLevel: '全部级别' | '10分钟以内' | '11-30分钟' | '30分钟以上';
   punchType: '全部时段' | '上班缺卡' | '下班缺卡';
@@ -104,6 +115,43 @@ export interface ExceptionReportRow {
   lateMinutes?: number;
 }
 
+export type AttendanceExceptionType =
+  | '迟到'
+  | '早退'
+  | '上班缺卡'
+  | '下班缺卡'
+  | '旷工'
+  | '排班缺失'
+  | '请假与打卡冲突'
+  | '加班未审批';
+
+export type AttendanceExceptionSeverity = '高' | '中' | '低';
+
+export type AttendanceExceptionState =
+  | '待处理'
+  | '待员工说明'
+  | '待补签'
+  | '处理中'
+  | '已处理';
+
+export interface AttendanceExceptionReportRow {
+  id: number;
+  businessDate: string;
+  employeeNo: string;
+  employee: string;
+  department: string;
+  exceptionType: AttendanceExceptionType;
+  severity: AttendanceExceptionSeverity;
+  shiftLabel: string;
+  scheduledWindow: string;
+  punchSummary: string;
+  exceptionMinutes?: number;
+  evidenceSummary: string;
+  state: AttendanceExceptionState;
+  owner: string;
+  dueAt: string;
+}
+
 export interface AttendanceRateReportRow {
   id: number;
   employee: string;
@@ -141,11 +189,13 @@ export interface CustomerReportDemo {
     month: string;
     monthLabel: string;
     rowCount: number;
+    dataScope: CustomerReportDataScope;
   };
   attendanceRows: AttendanceDetailRow[];
   leaveRows: LeaveReportRow[];
   overtimeRows: OvertimeReportRow[];
   workHoursRows: WorkHoursReportRow[];
+  attendanceExceptionRows: AttendanceExceptionReportRow[];
   lateRows: ExceptionReportRow[];
   missedPunchRows: ExceptionReportRow[];
   attendanceRateRows: AttendanceRateReportRow[];
@@ -161,6 +211,7 @@ export const customerReportTabs: ReadonlyArray<{
   { key: 'leave', label: '请假统计', shortLabel: '请假统计' },
   { key: 'overtime', label: '加班汇总与每日加班', shortLabel: '加班统计' },
   { key: 'work-hours', label: '个人月度工时', shortLabel: '月度工时' },
+  { key: 'exceptions', label: '考勤异常总览', shortLabel: '异常总览' },
   { key: 'late', label: '迟到统计', shortLabel: '迟到统计' },
   { key: 'missed-punch', label: '忘打卡统计', shortLabel: '忘打卡' },
   { key: 'attendance-rate', label: '出勤率统计', shortLabel: '出勤率' },
@@ -202,6 +253,9 @@ export const defaultCustomerReportSpecificFilters: CustomerReportSpecificFilters
   overtimeType: '全部类型',
   overtimeDay: '全部日期',
   employmentStatus: '全部状态',
+  exceptionType: '全部异常',
+  exceptionSeverity: '全部级别',
+  exceptionState: '全部状态',
   lateCount: '全部次数',
   lateLevel: '全部级别',
   punchType: '全部时段',
@@ -215,6 +269,19 @@ export const reportSpecificFilterOptions = {
   leaveTypes: ['全部类型', '事假', '丧假', '病假', '婚假', '陪产假', '年假', '调休'],
   overtimeTypes: ['全部类型', '工作日加班', '周末加班', '法定节假日加班'],
   employmentStatuses: ['全部状态', '在职', '本月入职', '本月离职'],
+  exceptionTypes: [
+    '全部异常',
+    '迟到',
+    '早退',
+    '上班缺卡',
+    '下班缺卡',
+    '旷工',
+    '排班缺失',
+    '请假与打卡冲突',
+    '加班未审批',
+  ],
+  exceptionSeverities: ['全部级别', '高', '中', '低'],
+  exceptionStates: ['全部状态', '待处理', '待员工说明', '待补签', '处理中', '已处理'],
   lateCounts: ['全部次数', '2次及以上', '3次及以上'],
   lateLevels: ['全部级别', '10分钟以内', '11-30分钟', '30分钟以上'],
   punchTypes: ['全部时段', '上班缺卡', '下班缺卡'],
@@ -230,10 +297,15 @@ const annualDepartmentHierarchy: Readonly<Record<string, readonly string[]>> = {
   职能中心: ['综合管理部'],
 };
 
-export function annualLevelOneOptions(globalDepartment: string): string[] {
+export function annualLevelOneOptions(
+  globalDepartment: string,
+  allowedDepartments: readonly string[] = Object.keys(annualDepartmentHierarchy),
+): string[] {
+  const allowed = new Set(allowedDepartments);
   const departments = globalDepartment === '全部部门'
-    ? Object.keys(annualDepartmentHierarchy)
+    ? Object.keys(annualDepartmentHierarchy).filter((department) => allowed.has(department))
     : Object.hasOwn(annualDepartmentHierarchy, globalDepartment)
+      && allowed.has(globalDepartment)
       ? [globalDepartment]
       : [];
   return ['全部一级部门', ...departments];
@@ -242,8 +314,12 @@ export function annualLevelOneOptions(globalDepartment: string): string[] {
 export function annualLevelTwoOptions(
   levelOne: string,
   globalDepartment: string,
+  allowedDepartments?: readonly string[],
 ): string[] {
-  const allowedLevelOnes = annualLevelOneOptions(globalDepartment).slice(1);
+  const allowedLevelOnes = annualLevelOneOptions(
+    globalDepartment,
+    allowedDepartments,
+  ).slice(1);
   const selectedLevelOnes = levelOne === '全部一级部门'
     ? allowedLevelOnes
     : allowedLevelOnes.includes(levelOne)
@@ -258,12 +334,17 @@ export function annualLevelTwoOptions(
 export function normalizeAnnualLeaveFilters(
   filters: CustomerReportSpecificFilters,
   globalDepartment: string,
+  allowedDepartments?: readonly string[],
 ): CustomerReportSpecificFilters {
-  const levelOneOptions = annualLevelOneOptions(globalDepartment);
+  const levelOneOptions = annualLevelOneOptions(globalDepartment, allowedDepartments);
   const annualLevelOne = levelOneOptions.includes(filters.annualLevelOne)
     ? filters.annualLevelOne
     : defaultCustomerReportSpecificFilters.annualLevelOne;
-  const levelTwoOptions = annualLevelTwoOptions(annualLevelOne, globalDepartment);
+  const levelTwoOptions = annualLevelTwoOptions(
+    annualLevelOne,
+    globalDepartment,
+    allowedDepartments,
+  );
   const annualLevelTwo = levelTwoOptions.includes(filters.annualLevelTwo)
     ? filters.annualLevelTwo
     : defaultCustomerReportSpecificFilters.annualLevelTwo;
@@ -414,6 +495,17 @@ function monthlyExceptionRows(
   }));
 }
 
+function monthlyAttendanceExceptionRows(
+  rows: AttendanceExceptionReportRow[],
+  month: string,
+): AttendanceExceptionReportRow[] {
+  return rows.map((row) => ({
+    ...row,
+    businessDate: row.businessDate.replace('2026-06', month),
+    dueAt: row.dueAt.replace('2026-06', month),
+  }));
+}
+
 function daysInMonth(month: string): number {
   const [year, monthNumber] = month.split('-').map(Number);
   return new Date(year!, monthNumber!, 0).getDate();
@@ -430,6 +522,141 @@ const missedPunchRows: ExceptionReportRow[] = [
   { id: 1, employee: '林晓雯', department: '研发中心', count: 2, details: '06月18日（上班）、06月29日（上班）', reviewer: '徐丽丽', state: '待补签' },
   { id: 2, employee: '蒋宁', department: '职能中心', count: 2, details: '06月09日（上班）、06月10日（下班）', reviewer: '吴芸', state: '已补签' },
   { id: 3, employee: '赵凯', department: '制造中心', count: 1, details: '06月25日（下班）', reviewer: '吴芸', state: '待补签' },
+];
+
+const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
+  {
+    id: 1,
+    businessDate: '2026-06-01',
+    employeeNo: 'SZ0261',
+    employee: '陈思远',
+    department: '制造中心',
+    exceptionType: '迟到',
+    severity: '低',
+    shiftLabel: '常白班 A',
+    scheduledWindow: '08:30–17:30',
+    punchSummary: '09:06 / 18:18',
+    exceptionMinutes: 36,
+    evidenceSummary: '设备卡 · 月度宽限已使用',
+    state: '已处理',
+    owner: '徐丽丽',
+    dueAt: '2026-06-03 18:00',
+  },
+  {
+    id: 2,
+    businessDate: '2026-06-18',
+    employeeNo: 'SZ0284',
+    employee: '周晴',
+    department: '制造中心',
+    exceptionType: '早退',
+    severity: '中',
+    shiftLabel: '常白班 A',
+    scheduledWindow: '08:30–17:30',
+    punchSummary: '08:24 / 16:42',
+    exceptionMinutes: 48,
+    evidenceSummary: '设备卡 · 无匹配审批单',
+    state: '待员工说明',
+    owner: '吴芸',
+    dueAt: '2026-06-20 18:00',
+  },
+  {
+    id: 3,
+    businessDate: '2026-06-18',
+    employeeNo: 'SZ0342',
+    employee: '林晓雯',
+    department: '研发中心',
+    exceptionType: '上班缺卡',
+    severity: '中',
+    shiftLabel: '研发弹性班',
+    scheduledWindow: '09:00–18:00',
+    punchSummary: '— / 18:26',
+    evidenceSummary: '仅有下班卡 · 补签未提交',
+    state: '待补签',
+    owner: '徐丽丽',
+    dueAt: '2026-06-25 18:00',
+  },
+  {
+    id: 4,
+    businessDate: '2026-06-25',
+    employeeNo: 'SZ0366',
+    employee: '赵凯',
+    department: '制造中心',
+    exceptionType: '下班缺卡',
+    severity: '中',
+    shiftLabel: '生产长白班',
+    scheduledWindow: '08:00–20:00',
+    punchSummary: '07:52 / —',
+    evidenceSummary: '仅有上班卡 · OA 无补签单',
+    state: '待补签',
+    owner: '吴芸',
+    dueAt: '2026-07-02 18:00',
+  },
+  {
+    id: 5,
+    businessDate: '2026-06-12',
+    employeeNo: 'SZ0415',
+    employee: '吴昊',
+    department: '研发中心',
+    exceptionType: '旷工',
+    severity: '高',
+    shiftLabel: '研发弹性班',
+    scheduledWindow: '09:00–18:00',
+    punchSummary: '无有效打卡',
+    exceptionMinutes: 480,
+    evidenceSummary: '无打卡 · 无已审批考勤单据',
+    state: '处理中',
+    owner: '吴芸',
+    dueAt: '2026-06-13 12:00',
+  },
+  {
+    id: 6,
+    businessDate: '2026-06-15',
+    employeeNo: 'SZ0437',
+    employee: '沈佳',
+    department: '职能中心',
+    exceptionType: '排班缺失',
+    severity: '高',
+    shiftLabel: '未解析',
+    scheduledWindow: '—',
+    punchSummary: '08:28 / 17:46',
+    evidenceSummary: '存在设备卡 · 当日无有效班次版本',
+    state: '待处理',
+    owner: '系统待分派',
+    dueAt: '2026-06-15 12:00',
+  },
+  {
+    id: 7,
+    businessDate: '2026-06-11',
+    employeeNo: 'SZ0318',
+    employee: '张伟',
+    department: '研发中心',
+    exceptionType: '请假与打卡冲突',
+    severity: '中',
+    shiftLabel: '研发弹性班',
+    scheduledWindow: '09:00–18:00',
+    punchSummary: '08:55 / 18:21',
+    evidenceSummary: '已审批请假单 · 假因已脱敏',
+    state: '待处理',
+    owner: '徐丽丽',
+    dueAt: '2026-06-13 18:00',
+  },
+  {
+    id: 8,
+    businessDate: '2026-06-17',
+    employeeNo: 'SZ0381',
+    employee: '蒋宁',
+    department: '职能中心',
+    exceptionType: '加班未审批',
+    severity: '低',
+    shiftLabel: '常白班 B',
+    scheduledWindow: '08:30–17:30',
+    punchSummary: '08:19 / 21:06',
+    exceptionMinutes: 186,
+    evidenceSummary: '存在延时打卡 · 无已审批加班单',
+    state: '待员工说明',
+    owner: '徐丽丽',
+    dueAt: '2026-06-19 18:00',
+  },
 ];
 
 const attendanceRateRows: AttendanceRateReportRow[] = [
@@ -472,7 +699,10 @@ const annualLeaveRows: AnnualLeaveReportRow[] = staff.map((person, index) => {
   };
 });
 
-export function getCustomerReportDemo(filters: CustomerReportFilters): CustomerReportDemo {
+export function getCustomerReportDemo(
+  filters: CustomerReportFilters,
+  dataScope: CustomerReportDataScope = defaultCustomerReportDataScope,
+): CustomerReportDemo {
   const monthlyOvertimeRows = buildOvertimeRows(filters.month);
   const attendanceRows = filterPeople(
     staff.map((person, index) => ({
@@ -483,20 +713,36 @@ export function getCustomerReportDemo(filters: CustomerReportFilters): CustomerR
       days: buildAttendanceDays(filters.month, index),
     })),
     filters,
+    dataScope,
   );
-  const filteredLeaveRows = filterPeople(monthlyLeaveRows(filters.month), filters);
-  const filteredOvertimeRows = filterPeople(monthlyOvertimeRows, filters);
+  const filteredLeaveRows = filterPeople(
+    monthlyLeaveRows(filters.month),
+    filters,
+    dataScope,
+  );
+  const filteredOvertimeRows = filterPeople(monthlyOvertimeRows, filters, dataScope);
   const filteredWorkHoursRows = filterPeople(
     buildWorkHoursRows(filters.month, monthlyOvertimeRows),
     filters,
+    dataScope,
   );
-  const filteredLateRows = filterPeople(monthlyExceptionRows(lateRows, filters.month), filters);
+  const filteredAttendanceExceptionRows = filterPeople(
+    monthlyAttendanceExceptionRows(attendanceExceptionRows, filters.month),
+    filters,
+    dataScope,
+  );
+  const filteredLateRows = filterPeople(
+    monthlyExceptionRows(lateRows, filters.month),
+    filters,
+    dataScope,
+  );
   const filteredMissedPunchRows = filterPeople(
     monthlyExceptionRows(missedPunchRows, filters.month),
     filters,
+    dataScope,
   );
-  const filteredAttendanceRateRows = filterPeople(attendanceRateRows, filters);
-  const filteredAnnualLeaveRows = filterPeople(annualLeaveRows, filters);
+  const filteredAttendanceRateRows = filterPeople(attendanceRateRows, filters, dataScope);
+  const filteredAnnualLeaveRows = filterPeople(annualLeaveRows, filters, dataScope);
   const monthLabel = formatMonth(filters.month);
 
   return {
@@ -507,11 +753,13 @@ export function getCustomerReportDemo(filters: CustomerReportFilters): CustomerR
       month: filters.month,
       monthLabel,
       rowCount: attendanceRows.length,
+      dataScope,
     },
     attendanceRows,
     leaveRows: filteredLeaveRows,
     overtimeRows: filteredOvertimeRows,
     workHoursRows: filteredWorkHoursRows,
+    attendanceExceptionRows: filteredAttendanceExceptionRows,
     lateRows: filteredLateRows,
     missedPunchRows: filteredMissedPunchRows,
     attendanceRateRows: filteredAttendanceRateRows,
@@ -563,6 +811,18 @@ export function applyCustomerReportSpecificFilters(
             if (filters.employmentStatus === '本月离职') return row.note.includes('离职');
             return !row.note.includes('入职') && !row.note.includes('离职');
           }),
+      };
+    case 'exceptions':
+      return {
+        ...report,
+        attendanceExceptionRows: report.attendanceExceptionRows.filter((row) => (
+          (filters.exceptionType === '全部异常'
+            || row.exceptionType === filters.exceptionType)
+          && (filters.exceptionSeverity === '全部级别'
+            || row.severity === filters.exceptionSeverity)
+          && (filters.exceptionState === '全部状态'
+            || row.state === filters.exceptionState)
+        )),
       };
     case 'late':
       return {
@@ -628,9 +888,18 @@ export function formatMonth(month: string): string {
 function filterPeople<T extends { department: string; employee: string }>(
   rows: T[],
   filters: CustomerReportFilters,
+  dataScope: CustomerReportDataScope,
 ): T[] {
+  if (!isCustomerReportQueryWithinScope(
+    filters.department,
+    filters.employee,
+    dataScope,
+  )) {
+    return [];
+  }
   return rows.filter((row) => (
-    (filters.department === '全部部门' || row.department === filters.department)
+    isWithinCustomerReportScope(row, dataScope)
+    && (filters.department === '全部部门' || row.department === filters.department)
     && (filters.employee === '全部员工' || row.employee === filters.employee)
   ));
 }

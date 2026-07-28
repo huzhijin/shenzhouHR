@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EvidenceEmployeeResolverMapper">
+
+    <sql id="resolverCoreProjection">
+        employee.employee_id,
+        employment.employment_period_id,
+        employment.assignment_id AS assignment_version_id,
+        employee_version.employee_version_id,
+        employment.organization_id,
+        employee.row_version AS employee_aggregate_version,
+        employee_version.row_version AS employee_version,
+        employment.row_version AS employment_version
+    </sql>
+
+    <sql id="activeEmployeeAndEmployment">
+        JOIN employee_version employee_version
+          ON employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND DATE(employment.effective_from) &lt;= #{businessDate}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{businessDate}
+         )
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.legal_entity_id = employee.legal_entity_id
+         AND organization.identity_status = 'ACTIVE'
+    </sql>
+
+    <select id="resolveByEmployeeNumber"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EvidenceEmployeeResolverRow">
+        SELECT
+            <include refid="resolverCoreProjection"/>,
+            NULL AS binding_id
+        FROM employee employee
+        <include refid="activeEmployeeAndEmployment"/>
+        WHERE employee.legal_entity_id = #{legalEntityId}
+          AND employee_version.employee_number = #{employeeNumber}
+        ORDER BY employee.employee_id, employment.employment_period_id,
+                 employment.assignment_id
+        LIMIT 2
+    </select>
+
+    <select id="resolveByConfirmedDeliBinding"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EvidenceEmployeeResolverRow">
+        SELECT
+            <include refid="resolverCoreProjection"/>,
+            binding.binding_id
+        FROM employee_source_binding binding
+        JOIN employee employee
+          ON employee.employee_id = binding.employee_id
+        <include refid="activeEmployeeAndEmployment"/>
+        WHERE employee.legal_entity_id = #{legalEntityId}
+          AND binding.binding_status = 'CONFIRMED'
+          AND binding.confirmation_ref IS NOT NULL
+          AND binding.effective_from &lt;= #{sourceLocalTime}
+          AND (
+                binding.effective_to IS NULL
+                OR binding.effective_to &gt; #{sourceLocalTime}
+          )
+          AND (
+                (
+                    #{bindingKind} = 'DELI_EXT_ID'
+                    AND binding.deli_ext_id = #{externalPersonRef}
+                )
+                OR (
+                    #{bindingKind} = 'DELI_USER_ID'
+                    AND binding.deli_user_id = #{externalPersonRef}
+                )
+          )
+        ORDER BY employee.employee_id, employment.employment_period_id,
+                 employment.assignment_id, binding.binding_id
+        LIMIT 2
+    </select>
+</mapper>

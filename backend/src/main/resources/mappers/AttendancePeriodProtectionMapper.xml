@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendancePeriodProtectionMapper">
+
+    <!--
+      Only the latest published projection is an authority. DRAFT rows and a
+      calendar-month inference must never make an UNKNOWN period writable.
+      LIMIT 2 exposes overlapping employee/employment authority to the adapter.
+    -->
+    <select id="resolveLatestPublished"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendancePeriodProjectionRow">
+        SELECT
+            projection.attendance_report_projection_id AS projection_id,
+            projection.legal_entity_id,
+            projection.period_start,
+            projection.period_end_exclusive,
+            projection.period_state,
+            projection.projection_version,
+            projection.source_snapshot_digest,
+            projection.projection_digest,
+            projection.published_at,
+            employee.employee_id,
+            employee_version.employee_version_id,
+            employee_version.row_version AS employee_version,
+            employment.employment_period_id,
+            employment.assignment_id AS employment_assignment_id,
+            employment.row_version AS employment_version,
+            employment.organization_id
+        FROM attendance_report_projection projection
+        JOIN legal_entity legal_entity
+          ON legal_entity.legal_entity_id = projection.legal_entity_id
+         AND legal_entity.status = 'ACTIVE'
+        JOIN employee employee
+          ON employee.legal_entity_id = projection.legal_entity_id
+         AND employee.employee_id = #{employeeId}
+        JOIN employee_version employee_version
+          ON employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND DATE(employment.effective_from) &lt;= #{businessDate}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{businessDate}
+         )
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.legal_entity_id = projection.legal_entity_id
+         AND organization.identity_status = 'ACTIVE'
+        WHERE projection.attendance_report_projection_id = (
+                SELECT latest.attendance_report_projection_id
+                FROM attendance_report_projection latest
+                WHERE latest.legal_entity_id = #{legalEntityId}
+                  AND latest.period_start &lt;= #{businessDate}
+                  AND latest.period_end_exclusive &gt; #{businessDate}
+                  AND latest.status = 'PUBLISHED'
+                  AND latest.published_at IS NOT NULL
+                ORDER BY latest.published_at DESC,
+                         latest.attendance_report_projection_id DESC
+                LIMIT 1
+        )
+          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.period_start &lt;= #{businessDate}
+          AND projection.period_end_exclusive &gt; #{businessDate}
+          AND projection.status = 'PUBLISHED'
+          AND projection.published_at IS NOT NULL
+        ORDER BY employee_version.employee_version_id,
+                 employment.assignment_id
+        LIMIT 2
+        FOR SHARE
+    </select>
+</mapper>

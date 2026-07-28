@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../shared/api/apiClient';
 import { translate } from '../shared/i18n/messages';
+import { reportFixture } from '../test/fixtures/wave7ContractFixtures';
 import { App } from './App';
 
 const sessionHook = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ describe('App session and route authorization', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
     runtimeMode.isDemoMode.mockReturnValue(false);
   });
 
@@ -321,7 +323,6 @@ describe('App session and route authorization', () => {
 
   it.each([
     ['/workbench', 'ATTENDANCE_DASHBOARD:READ'],
-    ['/attendance/reports', 'ATTENDANCE_REPORT:READ'],
     ['/me/today', 'ATTENDANCE_SELF:READ'],
     ['/me/leave', 'LEAVE_SELF:READ'],
     ['/me/feedback', 'ATTENDANCE_FEEDBACK:READ'],
@@ -348,6 +349,61 @@ describe('App session and route authorization', () => {
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();
     expect(screen.getByTestId('current-location')).toHaveTextContent(path);
+  });
+
+  it('loads the formal attendance report API on the authorized production route', async () => {
+    sessionHook.useSession.mockReturnValue({
+      state: {
+        status: 'ready',
+        session: {
+          capabilities: ['ATTENDANCE_REPORT:READ'],
+          menu: [],
+        },
+      },
+      reload: vi.fn(),
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const target = new URL(String(input), window.location.origin);
+      const reportType = target.searchParams.get('reportType')!;
+      const period = target.searchParams.get('period')!;
+      const page = Number(target.searchParams.get('page'));
+      const size = Number(target.searchParams.get('size'));
+      return new Response(JSON.stringify({
+        ...reportFixture,
+        metadata: {
+          ...reportFixture.metadata,
+          periodLabel: period,
+        },
+        reportType,
+        formulaVersion: `${reportType}_FORMULA_V1`,
+        filters: {
+          ...reportFixture.filters,
+          period,
+        },
+        page,
+        size,
+        totalPages: 1,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp('/attendance/reports');
+
+    expect(await screen.findByRole(
+      'heading',
+      { name: reportFixture.reportTitle },
+      { timeout: 5_000 },
+    )).toBeInTheDocument();
+    expect(screen.getByText('ATTENDANCE_DETAIL_FORMULA_V1'))
+      .toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
+      .not.toBeInTheDocument();
+    expect(screen.getByTestId('current-location'))
+      .toHaveTextContent('/attendance/reports');
   });
 
   it('renders the customer report center for an authorized demo session', async () => {

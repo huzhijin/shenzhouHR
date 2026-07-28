@@ -174,10 +174,7 @@ export function AttendancePolicyLifecyclePanel({
       setNotice({ kind: 'warning', message: t('attendanceSetup.reasonRequired') });
       return;
     }
-    const parameters = fields.map((field) => ({
-      key: field.key,
-      value: typedParameterValue(field, parameterValues[field.key] ?? ''),
-    }));
+    const parameters = policyParametersForSave(fields, parameterValues);
     void run(
       () => updateAttendancePolicyDraft(selected, {
         parameters,
@@ -399,7 +396,10 @@ export function AttendancePolicyLifecyclePanel({
                     </label>
                     {fields.map((field) => (
                       <label key={field.key}>
-                        <span>{field.label}</span>
+                        <span>
+                          {field.label}
+                          {!field.required ? ` · ${t('common.optional')}` : ''}
+                        </span>
                         {field.valueType === 'BOOLEAN' ? (
                           <Select
                             value={parameterValues[field.key]}
@@ -548,6 +548,20 @@ function typedParameterValue(
       .filter((item) => item.length > 0);
   }
   return value;
+}
+
+export function policyParametersForSave(
+  fields: PolicyFieldDefinition[],
+  parameterValues: Record<string, string>,
+): PolicyParameterValue[] {
+  return fields.flatMap((field) => {
+    const value = parameterValues[field.key] ?? '';
+    if (!field.required && value.trim().length === 0) return [];
+    return [{
+      key: field.key,
+      value: typedParameterValue(field, value),
+    }];
+  });
 }
 
 function displayParameterValue(value: unknown): string {

@@ -278,10 +278,35 @@ export interface PolicySimulationView {
   usageProvenance: string;
   usageKnowledgeTime: string;
   deductionMinutes?: number | null;
+  matchedMealWindows: PolicyMatchedMealWindowView[];
   correctionDeadline?: string | null;
   affectedSegment?: string | null;
   explanation: string;
   writesFormalResult: boolean;
+}
+
+export interface PolicyMatchedMealWindowView {
+  windowId:
+    | 'BASE_DINNER'
+    | 'SATURDAY_DINNER'
+    | 'SUNDAY_DINNER'
+    | 'PUBLIC_HOLIDAY_DINNER'
+    | 'SATURDAY_LUNCH'
+    | 'SUNDAY_LUNCH'
+    | 'PUBLIC_HOLIDAY_LUNCH';
+  mealType: 'LUNCH' | 'DINNER';
+  source:
+    | 'BASE'
+    | 'SATURDAY_OVERRIDE'
+    | 'SUNDAY_OVERRIDE'
+    | 'PUBLIC_HOLIDAY_OVERRIDE'
+    | 'SATURDAY_LUNCH'
+    | 'SUNDAY_LUNCH'
+    | 'PUBLIC_HOLIDAY_LUNCH';
+  windowStart: string;
+  windowEnd: string;
+  deductionMinutes: number;
+  triggerMinutes: number;
 }
 
 export interface PolicySimulationBatchView {

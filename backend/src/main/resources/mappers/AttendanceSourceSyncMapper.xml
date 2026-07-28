@@ -1,0 +1,598 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper">
+
+    <select id="lockAuthorizedLegalEntity" resultType="string">
+        SELECT entity.legal_entity_id
+        FROM legal_entity entity
+        WHERE entity.legal_entity_id = #{legalEntityId}
+          AND entity.status = 'ACTIVE'
+          AND EXISTS (
+              SELECT 1
+              FROM auth_principal principal
+              JOIN auth_principal_role_assignment role_assignment
+                ON role_assignment.principal_id = principal.principal_id
+              JOIN auth_role_capability role_capability
+                ON role_capability.role_id = role_assignment.role_id
+              JOIN auth_capability granted_capability
+                ON granted_capability.capability_id =
+                   role_capability.capability_id
+               AND granted_capability.capability_code = #{capability}
+              JOIN auth_data_scope data_scope
+                ON data_scope.scope_id = role_assignment.data_scope_id
+               AND data_scope.scope_type = 'LEGAL_ENTITY'
+               AND data_scope.legal_entity_id = entity.legal_entity_id
+              WHERE principal.principal_id = #{principalId}
+                AND principal.status = 'ACTIVE'
+                AND role_assignment.valid_from &lt;= #{at}
+                AND (
+                      role_assignment.valid_to IS NULL
+                      OR role_assignment.valid_to &gt; #{at}
+                )
+                AND data_scope.valid_from &lt;= #{at}
+                AND (
+                      data_scope.valid_to IS NULL
+                      OR data_scope.valid_to &gt; #{at}
+                )
+          )
+        FOR UPDATE
+    </select>
+
+    <select id="findRegistrationIdempotency"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$RegistrationIdempotencyRow">
+        SELECT attendance_ingestion_idempotency_id AS idempotency_id,
+               request_digest,
+               status
+        FROM attendance_ingestion_idempotency
+        WHERE actor_id = #{principalId}
+          AND operation_code = 'DELI_SOURCE_REGISTER'
+          AND resource_type = 'ATTENDANCE_SOURCE'
+          AND resource_id = #{sourceCode}
+          AND idempotency_key = #{idempotencyKey}
+        FOR UPDATE
+    </select>
+
+    <sql id="deliSourceRegistrationProjection">
+        source.attendance_source_id AS source_id,
+        source.legal_entity_id,
+        source.source_code,
+        source.display_name,
+        source.source_type,
+        source.status,
+        configuration.endpoint_kind,
+        configuration.source_time_zone,
+        configuration.page_size,
+        configuration.rate_limit_per_minute,
+        configuration.backoff_seconds,
+        configuration.secret_reference_name,
+        configuration.revision_number AS configuration_revision,
+        configuration.effective_from,
+        source.row_version,
+        FALSE AS replayed
+    </sql>
+
+    <select id="findDeliSourceByCode"
+            resultType="com.szsemicon.hr.evidenceingestion.application.DeliSourceRegistrationModels$SourceView">
+        SELECT <include refid="deliSourceRegistrationProjection"/>
+        FROM attendance_source source
+        JOIN attendance_source_config_revision configuration
+          ON configuration.source_config_revision_id = (
+              SELECT candidate.source_config_revision_id
+              FROM attendance_source_config_revision candidate
+              WHERE candidate.attendance_source_id =
+                    source.attendance_source_id
+              ORDER BY candidate.revision_number DESC,
+                       candidate.source_config_revision_id DESC
+              LIMIT 1
+          )
+        WHERE source.legal_entity_id = #{legalEntityId}
+          AND source.source_code = #{sourceCode}
+          AND source.source_type = 'DELI_CLOUD'
+        FOR UPDATE
+    </select>
+
+    <select id="countActiveSourcesForCredentialReference"
+            resultType="int">
+        SELECT COUNT(*)
+        FROM attendance_source source
+        JOIN attendance_source_config_revision configuration
+          ON configuration.source_config_revision_id = (
+              SELECT candidate.source_config_revision_id
+              FROM attendance_source_config_revision candidate
+              WHERE candidate.attendance_source_id =
+                    source.attendance_source_id
+                AND candidate.effective_from &lt;= #{at}
+              ORDER BY candidate.revision_number DESC,
+                       candidate.source_config_revision_id DESC
+              LIMIT 1
+          )
+        WHERE source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+          AND configuration.secret_reference_name =
+              #{secretReferenceName}
+    </select>
+
+    <insert id="insertRegistrationIdempotency">
+        INSERT INTO attendance_ingestion_idempotency (
+            attendance_ingestion_idempotency_id, actor_id, operation_code,
+            resource_type, resource_id, idempotency_key, request_digest,
+            status, response_status, response_headers_json,
+            response_body_json, created_at, completed_at
+        ) VALUES (
+            #{idempotencyId}, #{principalId}, 'DELI_SOURCE_REGISTER',
+            'ATTENDANCE_SOURCE', #{sourceCode}, #{idempotencyKey},
+            #{requestDigest}, 'STARTED', NULL, NULL, NULL,
+            #{createdAt}, NULL
+        )
+    </insert>
+
+    <insert id="insertDeliSource">
+        INSERT INTO attendance_source (
+            attendance_source_id, legal_entity_id, source_code, source_type,
+            display_name, status, row_version, created_by, created_at
+        ) VALUES (
+            #{sourceId}, #{command.legalEntityId}, #{command.sourceCode},
+            'DELI_CLOUD', #{command.displayName}, 'ACTIVE', 0,
+            #{principalId}, #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertDeliSourceConfiguration">
+        INSERT INTO attendance_source_config_revision (
+            source_config_revision_id, attendance_source_id, revision_number,
+            endpoint_kind, source_time_zone, page_size,
+            rate_limit_per_minute, backoff_seconds, secret_reference_name,
+            adapter_settings_json, effective_from,
+            supersedes_config_revision_id, snapshot_digest, change_reason,
+            created_by, created_at
+        ) VALUES (
+            #{configurationRevisionId}, #{sourceId}, 1,
+            'DELI_EPLUS_CHECKIN_QUERY', #{command.sourceTimeZone},
+            #{command.pageSize}, #{command.rateLimitPerMinute},
+            #{command.backoffSeconds}, #{command.secretReferenceName},
+            JSON_OBJECT(
+                'personReferencePolicy', 'CONFIRMED_DELI_BINDING',
+                'forbiddenPayloadPolicy', 'DROP'
+            ),
+            #{createdAt}, NULL, #{snapshotDigest}, #{command.reason},
+            #{principalId}, #{createdAt}
+        )
+    </insert>
+
+    <update id="completeRegistrationIdempotency">
+        UPDATE attendance_ingestion_idempotency
+        SET status = 'COMPLETED_SUCCESS',
+            response_status = 201,
+            response_headers_json = JSON_OBJECT(),
+            response_body_json = JSON_OBJECT('sourceId', #{sourceId}),
+            completed_at = #{completedAt}
+        WHERE attendance_ingestion_idempotency_id = #{idempotencyId}
+          AND status = 'STARTED'
+    </update>
+
+    <sql id="legalEntityCapability">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN auth_principal_role_assignment role_assignment
+              ON role_assignment.principal_id = principal.principal_id
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability granted_capability
+              ON granted_capability.capability_id =
+                 role_capability.capability_id
+             AND granted_capability.capability_code = #{capability}
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+             AND data_scope.scope_type = 'LEGAL_ENTITY'
+             AND data_scope.legal_entity_id = source.legal_entity_id
+            WHERE principal.principal_id = #{principalId}
+              AND principal.status = 'ACTIVE'
+              AND role_assignment.valid_from &lt;= #{authorizationTime}
+              AND (
+                    role_assignment.valid_to IS NULL
+                    OR role_assignment.valid_to &gt; #{authorizationTime}
+              )
+              AND data_scope.valid_from &lt;= #{authorizationTime}
+              AND (
+                    data_scope.valid_to IS NULL
+                    OR data_scope.valid_to &gt; #{authorizationTime}
+              )
+        )
+    </sql>
+
+    <select id="lockAuthorizedDeliSource"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$AuthorizedDeliSourceRow">
+        SELECT source.attendance_source_id AS source_id,
+               source.legal_entity_id,
+               source.display_name,
+               configuration.secret_reference_name,
+               configuration.source_time_zone,
+               configuration.page_size,
+               configuration.rate_limit_per_minute,
+               configuration.backoff_seconds,
+               watermark.committed_cursor
+        FROM attendance_source source
+        JOIN attendance_source_config_revision configuration
+          ON configuration.source_config_revision_id = (
+              SELECT candidate.source_config_revision_id
+              FROM attendance_source_config_revision candidate
+              WHERE candidate.attendance_source_id =
+                    source.attendance_source_id
+                AND candidate.effective_from &lt;= #{at}
+              ORDER BY candidate.revision_number DESC,
+                       candidate.source_config_revision_id DESC
+              LIMIT 1
+          )
+        LEFT JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+          AND configuration.endpoint_kind = 'DELI_EPLUS_CHECKIN_QUERY'
+          AND configuration.secret_reference_name IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_source other_source
+              JOIN attendance_source_config_revision other_configuration
+                ON other_configuration.source_config_revision_id = (
+                    SELECT other_candidate.source_config_revision_id
+                    FROM attendance_source_config_revision other_candidate
+                    WHERE other_candidate.attendance_source_id =
+                          other_source.attendance_source_id
+                      AND other_candidate.effective_from &lt;= #{at}
+                    ORDER BY other_candidate.revision_number DESC,
+                             other_candidate.source_config_revision_id DESC
+                    LIMIT 1
+                )
+              WHERE other_source.source_type = 'DELI_CLOUD'
+                AND other_source.status = 'ACTIVE'
+                AND other_source.attendance_source_id &lt;&gt;
+                    source.attendance_source_id
+                AND other_configuration.secret_reference_name =
+                    configuration.secret_reference_name
+          )
+          AND EXISTS (
+              SELECT 1
+              FROM auth_principal principal
+              JOIN auth_principal_role_assignment role_assignment
+                ON role_assignment.principal_id = principal.principal_id
+              JOIN auth_role_capability role_capability
+                ON role_capability.role_id = role_assignment.role_id
+              JOIN auth_capability granted_capability
+                ON granted_capability.capability_id =
+                   role_capability.capability_id
+               AND granted_capability.capability_code = #{capability}
+              JOIN auth_data_scope data_scope
+                ON data_scope.scope_id = role_assignment.data_scope_id
+               AND data_scope.scope_type = 'LEGAL_ENTITY'
+               AND data_scope.legal_entity_id = source.legal_entity_id
+              WHERE principal.principal_id = #{principalId}
+                AND principal.status = 'ACTIVE'
+                AND role_assignment.valid_from &lt;= #{at}
+                AND (
+                      role_assignment.valid_to IS NULL
+                      OR role_assignment.valid_to &gt; #{at}
+                )
+                AND data_scope.valid_from &lt;= #{at}
+                AND (
+                      data_scope.valid_to IS NULL
+                      OR data_scope.valid_to &gt; #{at}
+                )
+          )
+        FOR UPDATE
+    </select>
+
+    <select id="lockAuthorizedDeliRetryCandidate"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$RetryCandidateRow">
+        SELECT job.attendance_sync_job_id AS original_job_id,
+               job.status AS original_status,
+               job.row_version AS original_row_version,
+               source.attendance_source_id AS source_id,
+               source.legal_entity_id,
+               source.display_name,
+               configuration.secret_reference_name,
+               configuration.source_time_zone,
+               configuration.page_size,
+               configuration.rate_limit_per_minute,
+               configuration.backoff_seconds,
+               watermark.committed_cursor
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        JOIN attendance_source_config_revision configuration
+          ON configuration.source_config_revision_id = (
+              SELECT candidate.source_config_revision_id
+              FROM attendance_source_config_revision candidate
+              WHERE candidate.attendance_source_id =
+                    source.attendance_source_id
+                AND candidate.effective_from &lt;= #{authorizationTime}
+              ORDER BY candidate.revision_number DESC,
+                       candidate.source_config_revision_id DESC
+              LIMIT 1
+          )
+        LEFT JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{originalJobId}
+          AND source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+          AND configuration.endpoint_kind = 'DELI_EPLUS_CHECKIN_QUERY'
+          AND configuration.secret_reference_name IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_source other_source
+              JOIN attendance_source_config_revision other_configuration
+                ON other_configuration.source_config_revision_id = (
+                    SELECT other_candidate.source_config_revision_id
+                    FROM attendance_source_config_revision other_candidate
+                    WHERE other_candidate.attendance_source_id =
+                          other_source.attendance_source_id
+                      AND other_candidate.effective_from &lt;=
+                          #{authorizationTime}
+                    ORDER BY other_candidate.revision_number DESC,
+                             other_candidate.source_config_revision_id DESC
+                    LIMIT 1
+                )
+              WHERE other_source.source_type = 'DELI_CLOUD'
+                AND other_source.status = 'ACTIVE'
+                AND other_source.attendance_source_id &lt;&gt;
+                    source.attendance_source_id
+                AND other_configuration.secret_reference_name =
+                    configuration.secret_reference_name
+          )
+          AND <include refid="legalEntityCapability"/>
+        FOR UPDATE
+    </select>
+
+    <select id="findRetryIdempotency"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$RetryIdempotencyRow">
+        SELECT attendance_ingestion_idempotency_id AS idempotency_id,
+               request_digest,
+               status,
+               JSON_UNQUOTE(
+                   JSON_EXTRACT(response_body_json, '$.jobId')
+               ) AS replay_job_id
+        FROM attendance_ingestion_idempotency
+        WHERE actor_id = #{principalId}
+          AND operation_code = 'DELI_SOURCE_RETRY'
+          AND resource_type = 'ATTENDANCE_SYNC_JOB'
+          AND resource_id = #{originalJobId}
+          AND idempotency_key = #{idempotencyKey}
+        FOR UPDATE
+    </select>
+
+    <insert id="insertRetryIdempotency">
+        INSERT INTO attendance_ingestion_idempotency (
+            attendance_ingestion_idempotency_id, actor_id, operation_code,
+            resource_type, resource_id, idempotency_key, request_digest,
+            status, response_status, response_headers_json,
+            response_body_json, created_at, completed_at
+        ) VALUES (
+            #{idempotencyId}, #{principalId}, 'DELI_SOURCE_RETRY',
+            'ATTENDANCE_SYNC_JOB', #{originalJobId}, #{idempotencyKey},
+            #{requestDigest}, 'STARTED', NULL, NULL, NULL,
+            #{createdAt}, NULL
+        )
+    </insert>
+
+    <update id="completeRetryIdempotency">
+        UPDATE attendance_ingestion_idempotency
+        SET status = 'COMPLETED_SUCCESS',
+            response_status = 200,
+            response_headers_json = JSON_OBJECT(),
+            response_body_json = JSON_OBJECT('jobId', #{newJobId}),
+            completed_at = #{completedAt}
+        WHERE attendance_ingestion_idempotency_id = #{idempotencyId}
+          AND status = 'STARTED'
+    </update>
+
+    <update id="touchRetriedJob">
+        UPDATE attendance_sync_job
+        SET row_version = row_version + 1
+        WHERE attendance_sync_job_id = #{originalJobId}
+          AND row_version = #{expectedRowVersion}
+          AND status IN ('FAILED', 'PARTIALLY_QUARANTINED', 'CANCELLED')
+    </update>
+
+    <select id="countActiveJobs" resultType="int">
+        SELECT COUNT(*)
+        FROM attendance_sync_job
+        WHERE attendance_source_id = #{sourceId}
+          AND status IN ('QUEUED', 'RUNNING')
+    </select>
+
+    <update id="expireStaleActiveJobs">
+        UPDATE attendance_sync_job job
+        SET job.status = 'FAILED',
+            job.safe_error_code = 'DELI_SYNC_LEASE_EXPIRED',
+            job.finished_at = #{finishedAt},
+            job.row_version = job.row_version + 1
+        WHERE job.attendance_source_id = #{sourceId}
+          AND job.status IN ('QUEUED', 'RUNNING')
+          AND COALESCE(
+              (
+                  SELECT MAX(page.committed_at)
+                  FROM attendance_sync_job_page page
+                  WHERE page.attendance_sync_job_id =
+                        job.attendance_sync_job_id
+              ),
+              job.started_at,
+              job.created_at
+          ) &lt; #{staleBefore}
+    </update>
+
+    <insert id="insertWatermarkIfAbsent">
+        INSERT INTO attendance_sync_watermark (
+            attendance_source_id, committed_cursor, committed_page_digest,
+            row_version, committed_at
+        ) VALUES (
+            #{sourceId}, NULL, NULL, 0, NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            attendance_source_id = attendance_source_id
+    </insert>
+
+    <insert id="insertJob">
+        INSERT INTO attendance_sync_job (
+            attendance_sync_job_id, attendance_source_id, requested_watermark,
+            status, started_at, finished_at, page_count, accepted_count,
+            quarantined_count, safe_error_code, correlation_id, row_version,
+            requested_by, created_at
+        ) VALUES (
+            #{jobId}, #{sourceId}, #{requestedWatermark},
+            'QUEUED', NULL, NULL, 0, 0,
+            0, NULL, #{correlationId}, 0,
+            #{requestedBy}, #{createdAt}
+        )
+    </insert>
+
+    <update id="markRunning">
+        UPDATE attendance_sync_job
+        SET status = 'RUNNING',
+            started_at = #{startedAt},
+            row_version = row_version + 1
+        WHERE attendance_sync_job_id = #{jobId}
+          AND status = 'QUEUED'
+    </update>
+
+    <update id="markFailed">
+        UPDATE attendance_sync_job
+        SET status = 'FAILED',
+            safe_error_code = #{safeErrorCode},
+            finished_at = #{finishedAt},
+            row_version = row_version + 1
+        WHERE attendance_sync_job_id = #{jobId}
+          AND status IN ('QUEUED', 'RUNNING')
+    </update>
+
+    <update id="markFinished">
+        UPDATE attendance_sync_job
+        SET status = #{status},
+            safe_error_code = NULL,
+            finished_at = #{finishedAt},
+            row_version = row_version + 1
+        WHERE attendance_sync_job_id = #{jobId}
+          AND status = 'RUNNING'
+          AND #{status} IN ('SUCCEEDED', 'PARTIALLY_QUARANTINED')
+    </update>
+
+    <select id="lockPageForCommit"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$PageState">
+        SELECT job.attendance_sync_job_id AS job_id,
+               source.attendance_source_id AS source_id,
+               source.legal_entity_id,
+               job.status AS job_status,
+               job.page_count AS committed_pages,
+               watermark.committed_cursor,
+               watermark.row_version AS watermark_version
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{jobId}
+          AND source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+          AND job.status = 'RUNNING'
+          AND <include refid="legalEntityCapability"/>
+        FOR UPDATE
+    </select>
+
+    <insert id="insertCommittedPage">
+        INSERT INTO attendance_sync_job_page (
+            attendance_sync_job_page_id, attendance_sync_job_id, page_number,
+            input_cursor, next_cursor, record_count, accepted_count,
+            quarantined_count, page_digest, request_id, committed_at
+        ) VALUES (
+            #{pageId}, #{jobId}, #{pageNumber},
+            #{inputCursor}, #{nextCursor}, #{recordCount}, #{acceptedCount},
+            #{quarantinedCount}, #{pageDigest}, #{requestId}, #{committedAt}
+        )
+    </insert>
+
+    <update id="advanceWatermark">
+        UPDATE attendance_sync_watermark
+        SET committed_cursor = #{committedCursor},
+            committed_page_digest = #{pageDigest},
+            committed_at = #{committedAt},
+            row_version = row_version + 1
+        WHERE attendance_source_id = #{sourceId}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <update id="incrementJobCounters">
+        UPDATE attendance_sync_job
+        SET page_count = page_count + 1,
+            accepted_count = accepted_count + #{acceptedCount},
+            quarantined_count =
+                quarantined_count + #{quarantinedCount},
+            row_version = row_version + 1
+        WHERE attendance_sync_job_id = #{jobId}
+          AND status = 'RUNNING'
+    </update>
+
+    <sql id="jobProjection">
+        job.attendance_sync_job_id AS job_id,
+        source.attendance_source_id AS source_id,
+        source.display_name AS source_display_name,
+        source.source_type,
+        job.status AS state,
+        job.page_count AS committed_pages,
+        job.accepted_count,
+        job.quarantined_count,
+        job.safe_error_code,
+        job.started_at,
+        job.finished_at AS completed_at,
+        job.row_version
+    </sql>
+
+    <select id="findCreatedJob"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$JobStatus">
+        SELECT <include refid="jobProjection"/>
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{jobId}
+          AND job.requested_by = #{requestedBy}
+    </select>
+
+    <select id="findAuthorizedJob"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$JobStatus">
+        SELECT <include refid="jobProjection"/>
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{jobId}
+          AND EXISTS (
+              SELECT 1
+              FROM auth_principal principal
+              JOIN auth_principal_role_assignment role_assignment
+                ON role_assignment.principal_id = principal.principal_id
+              JOIN auth_role_capability role_capability
+                ON role_capability.role_id = role_assignment.role_id
+              JOIN auth_capability granted_capability
+                ON granted_capability.capability_id =
+                   role_capability.capability_id
+               AND granted_capability.capability_code = #{capability}
+              JOIN auth_data_scope data_scope
+                ON data_scope.scope_id = role_assignment.data_scope_id
+               AND data_scope.scope_type = 'LEGAL_ENTITY'
+               AND data_scope.legal_entity_id = source.legal_entity_id
+              WHERE principal.principal_id = #{principalId}
+                AND principal.status = 'ACTIVE'
+                AND role_assignment.valid_from &lt;= #{at}
+                AND (
+                      role_assignment.valid_to IS NULL
+                      OR role_assignment.valid_to &gt; #{at}
+                )
+                AND data_scope.valid_from &lt;= #{at}
+                AND (
+                      data_scope.valid_to IS NULL
+                      OR data_scope.valid_to &gt; #{at}
+                )
+          )
+    </select>
+</mapper>

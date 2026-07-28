@@ -416,6 +416,9 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
                   <strong>{field.label}</strong>
                   <span>{field.key}</span>
                   <code>{field.valueType}</code>
+                  <small>
+                    {t(field.required ? 'common.required' : 'common.optional')}
+                  </small>
                 </li>
               ))}
             </ul>

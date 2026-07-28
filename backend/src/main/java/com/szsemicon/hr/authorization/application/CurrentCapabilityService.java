@@ -2,6 +2,7 @@ package com.szsemicon.hr.authorization.application;
 
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.Set;
 import java.util.TreeSet;
@@ -29,9 +30,19 @@ public class CurrentCapabilityService {
 
     @Transactional(readOnly = true)
     public Set<String> currentCapabilities() {
-        Set<String> capabilities = capabilityRepository.findActiveCodes(
-                principalProvider.currentPrincipalId(),
-                clock.instant());
+        return activeCapabilities(
+                principalProvider.currentPrincipalId(), clock.instant());
+    }
+
+    @Transactional(readOnly = true)
+    public Set<String> activeCapabilities(String principalId, Instant at) {
+        if (principalId == null
+                || principalId.isBlank()
+                || at == null) {
+            return Set.of();
+        }
+        Set<String> capabilities =
+                capabilityRepository.findActiveCodes(principalId, at);
         return Collections.unmodifiableSet(new TreeSet<>(capabilities));
     }
 

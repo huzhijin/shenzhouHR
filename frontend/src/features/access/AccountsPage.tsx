@@ -10,6 +10,7 @@ import { PageHeader, QueryFilterBar } from '../../shared/components/PagePrimitiv
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import { createAccount, listAccounts, listRoles, lockAccount, type AccountStatus, type AccountSummary, type RoleView } from './accessApi';
+import { allowedScopeTypes, type RoleScopeType } from './roleScopePolicy';
 
 export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const { t } = useTranslation();
@@ -21,6 +22,10 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const [feedback, setFeedback] = useState<string>();
   const [roles, setRoles] = useState<RoleView[]>([]);
   const [form] = Form.useForm();
+  const selectedRoleId = Form.useWatch<string>('roleId', form);
+  const selectedScopeType = Form.useWatch<RoleScopeType>('scopeType', form);
+  const selectedRole = roles.find((role) => role.roleId === selectedRoleId);
+  const allowedScopes = selectedRole ? allowedScopeTypes(selectedRole) : [];
   const loader = useMemo(() => () => listAccounts({ q: query, status }), [query, status]);
   const { resource, reload } = useAsyncResource(loader, (page) => page.items.length === 0, [query, status]);
 
@@ -33,8 +38,9 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
     username: string;
     displayName: string;
     temporaryPassword: string;
+    employeeId?: string;
     roleId: string;
-    scopeType: 'LEGAL_ENTITY' | 'ORGANIZATION' | 'SELF';
+    scopeType: RoleScopeType;
     scopeResourceId?: string;
   }) => {
     setProcessing(true);
@@ -43,6 +49,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
         username: values.username,
         displayName: values.displayName,
         temporaryPassword: values.temporaryPassword,
+        employeeId: values.scopeType === 'SELF' ? values.employeeId ?? null : null,
         roleAssignments: [{
           roleId: values.roleId,
           scopeType: values.scopeType,
@@ -129,18 +136,45 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
           <Form.Item label={t('access.displayName')} name="displayName" rules={[{ required: true, message: t('access.displayNameRequired') }]}><Input /></Form.Item>
           <Form.Item label={t('access.initialPassword')} name="temporaryPassword" rules={[{ required: true, min: 12, message: t('access.initialPasswordRule') }]}><Input.Password autoComplete="new-password" /></Form.Item>
           <Form.Item label={t('access.initialRole')} name="roleId" rules={[{ required: true, message: t('access.roleRequired') }]}>
-            <Select options={Array.from(roles, (role) => ({ value: role.roleId, label: role.roleName }))} />
+            <Select
+              options={Array.from(roles, (role) => ({ value: role.roleId, label: role.roleName }))}
+              onChange={(roleId: string) => {
+                const role = roles.find((candidate) => candidate.roleId === roleId);
+                const [defaultScope] = role ? allowedScopeTypes(role) : [];
+                form.setFieldsValue({
+                  scopeType: defaultScope,
+                  scopeResourceId: undefined,
+                  employeeId: undefined,
+                });
+              }}
+            />
           </Form.Item>
-          <Form.Item label={t('access.scopeType')} name="scopeType" initialValue="LEGAL_ENTITY" rules={[{ required: true }]}>
-            <Select options={[
-              { value: 'LEGAL_ENTITY', label: t('access.legalEntity') },
-              { value: 'ORGANIZATION', label: t('access.organization') },
-              { value: 'SELF', label: t('access.self') },
-            ]} />
+          <Form.Item label={t('access.scopeType')} name="scopeType" rules={[{ required: true }]}>
+            <Select
+              disabled={allowedScopes.length <= 1}
+              options={allowedScopes.map((scopeType) => ({
+                value: scopeType,
+                label: scopeType === 'LEGAL_ENTITY'
+                  ? t('access.legalEntity')
+                  : scopeType === 'ORGANIZATION'
+                    ? t('access.organization')
+                    : t('access.self'),
+              }))}
+            />
           </Form.Item>
-          <Form.Item label={t('access.scopeResource')} name="scopeResourceId" dependencies={['scopeType']} rules={[
-            ({ getFieldValue }) => ({ validator: (_rule, value) => getFieldValue('scopeType') === 'SELF' || value ? Promise.resolve() : Promise.reject(new Error(t('access.scopeResourceRequired'))) }),
-          ]}><Input /></Form.Item>
+          {selectedScopeType === 'SELF' ? (
+            <Form.Item
+              label={t('access.employeeId')}
+              name="employeeId"
+              rules={[{ required: true, message: t('access.employeeIdRequired') }]}
+            >
+              <Input />
+            </Form.Item>
+          ) : (
+            <Form.Item label={t('access.scopeResource')} name="scopeResourceId" dependencies={['scopeType']} rules={[
+              ({ getFieldValue }) => ({ validator: (_rule, value) => getFieldValue('scopeType') === 'SELF' || value ? Promise.resolve() : Promise.reject(new Error(t('access.scopeResourceRequired'))) }),
+            ]}><Input /></Form.Item>
+          )}
         </Form>
       </Modal>
       <ConfirmationDialog

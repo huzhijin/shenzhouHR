@@ -11,8 +11,14 @@ public interface EmployeeEmploymentResolverPort {
             String legalEntityId,
             String locationId,
             String deviceId,
+            ConfirmedBindingKind bindingKind,
             String externalPersonRef,
             Instant at);
+
+    enum ConfirmedBindingKind {
+        DELI_EXT_ID,
+        DELI_USER_ID
+    }
 
     record Resolution(
             String employeeId,

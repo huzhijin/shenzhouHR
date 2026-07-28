@@ -71,3 +71,23 @@ shenzhouhr:
     max-file-bytes: 20971520
     max-rows: 50000
     max-sheets: 8
+  integrations:
+    deli-eplus:
+      enabled: ${DELI_EPLUS_ENABLED:false}
+      base-url: ${DELI_EPLUS_BASE_URL:https://v2-api.delicloud.com}
+      app-key: ${DELI_EPLUS_APP_KEY:}
+      app-secret: ${DELI_EPLUS_APP_SECRET:}
+      page-size: ${DELI_EPLUS_PAGE_SIZE:500}
+      connect-timeout: ${DELI_EPLUS_CONNECT_TIMEOUT:PT5S}
+      request-timeout: ${DELI_EPLUS_REQUEST_TIMEOUT:PT15S}
+      max-response-bytes: ${DELI_EPLUS_MAX_RESPONSE_BYTES:4194304}
+      source-time-zone: ${DELI_EPLUS_SOURCE_TIME_ZONE:Asia/Shanghai}
+      credential-reference-name: ${DELI_EPLUS_CREDENTIAL_REFERENCE_NAME:DELI_EPLUS_APP_CREDENTIALS}
+    oa-mysql:
+      enabled: ${OA_MYSQL_ENABLED:false}
+      jdbc-url: ${OA_MYSQL_JDBC_URL:}
+      username: ${OA_MYSQL_USERNAME:}
+      password: ${OA_MYSQL_PASSWORD:}
+      maximum-pool-size: ${OA_MYSQL_MAX_POOL_SIZE:2}
+      connection-timeout: ${OA_MYSQL_CONNECTION_TIMEOUT:PT5S}
+      query-timeout: ${OA_MYSQL_QUERY_TIMEOUT:PT3S}

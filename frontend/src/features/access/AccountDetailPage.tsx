@@ -1,5 +1,6 @@
-import { IconKey, IconLockOpen, IconPlayerPause, IconRefresh } from '@tabler/icons-react';
-import { Button, DatePicker, Form, Input, Space } from 'antd';
+import { IconKey, IconLockOpen, IconPlus, IconPlayerPause, IconRefresh, IconTrash } from '@tabler/icons-react';
+import { Button, DatePicker, Form, Input, Select, Space } from 'antd';
+import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
@@ -24,8 +25,16 @@ import {
   updateAccountStatus,
   type RoleView,
 } from './accessApi';
+import {
+  allowedScopeTypes,
+  editableRoleAssignments,
+  roleAssignmentRequests,
+  type EditableRoleAssignment,
+  type RoleScopeType,
+} from './roleScopePolicy';
 
 type Operation = 'disable' | 'enable' | 'unlock' | 'reset' | 'revoke-session';
+let newAssignmentSequence = 0;
 
 export function AccountDetailPage({ capabilities }: { capabilities: string[] }) {
   const { t } = useTranslation();
@@ -33,18 +42,23 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
   const accountLoader = useMemo(() => () => getAccount(accountId), [accountId]);
   const { resource, reload } = useAsyncResource(accountLoader, () => false, [accountId]);
   const [roles, setRoles] = useState<RoleView[]>([]);
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [roleAssignments, setRoleAssignments] = useState<EditableRoleAssignment[]>([]);
   const [operation, setOperation] = useState<Operation>();
   const [processing, setProcessing] = useState(false);
   const [feedback, setFeedback] = useState<string>();
   const [reason, setReason] = useState('');
-  const [effectiveTo, setEffectiveTo] = useState<string | null>(null);
   const [sessionTarget, setSessionTarget] = useState<string>();
+  const selectedRoles = useMemo(
+    () => Array.from(new Set(roleAssignments.map((assignment) => assignment.roleId))),
+    [roleAssignments],
+  );
 
   const loadRoles = async () => {
     const result = await listRoles();
     setRoles(result);
-    if (resource.status === 'ready') setSelectedRoles(Array.from(resource.data.roles, (role) => role.roleId));
+    if (resource.status === 'ready') {
+      setRoleAssignments(editableRoleAssignments(resource.data.roles));
+    }
   };
 
   const confirmOperation = async () => {
@@ -68,19 +82,15 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
   };
 
   const saveRoles = async () => {
+    if (resource.status !== 'ready') return;
+    if (!roleConfigurationComplete(roleAssignments, roles)) return;
     setProcessing(true);
     try {
       await assignRoles(
         accountId,
-        Array.from(selectedRoles, (roleId) => ({
-          roleId,
-          scopeType: 'LEGAL_ENTITY',
-          scopeResourceId: '9700000000000000001',
-          validFrom: new Date().toISOString(),
-          validTo: effectiveTo,
-        })),
+        roleAssignmentRequests(roleAssignments),
         t('access.roleUpdateReason'),
-        account.rowVersion,
+        resource.data.rowVersion,
       );
       setFeedback(t('access.rolesUpdated'));
       reload();
@@ -102,6 +112,36 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
   const handleSaveRoles = () => {
     void saveRoles();
   };
+  const updateSelectedRoles = (roleIds: string[]) => {
+    setRoleAssignments((current) => {
+      const next = current.filter((assignment) => roleIds.includes(assignment.roleId));
+      for (const roleId of roleIds) {
+        if (next.some((assignment) => assignment.roleId === roleId)) continue;
+        const role = roles.find((candidate) => candidate.roleId === roleId);
+        const scopeType = role ? allowedScopeTypes(role)[0] : undefined;
+        if (scopeType) next.push(newAssignment(roleId, scopeType));
+      }
+      return next;
+    });
+  };
+  const updateAssignment = (
+    key: string,
+    patch: Partial<EditableRoleAssignment>,
+  ) => setRoleAssignments((current) => current.map((assignment) => (
+    assignment.key === key ? { ...assignment, ...patch } : assignment
+  )));
+  const addAssignment = (role: RoleView) => {
+    const scopeType = allowedScopeTypes(role)[0];
+    if (!scopeType) return;
+    setRoleAssignments((current) => [
+      ...current,
+      newAssignment(role.roleId, scopeType),
+    ]);
+  };
+  const removeAssignment = (key: string) => {
+    setRoleAssignments((current) => current.filter((assignment) => assignment.key !== key));
+  };
+  const assignmentsComplete = roleConfigurationComplete(roleAssignments, roles);
 
   return (
     <>
@@ -133,12 +173,89 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
         <RoleScopeList assignments={account.roles} />
         {roles.length > 0 ? (
           <>
-            <PermissionMatrix roles={roles} selectedRoleIds={selectedRoles} onChange={setSelectedRoles} />
-            <Form layout="inline" className="authorization-validity">
-              <Form.Item label={t('access.authorizationExpiry')}>
-                <DatePicker onChange={(_value, dateString) => setEffectiveTo(Array.isArray(dateString) ? dateString[0] ?? null : dateString || null)} />
-              </Form.Item>
-              <Button type="primary" loading={processing} disabled={!capabilities.includes('ROLE:ASSIGN')} onClick={handleSaveRoles}>{t('access.saveAuthorization')}</Button>
+            <PermissionMatrix roles={roles} selectedRoleIds={selectedRoles} onChange={updateSelectedRoles} />
+            <Form layout="vertical" className="authorization-validity">
+              {selectedRoles.map((roleId) => {
+                const role = roles.find((candidate) => candidate.roleId === roleId);
+                const allowedScopes = role ? allowedScopeTypes(role) : [];
+                const rows = roleAssignments.filter((assignment) => assignment.roleId === roleId);
+                if (!role) return null;
+                return (
+                  <div key={roleId} className="role-assignment-group">
+                    <div className="section-heading">
+                      <h3>{role.roleName}</h3>
+                      <Button icon={<IconPlus stroke={2} />} onClick={() => addAssignment(role)}>
+                        {t('access.addScopeAssignment')}
+                      </Button>
+                    </div>
+                    {rows.map((assignment, index) => (
+                      <div key={assignment.key} className="role-assignment-row">
+                        <Form.Item label={`${t('access.scopeType')} ${index + 1}`}>
+                          <Select
+                            value={assignment.scopeType}
+                            disabled={allowedScopes.length <= 1}
+                            options={allowedScopes.map((scopeType) => ({
+                              value: scopeType,
+                              label: scopeType === 'LEGAL_ENTITY'
+                                ? t('access.legalEntity')
+                                : scopeType === 'ORGANIZATION'
+                                  ? t('access.organization')
+                                  : t('access.self'),
+                            }))}
+                            onChange={(scopeType: RoleScopeType) => updateAssignment(
+                              assignment.key,
+                              {
+                                scopeType,
+                                scopeResourceId: scopeType === 'SELF' ? null : '',
+                              },
+                            )}
+                          />
+                        </Form.Item>
+                        {assignment.scopeType !== 'SELF' ? (
+                          <Form.Item label={`${t('access.scopeResource')} ${index + 1}`} required>
+                            <Input
+                              value={assignment.scopeResourceId ?? ''}
+                              onChange={(event) => updateAssignment(
+                                assignment.key,
+                                { scopeResourceId: event.target.value },
+                              )}
+                            />
+                          </Form.Item>
+                        ) : null}
+                        <Form.Item label={`${t('access.authorizationStart')} ${index + 1}`} required>
+                          <DatePicker
+                            showTime
+                            value={dayjs(assignment.validFrom)}
+                            onChange={(value) => updateAssignment(
+                              assignment.key,
+                              { validFrom: value?.toISOString() ?? '' },
+                            )}
+                          />
+                        </Form.Item>
+                        <Form.Item label={`${t('access.authorizationExpiry')} ${index + 1}`}>
+                          <DatePicker
+                            showTime
+                            allowClear
+                            value={assignment.validTo ? dayjs(assignment.validTo) : null}
+                            onChange={(value) => updateAssignment(
+                              assignment.key,
+                              { validTo: value?.toISOString() ?? null },
+                            )}
+                          />
+                        </Form.Item>
+                        <Button
+                          danger
+                          icon={<IconTrash stroke={2} />}
+                          onClick={() => removeAssignment(assignment.key)}
+                        >
+                          {t('access.removeScopeAssignment')}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              <Button type="primary" loading={processing} disabled={!capabilities.includes('ROLE:ASSIGN') || !assignmentsComplete} onClick={handleSaveRoles}>{t('access.saveAuthorization')}</Button>
             </Form>
           </>
         ) : <p>{t('access.loadRolesHelp')}</p>}
@@ -165,4 +282,49 @@ function operationTitle(operation: Operation | undefined, t: (key: string) => st
   if (operation === 'unlock') return t('access.confirmUnlock');
   if (operation === 'revoke-session') return t('access.confirmRevokeSession');
   return t('access.confirmReset');
+}
+
+function newAssignment(
+  roleId: string,
+  scopeType: RoleScopeType,
+): EditableRoleAssignment {
+  newAssignmentSequence += 1;
+  return {
+    key: `new-${roleId}-${newAssignmentSequence}`,
+    roleId,
+    scopeType,
+    scopeResourceId: null,
+    validFrom: new Date().toISOString(),
+    validTo: null,
+  };
+}
+
+function roleConfigurationComplete(
+  assignments: EditableRoleAssignment[],
+  roles: RoleView[],
+): boolean {
+  if (assignments.length === 0) return false;
+  const semanticKeys = new Set<string>();
+  return assignments.every((assignment) => {
+    const role = roles.find((candidate) => candidate.roleId === assignment.roleId);
+    const validFrom = Date.parse(assignment.validFrom);
+    const validTo = assignment.validTo == null ? null : Date.parse(assignment.validTo);
+    const semanticKey = [
+      assignment.roleId,
+      assignment.scopeType,
+      assignment.scopeResourceId ?? '',
+      assignment.validFrom,
+      assignment.validTo ?? '',
+    ].join('\u0000');
+    const valid = Boolean(
+      role
+        && allowedScopeTypes(role).includes(assignment.scopeType)
+        && (assignment.scopeType === 'SELF' || assignment.scopeResourceId?.trim())
+        && Number.isFinite(validFrom)
+        && (validTo == null || Number.isFinite(validTo) && validTo > validFrom),
+    );
+    if (!valid || semanticKeys.has(semanticKey)) return false;
+    semanticKeys.add(semanticKey);
+    return true;
+  });
 }

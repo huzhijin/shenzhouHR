@@ -2,6 +2,7 @@ package com.szsemicon.hr.identityaccess.application;
 
 import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.AccountRecord;
+import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.ResolvedRoleAssignmentInput;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentRecord;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleRecord;
@@ -13,8 +14,12 @@ import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -50,17 +55,32 @@ public class AccountAccessService {
     public AccountDetail createAccount(CreateAccountCommand command) {
         validatePassword(command.temporaryPassword());
         validateAssignments(command.roleAssignments());
+        String employeeId = normalizeEmployeeId(command.employeeId());
+        validateEmployeeBinding(employeeId, command.roleAssignments());
         String actorId = principalId();
         Instant now = clock.instant();
+        List<ResolvedRoleAssignmentInput> authorizedAssignments =
+                authorizeRoleAssignments(
+                        actorId,
+                        null,
+                        employeeId,
+                        command.roleAssignments(),
+                        now);
         String accountId;
         try {
             accountId = accountPersistence.createAccount(
                     command.username().trim(),
                     normalizeUsername(command.username()),
                     command.displayName().trim(),
+                    employeeId,
                     passwordCodec.encode(command.temporaryPassword()),
                     actorId,
                     now);
+        } catch (EmployeeAccountConflictException exception) {
+            throw new ApiProblemException(
+                    HttpStatus.CONFLICT,
+                    "EMPLOYEE_ACCOUNT_CONFLICT",
+                    "该员工已绑定本地账号");
         } catch (DataIntegrityViolationException exception) {
             throw new ApiProblemException(
                     HttpStatus.CONFLICT,
@@ -70,7 +90,7 @@ public class AccountAccessService {
         accountPersistence.replaceRoleAssignments(
                 accountId,
                 0,
-                command.roleAssignments(),
+                authorizedAssignments,
                 actorId,
                 "CREATE_ACCOUNT",
                 now);
@@ -204,13 +224,21 @@ public class AccountAccessService {
         validateAssignments(assignments);
         AccountRecord account = requireVisible(accountId);
         String actorId = principalId();
+        Instant now = clock.instant();
+        List<ResolvedRoleAssignmentInput> authorizedAssignments =
+                authorizeRoleAssignments(
+                        actorId,
+                        account.principalId(),
+                        null,
+                        assignments,
+                        now);
         accountPersistence.replaceRoleAssignments(
                 account.accountId(),
                 expectedVersion,
-                assignments,
+                authorizedAssignments,
                 actorId,
                 reason,
-                clock.instant());
+                now);
         auditService.record(
                 actorId,
                 "ROLE_ASSIGNMENTS_REPLACED",
@@ -277,14 +305,22 @@ public class AccountAccessService {
     }
 
     private static void validateAssignments(List<RoleAssignmentInput> assignments) {
-        if (assignments == null || assignments.isEmpty()) {
+        if (assignments == null || assignments.isEmpty() || assignments.size() > 100) {
             throw new ApiProblemException(
                     HttpStatus.BAD_REQUEST,
                     "VALIDATION_ERROR",
-                    "至少需要一个有效角色授权");
+                    "角色授权数量必须为 1 至 100 条");
         }
+        Set<String> assignmentKeys = new HashSet<>();
         for (RoleAssignmentInput assignment : assignments) {
-            if (assignment.validFrom() == null
+            if (assignment == null
+                    || assignment.roleId() == null
+                    || assignment.roleId().isBlank()
+                    || assignment.roleId().length() > 36
+                    || assignment.scopeType() == null
+                    || !Set.of("LEGAL_ENTITY", "ORGANIZATION", "SELF")
+                            .contains(assignment.scopeType())
+                    || assignment.validFrom() == null
                     || assignment.validTo() != null
                     && !assignment.validTo().isAfter(assignment.validFrom())) {
                 throw new ApiProblemException(
@@ -292,7 +328,128 @@ public class AccountAccessService {
                         "VALIDATION_ERROR",
                         "授权有效期无效");
             }
+            if ("SELF".equals(assignment.scopeType())) {
+                if (assignment.scopeResourceId() != null
+                        && !assignment.scopeResourceId().isBlank()) {
+                    throw invalidScopeTarget();
+                }
+            } else if (assignment.scopeResourceId() == null
+                    || assignment.scopeResourceId().isBlank()
+                    || assignment.scopeResourceId().length() > 36) {
+                throw invalidScopeTarget();
+            }
+            String assignmentKey = assignment.roleId()
+                    + '\u0000'
+                    + assignment.scopeType()
+                    + '\u0000'
+                    + String.valueOf(assignment.scopeResourceId())
+                    + '\u0000'
+                    + assignment.validFrom()
+                    + '\u0000'
+                    + assignment.validTo();
+            if (!assignmentKeys.add(assignmentKey)) {
+                throw new ApiProblemException(
+                        HttpStatus.BAD_REQUEST,
+                        "VALIDATION_ERROR",
+                        "角色授权不能包含完全重复的记录");
+            }
         }
+    }
+
+    private static void validateEmployeeBinding(
+            String employeeId,
+            List<RoleAssignmentInput> assignments) {
+        boolean includesSelfScope = assignments.stream()
+                .anyMatch(assignment -> "SELF".equals(assignment.scopeType()));
+        if (includesSelfScope) {
+            if (employeeId == null
+                    || employeeId.isBlank()
+                    || employeeId.length() > 36) {
+                throw new ApiProblemException(
+                        HttpStatus.BAD_REQUEST,
+                        "EMPLOYEE_BINDING_REQUIRED",
+                        "本人角色必须绑定有效员工");
+            }
+            return;
+        }
+        if (employeeId != null && !employeeId.isBlank()) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "EMPLOYEE_BINDING_NOT_ALLOWED",
+                    "未授予本人角色时不能绑定员工");
+        }
+    }
+
+    private static String normalizeEmployeeId(String employeeId) {
+        return employeeId == null || employeeId.isBlank() ? null : employeeId;
+    }
+
+    private List<ResolvedRoleAssignmentInput> authorizeRoleAssignments(
+            String actorPrincipalId,
+            String targetPrincipalId,
+            String targetEmployeeId,
+            List<RoleAssignmentInput> assignments,
+            Instant now) {
+        if (actorPrincipalId.equals(targetPrincipalId)) {
+            throw new ApiProblemException(
+                    HttpStatus.FORBIDDEN,
+                    "ROLE_ASSIGNMENT_SELF_SERVICE_DENIED",
+                    "禁止修改本账号的角色授权");
+        }
+        accountPersistence.lockRoleGrantTargetLegalEntities(
+                targetPrincipalId,
+                targetEmployeeId,
+                assignments,
+                now);
+        if (!accountPersistence.lockCurrentRoleGrantAuthority(
+                actorPrincipalId, now)) {
+            throw roleAssignmentScopeDenied();
+        }
+        Map<String, String> roleCodes = new HashMap<>();
+        for (String roleId : assignments.stream()
+                .map(RoleAssignmentInput::roleId)
+                .distinct()
+                .sorted()
+                .toList()) {
+            roleCodes.put(
+                    roleId,
+                    accountPersistence
+                            .findRoleCodeForUpdate(roleId)
+                            .orElseThrow(AccountAccessService::roleScopeNotAllowed));
+        }
+        for (RoleAssignmentInput assignment : assignments) {
+            String roleCode = roleCodes.get(assignment.roleId());
+            if (!RoleScopeMatrix.permits(roleCode, assignment.scopeType())) {
+                throw roleScopeNotAllowed();
+            }
+        }
+        return accountPersistence.resolveAuthorizedRoleAssignmentScopes(
+                actorPrincipalId,
+                targetPrincipalId,
+                targetEmployeeId,
+                assignments,
+                now);
+    }
+
+    private static ApiProblemException invalidScopeTarget() {
+        return new ApiProblemException(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "授权范围资源无效");
+    }
+
+    private static ApiProblemException roleScopeNotAllowed() {
+        return new ApiProblemException(
+                HttpStatus.BAD_REQUEST,
+                "ROLE_SCOPE_NOT_ALLOWED",
+                "该角色不允许使用请求的授权范围");
+    }
+
+    private static ApiProblemException roleAssignmentScopeDenied() {
+        return new ApiProblemException(
+                HttpStatus.FORBIDDEN,
+                "ROLE_ASSIGNMENT_SCOPE_DENIED",
+                "当前授权范围不能授予请求的数据范围");
     }
 
     private void validatePassword(String suppliedSecret) {
@@ -324,6 +481,7 @@ public class AccountAccessService {
             String username,
             String displayName,
             String temporaryPassword,
+            String employeeId,
             List<RoleAssignmentInput> roleAssignments) {
     }
 

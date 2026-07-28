@@ -15,3 +15,5 @@ spring:
 shenzhouhr:
   development-principal:
     enabled: true
+  reporting:
+    export-worker-enabled: false

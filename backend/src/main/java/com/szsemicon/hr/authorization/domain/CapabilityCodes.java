@@ -72,6 +72,22 @@ public final class CapabilityCodes {
             "ATTENDANCE_PUNCH_IMPORT:DUPLICATE_REVIEW";
     public static final String ATTENDANCE_PUNCH_IMPORT_RECALCULATE =
             "ATTENDANCE_PUNCH_IMPORT:RECALCULATE";
+    public static final String ATTENDANCE_DASHBOARD_READ =
+            "ATTENDANCE_DASHBOARD:READ";
+    public static final String ATTENDANCE_REPORT_READ =
+            "ATTENDANCE_REPORT:READ";
+    public static final String ATTENDANCE_REPORT_EXPORT_CREATE =
+            "ATTENDANCE_REPORT:EXPORT_CREATE";
+    public static final String ATTENDANCE_REPORT_EXPORT_DOWNLOAD =
+            "ATTENDANCE_REPORT:EXPORT_DOWNLOAD";
+    public static final String ATTENDANCE_SELF_READ =
+            "ATTENDANCE_SELF:READ";
+    public static final String LEAVE_SELF_READ =
+            "LEAVE_SELF:READ";
+    public static final String ATTENDANCE_FEEDBACK_READ =
+            "ATTENDANCE_FEEDBACK:READ";
+    public static final String ATTENDANCE_FEEDBACK_CREATE =
+            "ATTENDANCE_FEEDBACK:CREATE";
 
     private CapabilityCodes() {
     }

@@ -365,33 +365,30 @@ public final class DeterministicAttendanceCalculator {
                     .filter(value -> !consumedPunchIds.contains(value.eventId()))
                     .filter(value -> inclusiveContains(
                             authorization.interval(), value.instant()))
+                    .sorted(Comparator.comparing(PunchEvent::instant)
+                            .thenComparing(PunchEvent::eventId))
                     .toList();
-            PunchEvent entry = available.stream()
-                    .filter(value ->
-                            value.direction() != PunchDirection.EXIT)
-                    .min(Comparator.comparing(PunchEvent::instant)
-                            .thenComparing(PunchEvent::eventId))
-                    .orElse(null);
-            PunchEvent exit = available.stream()
-                    .filter(value ->
-                            value.direction() != PunchDirection.ENTRY)
-                    .max(Comparator.comparing(PunchEvent::instant)
-                            .thenComparing(PunchEvent::eventId))
-                    .orElse(null);
-            if (entry == null
-                    || exit == null
-                    || !entry.instant().isBefore(exit.instant())) {
+            List<PresenceSpan> presence = pairPresence(available).stream()
+                    .map(span -> span.intersection(authorization.interval()))
+                    .filter(Objects::nonNull)
+                    .toList();
+            if (presence.isEmpty()) {
                 continue;
             }
-            TimeInterval actual =
-                    new TimeInterval(entry.instant(), exit.instant());
-            TimeInterval eligible =
-                    actual.intersection(authorization.interval());
-            if (eligible == null) {
-                continue;
-            }
-            consumedPunchIds.add(entry.eventId());
-            consumedPunchIds.add(exit.eventId());
+            presence.stream()
+                    .flatMap(span -> span.punchIds().stream())
+                    .forEach(consumedPunchIds::add);
+            TimeInterval eligible = new TimeInterval(
+                    presence.getFirst().interval().start(),
+                    presence.getLast().interval().end());
+            long actualMinutes = presence.stream()
+                    .mapToLong(span -> span.interval().minutes())
+                    .sum();
+            List<String> punchIds = presence.stream()
+                    .flatMap(span -> span.punchIds().stream())
+                    .distinct()
+                    .sorted()
+                    .toList();
             String segmentId = overtimeSegmentId(authorization);
             ScheduledWorkSegment synthetic = new ScheduledWorkSegment(
                     segmentId,
@@ -400,25 +397,30 @@ public final class DeterministicAttendanceCalculator {
                     eligible,
                     eligible,
                     AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
-            accumulator.items.add(item(
-                    synthetic,
-                    eligible,
-                    ResultCategory.EXTENDED_PRESENCE,
-                    eligible.minutes(),
-                    "OFF_SCHEDULE_PRESENCE",
-                    List.of(entry.eventId(), exit.eventId()),
-                    null,
-                    "overtime-presence"));
+            for (PresenceSpan span : presence) {
+                accumulator.items.add(item(
+                        synthetic,
+                        span.interval(),
+                        ResultCategory.EXTENDED_PRESENCE,
+                        span.interval().minutes(),
+                        "OFF_SCHEDULE_PRESENCE",
+                        span.punchIds(),
+                        null,
+                        "overtime-presence"));
+            }
             boolean timely = overtimeTimely(
                     snapshot, authorization, eligible.end());
-            long recognized = timely ? eligible.minutes() : 0;
+            long recognized = timely ? actualMinutes : 0;
             if (timely) {
                 for (MealDeductionRule rule :
                         snapshot.policy().mealDeductions()) {
                     boolean applies = rule.requireFullCoverage()
-                            ? covers(eligible, rule.window())
-                            : eligible.overlaps(rule.window());
-                    if (applies) {
+                            ? presence.stream().anyMatch(span ->
+                                    covers(span.interval(), rule.window()))
+                            : presence.stream().anyMatch(span ->
+                                    span.interval().overlaps(rule.window()));
+                    if (applies
+                            && actualMinutes >= rule.triggerMinutes()) {
                         recognized = Math.max(
                                 0, recognized - rule.deductionMinutes());
                     }
@@ -431,12 +433,10 @@ public final class DeterministicAttendanceCalculator {
                     timely
                             ? "OVERTIME_AUTHORIZED_AND_TIMELY"
                             : "OVERTIME_DOCUMENT_MISSING_OR_LATE",
-                    eligible.minutes(),
+                    actualMinutes,
                     recognized,
-                    List.of(
-                            authorization.evidenceId(),
-                            entry.eventId(),
-                            exit.eventId())));
+                    evidenceReferences(
+                            authorization.evidenceId(), punchIds)));
             accumulator.items.add(item(
                     synthetic,
                     eligible,
@@ -445,13 +445,63 @@ public final class DeterministicAttendanceCalculator {
                     timely
                             ? "OVERTIME_AUTHORIZED_AND_TIMELY"
                             : "OVERTIME_DOCUMENT_MISSING_OR_LATE",
-                    List.of(
-                            authorization.evidenceId(),
-                            entry.eventId(),
-                            exit.eventId()),
+                    evidenceReferences(
+                            authorization.evidenceId(), punchIds),
                     null,
                     "recognized-overtime"));
         }
+    }
+
+    private List<PresenceSpan> pairPresence(List<PunchEvent> orderedPunches) {
+        if (orderedPunches.size() < 2 || orderedPunches.size() % 2 != 0) {
+            return List.of();
+        }
+        boolean allAuto = orderedPunches.stream()
+                .allMatch(value -> value.direction() == PunchDirection.AUTO);
+        boolean noAuto = orderedPunches.stream()
+                .noneMatch(value -> value.direction() == PunchDirection.AUTO);
+        if (!allAuto && !noAuto) {
+            return List.of();
+        }
+        List<PresenceSpan> result = new ArrayList<>();
+        if (allAuto) {
+            for (int index = 1; index < orderedPunches.size(); index += 2) {
+                addPresencePair(
+                        result,
+                        orderedPunches.get(index - 1),
+                        orderedPunches.get(index));
+            }
+            return List.copyOf(result);
+        }
+        for (int index = 1; index < orderedPunches.size(); index += 2) {
+            PunchEvent entry = orderedPunches.get(index - 1);
+            PunchEvent exit = orderedPunches.get(index);
+            if (entry.direction() != PunchDirection.ENTRY
+                    || exit.direction() != PunchDirection.EXIT) {
+                return List.of();
+            }
+            addPresencePair(result, entry, exit);
+        }
+        return List.copyOf(result);
+    }
+
+    private void addPresencePair(
+            List<PresenceSpan> target,
+            PunchEvent entry,
+            PunchEvent exit) {
+        if (entry.instant().isBefore(exit.instant())) {
+            target.add(new PresenceSpan(
+                    new TimeInterval(entry.instant(), exit.instant()),
+                    List.of(entry.eventId(), exit.eventId())));
+        }
+    }
+
+    private List<String> evidenceReferences(
+            String authorizationId, List<String> punchIds) {
+        List<String> references = new ArrayList<>();
+        references.add(authorizationId);
+        references.addAll(punchIds);
+        return List.copyOf(references);
     }
 
     private boolean overtimeTimely(
@@ -857,6 +907,23 @@ public final class DeterministicAttendanceCalculator {
                 result.add(departure.eventId());
             }
             return result.stream().sorted().toList();
+        }
+    }
+
+    private record PresenceSpan(
+            TimeInterval interval,
+            List<String> punchIds) {
+
+        private PresenceSpan {
+            Objects.requireNonNull(interval, "interval");
+            punchIds = List.copyOf(punchIds);
+        }
+
+        private PresenceSpan intersection(TimeInterval other) {
+            TimeInterval intersection = interval.intersection(other);
+            return intersection == null
+                    ? null
+                    : new PresenceSpan(intersection, punchIds);
         }
     }
 

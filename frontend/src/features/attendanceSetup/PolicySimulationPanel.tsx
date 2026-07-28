@@ -148,6 +148,19 @@ export function PolicySimulationPanel({
             { label: t('attendanceSetup.policyVersionId'), value: selected.policyVersionId },
             { label: t('attendanceSetup.configurationDigest'), value: result?.configurationDigest },
             { label: t('attendanceSetup.lateMinutes'), value: selected.rawLateMinutes ?? t('common.none') },
+            {
+              label: t('attendanceSetup.deductionMinutes'),
+              value: selected.deductionMinutes ?? t('common.none'),
+            },
+            {
+              label: t('attendanceSetup.matchedMealWindows'),
+              value: selected.matchedMealWindows?.length
+                ? selected.matchedMealWindows.map((window) => (
+                  `${window.windowId} [${window.windowStart}, ${window.windowEnd})`
+                  + ` · ${window.deductionMinutes} ${t('attendanceSetup.minutes')}`
+                )).join('；')
+                : t('common.none'),
+            },
             { label: t('attendanceSetup.consumesAllowance'), value: selected.predictedMonthlyConsumption },
             { label: t('attendanceSetup.writesFormalResult'), value: selected.writesFormalResult ? t('attendanceSetup.yes') : t('attendanceSetup.no') },
             { label: t('attendanceSetup.explanation'), value: selected.explanation },

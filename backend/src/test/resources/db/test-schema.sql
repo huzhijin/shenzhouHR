@@ -109,6 +109,8 @@ CREATE TABLE employee_source_binding (
 -- WAVE-1 tests keep their schema explicit so H2 remains a fast contract test,
 -- while the separately required MySQL suite verifies the real Flyway DDL.
 ALTER TABLE auth_principal ADD COLUMN employee_id VARCHAR(36);
+CREATE UNIQUE INDEX uq_test_auth_principal_employee
+    ON auth_principal (employee_id);
 ALTER TABLE auth_principal ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL;
 ALTER TABLE auth_principal ADD COLUMN row_version BIGINT DEFAULT 0 NOT NULL;
 

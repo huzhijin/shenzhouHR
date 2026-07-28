@@ -20,6 +20,9 @@ import org.springframework.test.web.servlet.MvcResult;
 
 class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTestSupport {
 
+    private static final String SYSTEM_ADMIN_ROLE =
+            "10000000-0000-0000-0000-000000000002";
+
     @Test
     void accountCreationHashesTheTemporaryPasswordAndNeverReturnsSecrets() throws Exception {
         String accountUsername = "wave1_created_" + UUID.randomUUID().toString().replace("-", "");
@@ -43,7 +46,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                                      "validTo":null
                                    }]
                                  }
-                                 """.formatted(accountUsername, temporaryPassword, READER_ROLE)))
+                                 """.formatted(accountUsername, temporaryPassword, SYSTEM_ADMIN_ROLE)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.username").value(accountUsername))
                 .andExpect(jsonPath("$.firstPasswordChangeRequired").value(true))
@@ -201,9 +204,9 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                                    "reason":"WAVE-1 合成限时授权",
                                    "expectedVersion":0
                                  }
-                                 """.formatted(READER_ROLE)))
+                                 """.formatted(SYSTEM_ADMIN_ROLE)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.roles[0].roleId").value(READER_ROLE));
+                .andExpect(jsonPath("$.roles[0].roleId").value(SYSTEM_ADMIN_ROLE));
 
         Timestamp validTo = jdbc.queryForObject(
                 """
@@ -213,7 +216,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                 """,
                 Timestamp.class,
                 STANDARD_PRINCIPAL,
-                READER_ROLE);
+                SYSTEM_ADMIN_ROLE);
         assertThat(validTo).isNotNull();
         assertThat(auditCountForResource(STANDARD_ACCOUNT)).isGreaterThan(auditBefore);
     }

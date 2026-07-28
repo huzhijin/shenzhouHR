@@ -260,9 +260,11 @@ x-delivery-contract:
         - { method: GET, path: /me/attendance/feedback, responseSchema: AttendanceFeedbackPage, errors: [401, 403] }
         - { method: POST, path: /me/attendance/feedback, requestSchema: AttendanceFeedbackRequest, responseSchema: AttendanceFeedbackView, errors: [400, 401, 403, 409, 422] }
         - { method: GET, path: /team/attendance, responseSchema: TeamAttendancePage, errors: [401, 403] }
+        - { method: GET, path: /attendance-reports/legal-entities, responseSchema: AttendanceReportLegalEntityDirectory, errors: [401, 403] }
         - { method: GET, path: /attendance-reports, responseSchema: AttendanceReportPage, errors: [401, 403] }
-        - { method: POST, path: /attendance-report-exports, requestSchema: AttendanceReportExportRequest, responseSchema: ReportExportView, errors: [400, 401, 403, 409, 422, 429] }
-        - { method: GET, path: '/attendance-report-exports/{exportId}', responseSchema: ReportExportView, errors: [401, 403, 404] }
+        - { method: POST, path: /attendance-reports/exports, requestSchema: AttendanceReportExportCreateRequest, responseSchema: AttendanceReportExportView, errors: [400, 401, 403, 409] }
+        - { method: GET, path: '/attendance-reports/exports/{exportId}', responseSchema: AttendanceReportExportView, errors: [401, 403, 404] }
+        - { method: POST, path: '/attendance-reports/exports/{exportId}/download', requestSchema: ReportExportReauthenticationRequest, responseSchema: binary, errors: [400, 401, 403, 404, 409, 410] }
         - { method: GET, path: /attendance-dashboards, responseSchema: AttendanceDashboardView, errors: [401, 403] }
         - { method: GET, path: /display/attendance, responseSchema: AttendanceDisplaySnapshotView, errors: [401, 403] }
 tags:
@@ -288,6 +290,8 @@ tags:
     description: WAVE-4 离线异构 XLSX 模板、预检、发布、冲正和行级证据。
   - name: AttendanceEvidence
     description: WAVE-4 统一 raw→effective 证据追溯和近重复人工裁决。
+  - name: AttendanceReports
+    description: V1.9 正式考勤报表、异常报表及重新鉴权的受控 XLSX 导出。
 paths:
   /auth/login:
     post:
@@ -3834,22 +3838,42 @@ paths:
         '403': { $ref: '#/components/responses/AccessDenied' }
     post:
       tags: [AttendanceSources]
-      operationId: createAttendanceSource
+      operationId: registerDeliAttendanceSource
+      summary: 注册正式得力 E+ 数据源及外部凭据引用
       x-capability: ATTENDANCE_SOURCE:CONFIGURE
+      x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY
+      description: |
+        仅注册 DELI_CLOUD 来源。请求和响应只包含外部凭据引用名，不接受、
+        返回或持久化 App-Key、App-Secret。相同凭据引用只能绑定一个启用来源。
       parameters:
         - { $ref: '#/components/parameters/CsrfToken' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/ChangeReason' }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/AttendanceSourceMutationRequest' }
+            schema: { $ref: '#/components/schemas/DeliSourceRegistrationRequest' }
       responses:
-        '201': { $ref: '#/components/responses/W4MutationCreated' }
+        '200':
+          description: 同一幂等键和请求摘要的安全重放
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeliSourceRegistrationView' }
+        '201':
+          description: 正式得力 E+ 数据源注册完成
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeliSourceRegistrationView' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
         '409': { $ref: '#/components/responses/Conflict' }
   /attendance-sources/integration-status:
     get:
@@ -3970,22 +3994,33 @@ paths:
         '403': { $ref: '#/components/responses/AccessDenied' }
     post:
       tags: [AttendanceSources]
-      operationId: startAttendanceSourceJob
+      operationId: startDeliAttendanceSourceJob
+      summary: 从已提交水位启动正式得力 E+ 打卡同步
       x-capability: ATTENDANCE_SOURCE:RUN
+      x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY
+      description: |
+        服务端从受权限保护的来源读取法人、凭据引用和已提交水位；请求不能指定
+        员工。每页证据和水位在独立事务中原子提交，失败页绝不推进水位。
       parameters:
         - { $ref: '#/components/parameters/CsrfToken' }
-        - { $ref: '#/components/parameters/IdempotencyKey' }
-        - { $ref: '#/components/parameters/ChangeReason' }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/SourceJobStartRequest' }
+            schema: { $ref: '#/components/schemas/DeliSourceSyncJobRequest' }
       responses:
-        '201': { $ref: '#/components/responses/W4MutationCreated' }
+        '201':
+          description: 同步任务已创建并返回最终安全状态
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceSourceSyncJobView' }
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
         '409': { $ref: '#/components/responses/Conflict' }
   /attendance-source-jobs/{jobId}:
     parameters:
@@ -3994,8 +4029,16 @@ paths:
       tags: [AttendanceSources]
       operationId: getAttendanceSourceJob
       x-capability: ATTENDANCE_SOURCE:READ
+      x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY
       responses:
-        '200': { $ref: '#/components/responses/W4ResourceOk' }
+        '200':
+          description: 当前法人权限范围内的同步任务安全状态
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceSourceSyncJobView' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
@@ -4006,13 +4049,27 @@ paths:
       tags: [AttendanceSources]
       operationId: retryAttendanceSourceJob
       x-capability: ATTENDANCE_SOURCE:RETRY
+      x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY
+      description: |
+        仅允许在当前法人权限范围内对失败、部分隔离或已取消任务创建新任务；
+        强 ETag 防止重复操作，幂等键重放返回同一新任务。新任务始终从数据源
+        最新已提交水位继续，不修改原任务和原始证据。
       parameters:
         - { $ref: '#/components/parameters/CsrfToken' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
         - { $ref: '#/components/parameters/IfMatch' }
         - { $ref: '#/components/parameters/ChangeReason' }
       responses:
-        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '200':
+          description: 新重试任务的最终安全状态，或幂等重放的同一任务
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            ETag: { $ref: '#/components/headers/ETag' }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceSourceSyncJobView' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
@@ -4384,6 +4441,205 @@ paths:
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-reports:
+    get:
+      tags: [AttendanceReports]
+      operationId: getAttendanceReport
+      x-capability: ATTENDANCE_REPORT:READ
+      description: |
+        服务端先按当前主体、有效角色、当前任职及法人/组织/本人数据范围过滤，
+        再对已发布的不可变月度投影进行聚合和分页。客户端筛选只能缩小范围。
+      parameters:
+        - name: reportType
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AttendanceReportType'
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        - name: legalEntityId
+          in: query
+          required: false
+          description: 单法人授权可省略；多法人授权必须从授权法人目录显式选择。
+          schema:
+            type: string
+            maxLength: 36
+        - name: organizationId
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 36
+        - name: employeeId
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 36
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 32
+        - { $ref: '#/components/parameters/Page' }
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: 授权范围内的正式报表页
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceReportPage' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-reports/legal-entities:
+    get:
+      tags: [AttendanceReports]
+      operationId: listAttendanceReportLegalEntities
+      x-capability: ATTENDANCE_REPORT:READ
+      description: |
+        只返回当前主体在指定月份具备有效 ATTENDANCE_REPORT:READ 数据范围、
+        且存在已发布正式投影的法人安全名称；不返回未授权或未发布法人。
+      parameters:
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+      responses:
+        '200':
+          description: 当前月份可选择的授权法人目录
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceReportLegalEntityDirectory'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-reports/exports:
+    post:
+      tags: [AttendanceReports]
+      operationId: createAttendanceReportExport
+      x-capability: ATTENDANCE_REPORT:EXPORT_CREATE
+      description: 创建时复核当前密码，并绑定当前投影、公式、筛选、范围摘要和字段白名单。
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceReportExportCreateRequest'
+      responses:
+        '201':
+          description: 50,000 行以内已同步生成
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceReportExportView' }
+        '202':
+          description: 超过 50,000 行，已进入异步队列
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceReportExportView' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-reports/exports/{exportId}:
+    parameters:
+      - name: exportId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [AttendanceReports]
+      operationId: getAttendanceReportExport
+      x-capability: ATTENDANCE_REPORT:EXPORT_CREATE
+      responses:
+        '200':
+          description: 仅返回当前申请人拥有的导出任务元数据
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceReportExportView' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-reports/exports/{exportId}/download:
+    parameters:
+      - name: exportId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [AttendanceReports]
+      operationId: downloadAttendanceReportExport
+      x-capability: ATTENDANCE_REPORT:EXPORT_DOWNLOAD
+      description: |
+        下载时再次复核当前密码、任务所有权、实时能力和数据范围，并重新校验
+        投影、公式、筛选、行数、字段白名单、文件长度及 SHA-256。
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportExportReauthenticationRequest'
+      responses:
+        '200':
+          description: 授权且完整性验证通过的 XLSX
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            Content-Disposition: { schema: { type: string } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410':
+          description: 导出已过期
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
 components:
   securitySchemes:
     sessionCookie:
@@ -5336,6 +5592,7 @@ components:
         - usageProvenance
         - usageKnowledgeTime
         - deductionMinutes
+        - matchedMealWindows
         - correctionDeadline
         - affectedSegment
         - explanation
@@ -5354,10 +5611,55 @@ components:
         usageProvenance: { type: string, minLength: 1, maxLength: 200 }
         usageKnowledgeTime: { type: string, format: date-time }
         deductionMinutes: { type: [integer, 'null'], minimum: 0 }
+        matchedMealWindows:
+          type: array
+          maxItems: 2
+          description: >
+            服务端实际命中的餐窗；旧版客户端可忽略此兼容扩展。
+            同一 windowId 在单次试算中最多出现一次。
+          items:
+            $ref: '#/components/schemas/AttendancePolicyMatchedMealWindowView'
         correctionDeadline: { type: [string, 'null'], format: date }
         affectedSegment: { type: [string, 'null'], maxLength: 64 }
         explanation: { type: string, maxLength: 1000 }
         writesFormalResult: { type: boolean, const: false }
+    AttendancePolicyMatchedMealWindowView:
+      type: object
+      additionalProperties: false
+      required:
+        - windowId
+        - mealType
+        - source
+        - windowStart
+        - windowEnd
+        - deductionMinutes
+        - triggerMinutes
+      properties:
+        windowId:
+          type: string
+          enum:
+            - BASE_DINNER
+            - SATURDAY_DINNER
+            - SUNDAY_DINNER
+            - PUBLIC_HOLIDAY_DINNER
+            - SATURDAY_LUNCH
+            - SUNDAY_LUNCH
+            - PUBLIC_HOLIDAY_LUNCH
+        mealType: { type: string, enum: [LUNCH, DINNER] }
+        source:
+          type: string
+          enum:
+            - BASE
+            - SATURDAY_OVERRIDE
+            - SUNDAY_OVERRIDE
+            - PUBLIC_HOLIDAY_OVERRIDE
+            - SATURDAY_LUNCH
+            - SUNDAY_LUNCH
+            - PUBLIC_HOLIDAY_LUNCH
+        windowStart: { type: string, format: time }
+        windowEnd: { type: string, format: time }
+        deductionMinutes: { type: integer, minimum: 0, maximum: 240 }
+        triggerMinutes: { type: integer, minimum: 0, maximum: 1440 }
     AttendancePolicyImpactView:
       type: object
       additionalProperties: false
@@ -5569,9 +5871,15 @@ components:
         username: { type: string, minLength: 3, maxLength: 128 }
         displayName: { type: string, minLength: 1, maxLength: 100 }
         temporaryPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
+        employeeId:
+          oneOf:
+            - $ref: '#/components/schemas/ResourceId'
+            - type: 'null'
+          description: 含 SELF 授权时必填且必须处于操作者可委派范围；不含 SELF 时必须为空。
         roleAssignments:
           type: array
           minItems: 1
+          maxItems: 100
           items:
             $ref: '#/components/schemas/RoleAssignmentRequest'
     AccountStatusUpdateRequest:
@@ -6722,6 +7030,120 @@ components:
         sourceId: { $ref: '#/components/schemas/ResourceId' }
         mode: { type: string, enum: [INCREMENTAL, REPLAY_FROM_WATERMARK] }
         maximumPages: { type: integer, minimum: 1, maximum: 1000 }
+    DeliSourceRegistrationRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        只允许提交外部凭据引用名。App-Key、App-Secret、token、check_data
+        以及任何原始生物识别内容都不是合法字段。
+      required:
+        - legalEntityId
+        - sourceCode
+        - displayName
+        - sourceTimeZone
+        - pageSize
+        - rateLimitPerMinute
+        - backoffSeconds
+        - secretReferenceName
+        - reason
+      properties:
+        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        sourceCode:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$'
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        sourceTimeZone: { type: string, minLength: 1, maxLength: 64 }
+        pageSize: { type: integer, minimum: 1, maximum: 500 }
+        rateLimitPerMinute:
+          type: integer
+          minimum: 60
+          maximum: 10000
+        backoffSeconds: { type: integer, minimum: 0, maximum: 5 }
+        secretReferenceName:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]{2,127}$'
+          description: 运行环境中的外部凭据引用名，不是凭据值。
+        reason: { type: string, minLength: 2, maxLength: 500 }
+    DeliSourceRegistrationView:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceId
+        - legalEntityId
+        - sourceCode
+        - displayName
+        - sourceType
+        - status
+        - endpointKind
+        - sourceTimeZone
+        - pageSize
+        - rateLimitPerMinute
+        - backoffSeconds
+        - secretReferenceName
+        - configurationRevision
+        - effectiveFrom
+        - rowVersion
+        - replayed
+      properties:
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        sourceCode:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$'
+        displayName: { type: string, minLength: 1, maxLength: 100 }
+        sourceType: { type: string, const: DELI_CLOUD }
+        status: { type: string, const: ACTIVE }
+        endpointKind:
+          type: string
+          const: DELI_EPLUS_CHECKIN_QUERY
+        sourceTimeZone: { type: string, minLength: 1, maxLength: 64 }
+        pageSize: { type: integer, minimum: 1, maximum: 500 }
+        rateLimitPerMinute:
+          type: integer
+          minimum: 60
+          maximum: 10000
+        backoffSeconds: { type: integer, minimum: 0, maximum: 5 }
+        secretReferenceName:
+          type: string
+          pattern: '^[A-Z][A-Z0-9_]{2,127}$'
+        configurationRevision: { type: integer, minimum: 1 }
+        effectiveFrom: { type: string, format: date-time }
+        rowVersion: { type: integer, format: int64, minimum: 0 }
+        replayed: { type: boolean }
+    DeliSourceSyncJobRequest:
+      type: object
+      additionalProperties: false
+      required: [sourceId]
+      properties:
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+    AttendanceSourceSyncJobView:
+      type: object
+      additionalProperties: false
+      required:
+        - jobId
+        - sourceId
+        - sourceDisplayName
+        - sourceType
+        - state
+        - committedPages
+        - acceptedCount
+        - quarantinedCount
+        - rowVersion
+      properties:
+        jobId: { $ref: '#/components/schemas/ResourceId' }
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        sourceDisplayName: { type: string, minLength: 1, maxLength: 100 }
+        sourceType: { type: string, const: DELI_CLOUD }
+        state: { $ref: '#/components/schemas/SourceJobState' }
+        committedPages: { type: integer, minimum: 0 }
+        acceptedCount: { type: integer, format: int64, minimum: 0 }
+        quarantinedCount: { type: integer, format: int64, minimum: 0 }
+        safeErrorCode:
+          type: [string, 'null']
+          pattern: '^[A-Z0-9_]{1,64}$'
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        rowVersion: { type: integer, format: int64, minimum: 0 }
     PunchMappingRule:
       type: object
       additionalProperties: false
@@ -7080,6 +7502,231 @@ components:
         size: { type: integer, minimum: 1, maximum: 100 }
         totalElements: { type: integer, format: int64, minimum: 0 }
         totalPages: { type: integer, minimum: 0 }
+    AttendanceReportType:
+      type: string
+      enum:
+        - ATTENDANCE_DETAIL
+        - LEAVE
+        - OVERTIME
+        - WORK_HOURS
+        - EXCEPTIONS
+        - LATE
+        - MISSED_PUNCH
+        - ATTENDANCE_RATE
+        - ANNUAL_LEAVE
+      default: ATTENDANCE_DETAIL
+    AttendanceReportScope:
+      type: object
+      additionalProperties: false
+      required: [type, reference, label]
+      properties:
+        type:
+          type: string
+          enum: [COMPANY, ORGANIZATION, SELF]
+        reference:
+          type: string
+          minLength: 1
+          maxLength: 128
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+    AttendanceReportProjectionMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - projectionVersion
+        - sourceVersions
+        - dataAsOf
+        - timeZone
+        - periodLabel
+        - periodState
+        - scope
+        - allowedActions
+      properties:
+        projectionVersion: { type: string, minLength: 1, maxLength: 128 }
+        sourceVersions:
+          type: array
+          minItems: 1
+          items: { type: string, minLength: 1, maxLength: 256 }
+        dataAsOf: { type: string, format: date-time }
+        timeZone: { type: string, const: Asia/Shanghai }
+        periodLabel:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        periodState:
+          type: string
+          enum: [OPEN, FROZEN, CLOSED, REOPENED]
+        scope: { $ref: '#/components/schemas/AttendanceReportScope' }
+        allowedActions:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [REPORT_DRILL_DOWN, REPORT_EXPORT_CREATE, REPORT_EXPORT_DOWNLOAD]
+    AttendanceReportLegalEntityOption:
+      type: object
+      additionalProperties: false
+      required: [legalEntityId, name]
+      properties:
+        legalEntityId: { type: string, minLength: 1, maxLength: 36 }
+        name: { type: string, minLength: 1, maxLength: 200 }
+    AttendanceReportLegalEntityDirectory:
+      type: object
+      additionalProperties: false
+      required: [period, legalEntities]
+      properties:
+        period:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        legalEntities:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AttendanceReportLegalEntityOption'
+    AttendanceReportFilters:
+      type: object
+      additionalProperties: false
+      required: [period, scopeReference, legalEntityId]
+      properties:
+        period:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        scopeReference: { type: string, minLength: 1, maxLength: 128 }
+        legalEntityId: { type: string, minLength: 1, maxLength: 36 }
+        organizationId: { type: [string, 'null'], maxLength: 36 }
+        employeeId: { type: [string, 'null'], maxLength: 36 }
+        status: { type: [string, 'null'], maxLength: 32 }
+    AttendanceReportColumn:
+      type: object
+      additionalProperties: false
+      required: [key, label]
+      properties:
+        key: { type: string, minLength: 1, maxLength: 64 }
+        label: { type: string, minLength: 1, maxLength: 100 }
+    AttendanceReportRow:
+      type: object
+      additionalProperties: false
+      required: [rowReference, values]
+      properties:
+        rowReference: { type: string, minLength: 1, maxLength: 256 }
+        values:
+          type: object
+          additionalProperties: { type: string }
+        drillDownReference:
+          type: [string, 'null']
+          maxLength: 256
+    AttendanceReportPage:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - metadata
+        - reportType
+        - reportTitle
+        - queryFingerprint
+        - formulaVersion
+        - filters
+        - columns
+        - exportFieldAllowlist
+        - rowCount
+        - rows
+        - page
+        - size
+        - totalPages
+      properties:
+        kind: { type: string, const: REPORT }
+        metadata:
+          $ref: '#/components/schemas/AttendanceReportProjectionMetadata'
+        reportType:
+          $ref: '#/components/schemas/AttendanceReportType'
+        reportTitle: { type: string, minLength: 1, maxLength: 100 }
+        queryFingerprint:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        formulaVersion: { type: string, minLength: 1, maxLength: 128 }
+        filters:
+          $ref: '#/components/schemas/AttendanceReportFilters'
+        columns:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/AttendanceReportColumn' }
+        exportFieldAllowlist:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 64 }
+        rowCount: { type: integer, format: int64, minimum: 0 }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/AttendanceReportRow' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 200 }
+        totalPages: { type: integer, minimum: 0 }
+    AttendanceReportExportCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [reportType, period, purpose, currentPassword]
+      properties:
+        reportType:
+          $ref: '#/components/schemas/AttendanceReportType'
+        period:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        legalEntityId:
+          type: [string, 'null']
+          maxLength: 36
+          description: 单法人授权可省略；多法人授权必须从授权法人目录显式选择。
+        organizationId: { type: [string, 'null'], maxLength: 36 }
+        employeeId: { type: [string, 'null'], maxLength: 36 }
+        status: { type: [string, 'null'], maxLength: 32 }
+        purpose: { type: string, minLength: 2, maxLength: 200 }
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 256
+          writeOnly: true
+    ReportExportReauthenticationRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 256
+          writeOnly: true
+    AttendanceReportExportView:
+      type: object
+      additionalProperties: false
+      required:
+        - exportId
+        - reportType
+        - period
+        - legalEntityId
+        - deliveryMode
+        - status
+        - purpose
+        - rowCount
+        - expiresAt
+      properties:
+        exportId: { type: string, format: uuid }
+        reportType:
+          $ref: '#/components/schemas/AttendanceReportType'
+        period:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        legalEntityId: { type: string, minLength: 1, maxLength: 36 }
+        deliveryMode:
+          type: string
+          enum: [SYNC, ASYNC]
+        status:
+          type: string
+          enum: [READY, QUEUED, BUILDING, FAILED, EXPIRED]
+        purpose: { type: string, minLength: 2, maxLength: 200 }
+        rowCount: { type: integer, format: int64, minimum: 0 }
+        expiresAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
     FieldError:
       type: object
       additionalProperties: false

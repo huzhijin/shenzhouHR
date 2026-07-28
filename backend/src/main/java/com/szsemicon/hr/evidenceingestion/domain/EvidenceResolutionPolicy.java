@@ -1,6 +1,7 @@
 package com.szsemicon.hr.evidenceingestion.domain;
 
 import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort;
+import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort.ConfirmedBindingKind;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -32,6 +33,7 @@ public final class EvidenceResolutionPolicy {
             String locationId,
             String deviceId,
             String externalPersonRef,
+            ConfirmedBindingKind bindingKind,
             Instant at) {
         Objects.requireNonNull(resolver, "resolver");
         Objects.requireNonNull(at, "at");
@@ -54,6 +56,7 @@ public final class EvidenceResolutionPolicy {
                                 legalEntityId,
                                 locationId,
                                 deviceId,
+                                bindingKind,
                                 externalPersonRef,
                                 at));
         if (byBinding.size() == 1) {

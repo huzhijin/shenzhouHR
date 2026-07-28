@@ -1,4 +1,8 @@
-import { IconDownload, IconInfoCircle } from '@tabler/icons-react';
+import {
+  IconDownload,
+  IconInfoCircle,
+  IconShieldCheck,
+} from '@tabler/icons-react';
 import { Button, Select, Tooltip } from 'antd';
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
@@ -15,6 +19,7 @@ import {
   reportFilterOptions,
   reportSpecificFilterOptions,
   type AnnualLeaveReportRow,
+  type AttendanceExceptionReportRow,
   type AttendanceDetailRow,
   type AttendanceStatusKey,
   type CustomerReportDemo,
@@ -23,6 +28,14 @@ import {
   type CustomerReportSpecificFilters,
   type ExceptionReportRow,
 } from './customerReportDemo';
+import {
+  authorizedDepartmentOptions,
+  authorizedEmployeeOptions,
+  customerReportDemoScopes,
+  defaultCustomerReportDataScope,
+  scopeTypeLabel,
+  type CustomerReportDataScope,
+} from './customerReportAccess';
 import {
   buildCustomerReportCsv,
   downloadCustomerReportCsv,
@@ -38,15 +51,28 @@ export interface CustomerReportExportRequest {
   rowCount: number;
   generatedAt: string;
   reportFilters: Record<string, string>;
+  dataScopeReference: string;
+  dataScopeLabel: string;
 }
 
 export function CustomerReportCenterPage({
   capabilities,
+  dataScopes = customerReportDemoScopes,
   onExport,
 }: {
   capabilities?: readonly string[];
+  dataScopes?: readonly CustomerReportDataScope[];
   onExport?: (request: CustomerReportExportRequest) => void;
 }) {
+  const availableDataScopes = dataScopes.length > 0
+    ? dataScopes
+    : [defaultCustomerReportDataScope];
+  const [activeScopeReference, setActiveScopeReference] = useState(
+    availableDataScopes[0]!.reference,
+  );
+  const activeDataScope = availableDataScopes.find(
+    (scope) => scope.reference === activeScopeReference,
+  ) ?? availableDataScopes[0]!;
   const [filters, setFilters] = useState<CustomerReportFilters>({
     month: '2026-06',
     department: '全部部门',
@@ -61,18 +87,28 @@ export function CustomerReportCenterPage({
   const [appliedSpecificFilters, setAppliedSpecificFilters] = useState<CustomerReportSpecificFilters>({
     ...defaultCustomerReportSpecificFilters,
   });
-  const sourceReport = useMemo(() => getCustomerReportDemo(filters), [filters]);
+  const sourceReport = useMemo(
+    () => getCustomerReportDemo(filters, activeDataScope),
+    [activeDataScope, filters],
+  );
   const report = useMemo(() => applyCustomerReportSpecificFilters(
     sourceReport,
     activeReport,
     appliedSpecificFilters,
   ), [activeReport, appliedSpecificFilters, sourceReport]);
   const activeTab = customerReportTabs.find((tab) => tab.key === activeReport)!;
+  const canExport = capabilities === undefined
+    || capabilities.includes('ATTENDANCE_REPORT:EXPORT_CREATE');
   const capabilityMode = capabilities === undefined
     ? '独立演示'
-    : capabilities.includes('ATTENDANCE_REPORT:EXPORT_CREATE')
+    : canExport
       ? '授权导出'
-      : '演示导出';
+      : '无导出权限';
+  const departmentOptions = authorizedDepartmentOptions(activeDataScope);
+  const employeeOptions = authorizedEmployeeOptions(
+    activeDataScope,
+    filters.department,
+  );
 
   const changeFilter = <K extends keyof CustomerReportFilters>(
     key: K,
@@ -82,10 +118,18 @@ export function CustomerReportCenterPage({
     setSpecificFeedback('');
     if (key === 'department') {
       setDraftSpecificFilters((specificFilters) => (
-        normalizeAnnualLeaveFilters(specificFilters, value)
+        normalizeAnnualLeaveFilters(
+          specificFilters,
+          value,
+          activeDataScope.allowedDepartments,
+        )
       ));
       setAppliedSpecificFilters((specificFilters) => (
-        normalizeAnnualLeaveFilters(specificFilters, value)
+        normalizeAnnualLeaveFilters(
+          specificFilters,
+          value,
+          activeDataScope.allowedDepartments,
+        )
       ));
     }
     setFilters((current) => {
@@ -97,6 +141,11 @@ export function CustomerReportCenterPage({
   };
 
   const handleExport = () => {
+    if (!canExport) {
+      setSpecificFeedback('');
+      setExportFeedback('当前角色只有报表查看权限，不能创建导出任务。');
+      return;
+    }
     const generatedAt = new Date().toISOString();
     const request: CustomerReportExportRequest = {
       reportKey: activeReport,
@@ -107,6 +156,8 @@ export function CustomerReportCenterPage({
       rowCount: rowCountForReport(report, activeReport),
       generatedAt,
       reportFilters: specificCriteriaForReport(activeReport, appliedSpecificFilters),
+      dataScopeReference: activeDataScope.reference,
+      dataScopeLabel: activeDataScope.label,
     };
     downloadCustomerReportCsv(buildCustomerReportCsv({
       ...request,
@@ -126,9 +177,28 @@ export function CustomerReportCenterPage({
     setDraftSpecificFilters((current) => {
       const next = { ...current, [key]: value };
       return key === 'annualLevelOne'
-        ? normalizeAnnualLeaveFilters(next, filters.department)
+        ? normalizeAnnualLeaveFilters(
+          next,
+          filters.department,
+          activeDataScope.allowedDepartments,
+        )
         : next;
     });
+    setExportFeedback('');
+  };
+
+  const changeDataScope = (reference: string) => {
+    const nextScope = availableDataScopes.find((scope) => scope.reference === reference);
+    if (!nextScope) return;
+    setActiveScopeReference(nextScope.reference);
+    setFilters({
+      month: filters.month,
+      department: '全部部门',
+      employee: '全部员工',
+    });
+    setDraftSpecificFilters({ ...defaultCustomerReportSpecificFilters });
+    setAppliedSpecificFilters({ ...defaultCustomerReportSpecificFilters });
+    setSpecificFeedback('');
     setExportFeedback('');
   };
 
@@ -187,6 +257,8 @@ export function CustomerReportCenterPage({
             icon={<IconDownload aria-hidden="true" stroke={2} />}
             onClick={handleExport}
             data-capability-mode={capabilityMode}
+            disabled={!canExport}
+            title={canExport ? undefined : '缺少 ATTENDANCE_REPORT:EXPORT_CREATE 权限'}
           >
             导出当前报表
           </Button>
@@ -199,6 +271,34 @@ export function CustomerReportCenterPage({
           <strong>演示说明：</strong>
           页面使用脱敏合成数据，不连接生产接口；字段、颜色和汇总口径按客户现有电子表格样表呈现。
         </p>
+      </section>
+
+      <section className="customer-report__scope-card" aria-label="数据权限">
+        <div className="customer-report__scope-icon" aria-hidden="true">
+          <IconShieldCheck stroke={2} />
+        </div>
+        <div className="customer-report__scope-copy">
+          <span>数据权限已生效</span>
+          <strong>{activeDataScope.actorLabel} · {activeDataScope.label}</strong>
+          <p>
+            {scopeTypeLabel(activeDataScope.type)}先于查询、汇总与分页执行；
+            页面筛选、明细下钻和导出复用同一范围。
+          </p>
+        </div>
+        <label className="customer-report__scope-selector">
+          <span>权限角色</span>
+          <Select
+            aria-label="权限角色"
+            value={activeDataScope.reference}
+            options={availableDataScopes.map((scope) => ({
+              value: scope.reference,
+              label: scope.actorLabel,
+            }))}
+            onChange={changeDataScope}
+            popupMatchSelectWidth={false}
+          />
+        </label>
+        <span className="customer-report__scope-lock">服务端范围 · 已锁定</span>
       </section>
 
       <section className="customer-report__filter-card" aria-label="报表筛选">
@@ -239,7 +339,7 @@ export function CustomerReportCenterPage({
             <Select
               aria-label="部门"
               value={filters.department}
-              options={reportFilterOptions.departments.map((value) => ({ value, label: value }))}
+              options={departmentOptions}
               onChange={(value) => changeFilter('department', value)}
               popupMatchSelectWidth={false}
             />
@@ -250,7 +350,7 @@ export function CustomerReportCenterPage({
               aria-label="员工"
               showSearch
               value={filters.employee}
-              options={reportFilterOptions.employees.map((value) => ({ value, label: value }))}
+              options={employeeOptions}
               onChange={(value) => changeFilter('employee', value)}
               popupMatchSelectWidth={false}
             />
@@ -258,7 +358,9 @@ export function CustomerReportCenterPage({
           <div className="customer-report__filter-result">
             <span>当前范围</span>
             <strong>{filters.department} · {filters.employee}</strong>
-            <small>{report.metadata.monthLabel}，共 {report.metadata.rowCount} 名员工</small>
+            <small>
+              {report.metadata.monthLabel}，共 {report.metadata.rowCount} 名授权员工
+            </small>
           </div>
         </div>
       </section>
@@ -286,9 +388,11 @@ export function CustomerReportCenterPage({
         />
         <MetricCard
           label="待处理异常"
-          value={sourceReport.missedPunchRows.filter((row) => row.state === '待补签').length}
+          value={sourceReport.attendanceExceptionRows.filter(
+            (row) => row.state !== '已处理',
+          ).length}
           unit="项"
-          hint="可在忘打卡统计中查看"
+          hint="可在考勤异常总览中分级处理"
           tone="warning"
         />
       </section>
@@ -323,6 +427,7 @@ export function CustomerReportCenterPage({
           reportTitle={activeTab.label}
           month={sourceReport.metadata.month}
           department={filters.department}
+          allowedDepartments={activeDataScope.allowedDepartments}
           filters={draftSpecificFilters}
           resultCount={rowCountForReport(report, activeReport)}
           onChange={changeSpecificFilter}
@@ -387,6 +492,7 @@ function ReportSpecificFilterBar({
   reportTitle,
   month,
   department,
+  allowedDepartments,
   filters,
   resultCount,
   onChange,
@@ -397,6 +503,7 @@ function ReportSpecificFilterBar({
   reportTitle: string;
   month: string;
   department: string;
+  allowedDepartments: readonly string[];
   filters: CustomerReportSpecificFilters;
   resultCount: number;
   onChange: <K extends keyof CustomerReportSpecificFilters>(
@@ -425,6 +532,7 @@ function ReportSpecificFilterBar({
           reportKey={reportKey}
           month={month}
           department={department}
+          allowedDepartments={allowedDepartments}
           filters={filters}
           onChange={onChange}
         />
@@ -452,12 +560,14 @@ function SpecificFilterFields({
   reportKey,
   month,
   department,
+  allowedDepartments,
   filters,
   onChange,
 }: {
   reportKey: CustomerReportKey;
   month: string;
   department: string;
+  allowedDepartments: readonly string[];
   filters: CustomerReportSpecificFilters;
   onChange: <K extends keyof CustomerReportSpecificFilters>(
     key: K,
@@ -527,6 +637,38 @@ function SpecificFilterFields({
           )}
         />
       );
+    case 'exceptions':
+      return (
+        <>
+          <SpecificSelect
+            label="异常类型"
+            value={filters.exceptionType}
+            options={plainOptions(reportSpecificFilterOptions.exceptionTypes)}
+            onChange={(value) => onChange(
+              'exceptionType',
+              value as CustomerReportSpecificFilters['exceptionType'],
+            )}
+          />
+          <SpecificSelect
+            label="异常级别"
+            value={filters.exceptionSeverity}
+            options={plainOptions(reportSpecificFilterOptions.exceptionSeverities)}
+            onChange={(value) => onChange(
+              'exceptionSeverity',
+              value as CustomerReportSpecificFilters['exceptionSeverity'],
+            )}
+          />
+          <SpecificSelect
+            label="处理状态"
+            value={filters.exceptionState}
+            options={plainOptions(reportSpecificFilterOptions.exceptionStates)}
+            onChange={(value) => onChange(
+              'exceptionState',
+              value as CustomerReportSpecificFilters['exceptionState'],
+            )}
+          />
+        </>
+      );
     case 'late':
       return (
         <>
@@ -584,18 +726,22 @@ function SpecificFilterFields({
             )}
           />
           <SpecificSelect
-          label="一级部门"
-          value={filters.annualLevelOne}
-          options={plainOptions(annualLevelOneOptions(department))}
-          onChange={(value) => onChange('annualLevelOne', value)}
-        />
-        <SpecificSelect
-          label="二级部门"
-          value={filters.annualLevelTwo}
-          options={plainOptions(annualLevelTwoOptions(
-            filters.annualLevelOne,
-            department,
-          ))}
+            label="一级部门"
+            value={filters.annualLevelOne}
+            options={plainOptions(annualLevelOneOptions(
+              department,
+              allowedDepartments,
+            ))}
+            onChange={(value) => onChange('annualLevelOne', value)}
+          />
+          <SpecificSelect
+            label="二级部门"
+            value={filters.annualLevelTwo}
+            options={plainOptions(annualLevelTwoOptions(
+              filters.annualLevelOne,
+              department,
+              allowedDepartments,
+            ))}
             onChange={(value) => onChange('annualLevelTwo', value)}
           />
         </>
@@ -646,6 +792,8 @@ function ActiveReport({
       return <OvertimeReport report={report} />;
     case 'work-hours':
       return <WorkHoursReport report={report} />;
+    case 'exceptions':
+      return <AttendanceExceptionReport report={report} />;
     case 'late':
       return <ExceptionReport report={report} type="late" />;
     case 'missed-punch':
@@ -890,6 +1038,113 @@ function WorkHoursReport({ report }: { report: CustomerReportDemo }) {
         </table>
       </ScrollTable>
     </ReportSheet>
+  );
+}
+
+function AttendanceExceptionReport({ report }: { report: CustomerReportDemo }) {
+  const rows = report.attendanceExceptionRows;
+  const pendingCount = rows.filter((row) => row.state !== '已处理').length;
+  const highCount = rows.filter((row) => row.severity === '高').length;
+  const missingPunchCount = rows.filter((row) => (
+    row.exceptionType === '上班缺卡' || row.exceptionType === '下班缺卡'
+  )).length;
+  return (
+    <ReportSheet
+      title={`${report.metadata.company}${report.metadata.monthLabel}考勤异常总览`}
+      subtitle="迟到、早退、缺卡、旷工、排班和审批冲突统一复核；假因已按字段策略脱敏"
+      meta={`${rows.length} 条 · ${pendingCount} 条待处理`}
+    >
+      <div className="customer-report__exception-summary" aria-label="异常汇总">
+        <ExceptionSummaryItem label="高风险" value={highCount} tone="danger" />
+        <ExceptionSummaryItem label="缺卡" value={missingPunchCount} tone="warning" />
+        <ExceptionSummaryItem
+          label="审批/打卡冲突"
+          value={rows.filter((row) => row.exceptionType.includes('冲突')).length}
+        />
+        <ExceptionSummaryItem label="未闭环" value={pendingCount} tone="warning" />
+      </div>
+      <ScrollTable>
+        <table
+          className="customer-report__table customer-report__table--exceptions"
+          data-testid="report-table"
+        >
+          <thead>
+            <tr>
+              <th scope="col">考勤日期</th>
+              <th scope="col">级别</th>
+              <th scope="col">异常类型</th>
+              <th scope="col">工号</th>
+              <th scope="col">姓名</th>
+              <th scope="col">部门</th>
+              <th scope="col">班次</th>
+              <th scope="col">应出勤</th>
+              <th scope="col">打卡摘要</th>
+              <th scope="col">异常分钟</th>
+              <th scope="col">证据摘要</th>
+              <th scope="col">处理状态</th>
+              <th scope="col">负责人</th>
+              <th scope="col">处理时限</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length > 0 ? rows.map((row) => (
+              <AttendanceExceptionRow row={row} key={row.id} />
+            )) : <EmptyTableRow colSpan={14} />}
+          </tbody>
+        </table>
+      </ScrollTable>
+      <SheetFootnote>
+        当前为常用异常首版；汇总、明细与导出均已绑定
+        {report.metadata.dataScope.label}，越权筛选返回空结果。
+      </SheetFootnote>
+    </ReportSheet>
+  );
+}
+
+function ExceptionSummaryItem({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string;
+  value: number;
+  tone?: 'default' | 'warning' | 'danger';
+}) {
+  return (
+    <span className={`customer-report__exception-summary-item is-${tone}`}>
+      {label}
+      <strong>{value}</strong>
+    </span>
+  );
+}
+
+function AttendanceExceptionRow({ row }: { row: AttendanceExceptionReportRow }) {
+  return (
+    <tr>
+      <td>{row.businessDate}</td>
+      <td>
+        <span
+          className="customer-report__severity"
+          data-severity={row.severity}
+        >
+          {row.severity}
+        </span>
+      </td>
+      <td><strong>{row.exceptionType}</strong></td>
+      <td>{row.employeeNo}</td>
+      <td><strong>{row.employee}</strong></td>
+      <td>{row.department}</td>
+      <td>{row.shiftLabel}</td>
+      <td>{row.scheduledWindow}</td>
+      <td>{row.punchSummary}</td>
+      <td className="customer-report__number">
+        {row.exceptionMinutes === undefined ? '—' : row.exceptionMinutes}
+      </td>
+      <td>{row.evidenceSummary}</td>
+      <td><StatePill label={row.state} /></td>
+      <td>{row.owner}</td>
+      <td>{row.dueAt}</td>
+    </tr>
   );
 }
 
@@ -1143,6 +1398,7 @@ function specificFilterDescription(reportKey: CustomerReportKey): string {
     leave: '按请假类型核对审批与小时数',
     overtime: '按加班性质与具体发生日期交叉查询',
     'work-hours': '区分在职、本月入职和本月离职',
+    exceptions: '按异常类型、风险级别和处理状态定位待办',
     late: '按发生次数和最长迟到分钟分级',
     'missed-punch': '区分上班缺卡与下班缺卡',
     'attendance-rate': '按主要缺勤类型查看出勤率',
@@ -1170,6 +1426,11 @@ function copySpecificFiltersForReport(
       break;
     case 'work-hours':
       next.employmentStatus = draft.employmentStatus;
+      break;
+    case 'exceptions':
+      next.exceptionType = draft.exceptionType;
+      next.exceptionSeverity = draft.exceptionSeverity;
+      next.exceptionState = draft.exceptionState;
       break;
     case 'late':
       next.lateCount = draft.lateCount;
@@ -1209,6 +1470,11 @@ function resetSpecificFiltersForReport(
     case 'work-hours':
       next.employmentStatus = defaultCustomerReportSpecificFilters.employmentStatus;
       break;
+    case 'exceptions':
+      next.exceptionType = defaultCustomerReportSpecificFilters.exceptionType;
+      next.exceptionSeverity = defaultCustomerReportSpecificFilters.exceptionSeverity;
+      next.exceptionState = defaultCustomerReportSpecificFilters.exceptionState;
+      break;
     case 'late':
       next.lateCount = defaultCustomerReportSpecificFilters.lateCount;
       next.lateLevel = defaultCustomerReportSpecificFilters.lateLevel;
@@ -1241,6 +1507,12 @@ function specificCriteriaForReport(
       return { 加班类型: filters.overtimeType, 加班日期: filters.overtimeDay };
     case 'work-hours':
       return { 在职状态: filters.employmentStatus };
+    case 'exceptions':
+      return {
+        异常类型: filters.exceptionType,
+        异常级别: filters.exceptionSeverity,
+        处理状态: filters.exceptionState,
+      };
     case 'late':
       return { 迟到次数: filters.lateCount, 迟到时长级别: filters.lateLevel };
     case 'missed-punch':
@@ -1275,6 +1547,7 @@ function rowCountForReport(report: CustomerReportDemo, key: CustomerReportKey): 
     leave: report.leaveRows.length,
     overtime: report.overtimeRows.length,
     'work-hours': report.workHoursRows.length,
+    exceptions: report.attendanceExceptionRows.length,
     late: report.lateRows.length,
     'missed-punch': report.missedPunchRows.length,
     'attendance-rate': report.attendanceRateRows.length,

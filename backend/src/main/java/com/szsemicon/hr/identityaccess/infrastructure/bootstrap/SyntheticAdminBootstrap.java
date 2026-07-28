@@ -2,7 +2,7 @@ package com.szsemicon.hr.identityaccess.infrastructure.bootstrap;
 
 import com.szsemicon.hr.identityaccess.application.AccountPersistence;
 import com.szsemicon.hr.identityaccess.application.AuthenticationPersistence;
-import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
+import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.ResolvedRoleAssignmentInput;
 import com.szsemicon.hr.shared.security.PasswordCodec;
 import java.sql.Date;
 import java.sql.Timestamp;
@@ -30,6 +30,8 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
             "30000000-0000-0000-0000-000000000001";
     static final String SYSTEM_ADMIN_ROLE_ID =
             "10000000-0000-0000-0000-000000000002";
+    static final String SYNTHETIC_LEGAL_ENTITY_SCOPE_ID =
+            "39000000-0000-0000-0000-000000000001";
     static final String SYNTHETIC_POLICY_TEMPLATE_ID =
             "31000000-0000-0000-0000-000000000001";
     static final String SYNTHETIC_PUBLISHED_VERSION_ID =
@@ -93,16 +95,17 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
                 username,
                 normalizedUsername,
                 "WAVE-1 本地合成管理员",
+                null,
                 credentialHash,
                 "DEV_SYNTHETIC_BOOTSTRAP",
                 now);
+        ensureSyntheticLegalEntityScope(now);
         accountPersistence.replaceRoleAssignments(
                 accountId,
                 0,
-                List.of(new RoleAssignmentInput(
+                List.of(new ResolvedRoleAssignmentInput(
                         SYSTEM_ADMIN_ROLE_ID,
-                        "LEGAL_ENTITY",
-                        SYNTHETIC_LEGAL_ENTITY_ID,
+                        SYNTHETIC_LEGAL_ENTITY_SCOPE_ID,
                         now,
                         null)),
                 "DEV_SYNTHETIC_BOOTSTRAP",
@@ -128,6 +131,24 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
                 """,
                 SYNTHETIC_LEGAL_ENTITY_ID,
                 SYNTHETIC_LEGAL_ENTITY_ID);
+    }
+
+    private void ensureSyntheticLegalEntityScope(Instant now) {
+        jdbc.update(
+                """
+                INSERT INTO auth_data_scope (
+                    scope_id, scope_type, legal_entity_id, organization_id,
+                    include_descendants, valid_from, valid_to
+                )
+                SELECT ?, 'LEGAL_ENTITY', ?, NULL, TRUE, ?, NULL
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM auth_data_scope WHERE scope_id = ?
+                )
+                """,
+                SYNTHETIC_LEGAL_ENTITY_SCOPE_ID,
+                SYNTHETIC_LEGAL_ENTITY_ID,
+                Timestamp.from(now),
+                SYNTHETIC_LEGAL_ENTITY_SCOPE_ID);
     }
 
     private void ensureSyntheticPolicyData(String principalId, Instant now) {

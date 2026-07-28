@@ -159,6 +159,7 @@ export const reportFixture: ReportProjection = {
   filters: {
     period: '2026-07',
     scopeReference: 'scope:organization:synthetic',
+    legalEntityId: '30000000-0000-0000-0000-000000000001',
     status: '全部',
   },
   columns: [
@@ -228,5 +229,12 @@ export const wave7FixtureGateway: Wave7ProjectionGateway = {
   loadLeave: async () => leaveFixture,
   loadFeedback: async () => feedbackFixture,
   loadDashboard: async () => dashboardFixture,
+  loadReportLegalEntities: async (period) => ({
+    period,
+    legalEntities: [{
+      legalEntityId: '30000000-0000-0000-0000-000000000001',
+      name: '神州半导体',
+    }],
+  }),
   loadReport: async () => reportFixture,
 };

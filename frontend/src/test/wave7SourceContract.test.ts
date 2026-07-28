@@ -31,11 +31,21 @@ describe('WAVE-7 frontend source contract', () => {
     expect(appSource).not.toMatch(/\/qa\/handoff|EMP-DEMO|ATT-EVENT-DEMO|ATT-XLS-DEMO/);
   });
 
-  it('keeps contract fixtures and synthetic success data out of production modules', () => {
+  it('keeps fixtures isolated while the formal report gateway uses same-origin API clients', () => {
     expect(productionSource).not.toMatch(/test\/fixtures|ContractFixtures|localStorage|isDemoMode|getDemo/i);
     const gatewaySource = read(join(wave7Root, 'wave7Gateway.ts'));
     expect(gatewaySource).toContain('WAVE7_UPSTREAM_PENDING');
-    expect(gatewaySource).not.toMatch(/\bfetch\(|requestJson|requestFile/);
+    expect(gatewaySource).toContain('requestJson');
+    expect(gatewaySource).toContain('requestFile');
+    expect(gatewaySource).toContain('/api/v1/attendance-reports');
+    expect(gatewaySource).toContain('/exports');
+    expect(gatewaySource).not.toMatch(/\bfetch\(/);
+  });
+
+  it('keeps formal export passwords out of browser persistence and application logs', () => {
+    expect(productionSource).not.toMatch(
+      /localStorage|sessionStorage|console\.(?:log|info|warn|error)/,
+    );
   });
 
   it('keeps excluded sensitive and compensation discovery fields out of Wave 7 production', () => {

@@ -17,7 +17,7 @@ public final class CanonicalAttendanceDigests {
     }
 
     public static String inputDigest(CalculationInputSnapshot snapshot) {
-        CanonicalWriter writer = new CanonicalWriter("W5_CALC_INPUT_V1")
+        CanonicalWriter writer = new CanonicalWriter("W5_CALC_INPUT_V2")
                 .text(snapshot.legalEntityId())
                 .text(snapshot.employeeId())
                 .text(snapshot.employmentPeriodId())
@@ -92,6 +92,7 @@ public final class CanonicalAttendanceDigests {
                 .instant(rule.window().start())
                 .instant(rule.window().end())
                 .number(rule.deductionMinutes())
+                .number(rule.triggerMinutes())
                 .bool(rule.requireFullCoverage()));
         return writer.digest();
     }

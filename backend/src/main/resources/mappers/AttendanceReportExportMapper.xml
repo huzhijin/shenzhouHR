@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportExportMapper">
+
+    <sql id="exportJobColumns">
+        job.attendance_report_export_id AS export_id,
+        job.principal_id,
+        job.report_type,
+        job.period_start,
+        job.legal_entity_id,
+        job.organization_id,
+        job.employee_id,
+        job.filter_status,
+        job.purpose,
+        job.projection_version,
+        job.authorization_digest,
+        job.query_fingerprint,
+        job.visible_content_digest,
+        job.formula_version,
+        job.export_fields_json,
+        job.row_count,
+        job.delivery_mode,
+        job.status,
+        job.content_type,
+        job.file_extension,
+        job.content_sha256,
+        job.content_length,
+        job.failure_code,
+        job.expires_at,
+        job.created_at,
+        job.completed_at
+    </sql>
+
+    <insert id="insertJob">
+        INSERT INTO attendance_report_export_job (
+            attendance_report_export_id,
+            principal_id,
+            report_type,
+            period_start,
+            legal_entity_id,
+            organization_id,
+            employee_id,
+            filter_status,
+            purpose,
+            projection_version,
+            authorization_digest,
+            query_fingerprint,
+            visible_content_digest,
+            formula_version,
+            export_fields_json,
+            row_count,
+            delivery_mode,
+            status,
+            content_type,
+            file_extension,
+            content_sha256,
+            content_length,
+            failure_code,
+            expires_at,
+            created_at,
+            completed_at
+        ) VALUES (
+            #{exportId},
+            #{principalId},
+            #{reportType},
+            #{periodStart},
+            #{legalEntityId},
+            #{organizationId},
+            #{employeeId},
+            #{filterStatus},
+            #{purpose},
+            #{projectionVersion},
+            #{authorizationDigest},
+            #{queryFingerprint},
+            #{visibleContentDigest},
+            #{formulaVersion},
+            #{exportFieldsJson},
+            #{rowCount},
+            #{deliveryMode},
+            #{status},
+            #{contentType},
+            #{fileExtension},
+            #{contentSha256},
+            #{contentLength},
+            #{failureCode},
+            #{expiresAt},
+            #{createdAt},
+            #{completedAt}
+        )
+    </insert>
+
+    <insert id="insertArtifact">
+        INSERT INTO attendance_report_export_artifact (
+            attendance_report_export_id,
+            content,
+            created_at
+        ) VALUES (
+            #{exportId},
+            #{content},
+            #{createdAt}
+        )
+    </insert>
+
+    <select id="findOwnedJob"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportExportRows$ExportReadRow">
+        SELECT <include refid="exportJobColumns"/>,
+               NULL AS content
+        FROM attendance_report_export_job job
+        WHERE job.attendance_report_export_id = #{exportId}
+          AND job.principal_id = #{principalId}
+    </select>
+
+    <select id="findOwnedReadyArtifact"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportExportRows$ExportReadRow">
+        SELECT <include refid="exportJobColumns"/>,
+               artifact.content
+        FROM attendance_report_export_job job
+        JOIN attendance_report_export_artifact artifact
+          ON artifact.attendance_report_export_id =
+             job.attendance_report_export_id
+        WHERE job.attendance_report_export_id = #{exportId}
+          AND job.principal_id = #{principalId}
+          AND job.status = 'READY'
+          AND job.expires_at &gt; #{readAt}
+          AND job.query_fingerprint = #{expectedQueryFingerprint}
+          AND job.visible_content_digest =
+              #{expectedVisibleContentDigest}
+    </select>
+
+    <!--
+      The worker service holds this lock and all state changes in one outer
+      transaction. A process failure therefore rolls the BUILDING claim back
+      to QUEUED, while SKIP LOCKED permits independent workers to progress.
+    -->
+    <select id="findNextQueuedForUpdate"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportExportRows$ExportReadRow">
+        SELECT <include refid="exportJobColumns"/>,
+               NULL AS content
+        FROM attendance_report_export_job job
+        WHERE job.status = 'QUEUED'
+          AND job.delivery_mode = 'ASYNC'
+          AND job.expires_at &gt; #{claimedAt}
+        ORDER BY job.created_at,
+                 job.attendance_report_export_id
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+    </select>
+
+    <update id="markBuilding">
+        UPDATE attendance_report_export_job
+        SET status = 'BUILDING',
+            claimed_at = #{claimedAt},
+            row_version = row_version + 1
+        WHERE attendance_report_export_id = #{exportId}
+          AND status = 'QUEUED'
+          AND delivery_mode = 'ASYNC'
+          AND expires_at &gt; #{claimedAt}
+    </update>
+
+    <update id="markReady">
+        UPDATE attendance_report_export_job
+        SET status = 'READY',
+            content_type = #{contentType},
+            file_extension = #{fileExtension},
+            content_sha256 = #{contentSha256},
+            content_length = #{contentLength},
+            failure_code = NULL,
+            completed_at = #{completedAt},
+            row_version = row_version + 1
+        WHERE attendance_report_export_id = #{exportId}
+          AND status = 'BUILDING'
+          AND delivery_mode = 'ASYNC'
+          AND visible_content_digest =
+              #{expectedVisibleContentDigest}
+          AND expires_at &gt; #{completedAt}
+    </update>
+
+    <update id="markFailed">
+        UPDATE attendance_report_export_job
+        SET status = 'FAILED',
+            content_type = NULL,
+            file_extension = NULL,
+            content_sha256 = NULL,
+            content_length = 0,
+            failure_code = #{failureCode},
+            completed_at = #{completedAt},
+            row_version = row_version + 1
+        WHERE attendance_report_export_id = #{exportId}
+          AND status = 'BUILDING'
+          AND delivery_mode = 'ASYNC'
+    </update>
+
+    <delete id="purgeExpired">
+        DELETE FROM attendance_report_export_job
+        WHERE expires_at &lt;= #{expiredAt}
+          AND status IN ('QUEUED', 'READY', 'FAILED')
+        ORDER BY expires_at, attendance_report_export_id
+        LIMIT #{limit}
+    </delete>
+</mapper>

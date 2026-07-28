@@ -821,6 +821,51 @@ describe('attendance setup demo pages', () => {
     );
   });
 
+  it('renders the server total deduction and each matched meal window', () => {
+    const result = simulationResult('周六午餐与晚餐均命中');
+    result.results[0] = {
+      ...requiredItem(result.results, 0),
+      deductionMinutes: 105,
+      matchedMealWindows: [{
+        windowId: 'SATURDAY_LUNCH',
+        mealType: 'LUNCH',
+        source: 'SATURDAY_LUNCH',
+        windowStart: '12:00',
+        windowEnd: '13:00',
+        deductionMinutes: 60,
+        triggerMinutes: 0,
+      }, {
+        windowId: 'SATURDAY_DINNER',
+        mealType: 'DINNER',
+        source: 'SATURDAY_OVERRIDE',
+        windowStart: '17:00',
+        windowEnd: '19:00',
+        deductionMinutes: 45,
+        triggerMinutes: 60,
+      }],
+    };
+
+    const view = render(
+      <PolicySimulationPanel
+        policyKind="MEAL_DEDUCTION"
+        policyVersionId="meal-version"
+        processing={false}
+        result={result}
+        onSimulate={vi.fn()}
+      />,
+    );
+    const resultRegion = requiredElement(
+      view.container,
+      '.policy-simulation-result',
+    );
+
+    expect(within(resultRegion).getByText('105')).toBeInTheDocument();
+    expect(within(resultRegion).getByText(
+      'SATURDAY_LUNCH [12:00, 13:00) · 60 分钟；'
+      + 'SATURDAY_DINNER [17:00, 19:00) · 45 分钟',
+    )).toBeInTheDocument();
+  });
+
   it('does not render a different policy kind as a fallback result', () => {
     render(
       <PolicySimulationPanel
@@ -921,6 +966,7 @@ function simulationResult(
       predictedMonthlyConsumption: 0,
       usageProvenance: 'TEST',
       usageKnowledgeTime: '2026-07-27T12:00:00+08:00',
+      matchedMealWindows: [],
       explanation,
       writesFormalResult: false,
     }],

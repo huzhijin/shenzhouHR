@@ -63,6 +63,7 @@ public class AccountController {
                 request.username(),
                 request.displayName(),
                 request.temporaryPassword(),
+                request.employeeId(),
                 request.roleAssignments().stream().map(RoleAssignmentRequest::toInput).toList()));
         return ResponseEntity.created(URI.create("/api/v1/access/accounts/" + detail.accountId()))
                 .body(detail);
@@ -136,7 +137,9 @@ public class AccountController {
             @NotBlank @Size(min = 3, max = 128) String username,
             @NotBlank @Size(max = 100) String displayName,
             @NotBlank @Size(min = 12, max = 256) String temporaryPassword,
-            @NotEmpty List<@Valid RoleAssignmentRequest> roleAssignments) {
+            @Size(max = 36) String employeeId,
+            @NotEmpty @Size(max = 100)
+            List<@Valid RoleAssignmentRequest> roleAssignments) {
     }
 
     public record AccountStatusUpdateRequest(
@@ -152,9 +155,9 @@ public class AccountController {
     }
 
     public record RoleAssignmentRequest(
-            @NotBlank String roleId,
+            @NotBlank @Size(max = 36) String roleId,
             @NotBlank String scopeType,
-            String scopeResourceId,
+            @Size(max = 36) String scopeResourceId,
             @NotNull Instant validFrom,
             Instant validTo) {
 

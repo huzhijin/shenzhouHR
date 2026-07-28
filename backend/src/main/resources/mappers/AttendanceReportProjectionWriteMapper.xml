@@ -1,0 +1,450 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportProjectionWriteMapper">
+
+    <select id="lockLegalEntity" resultType="string">
+        SELECT legal_entity.legal_entity_id
+        FROM legal_entity legal_entity
+        WHERE legal_entity.legal_entity_id = #{legalEntityId}
+        FOR UPDATE
+    </select>
+
+    <select id="findLatestPublished"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportProjectionWriteRows$StoredProjectionRow">
+        SELECT projection.attendance_report_projection_id AS projection_id,
+               projection.legal_entity_id,
+               projection.period_start,
+               projection.period_end_exclusive,
+               projection.period_state,
+               projection.projection_version,
+               projection.formula_catalog_version,
+               projection.source_versions_json,
+               projection.source_snapshot_digest,
+               projection.projection_digest,
+               projection.status,
+               projection.data_as_of,
+               projection.published_at
+        FROM attendance_report_projection projection
+        WHERE projection.legal_entity_id = #{legalEntityId}
+          AND projection.period_start = #{periodStart}
+          AND projection.status = 'PUBLISHED'
+        ORDER BY projection.published_at DESC,
+                 projection.attendance_report_projection_id DESC
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <select id="findByDigest"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportProjectionWriteRows$StoredProjectionRow">
+        SELECT projection.attendance_report_projection_id AS projection_id,
+               projection.legal_entity_id,
+               projection.period_start,
+               projection.period_end_exclusive,
+               projection.period_state,
+               projection.projection_version,
+               projection.formula_catalog_version,
+               projection.source_versions_json,
+               projection.source_snapshot_digest,
+               projection.projection_digest,
+               projection.status,
+               projection.data_as_of,
+               projection.published_at
+        FROM attendance_report_projection projection
+        WHERE projection.legal_entity_id = #{legalEntityId}
+          AND projection.period_start = #{periodStart}
+          AND projection.projection_digest = #{projectionDigest}
+        FOR UPDATE
+    </select>
+
+    <insert id="insertDraft">
+        INSERT INTO attendance_report_projection (
+            attendance_report_projection_id,
+            legal_entity_id,
+            period_start,
+            period_end_exclusive,
+            period_state,
+            projection_version,
+            formula_catalog_version,
+            source_versions_json,
+            source_snapshot_digest,
+            projection_digest,
+            status,
+            data_as_of,
+            published_at,
+            created_by,
+            created_at
+        )
+        SELECT #{projectionId},
+               legal_entity.legal_entity_id,
+               #{periodStart},
+               #{periodEndExclusive},
+               #{periodState},
+               #{projectionVersion},
+               #{formulaCatalogVersion},
+               CAST(#{sourceVersionsJson} AS JSON),
+               #{sourceSnapshotDigest},
+               #{projectionDigest},
+               'DRAFT',
+               #{dataAsOf},
+               NULL,
+               principal.principal_id,
+               #{createdAt}
+        FROM legal_entity legal_entity
+        JOIN auth_principal principal
+          ON principal.principal_id = #{createdBy}
+         AND principal.status = 'ACTIVE'
+        WHERE legal_entity.legal_entity_id = #{legalEntityId}
+    </insert>
+
+    <insert id="insertDailyFact">
+        INSERT INTO attendance_report_daily_fact (
+            attendance_report_daily_fact_id,
+            attendance_report_projection_id,
+            legal_entity_id,
+            employee_id,
+            employee_version_id,
+            employment_period_id,
+            organization_id,
+            organization_version_id,
+            business_date,
+            day_type,
+            shift_label,
+            scheduled_minutes,
+            confirmed_scheduled_work_minutes,
+            recognized_overtime_minutes,
+            leave_or_time_off_minutes,
+            absence_minutes,
+            actual_work_minutes,
+            late_minutes,
+            penalized_late_minutes,
+            early_departure_minutes,
+            missing_punch_count,
+            first_punch_at,
+            last_punch_at,
+            calculation_version_id,
+            result_digest,
+            created_at
+        )
+        SELECT #{rowId},
+               projection.attendance_report_projection_id,
+               projection.legal_entity_id,
+               employee.employee_id,
+               employee_version.employee_version_id,
+               employment.assignment_id,
+               organization.organization_id,
+               organization_version.organization_version_id,
+               #{businessDate},
+               #{dayType},
+               #{shiftLabel},
+               #{scheduledMinutes},
+               #{confirmedScheduledWorkMinutes},
+               #{recognizedOvertimeMinutes},
+               #{leaveOrTimeOffMinutes},
+               #{absenceMinutes},
+               #{actualWorkMinutes},
+               #{lateMinutes},
+               #{penalizedLateMinutes},
+               #{earlyDepartureMinutes},
+               #{missingPunchCount},
+               #{firstPunchAt},
+               #{lastPunchAt},
+               #{calculationVersionId},
+               #{resultDigest},
+               #{createdAt}
+        FROM attendance_report_projection projection
+        JOIN employee employee
+          ON employee.employee_id = #{employeeId}
+         AND employee.legal_entity_id = projection.legal_entity_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = #{employeeVersionId}
+         AND employee_version.employee_id = employee.employee_id
+         AND employee_version.effective_from &lt;= #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+        JOIN employment_assignment employment
+          ON employment.assignment_id = #{employmentAssignmentId}
+         AND employment.employee_id = employee.employee_id
+         AND DATE(employment.effective_from) &lt;= #{businessDate}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{businessDate}
+         )
+        JOIN organization_identity organization
+          ON organization.organization_id = #{organizationId}
+         AND organization.organization_id = employment.organization_id
+         AND organization.legal_entity_id = projection.legal_entity_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             #{organizationVersionId}
+         AND organization_version.organization_id =
+             organization.organization_id
+         AND DATE(organization_version.effective_from)
+             &lt;= #{businessDate}
+         AND (
+                organization_version.effective_to IS NULL
+                OR DATE(organization_version.effective_to)
+                   &gt; #{businessDate}
+         )
+        WHERE projection.attendance_report_projection_id = #{projectionId}
+          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.status = 'DRAFT'
+    </insert>
+
+    <insert id="insertExceptionFact">
+        INSERT INTO attendance_report_exception_fact (
+            attendance_report_exception_fact_id,
+            attendance_report_projection_id,
+            legal_entity_id,
+            exception_case_id,
+            employee_id,
+            employee_version_id,
+            organization_id,
+            organization_version_id,
+            business_date,
+            exception_type,
+            severity,
+            state,
+            exception_minutes,
+            safe_evidence_summary,
+            calculation_version_id,
+            created_at
+        )
+        SELECT #{rowId},
+               projection.attendance_report_projection_id,
+               projection.legal_entity_id,
+               #{exceptionCaseId},
+               employee.employee_id,
+               employee_version.employee_version_id,
+               organization.organization_id,
+               organization_version.organization_version_id,
+               #{businessDate},
+               #{exceptionType},
+               #{severity},
+               #{state},
+               #{exceptionMinutes},
+               #{safeEvidenceSummary},
+               #{calculationVersionId},
+               #{createdAt}
+        FROM attendance_report_projection projection
+        JOIN employee employee
+          ON employee.employee_id = #{employeeId}
+         AND employee.legal_entity_id = projection.legal_entity_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = #{employeeVersionId}
+         AND employee_version.employee_id = employee.employee_id
+         AND employee_version.effective_from &lt;= #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+        JOIN employment_assignment employment
+          ON employment.assignment_id = #{employmentAssignmentId}
+         AND employment.employee_id = employee.employee_id
+         AND DATE(employment.effective_from) &lt;= #{businessDate}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{businessDate}
+         )
+        JOIN organization_identity organization
+          ON organization.organization_id = #{organizationId}
+         AND organization.organization_id = employment.organization_id
+         AND organization.legal_entity_id = projection.legal_entity_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             #{organizationVersionId}
+         AND organization_version.organization_id =
+             organization.organization_id
+         AND DATE(organization_version.effective_from)
+             &lt;= #{businessDate}
+         AND (
+                organization_version.effective_to IS NULL
+                OR DATE(organization_version.effective_to)
+                   &gt; #{businessDate}
+         )
+        WHERE projection.attendance_report_projection_id = #{projectionId}
+          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.status = 'DRAFT'
+    </insert>
+
+    <!--
+        OA_TEMPORAL_IDENTITY_ANCHOR_NOT_SIGNED:
+        This statement verifies exact document, normalized record, match
+        decision, employee, assignment, and organization/version identities.
+        It deliberately does not claim employee/assignment/organization-version
+        validity at an occurrence instant. POINT versus interval/date-range
+        anchoring and cross-version interval splitting require an approved
+        business rule before effective_from/effective_to predicates are added.
+    -->
+    <insert id="insertOaDocumentFact">
+        INSERT INTO attendance_report_oa_fact (
+            attendance_report_oa_fact_id,
+            attendance_report_projection_id,
+            legal_entity_id,
+            oa_attendance_document_id,
+            employee_id,
+            employee_version_id,
+            employment_period_id,
+            organization_id,
+            organization_version_id,
+            document_type,
+            leave_type_code,
+            temporal_shape,
+            point_instant,
+            interval_start,
+            interval_end,
+            recognized_minutes,
+            source_status,
+            source_version,
+            created_at
+        )
+        SELECT #{rowId},
+               projection.attendance_report_projection_id,
+               projection.legal_entity_id,
+               document.oa_attendance_document_id,
+               employee.employee_id,
+               employee_version.employee_version_id,
+               employment.assignment_id,
+               organization.organization_id,
+               organization_version.organization_version_id,
+               document.document_type,
+               #{leaveTypeCode},
+               #{temporalShape},
+               normalized.point_instant,
+               normalized.interval_start,
+               normalized.interval_end,
+               #{recognizedMinutes},
+               document.source_status,
+               document.source_version,
+               #{createdAt}
+        FROM attendance_report_projection projection
+        JOIN oa_attendance_document document
+          ON document.oa_attendance_document_id =
+             #{oaAttendanceDocumentId}
+         AND document.document_type = #{documentType}
+         AND document.source_status = #{sourceStatus}
+         AND document.source_version = #{sourceVersion}
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             document.normalized_attendance_record_id
+         AND normalized.validation_status = 'VALID'
+         AND normalized.record_kind = 'OA_INTERVAL'
+         AND normalized.point_instant &lt;=> #{pointInstant}
+         AND normalized.interval_start &lt;=> #{intervalStart}
+         AND normalized.interval_end &lt;=> #{intervalEndExclusive}
+        JOIN raw_attendance_fact raw_fact
+          ON raw_fact.raw_attendance_fact_id =
+             normalized.raw_attendance_fact_id
+         AND raw_fact.legal_entity_id = projection.legal_entity_id
+         AND raw_fact.fact_kind = 'OA_DOCUMENT'
+        JOIN employee_match_decision match_decision
+          ON match_decision.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+         AND match_decision.match_status = 'MATCHED'
+         AND match_decision.employee_id = #{employeeId}
+         AND match_decision.employment_period_id =
+             #{employmentAssignmentId}
+        JOIN employee employee
+          ON employee.employee_id = match_decision.employee_id
+         AND employee.legal_entity_id = projection.legal_entity_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = #{employeeVersionId}
+         AND employee_version.employee_id = employee.employee_id
+        JOIN employment_assignment employment
+          ON employment.assignment_id =
+             match_decision.employment_period_id
+         AND employment.employee_id = employee.employee_id
+         AND employment.organization_id = #{organizationId}
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.legal_entity_id = projection.legal_entity_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             #{organizationVersionId}
+         AND organization_version.organization_id =
+             organization.organization_id
+        WHERE projection.attendance_report_projection_id = #{projectionId}
+          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.status = 'DRAFT'
+    </insert>
+
+    <!--
+        TIME_ACCOUNT_IDENTITY_SNAPSHOT_ANCHOR_NOT_SIGNED:
+        This statement verifies only the supplied employee and organization
+        version relationships. Wave 6 has not supplied a persisted ledger
+        snapshot/as-of anchor or employment-period reference, so temporal
+        effective_from/effective_to validation cannot be asserted here.
+    -->
+    <insert id="insertTimeAccountFact">
+        INSERT INTO attendance_report_time_account_fact (
+            attendance_report_time_account_fact_id,
+            attendance_report_projection_id,
+            legal_entity_id,
+            account_id,
+            employee_id,
+            employee_version_id,
+            organization_id,
+            organization_version_id,
+            account_type,
+            opening_hours,
+            granted_hours,
+            overtime_credit_hours,
+            manual_increase_hours,
+            used_hours,
+            expired_hours,
+            returned_hours,
+            manual_deduction_hours,
+            ledger_version,
+            created_at
+        )
+        SELECT #{rowId},
+               projection.attendance_report_projection_id,
+               projection.legal_entity_id,
+               #{accountId},
+               employee.employee_id,
+               employee_version.employee_version_id,
+               organization.organization_id,
+               organization_version.organization_version_id,
+               #{accountType},
+               #{openingHours},
+               #{grantedHours},
+               #{overtimeCreditHours},
+               #{manualIncreaseHours},
+               #{usedHours},
+               #{expiredHours},
+               #{returnedHours},
+               #{manualDeductionHours},
+               #{ledgerVersion},
+               #{createdAt}
+        FROM attendance_report_projection projection
+        JOIN employee employee
+          ON employee.employee_id = #{employeeId}
+         AND employee.legal_entity_id = projection.legal_entity_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = #{employeeVersionId}
+         AND employee_version.employee_id = employee.employee_id
+        JOIN organization_identity organization
+          ON organization.organization_id = #{organizationId}
+         AND organization.legal_entity_id = projection.legal_entity_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             #{organizationVersionId}
+         AND organization_version.organization_id =
+             organization.organization_id
+        WHERE projection.attendance_report_projection_id = #{projectionId}
+          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.status = 'DRAFT'
+    </insert>
+
+    <update id="markPublished">
+        UPDATE attendance_report_projection
+        SET status = 'PUBLISHED',
+            published_at = #{publishedAt}
+        WHERE attendance_report_projection_id = #{projectionId}
+          AND status = 'DRAFT'
+          AND published_at IS NULL
+    </update>
+</mapper>

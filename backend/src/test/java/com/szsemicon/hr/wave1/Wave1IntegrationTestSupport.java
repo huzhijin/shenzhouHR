@@ -94,7 +94,7 @@ abstract class Wave1IntegrationTestSupport {
         insertPrincipal(FIRST_CHANGE_PRINCIPAL, "b0000000-0000-0000-0000-000000000002");
         insertPrincipal(STANDARD_PRINCIPAL, "b0000000-0000-0000-0000-000000000003");
         insertPrincipal(OUTSIDE_SCOPE_PRINCIPAL, "b0000000-0000-0000-0000-000000000004");
-        insertPrincipal(LIMITED_PRINCIPAL, "b0000000-0000-0000-0000-000000000001");
+        insertPrincipal(LIMITED_PRINCIPAL, null);
 
         insertRoleAssignment(
                 "a1000000-0000-0000-0000-000000000001",

@@ -28,6 +28,8 @@ class MyBatisMapperContractTest {
                 "mappers/AttendancePolicyLifecycleMapper.xml",
                 "mappers/AttendanceSetupIdempotencyMapper.xml",
                 "mappers/AttendanceEvidenceMapper.xml",
+                "mappers/AttendanceConfigurationAuthorityMapper.xml",
+                "mappers/AttendancePeriodProtectionMapper.xml",
                 "mappers/AttendanceSourceReadMapper.xml",
                 "mappers/PunchImportReadMapper.xml");
 
@@ -134,6 +136,8 @@ class MyBatisMapperContractTest {
                         "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertEvidenceLink",
                         "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertRecalculationIntent",
                         "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.evidenceTrace",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceConfigurationAuthorityMapper.resolveForBusinessDate",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendancePeriodProtectionMapper.resolveLatestPublished",
                         "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.countSources",
                         "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.listSources",
                         "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.countJobs",

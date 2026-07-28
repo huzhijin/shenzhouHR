@@ -17,4 +17,14 @@ public record SourceIntegrationStatus(
                 "NOT_VERIFIED",
                 "NOT_VERIFIED");
     }
+
+    public static SourceIntegrationStatus formalBaseline() {
+        return new SourceIntegrationStatus(
+                "IMPLEMENTED",
+                "FAIL_CLOSED_PENDING_SIGNOFF",
+                "PASS",
+                "RUNTIME_PROBE_REQUIRED",
+                "NOT_VERIFIED",
+                "NOT_VERIFIED");
+    }
 }

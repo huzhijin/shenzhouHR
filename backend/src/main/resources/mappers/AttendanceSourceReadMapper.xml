@@ -25,6 +25,70 @@
         )
     </sql>
 
+    <!--
+      OA document rows are employee facts, not source-administration metadata.
+      Authorization is therefore evaluated against the matched employee and the
+      employment assignment captured for that fact.  Keep this fragment shared by
+      count and data queries so pagination cannot disclose out-of-scope counts.
+      Unmatched/quarantined rows deliberately do not satisfy this predicate.
+    -->
+    <sql id="oaDocumentVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal_role_assignment role_assignment
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capability}
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+            JOIN auth_principal principal
+              ON principal.principal_id = role_assignment.principal_id
+             AND principal.status = 'ACTIVE'
+            WHERE role_assignment.principal_id = #{principalId}
+              AND role_assignment.valid_from &lt;= #{at}
+              AND (
+                    role_assignment.valid_to IS NULL
+                    OR role_assignment.valid_to &gt; #{at}
+              )
+              AND data_scope.valid_from &lt;= #{at}
+              AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+              AND (
+                    (
+                        data_scope.scope_type = 'LEGAL_ENTITY'
+                        AND data_scope.legal_entity_id = source.legal_entity_id
+                        AND employee.legal_entity_id = source.legal_entity_id
+                    )
+                    OR (
+                        data_scope.scope_type = 'ORGANIZATION'
+                        AND (
+                            (
+                                data_scope.include_descendants = FALSE
+                                AND data_scope.organization_id =
+                                    employment.organization_id
+                            )
+                            OR (
+                                data_scope.include_descendants = TRUE
+                                AND EXISTS (
+                                    SELECT 1
+                                    FROM organization_current_closure closure
+                                    WHERE closure.ancestor_organization_id =
+                                            data_scope.organization_id
+                                      AND closure.descendant_organization_id =
+                                            employment.organization_id
+                                )
+                            )
+                        )
+                    )
+                    OR (
+                        data_scope.scope_type = 'SELF'
+                        AND principal.employee_id = match_decision.employee_id
+                    )
+              )
+        )
+    </sql>
+
     <select id="countSources" resultType="long">
         SELECT COUNT(*)
         FROM attendance_source source
@@ -101,9 +165,21 @@
         FROM oa_attendance_document document
         JOIN attendance_source source
           ON source.attendance_source_id = document.attendance_source_id
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             document.normalized_attendance_record_id
+        JOIN employee_match_decision match_decision
+          ON match_decision.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+         AND match_decision.match_status = 'MATCHED'
+        JOIN employee employee
+          ON employee.employee_id = match_decision.employee_id
+        JOIN employment_assignment employment
+          ON employment.assignment_id = match_decision.employment_period_id
+         AND employment.employee_id = employee.employee_id
         WHERE source.attendance_source_id = #{sourceId}
           AND source.source_type = 'OA_ATTENDANCE'
-          AND <include refid="sourceVisibility"/>
+          AND <include refid="oaDocumentVisibility"/>
     </select>
 
     <select id="listOaDocuments"
@@ -115,7 +191,7 @@
                document.source_status,
                CASE WHEN document.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
                     THEN TRUE ELSE FALSE END AS effective_candidate,
-               NULL AS employee_number,
+               employee.employee_number,
                normalized.interval_start,
                normalized.interval_end AS interval_end_exclusive
         FROM oa_attendance_document document
@@ -124,9 +200,18 @@
         JOIN normalized_attendance_record normalized
           ON normalized.normalized_attendance_record_id =
              document.normalized_attendance_record_id
+        JOIN employee_match_decision match_decision
+          ON match_decision.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+         AND match_decision.match_status = 'MATCHED'
+        JOIN employee employee
+          ON employee.employee_id = match_decision.employee_id
+        JOIN employment_assignment employment
+          ON employment.assignment_id = match_decision.employment_period_id
+         AND employment.employee_id = employee.employee_id
         WHERE source.attendance_source_id = #{sourceId}
           AND source.source_type = 'OA_ATTENDANCE'
-          AND <include refid="sourceVisibility"/>
+          AND <include refid="oaDocumentVisibility"/>
         ORDER BY document.knowledge_rank DESC,
                  document.created_at DESC,
                  document.oa_attendance_document_id DESC

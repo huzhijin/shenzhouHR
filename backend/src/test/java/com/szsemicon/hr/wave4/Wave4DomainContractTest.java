@@ -12,6 +12,7 @@ import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.SourceType;
 import com.szsemicon.hr.evidenceingestion.domain.EvidenceResolutionPolicy;
 import com.szsemicon.hr.evidenceingestion.domain.SourcePageCommitPolicy;
 import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort;
+import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort.ConfirmedBindingKind;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -132,6 +133,7 @@ class Wave4DomainContractTest {
                     String legalEntityId,
                     String locationId,
                     String deviceId,
+                    ConfirmedBindingKind bindingKind,
                     String externalPersonRef,
                     Instant at) {
                 return "BOUND".equals(externalPersonRef)
@@ -142,19 +144,23 @@ class Wave4DomainContractTest {
 
         assertThat(EvidenceResolutionPolicy.resolve(
                 resolver, "legal-1", "ONE", "location-1",
-                "device-1", "BOUND", Instant.EPOCH).reason())
+                "device-1", "BOUND", ConfirmedBindingKind.DELI_EXT_ID,
+                Instant.EPOCH).reason())
                 .isEqualTo("EMPLOYEE_NUMBER");
         assertThat(EvidenceResolutionPolicy.resolve(
                 resolver, "legal-1", "MANY", "location-1",
-                "device-1", "BOUND", Instant.EPOCH).status())
+                "device-1", "BOUND", ConfirmedBindingKind.DELI_EXT_ID,
+                Instant.EPOCH).status())
                 .isEqualTo(EvidenceResolutionPolicy.MatchStatus.AMBIGUOUS);
         assertThat(EvidenceResolutionPolicy.resolve(
                 resolver, "legal-1", "NONE", "location-1",
-                "device-1", "BOUND", Instant.EPOCH).reason())
+                "device-1", "BOUND", ConfirmedBindingKind.DELI_EXT_ID,
+                Instant.EPOCH).reason())
                 .isEqualTo("CONFIRMED_BINDING");
         assertThat(EvidenceResolutionPolicy.resolve(
                 resolver, "legal-1", "NONE", "location-1",
-                "device-1", "NONE", Instant.EPOCH).status())
+                "device-1", "NONE", ConfirmedBindingKind.DELI_EXT_ID,
+                Instant.EPOCH).status())
                 .isEqualTo(EvidenceResolutionPolicy.MatchStatus.UNMATCHED);
     }
 

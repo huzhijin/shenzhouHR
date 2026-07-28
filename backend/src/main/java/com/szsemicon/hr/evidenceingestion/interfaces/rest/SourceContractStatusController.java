@@ -18,6 +18,6 @@ public class SourceContractStatusController {
     ResponseEntity<SourceIntegrationStatus> integrationStatus() {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(SourceIntegrationStatus.syntheticPass());
+                .body(SourceIntegrationStatus.formalBaseline());
     }
 }

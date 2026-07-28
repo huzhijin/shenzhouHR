@@ -4,6 +4,7 @@ import {
   type CustomerReportDemo,
   type CustomerReportKey,
 } from './customerReportDemo';
+import { isWithinCustomerReportScope } from './customerReportAccess';
 
 type CsvCell = string | number;
 
@@ -28,6 +29,7 @@ const UTF8_BOM = '\uFEFF';
 export function buildCustomerReportCsv(
   request: CustomerReportCsvRequest,
 ): CustomerReportCsvDownload {
+  assertReportRowsWithinScope(request.report);
   const { headers, rows } = visibleRowsForReport(request.report, request.reportKey);
   const filterRows = Object.entries(request.reportFilters);
   const csvRows: CsvCell[][] = [
@@ -37,6 +39,8 @@ export function buildCustomerReportCsv(
     ['月份', formatMonth(request.month)],
     ['部门', request.department],
     ['员工', request.employee],
+    ['数据权限角色', request.report.metadata.dataScope.actorLabel],
+    ['数据权限范围', request.report.metadata.dataScope.label],
     ['当前可见记录数', rows.length],
     ['生成时间', request.generatedAt],
     [],
@@ -127,6 +131,41 @@ function visibleRowsForReport(
           row.note,
         ]),
       };
+    case 'exceptions':
+      return {
+        headers: [
+          '考勤日期',
+          '级别',
+          '异常类型',
+          '工号',
+          '姓名',
+          '部门',
+          '班次',
+          '应出勤',
+          '打卡摘要',
+          '异常分钟',
+          '证据摘要',
+          '处理状态',
+          '负责人',
+          '处理时限',
+        ],
+        rows: report.attendanceExceptionRows.map((row) => [
+          row.businessDate,
+          row.severity,
+          row.exceptionType,
+          row.employeeNo,
+          row.employee,
+          row.department,
+          row.shiftLabel,
+          row.scheduledWindow,
+          row.punchSummary,
+          row.exceptionMinutes ?? '',
+          row.evidenceSummary,
+          row.state,
+          row.owner,
+          row.dueAt,
+        ]),
+      };
     case 'late':
       return exceptionRows(report.lateRows);
     case 'missed-punch':
@@ -146,6 +185,26 @@ function visibleRowsForReport(
       };
     case 'annual-leave':
       return annualLeaveReportRows(report);
+  }
+}
+
+function assertReportRowsWithinScope(report: CustomerReportDemo): void {
+  const rows = [
+    ...report.attendanceRows,
+    ...report.leaveRows,
+    ...report.overtimeRows,
+    ...report.workHoursRows,
+    ...report.attendanceExceptionRows,
+    ...report.lateRows,
+    ...report.missedPunchRows,
+    ...report.attendanceRateRows,
+    ...report.annualLeaveRows,
+  ];
+  if (rows.some((row) => !isWithinCustomerReportScope(
+    row,
+    report.metadata.dataScope,
+  ))) {
+    throw new TypeError('报表包含超出当前数据权限范围的记录');
   }
 }
 

@@ -21,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -236,6 +237,58 @@ public class AuthenticationService {
         auditService.record(
                 account.principalId(),
                 firstChangeOnly ? "FIRST_PASSWORD_CHANGED" : "PASSWORD_CHANGED",
+                "LOCAL_ACCOUNT",
+                account.accountId(),
+                "SUCCESS",
+                null);
+    }
+
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            noRollbackFor = ApiProblemException.class)
+    public void reauthenticateCurrentAccount(
+            String suppliedSecret, String purpose) {
+        if (purpose == null
+                || purpose.isBlank()
+                || purpose.length() > 96
+                || !purpose.matches("[A-Z0-9_]+")) {
+            throw new IllegalArgumentException(
+                    "reauthentication purpose is invalid");
+        }
+        AccountRecord account = currentAccount();
+        if (!"ACTIVE".equals(account.status())) {
+            throw new ApiProblemException(
+                    HttpStatus.UNAUTHORIZED,
+                    "REAUTHENTICATION_FAILED",
+                    "身份复核失败");
+        }
+        CredentialRecord credential = repository
+                .findCredential(account.accountId())
+                .orElse(null);
+        boolean matches = passwordCodec.matches(
+                suppliedSecret,
+                credential == null
+                        ? passwordCodec.nonMatchingHash()
+                        : credential.passwordHash());
+        if (credential == null || !matches) {
+            Instant now = clock.instant();
+            registerFailure(account, now);
+            auditService.record(
+                    account.principalId(),
+                    purpose + "_REAUTHENTICATION_FAILED",
+                    "LOCAL_ACCOUNT",
+                    account.accountId(),
+                    "DENIED",
+                    "INVALID_CREDENTIALS");
+            throw new ApiProblemException(
+                    HttpStatus.UNAUTHORIZED,
+                    "REAUTHENTICATION_FAILED",
+                    "身份复核失败");
+        }
+        repository.clearLoginFailures(account.accountId());
+        auditService.record(
+                account.principalId(),
+                purpose + "_REAUTHENTICATED",
                 "LOCAL_ACCOUNT",
                 account.accountId(),
                 "SUCCESS",

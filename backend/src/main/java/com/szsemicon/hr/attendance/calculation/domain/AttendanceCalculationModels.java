@@ -230,15 +230,29 @@ public final class AttendanceCalculationModels {
             String ruleId,
             TimeInterval window,
             int deductionMinutes,
+            int triggerMinutes,
             boolean requireFullCoverage) {
 
         public MealDeductionRule {
             ruleId = requireText(ruleId, "ruleId");
             Objects.requireNonNull(window, "window");
-            if (deductionMinutes < 0) {
+            if (deductionMinutes < 0 || triggerMinutes < 0) {
                 throw new IllegalArgumentException(
-                        "deductionMinutes must be non-negative");
+                        "meal deduction values must be non-negative");
             }
+        }
+
+        public MealDeductionRule(
+                String ruleId,
+                TimeInterval window,
+                int deductionMinutes,
+                boolean requireFullCoverage) {
+            this(
+                    ruleId,
+                    window,
+                    deductionMinutes,
+                    0,
+                    requireFullCoverage);
         }
     }
 
@@ -262,6 +276,11 @@ public final class AttendanceCalculationModels {
             mealDeductions = immutableSorted(
                     mealDeductions,
                     Comparator.comparing(MealDeductionRule::ruleId));
+            assertUniqueReferences(
+                    mealDeductions.stream()
+                            .map(MealDeductionRule::ruleId)
+                            .toList(),
+                    "meal deduction rule");
         }
     }
 
