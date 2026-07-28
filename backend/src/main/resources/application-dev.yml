@@ -1,0 +1,13 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+shenzhouhr:
+  bootstrap:
+    enabled: ${SHENZHOUHR_BOOTSTRAP_ENABLED:false}
+  development-principal:
+    enabled: ${SHENZHOUHR_DEV_PRINCIPAL_ENABLED:false}
+  security:
+    session:
+      cookie-secure: ${SHENZHOUHR_SESSION_COOKIE_SECURE:false}

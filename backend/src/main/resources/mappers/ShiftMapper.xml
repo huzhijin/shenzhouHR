@@ -1,0 +1,718 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftMapper">
+
+    <sql id="templateColumns">
+        scoped.shift_template_id, scoped.legal_entity_id, scoped.location_id,
+        scoped.template_code,
+        COALESCE(
+            (
+                SELECT metadata.anchor_ref
+                FROM audit_event metadata
+                WHERE metadata.resource_type = 'SHIFT_TEMPLATE_METADATA'
+                  AND metadata.resource_id_ref = scoped.shift_template_id
+                  AND metadata.action_code = 'SHIFT_TEMPLATE_NAME_CAPTURED'
+                ORDER BY
+                    CAST(COALESCE(metadata.policy_version, '0')
+                         AS DECIMAL(20, 0)) DESC,
+                    metadata.occurred_at DESC,
+                    metadata.event_id DESC
+                LIMIT 1
+            ),
+            scoped.template_code
+        ) AS template_name,
+        CASE
+            WHEN (
+                SELECT latest.action_code
+                FROM audit_event latest
+                WHERE latest.resource_type = 'SHIFT_TEMPLATE'
+                  AND latest.resource_id_ref = scoped.shift_template_id
+                  AND latest.action_code IN (
+                        'SHIFT_TEMPLATE_ACTIVE',
+                        'SHIFT_TEMPLATE_INACTIVE'
+                  )
+                ORDER BY
+                    CASE WHEN latest.policy_version IS NULL
+                         THEN 0 ELSE 1 END DESC,
+                    CAST(COALESCE(latest.policy_version, '0')
+                         AS DECIMAL(20, 0)) DESC,
+                    latest.occurred_at DESC,
+                    latest.event_id DESC
+                LIMIT 1
+            ) = 'SHIFT_TEMPLATE_INACTIVE'
+            THEN 'INACTIVE'
+            ELSE 'ACTIVE'
+        END AS status,
+        (
+            SELECT COUNT(*)
+            FROM audit_event revision_fact
+            WHERE revision_fact.resource_type = 'SHIFT_TEMPLATE'
+              AND revision_fact.resource_id_ref = scoped.shift_template_id
+              AND revision_fact.action_code IN (
+                    'SHIFT_TEMPLATE_UPDATED',
+                    'SHIFT_TEMPLATE_ACTIVE',
+                    'SHIFT_TEMPLATE_INACTIVE'
+              )
+        ) AS row_version,
+        COALESCE(
+            (
+                SELECT latest.reason_code
+                FROM audit_event latest
+                WHERE latest.resource_type = 'SHIFT_TEMPLATE'
+                  AND latest.resource_id_ref = scoped.shift_template_id
+                  AND latest.action_code IN (
+                        'SHIFT_TEMPLATE_UPDATED',
+                        'SHIFT_TEMPLATE_ACTIVE',
+                        'SHIFT_TEMPLATE_INACTIVE'
+                  )
+                ORDER BY
+                    CASE WHEN latest.policy_version IS NULL
+                         THEN 0 ELSE 1 END DESC,
+                    CAST(COALESCE(latest.policy_version, '0')
+                         AS DECIMAL(20, 0)) DESC,
+                    latest.occurred_at DESC,
+                    latest.event_id DESC
+                LIMIT 1
+            ),
+            '不可变班次 family'
+        ) AS change_reason,
+        scoped.created_by, scoped.created_at,
+        COALESCE(
+            (
+                SELECT latest.actor_id_ref
+                FROM audit_event latest
+                WHERE latest.resource_type = 'SHIFT_TEMPLATE'
+                  AND latest.resource_id_ref = scoped.shift_template_id
+                  AND latest.action_code IN (
+                        'SHIFT_TEMPLATE_UPDATED',
+                        'SHIFT_TEMPLATE_ACTIVE',
+                        'SHIFT_TEMPLATE_INACTIVE'
+                  )
+                ORDER BY
+                    CASE WHEN latest.policy_version IS NULL
+                         THEN 0 ELSE 1 END DESC,
+                    CAST(COALESCE(latest.policy_version, '0')
+                         AS DECIMAL(20, 0)) DESC,
+                    latest.occurred_at DESC,
+                    latest.event_id DESC
+                LIMIT 1
+            ),
+            scoped.created_by
+        ) AS updated_by,
+        COALESCE(
+            (
+                SELECT latest.occurred_at
+                FROM audit_event latest
+                WHERE latest.resource_type = 'SHIFT_TEMPLATE'
+                  AND latest.resource_id_ref = scoped.shift_template_id
+                  AND latest.action_code IN (
+                        'SHIFT_TEMPLATE_UPDATED',
+                        'SHIFT_TEMPLATE_ACTIVE',
+                        'SHIFT_TEMPLATE_INACTIVE'
+                  )
+                ORDER BY
+                    CASE WHEN latest.policy_version IS NULL
+                         THEN 0 ELSE 1 END DESC,
+                    CAST(COALESCE(latest.policy_version, '0')
+                         AS DECIMAL(20, 0)) DESC,
+                    latest.occurred_at DESC,
+                    latest.event_id DESC
+                LIMIT 1
+            ),
+            scoped.created_at
+        ) AS updated_at
+    </sql>
+
+    <sql id="versionColumns">
+        version.shift_version_id, version.shift_template_id,
+        version.version_number,
+        CASE
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+            ) THEN 'DRAFT'
+            ELSE (
+                SELECT state_fact.state
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            )
+        END AS status,
+        version.effective_from,
+        (
+            SELECT MIN(next_fact.business_effective_from)
+            FROM shift_publication_timeline published_fact
+            JOIN shift_publication_timeline next_fact
+              ON next_fact.shift_template_id =
+                    published_fact.shift_template_id
+             AND next_fact.business_effective_from
+                    &gt; published_fact.business_effective_from
+            WHERE published_fact.shift_version_id = version.shift_version_id
+              AND published_fact.state = 'PUBLISHED'
+        ) AS effective_to,
+        version.time_zone_snapshot, version.segments_json,
+        version.snapshot_digest,
+        (
+            SELECT COUNT(*)
+            FROM shift_version lineage
+            WHERE lineage.shift_template_id = version.shift_template_id
+              AND lineage.effective_from = version.effective_from
+              AND lineage.supersedes_shift_version_id IS NOT NULL
+              AND lineage.version_number &lt;= version.version_number
+        ) + (
+            SELECT COUNT(*)
+            FROM shift_publication_timeline state_fact
+            WHERE state_fact.shift_version_id = version.shift_version_id
+        ) AS row_version,
+        version.change_reason, version.created_by, version.created_at,
+        (
+            SELECT MIN(state_fact.recorded_at)
+            FROM shift_publication_timeline state_fact
+            WHERE state_fact.shift_version_id = version.shift_version_id
+              AND state_fact.state = 'PUBLISHED'
+        ) AS published_at,
+        COALESCE(
+            (
+                SELECT state_fact.actor_id
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_by
+        ) AS updated_by,
+        COALESCE(
+            (
+                SELECT state_fact.recorded_at
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_at
+        ) AS updated_at
+    </sql>
+
+    <sql id="versionColumnsAsOf">
+        version.shift_version_id, version.shift_template_id,
+        version.version_number,
+        CASE
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                  AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+            ) THEN 'DRAFT'
+            ELSE (
+                SELECT state_fact.state
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                  AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            )
+        END AS status,
+        version.effective_from,
+        (
+            SELECT MIN(next_fact.business_effective_from)
+            FROM shift_publication_timeline published_fact
+            JOIN shift_publication_timeline next_fact
+              ON next_fact.shift_template_id =
+                    published_fact.shift_template_id
+             AND next_fact.business_effective_from
+                    &gt; published_fact.business_effective_from
+             AND next_fact.recorded_at &lt;= #{knowledgeAsOf}
+            WHERE published_fact.shift_version_id = version.shift_version_id
+              AND published_fact.state = 'PUBLISHED'
+              AND published_fact.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS effective_to,
+        version.time_zone_snapshot, version.segments_json,
+        version.snapshot_digest,
+        (
+            SELECT COUNT(*)
+            FROM shift_version lineage
+            WHERE lineage.shift_template_id = version.shift_template_id
+              AND lineage.effective_from = version.effective_from
+              AND lineage.supersedes_shift_version_id IS NOT NULL
+              AND lineage.version_number &lt;= version.version_number
+              AND lineage.created_at &lt;= #{knowledgeAsOf}
+        ) + (
+            SELECT COUNT(*)
+            FROM shift_publication_timeline state_fact
+            WHERE state_fact.shift_version_id = version.shift_version_id
+              AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS row_version,
+        version.change_reason, version.created_by, version.created_at,
+        (
+            SELECT MIN(state_fact.recorded_at)
+            FROM shift_publication_timeline state_fact
+            WHERE state_fact.shift_version_id = version.shift_version_id
+              AND state_fact.state = 'PUBLISHED'
+              AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS published_at,
+        COALESCE(
+            (
+                SELECT state_fact.actor_id
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                  AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_by
+        ) AS updated_by,
+        COALESCE(
+            (
+                SELECT state_fact.recorded_at
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                  AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_at
+        ) AS updated_at
+    </sql>
+
+    <sql id="versionColumnsResolvedAsOf">
+        version.shift_version_id, version.shift_template_id,
+        version.version_number,
+        'PUBLISHED' AS status,
+        version.effective_from,
+        (
+            SELECT MIN(next_fact.business_effective_from)
+            FROM shift_publication_timeline published_fact
+            JOIN shift_publication_timeline next_fact
+              ON next_fact.shift_template_id =
+                    published_fact.shift_template_id
+             AND next_fact.business_effective_from
+                    &gt; published_fact.business_effective_from
+             AND next_fact.recorded_at &lt;= #{knowledgeAsOf}
+            WHERE published_fact.shift_version_id = version.shift_version_id
+              AND published_fact.state = 'PUBLISHED'
+              AND published_fact.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS effective_to,
+        version.time_zone_snapshot, version.segments_json,
+        version.snapshot_digest,
+        (
+            SELECT COUNT(*)
+            FROM shift_version lineage
+            WHERE lineage.shift_template_id = version.shift_template_id
+              AND lineage.effective_from = version.effective_from
+              AND lineage.supersedes_shift_version_id IS NOT NULL
+              AND lineage.version_number &lt;= version.version_number
+              AND lineage.created_at &lt;= #{knowledgeAsOf}
+        ) + (
+            SELECT COUNT(*)
+            FROM shift_publication_timeline state_fact
+            WHERE state_fact.shift_version_id = version.shift_version_id
+              AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS row_version,
+        version.change_reason, version.created_by, version.created_at,
+        (
+            SELECT MIN(state_fact.recorded_at)
+            FROM shift_publication_timeline state_fact
+            WHERE state_fact.shift_version_id = version.shift_version_id
+              AND state_fact.state = 'PUBLISHED'
+              AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS published_at,
+        COALESCE(
+            (
+                SELECT state_fact.actor_id
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                  AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_by
+        ) AS updated_by,
+        COALESCE(
+            (
+                SELECT state_fact.recorded_at
+                FROM shift_publication_timeline state_fact
+                WHERE state_fact.shift_version_id = version.shift_version_id
+                  AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_at
+        ) AS updated_at
+    </sql>
+
+    <select id="findTemplate"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftRows$TemplateRow">
+        SELECT <include refid="templateColumns"/>
+        FROM shift_template scoped
+        WHERE scoped.shift_template_id = #{shiftId}
+    </select>
+
+    <select id="findTemplateByIdempotency"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftRows$TemplateRow">
+        SELECT <include refid="templateColumns"/>
+        FROM shift_template scoped
+        WHERE 1 = 0
+    </select>
+
+    <select id="listTemplates"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftRows$TemplateRow">
+        SELECT DISTINCT <include refid="templateColumns"/>
+        FROM shift_template scoped
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = #{principalId}
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+         AND data_scope.scope_type = 'LEGAL_ENTITY'
+         AND data_scope.legal_entity_id = scoped.legal_entity_id
+        WHERE role_assignment.valid_from &lt;= #{at}
+          AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
+          AND data_scope.valid_from &lt;= #{at}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+        ORDER BY scoped.template_code, scoped.shift_template_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countTemplates" resultType="long">
+        SELECT COUNT(DISTINCT scoped.shift_template_id)
+        FROM shift_template scoped
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = #{principalId}
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+         AND data_scope.scope_type = 'LEGAL_ENTITY'
+         AND data_scope.legal_entity_id = scoped.legal_entity_id
+        WHERE role_assignment.valid_from &lt;= #{at}
+          AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
+          AND data_scope.valid_from &lt;= #{at}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+    </select>
+
+    <insert id="insertTemplate">
+        INSERT INTO shift_template (
+            shift_template_id, legal_entity_id, location_id, template_code,
+            created_by, created_at
+        ) VALUES (
+            #{row.shiftTemplateId}, #{row.legalEntityId}, #{row.locationId},
+            #{row.templateCode}, #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <insert id="insertTemplateMetadata">
+        INSERT INTO audit_event (
+            event_id, occurred_at, actor_id_ref, actor_type, action_code,
+            resource_type, resource_id_ref, purpose_code, result_code,
+            reason_code, policy_version, after_digest, correlation_id,
+            request_id, event_hash, anchor_ref
+        ) VALUES (
+            #{eventId}, #{occurredAt}, #{actorId}, 'LOCAL_ACCOUNT',
+            'SHIFT_TEMPLATE_NAME_CAPTURED', 'SHIFT_TEMPLATE_METADATA',
+            #{shiftId}, 'SHIFT_TEMPLATE_NAME', 'SUCCESS', #{reason},
+            #{resourceVersion}, #{nameDigest}, #{correlationId},
+            #{requestId}, #{eventHash}, #{templateName}
+        )
+    </insert>
+
+    <select id="lockTemplate" resultType="string">
+        SELECT shift_template_id
+        FROM shift_template
+        WHERE shift_template_id = #{shiftId}
+        FOR UPDATE
+    </select>
+
+    <select id="updateTemplate" resultType="int">
+        SELECT COUNT(*)
+        FROM shift_template scoped
+        WHERE scoped.shift_template_id = #{row.shiftTemplateId}
+          AND (
+              SELECT COUNT(*)
+              FROM audit_event revision_fact
+              WHERE revision_fact.resource_type = 'SHIFT_TEMPLATE'
+                AND revision_fact.resource_id_ref = scoped.shift_template_id
+                AND revision_fact.action_code IN (
+                    'SHIFT_TEMPLATE_UPDATED',
+                    'SHIFT_TEMPLATE_ACTIVE',
+                    'SHIFT_TEMPLATE_INACTIVE'
+                )
+          ) = #{expectedVersion}
+    </select>
+
+    <select id="findVersion"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftRows$VersionRow">
+        SELECT <include refid="versionColumns"/>
+        FROM shift_version version
+        WHERE version.shift_version_id = #{versionId}
+    </select>
+
+    <select id="findVersionAsOf"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftRows$VersionRow">
+        SELECT <include refid="versionColumnsAsOf"/>
+        FROM shift_version version
+        WHERE version.shift_version_id = #{versionId}
+          AND version.created_at &lt;= #{knowledgeAsOf}
+    </select>
+
+    <select id="findVersionByIdempotency"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftRows$VersionRow">
+        SELECT <include refid="versionColumns"/>
+        FROM shift_version version
+        WHERE 1 = 0
+    </select>
+
+    <select id="listVersions"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftRows$VersionRow">
+        SELECT <include refid="versionColumns"/>
+        FROM shift_version version
+        WHERE version.shift_template_id = #{shiftId}
+        ORDER BY version.version_number DESC, version.shift_version_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countVersions" resultType="long">
+        SELECT COUNT(*)
+        FROM shift_version version
+        WHERE version.shift_template_id = #{shiftId}
+    </select>
+
+    <select id="nextVersionNumber" resultType="int">
+        SELECT COALESCE(MAX(version_number), 0) + 1
+        FROM shift_version
+        WHERE shift_template_id = #{shiftId}
+    </select>
+
+    <insert id="insertVersion">
+        INSERT INTO shift_version (
+            shift_version_id, shift_template_id, version_number,
+            effective_from, time_zone_snapshot, segments_json,
+            supersedes_shift_version_id, snapshot_digest,
+            change_reason, created_by, created_at
+        ) VALUES (
+            #{row.shiftVersionId}, #{row.shiftTemplateId}, #{row.versionNumber},
+            #{row.effectiveFrom}, #{row.timeZoneSnapshot}, #{row.segmentsJson},
+            NULL,
+            #{row.snapshotDigest}, #{row.changeReason},
+            #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <insert id="updateDraftVersion">
+        INSERT INTO shift_version (
+            shift_version_id, shift_template_id, version_number,
+            effective_from, time_zone_snapshot, segments_json,
+            supersedes_shift_version_id, snapshot_digest,
+            change_reason, created_by, created_at
+        )
+        SELECT
+            #{row.shiftVersionId}, predecessor.shift_template_id,
+            #{row.versionNumber}, #{row.effectiveFrom},
+            #{row.timeZoneSnapshot}, #{row.segmentsJson},
+            predecessor.shift_version_id, #{row.snapshotDigest},
+            #{row.changeReason}, #{row.updatedBy}, #{row.updatedAt}
+        FROM shift_version predecessor
+        WHERE predecessor.shift_version_id = #{predecessorVersionId}
+          AND (
+              SELECT COUNT(*)
+              FROM shift_version lineage
+              WHERE lineage.shift_template_id =
+                        predecessor.shift_template_id
+                AND lineage.effective_from = predecessor.effective_from
+                AND lineage.supersedes_shift_version_id IS NOT NULL
+                AND lineage.version_number &lt;= predecessor.version_number
+          ) = #{expectedVersion}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM shift_publication_timeline published
+              WHERE published.shift_version_id = predecessor.shift_version_id
+          )
+    </insert>
+
+    <select id="publishVersion" resultType="int">
+        SELECT COUNT(*)
+        FROM shift_version version
+        WHERE version.shift_version_id = #{versionId}
+          AND version.snapshot_digest = #{snapshotDigest}
+          AND (
+              SELECT COUNT(*)
+              FROM shift_version lineage
+              WHERE lineage.shift_template_id = version.shift_template_id
+                AND lineage.effective_from = version.effective_from
+                AND lineage.supersedes_shift_version_id IS NOT NULL
+                AND lineage.version_number &lt;= version.version_number
+          ) = #{expectedVersion}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM shift_publication_timeline published
+              WHERE published.shift_version_id = version.shift_version_id
+          )
+    </select>
+
+    <select id="transitionVersionStatus" resultType="int">
+        SELECT COUNT(*)
+        FROM shift_version version
+        WHERE version.shift_version_id = #{versionId}
+          AND (
+              SELECT COUNT(*)
+              FROM shift_version lineage
+              WHERE lineage.shift_template_id = version.shift_template_id
+                AND lineage.effective_from = version.effective_from
+                AND lineage.supersedes_shift_version_id IS NOT NULL
+                AND lineage.version_number &lt;= version.version_number
+          ) + (
+              SELECT COUNT(*)
+              FROM shift_publication_timeline state_fact
+              WHERE state_fact.shift_version_id = version.shift_version_id
+          ) = #{expectedVersion}
+          AND (
+              SELECT state_fact.state
+              FROM shift_publication_timeline state_fact
+              WHERE state_fact.shift_version_id = version.shift_version_id
+              ORDER BY state_fact.event_sequence DESC
+              LIMIT 1
+          ) = #{expectedStatus}
+    </select>
+
+    <select id="nextPublicationSequence" resultType="int">
+        SELECT COALESCE(MAX(event_sequence), 0) + 1
+        FROM shift_publication_timeline
+        WHERE shift_template_id = #{shiftId}
+    </select>
+
+    <select id="latestPublicationTimelineId" resultType="string">
+        SELECT shift_publication_timeline_id
+        FROM shift_publication_timeline
+        WHERE shift_template_id = #{shiftId}
+        ORDER BY event_sequence DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertPublicationTimeline">
+        INSERT INTO shift_publication_timeline (
+            shift_publication_timeline_id, shift_template_id,
+            shift_version_id, event_sequence, state,
+            business_effective_from, predecessor_timeline_id,
+            recorded_at, actor_id, request_id
+        ) VALUES (
+            #{row.timelineId}, #{row.familyId}, #{row.contentId},
+            #{row.eventSequence}, #{row.state}, #{row.businessEffectiveFrom},
+            #{row.predecessorTimelineId}, #{row.recordedAt},
+            #{row.actorId}, #{row.requestId}
+        )
+    </insert>
+
+    <select id="hasPublishedOverlap" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM shift_publication_timeline published
+            WHERE published.shift_template_id = #{shiftId}
+              AND published.state = 'PUBLISHED'
+              AND published.shift_version_id &lt;&gt; #{excludeVersionId}
+              AND (
+                    #{to} IS NULL
+                    OR published.business_effective_from &lt; #{to}
+              )
+              AND COALESCE(
+                    (
+                        SELECT MIN(next_fact.business_effective_from)
+                        FROM shift_publication_timeline next_fact
+                        WHERE next_fact.shift_template_id =
+                                published.shift_template_id
+                          AND next_fact.business_effective_from
+                                &gt; published.business_effective_from
+                    ),
+                    CAST('9999-12-31' AS DATE)
+              ) &gt; #{from}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="resolvePublishedAt"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftRows$VersionRow">
+        SELECT <include refid="versionColumnsResolvedAsOf"/>
+        FROM shift_version version
+        JOIN shift_publication_timeline resolved_fact
+          ON resolved_fact.shift_version_id = version.shift_version_id
+        WHERE resolved_fact.shift_template_id = #{shiftId}
+          AND resolved_fact.business_effective_from &lt;= #{date}
+          AND resolved_fact.recorded_at &lt;= #{knowledgeAsOf}
+          AND resolved_fact.state = 'PUBLISHED'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM shift_publication_timeline newer
+              WHERE newer.shift_template_id = resolved_fact.shift_template_id
+                AND newer.business_effective_from &lt;= #{date}
+                AND newer.recorded_at &lt;= #{knowledgeAsOf}
+                AND (
+                    newer.business_effective_from
+                        &gt; resolved_fact.business_effective_from
+                    OR (
+                        newer.business_effective_from =
+                            resolved_fact.business_effective_from
+                        AND newer.event_sequence &gt; resolved_fact.event_sequence
+                    )
+                )
+          )
+        ORDER BY version.version_number, version.shift_version_id
+    </select>
+
+    <select id="hasOverrideReferencesAtOrAfter" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM work_calendar_day calendar_day
+            WHERE calendar_day.shift_version_override_id = #{versionId}
+              AND calendar_day.business_date &gt;= #{businessEffectiveFrom}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="hasActiveGroupReferencesAtOrAfter" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM attendance_group_timeline active_fact
+            JOIN attendance_group_revision revision
+              ON revision.attendance_group_revision_id =
+                    active_fact.attendance_group_revision_id
+            WHERE revision.shift_template_id = #{shiftId}
+              AND active_fact.state = 'ACTIVE'
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_group_timeline same_boundary
+                    WHERE same_boundary.attendance_group_id =
+                            active_fact.attendance_group_id
+                      AND same_boundary.business_effective_from =
+                            active_fact.business_effective_from
+                      AND same_boundary.event_sequence
+                            &gt; active_fact.event_sequence
+              )
+              AND COALESCE(
+                    (
+                        SELECT MIN(next_fact.business_effective_from)
+                        FROM attendance_group_timeline next_fact
+                        WHERE next_fact.attendance_group_id =
+                                active_fact.attendance_group_id
+                          AND (
+                                next_fact.business_effective_from
+                                    &gt; active_fact.business_effective_from
+                                OR (
+                                    next_fact.business_effective_from =
+                                        active_fact.business_effective_from
+                                    AND next_fact.event_sequence
+                                        &gt; active_fact.event_sequence
+                                )
+                          )
+                    ),
+                    CAST('9999-12-31' AS DATE)
+              ) &gt; #{businessEffectiveFrom}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+</mapper>

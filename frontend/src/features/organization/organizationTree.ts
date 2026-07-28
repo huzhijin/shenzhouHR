@@ -1,0 +1,18 @@
+import type { OrganizationNode } from './organizationApi';
+
+export interface OrganizationTreeDataNode {
+  key: string;
+  title: string;
+  unit: OrganizationNode;
+  children: OrganizationTreeDataNode[];
+}
+
+export function toOrganizationTreeData(nodes: OrganizationNode[]): OrganizationTreeDataNode[] {
+  return nodes.map((node) => ({
+    key: node.organizationId,
+    title: node.name,
+    unit: node,
+    children: toOrganizationTreeData(node.children),
+  }));
+}
+

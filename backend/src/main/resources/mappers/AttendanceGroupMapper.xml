@@ -1,0 +1,1079 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupMapper">
+
+    <sql id="locationColumns">
+        scoped.location_id, scoped.legal_entity_id, scoped.location_code,
+        revision.location_revision_id, revision.revision_number,
+        revision.location_name, revision.time_zone, timeline.state AS status,
+        revision.effective_from,
+        (
+            SELECT MIN(next_timeline.business_effective_from)
+            FROM location_timeline next_timeline
+            WHERE next_timeline.location_id = scoped.location_id
+              AND next_timeline.event_sequence &gt; timeline.event_sequence
+              AND next_timeline.business_effective_from
+                    &gt; timeline.business_effective_from
+              AND (
+                    next_timeline.location_revision_id
+                        &lt;&gt; timeline.location_revision_id
+                    OR next_timeline.state = 'INACTIVE'
+              )
+        ) AS effective_to,
+        revision.snapshot_digest,
+        revision.revision_number - 1 AS row_version,
+        revision.change_reason, scoped.created_by, scoped.created_at,
+        timeline.actor_id AS updated_by, timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="locationColumnsAsOf">
+        scoped.location_id, scoped.legal_entity_id, scoped.location_code,
+        revision.location_revision_id, revision.revision_number,
+        revision.location_name, revision.time_zone, timeline.state AS status,
+        revision.effective_from,
+        (
+            SELECT MIN(next_timeline.business_effective_from)
+            FROM location_timeline next_timeline
+            WHERE next_timeline.location_id = scoped.location_id
+              AND next_timeline.event_sequence &gt; timeline.event_sequence
+              AND next_timeline.business_effective_from
+                    &gt; timeline.business_effective_from
+              AND next_timeline.recorded_at &lt;= #{knowledgeAsOf}
+              AND (
+                    next_timeline.location_revision_id
+                        &lt;&gt; timeline.location_revision_id
+                    OR next_timeline.state = 'INACTIVE'
+              )
+        ) AS effective_to,
+        revision.snapshot_digest,
+        revision.revision_number - 1 AS row_version,
+        revision.change_reason, scoped.created_by, scoped.created_at,
+        timeline.actor_id AS updated_by, timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="locationRevisionHistoryColumns">
+        scoped.location_id, scoped.legal_entity_id, scoped.location_code,
+        revision.location_revision_id, revision.revision_number,
+        revision.location_name, revision.time_zone, timeline.state AS status,
+        revision.effective_from,
+        (
+            SELECT MIN(boundary.business_effective_from)
+            FROM location_timeline boundary
+            WHERE boundary.location_id = scoped.location_id
+              AND boundary.event_sequence &gt; (
+                  SELECT MIN(origin.event_sequence)
+                  FROM location_timeline origin
+                  WHERE origin.location_revision_id =
+                        revision.location_revision_id
+              )
+              AND (
+                    boundary.location_revision_id
+                        &lt;&gt; revision.location_revision_id
+                    OR boundary.state = 'INACTIVE'
+              )
+        ) AS effective_to,
+        revision.snapshot_digest,
+        revision.revision_number - 1 AS row_version,
+        revision.change_reason, scoped.created_by, scoped.created_at,
+        timeline.actor_id AS updated_by, timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="groupColumns">
+        scoped.attendance_group_id, scoped.legal_entity_id, scoped.group_code,
+        revision.attendance_group_revision_id, revision.revision_number,
+        revision.group_name, location_revision.location_id,
+        revision.location_revision_id, revision.work_calendar_id,
+        revision.shift_template_id, timeline.state AS status,
+        revision.effective_from,
+        (
+            SELECT MIN(next_timeline.business_effective_from)
+            FROM attendance_group_timeline next_timeline
+            WHERE next_timeline.attendance_group_id = scoped.attendance_group_id
+              AND next_timeline.event_sequence &gt; timeline.event_sequence
+              AND next_timeline.business_effective_from
+                    &gt; timeline.business_effective_from
+              AND (
+                    next_timeline.attendance_group_revision_id
+                        &lt;&gt; timeline.attendance_group_revision_id
+                    OR next_timeline.state = 'INACTIVE'
+              )
+        ) AS effective_to,
+        revision.snapshot_digest,
+        revision.revision_number - 1 AS row_version,
+        revision.change_reason, scoped.created_by, scoped.created_at,
+        timeline.actor_id AS updated_by, timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="groupColumnsAsOf">
+        scoped.attendance_group_id, scoped.legal_entity_id, scoped.group_code,
+        revision.attendance_group_revision_id, revision.revision_number,
+        revision.group_name, location_revision.location_id,
+        revision.location_revision_id, revision.work_calendar_id,
+        revision.shift_template_id, timeline.state AS status,
+        revision.effective_from,
+        (
+            SELECT MIN(next_timeline.business_effective_from)
+            FROM attendance_group_timeline next_timeline
+            WHERE next_timeline.attendance_group_id = scoped.attendance_group_id
+              AND next_timeline.event_sequence &gt; timeline.event_sequence
+              AND next_timeline.business_effective_from
+                    &gt; timeline.business_effective_from
+              AND next_timeline.recorded_at &lt;= #{knowledgeAsOf}
+              AND (
+                    next_timeline.attendance_group_revision_id
+                        &lt;&gt; timeline.attendance_group_revision_id
+                    OR next_timeline.state = 'INACTIVE'
+              )
+        ) AS effective_to,
+        revision.snapshot_digest,
+        revision.revision_number - 1 AS row_version,
+        revision.change_reason, scoped.created_by, scoped.created_at,
+        timeline.actor_id AS updated_by, timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="groupRevisionHistoryColumns">
+        scoped.attendance_group_id, scoped.legal_entity_id, scoped.group_code,
+        revision.attendance_group_revision_id, revision.revision_number,
+        revision.group_name, location_revision.location_id,
+        revision.location_revision_id, revision.work_calendar_id,
+        revision.shift_template_id, timeline.state AS status,
+        revision.effective_from,
+        (
+            SELECT MIN(boundary.business_effective_from)
+            FROM attendance_group_timeline boundary
+            WHERE boundary.attendance_group_id =
+                    scoped.attendance_group_id
+              AND boundary.event_sequence &gt; (
+                  SELECT MIN(origin.event_sequence)
+                  FROM attendance_group_timeline origin
+                  WHERE origin.attendance_group_revision_id =
+                        revision.attendance_group_revision_id
+              )
+              AND (
+                    boundary.attendance_group_revision_id
+                        &lt;&gt; revision.attendance_group_revision_id
+                    OR boundary.state = 'INACTIVE'
+              )
+        ) AS effective_to,
+        revision.snapshot_digest,
+        revision.revision_number - 1 AS row_version,
+        revision.change_reason, scoped.created_by, scoped.created_at,
+        timeline.actor_id AS updated_by, timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="assignmentColumns">
+        assignment.attendance_group_assignment_id,
+        scoped.attendance_group_id,
+        assignment.attendance_group_revision_id,
+        assignment.employee_id,
+        assignment.effective_from,
+        (
+            SELECT MIN(inactive.business_effective_from)
+            FROM attendance_assignment_timeline inactive
+            WHERE inactive.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+              AND inactive.state = 'INACTIVE'
+              AND inactive.business_effective_from &gt; assignment.effective_from
+        ) AS effective_to,
+        assignment.supersedes_assignment_id,
+        assignment.snapshot_digest,
+        (
+            SELECT COUNT(DISTINCT version_timeline.request_id) - 1
+            FROM attendance_assignment_timeline version_timeline
+            WHERE version_timeline.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+        ) AS row_version,
+        assignment.change_reason,
+        assignment.created_by,
+        assignment.created_at,
+        latest_timeline.actor_id AS updated_by,
+        latest_timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="assignmentColumnsAsOf">
+        assignment.attendance_group_assignment_id,
+        scoped.attendance_group_id,
+        assignment.attendance_group_revision_id,
+        assignment.employee_id,
+        assignment.effective_from,
+        (
+            SELECT MIN(inactive.business_effective_from)
+            FROM attendance_assignment_timeline inactive
+            WHERE inactive.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+              AND inactive.state = 'INACTIVE'
+              AND inactive.business_effective_from &gt; assignment.effective_from
+              AND inactive.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS effective_to,
+        assignment.supersedes_assignment_id,
+        assignment.snapshot_digest,
+        (
+            SELECT COUNT(DISTINCT version_timeline.request_id) - 1
+            FROM attendance_assignment_timeline version_timeline
+            WHERE version_timeline.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+              AND version_timeline.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS row_version,
+        assignment.change_reason,
+        assignment.created_by,
+        assignment.created_at,
+        latest_timeline.actor_id AS updated_by,
+        latest_timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="activeLegalEntityScope">
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = #{principalId}
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+         AND data_scope.scope_type = 'LEGAL_ENTITY'
+         AND data_scope.legal_entity_id = scoped.legal_entity_id
+        WHERE role_assignment.valid_from &lt;= #{at}
+          AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
+          AND data_scope.valid_from &lt;= #{at}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+    </sql>
+
+    <select id="findLocation"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
+        SELECT <include refid="locationColumns"/>
+        FROM location scoped
+        JOIN location_revision revision
+          ON revision.location_id = scoped.location_id
+         AND revision.revision_number = (
+             SELECT MAX(latest_revision.revision_number)
+             FROM location_revision latest_revision
+             WHERE latest_revision.location_id = scoped.location_id
+         )
+        JOIN location_timeline timeline
+          ON timeline.location_revision_id = revision.location_revision_id
+         AND timeline.event_sequence = (
+             SELECT MIN(origin.event_sequence)
+             FROM location_timeline origin
+             WHERE origin.location_revision_id = revision.location_revision_id
+         )
+        WHERE scoped.location_id = #{locationId}
+    </select>
+
+    <select id="resolveLocationRevisions"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
+        SELECT <include refid="locationColumnsAsOf"/>
+        FROM location scoped
+        JOIN location_timeline timeline
+          ON timeline.location_id = scoped.location_id
+        JOIN location_revision revision
+          ON revision.location_revision_id = timeline.location_revision_id
+        WHERE scoped.location_id = #{locationId}
+          AND timeline.business_effective_from &lt;= #{asOf}
+          AND timeline.recorded_at &lt;= #{knowledgeAsOf}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM location_timeline newer
+              WHERE newer.location_id = timeline.location_id
+                AND newer.business_effective_from &lt;= #{asOf}
+                AND newer.recorded_at &lt;= #{knowledgeAsOf}
+                AND newer.event_sequence &gt; timeline.event_sequence
+          )
+        ORDER BY timeline.event_sequence, revision.location_revision_id
+    </select>
+
+    <select id="findLocationByIdempotency"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
+        SELECT <include refid="locationColumns"/>
+        FROM location scoped
+        JOIN location_timeline timeline
+          ON timeline.location_id = scoped.location_id
+         AND timeline.request_id = #{idempotencyKey}
+         AND timeline.actor_id = #{actorId}
+        JOIN location_revision revision
+          ON revision.location_revision_id = timeline.location_revision_id
+        WHERE timeline.event_sequence = 1
+    </select>
+
+    <select id="listLocations"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
+        SELECT DISTINCT <include refid="locationColumns"/>
+        FROM location scoped
+        JOIN location_revision revision
+          ON revision.location_id = scoped.location_id
+         AND revision.revision_number = (
+             SELECT MAX(latest_revision.revision_number)
+             FROM location_revision latest_revision
+             WHERE latest_revision.location_id = scoped.location_id
+         )
+        JOIN location_timeline timeline
+          ON timeline.location_revision_id = revision.location_revision_id
+         AND timeline.event_sequence = (
+             SELECT MIN(origin.event_sequence)
+             FROM location_timeline origin
+             WHERE origin.location_revision_id = revision.location_revision_id
+         )
+        <include refid="activeLegalEntityScope"/>
+        ORDER BY revision.location_name, scoped.location_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countLocations" resultType="long">
+        SELECT COUNT(DISTINCT scoped.location_id)
+        FROM location scoped
+        <include refid="activeLegalEntityScope"/>
+    </select>
+
+    <select id="listLocationRevisions"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
+        SELECT <include refid="locationRevisionHistoryColumns"/>
+        FROM location scoped
+        JOIN location_revision revision
+          ON revision.location_id = scoped.location_id
+        JOIN location_timeline timeline
+          ON timeline.location_revision_id = revision.location_revision_id
+         AND timeline.event_sequence = (
+             SELECT MIN(origin.event_sequence)
+             FROM location_timeline origin
+             WHERE origin.location_revision_id =
+                    revision.location_revision_id
+         )
+        WHERE scoped.location_id = #{locationId}
+        ORDER BY revision.revision_number DESC,
+                 revision.location_revision_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countLocationRevisions" resultType="long">
+        SELECT COUNT(*)
+        FROM location_revision revision
+        WHERE revision.location_id = #{locationId}
+    </select>
+
+    <insert id="insertLocationIdentity">
+        INSERT INTO location (
+            location_id, legal_entity_id, location_code, row_version,
+            created_by, created_at
+        ) VALUES (
+            #{row.locationId}, #{row.legalEntityId}, #{row.locationCode},
+            0, #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <insert id="insertLocationRevision">
+        INSERT INTO location_revision (
+            location_revision_id, location_id, revision_number,
+            location_name, time_zone, effective_from,
+            supersedes_location_revision_id, snapshot_digest,
+            change_reason, created_by, created_at
+        ) VALUES (
+            #{row.locationRevisionId}, #{row.locationId}, #{row.revisionNumber},
+            #{row.locationName}, #{row.timeZone}, #{row.effectiveFrom},
+            #{predecessorRevisionId},
+            #{row.snapshotDigest}, #{row.changeReason},
+            #{row.updatedBy}, #{row.updatedAt}
+        )
+    </insert>
+
+    <update id="advanceLocationVersion">
+        UPDATE location
+        SET row_version = row_version + 1
+        WHERE location_id = #{locationId}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <select id="nextLocationTimelineSequence" resultType="int">
+        SELECT COALESCE(MAX(event_sequence), 0) + 1
+        FROM location_timeline
+        WHERE location_id = #{locationId}
+    </select>
+
+    <select id="latestLocationTimelineId" resultType="string">
+        SELECT location_timeline_id
+        FROM location_timeline
+        WHERE location_id = #{locationId}
+        ORDER BY event_sequence DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertLocationTimeline">
+        INSERT INTO location_timeline (
+            location_timeline_id, location_id, location_revision_id,
+            event_sequence, state, business_effective_from,
+            predecessor_timeline_id, recorded_at, actor_id, request_id
+        ) VALUES (
+            #{row.timelineId}, #{row.familyId}, #{row.contentId},
+            #{row.eventSequence}, #{row.state}, #{row.businessEffectiveFrom},
+            #{row.predecessorTimelineId}, #{row.recordedAt},
+            #{row.actorId}, #{row.requestId}
+        )
+    </insert>
+
+    <select id="lockLocation" resultType="string">
+        SELECT location_id
+        FROM location
+        WHERE location_id = #{locationId}
+        FOR UPDATE
+    </select>
+
+    <select id="lockLocationRevision" resultType="string">
+        SELECT location_revision_id
+        FROM location_revision
+        WHERE location_revision_id = #{locationRevisionId}
+        FOR UPDATE
+    </select>
+
+    <select id="findGroupIdsReferencingLocationRevision" resultType="string">
+        SELECT scoped.attendance_group_id
+        FROM attendance_group scoped
+        JOIN attendance_group_timeline timeline
+          ON timeline.attendance_group_id = scoped.attendance_group_id
+         AND timeline.event_sequence = (
+             SELECT MAX(latest.event_sequence)
+             FROM attendance_group_timeline latest
+             WHERE latest.attendance_group_id = scoped.attendance_group_id
+         )
+        JOIN attendance_group_revision revision
+          ON revision.attendance_group_revision_id =
+                timeline.attendance_group_revision_id
+        WHERE revision.location_revision_id = #{locationRevisionId}
+        ORDER BY scoped.attendance_group_id
+    </select>
+
+    <select id="findGroup"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$GroupRow">
+        SELECT <include refid="groupColumns"/>
+        FROM attendance_group scoped
+        JOIN attendance_group_revision revision
+          ON revision.attendance_group_id = scoped.attendance_group_id
+         AND revision.revision_number = (
+             SELECT MAX(latest_revision.revision_number)
+             FROM attendance_group_revision latest_revision
+             WHERE latest_revision.attendance_group_id =
+                    scoped.attendance_group_id
+         )
+        JOIN attendance_group_timeline timeline
+          ON timeline.attendance_group_revision_id =
+                revision.attendance_group_revision_id
+         AND timeline.event_sequence = (
+             SELECT MIN(origin.event_sequence)
+             FROM attendance_group_timeline origin
+             WHERE origin.attendance_group_revision_id =
+                    revision.attendance_group_revision_id
+         )
+        JOIN location_revision
+          ON location_revision.location_revision_id = revision.location_revision_id
+        WHERE scoped.attendance_group_id = #{groupId}
+    </select>
+
+    <select id="resolveGroupRevisions"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$GroupRow">
+        SELECT <include refid="groupColumnsAsOf"/>
+        FROM attendance_group scoped
+        JOIN attendance_group_timeline timeline
+          ON timeline.attendance_group_id = scoped.attendance_group_id
+        JOIN attendance_group_revision revision
+          ON revision.attendance_group_revision_id =
+                timeline.attendance_group_revision_id
+        JOIN location_revision
+          ON location_revision.location_revision_id = revision.location_revision_id
+        WHERE scoped.attendance_group_id = #{groupId}
+          AND timeline.business_effective_from &lt;= #{asOf}
+          AND timeline.recorded_at &lt;= #{knowledgeAsOf}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_timeline newer
+              WHERE newer.attendance_group_id = timeline.attendance_group_id
+                AND newer.business_effective_from &lt;= #{asOf}
+                AND newer.recorded_at &lt;= #{knowledgeAsOf}
+                AND newer.event_sequence &gt; timeline.event_sequence
+          )
+        ORDER BY timeline.event_sequence, revision.attendance_group_revision_id
+    </select>
+
+    <select id="findGroupByIdempotency"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$GroupRow">
+        SELECT <include refid="groupColumns"/>
+        FROM attendance_group scoped
+        JOIN attendance_group_timeline timeline
+          ON timeline.attendance_group_id = scoped.attendance_group_id
+         AND timeline.request_id = #{idempotencyKey}
+         AND timeline.actor_id = #{actorId}
+        JOIN attendance_group_revision revision
+          ON revision.attendance_group_revision_id =
+                timeline.attendance_group_revision_id
+        JOIN location_revision
+          ON location_revision.location_revision_id = revision.location_revision_id
+        WHERE timeline.event_sequence = 1
+    </select>
+
+    <select id="listGroups"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$GroupRow">
+        SELECT DISTINCT <include refid="groupColumns"/>
+        FROM attendance_group scoped
+        JOIN attendance_group_timeline timeline
+          ON timeline.attendance_group_id = scoped.attendance_group_id
+        JOIN attendance_group_revision revision
+          ON revision.attendance_group_revision_id =
+                timeline.attendance_group_revision_id
+        JOIN location_revision
+          ON location_revision.location_revision_id = revision.location_revision_id
+        <include refid="activeLegalEntityScope"/>
+        <if test="asOf != null">
+            AND timeline.business_effective_from &lt;= #{asOf}
+            AND timeline.recorded_at &lt;= #{at}
+            AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_group_timeline newer
+                WHERE newer.attendance_group_id = timeline.attendance_group_id
+                  AND newer.business_effective_from &lt;= #{asOf}
+                  AND newer.recorded_at &lt;= #{at}
+                  AND newer.event_sequence &gt; timeline.event_sequence
+            )
+        </if>
+        <if test="asOf == null">
+            AND revision.revision_number = (
+                SELECT MAX(latest_revision.revision_number)
+                FROM attendance_group_revision latest_revision
+                WHERE latest_revision.attendance_group_id =
+                        scoped.attendance_group_id
+            )
+            AND timeline.event_sequence = (
+                SELECT MIN(origin.event_sequence)
+                FROM attendance_group_timeline origin
+                WHERE origin.attendance_group_revision_id =
+                        revision.attendance_group_revision_id
+            )
+        </if>
+        ORDER BY revision.group_name, scoped.attendance_group_id,
+                 revision.revision_number
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countGroups" resultType="long">
+        SELECT COUNT(DISTINCT scoped.attendance_group_id)
+        FROM attendance_group scoped
+        JOIN attendance_group_timeline timeline
+          ON timeline.attendance_group_id = scoped.attendance_group_id
+        <include refid="activeLegalEntityScope"/>
+        <if test="asOf != null">
+            AND timeline.business_effective_from &lt;= #{asOf}
+            AND timeline.recorded_at &lt;= #{at}
+            AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_group_timeline newer
+                WHERE newer.attendance_group_id = timeline.attendance_group_id
+                  AND newer.business_effective_from &lt;= #{asOf}
+                  AND newer.recorded_at &lt;= #{at}
+                  AND newer.event_sequence &gt; timeline.event_sequence
+            )
+        </if>
+        <if test="asOf == null">
+            AND timeline.event_sequence = (
+                SELECT MAX(latest.event_sequence)
+                FROM attendance_group_timeline latest
+                WHERE latest.attendance_group_id = scoped.attendance_group_id
+            )
+        </if>
+    </select>
+
+    <select id="listGroupRevisions"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$GroupRow">
+        SELECT <include refid="groupRevisionHistoryColumns"/>
+        FROM attendance_group scoped
+        JOIN attendance_group_revision revision
+          ON revision.attendance_group_id = scoped.attendance_group_id
+        JOIN location_revision
+          ON location_revision.location_revision_id =
+                revision.location_revision_id
+        JOIN attendance_group_timeline timeline
+          ON timeline.attendance_group_revision_id =
+                revision.attendance_group_revision_id
+         AND timeline.event_sequence = (
+             SELECT MIN(origin.event_sequence)
+             FROM attendance_group_timeline origin
+             WHERE origin.attendance_group_revision_id =
+                    revision.attendance_group_revision_id
+         )
+        WHERE scoped.attendance_group_id = #{groupId}
+        ORDER BY revision.revision_number DESC,
+                 revision.attendance_group_revision_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countGroupRevisions" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_group_revision revision
+        WHERE revision.attendance_group_id = #{groupId}
+    </select>
+
+    <insert id="insertGroupIdentity">
+        INSERT INTO attendance_group (
+            attendance_group_id, legal_entity_id, group_code, created_by, created_at
+        ) VALUES (
+            #{row.attendanceGroupId}, #{row.legalEntityId}, #{row.groupCode},
+            #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <insert id="insertGroupRevision">
+        INSERT INTO attendance_group_revision (
+            attendance_group_revision_id, attendance_group_id, revision_number,
+            group_name, location_revision_id, work_calendar_id, shift_template_id,
+            effective_from, supersedes_attendance_group_revision_id,
+            snapshot_digest, change_reason, created_by, created_at
+        ) VALUES (
+            #{row.attendanceGroupRevisionId}, #{row.attendanceGroupId},
+            #{row.revisionNumber}, #{row.groupName}, #{row.locationRevisionId},
+            #{row.workCalendarId}, #{row.shiftTemplateId}, #{row.effectiveFrom},
+            #{predecessorRevisionId},
+            #{row.snapshotDigest}, #{row.changeReason},
+            #{row.updatedBy}, #{row.updatedAt}
+        )
+    </insert>
+
+    <select id="nextGroupTimelineSequence" resultType="int">
+        SELECT COALESCE(MAX(event_sequence), 0) + 1
+        FROM attendance_group_timeline
+        WHERE attendance_group_id = #{groupId}
+    </select>
+
+    <select id="latestGroupTimelineId" resultType="string">
+        SELECT attendance_group_timeline_id
+        FROM attendance_group_timeline
+        WHERE attendance_group_id = #{groupId}
+        ORDER BY event_sequence DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertGroupTimeline">
+        INSERT INTO attendance_group_timeline (
+            attendance_group_timeline_id, attendance_group_id,
+            attendance_group_revision_id, event_sequence, state,
+            business_effective_from, predecessor_timeline_id,
+            recorded_at, actor_id, request_id
+        ) VALUES (
+            #{row.timelineId}, #{row.familyId}, #{row.contentId},
+            #{row.eventSequence}, #{row.state}, #{row.businessEffectiveFrom},
+            #{row.predecessorTimelineId}, #{row.recordedAt},
+            #{row.actorId}, #{row.requestId}
+        )
+    </insert>
+
+    <select id="lockGroup" resultType="string">
+        SELECT attendance_group_id
+        FROM attendance_group
+        WHERE attendance_group_id = #{groupId}
+        FOR UPDATE
+    </select>
+
+    <select id="lockGroupRevision" resultType="string">
+        SELECT attendance_group_revision_id
+        FROM attendance_group_revision
+        WHERE attendance_group_revision_id = #{groupRevisionId}
+        FOR UPDATE
+    </select>
+
+    <select id="findAssignment"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$AssignmentRow">
+        SELECT <include refid="assignmentColumns"/>
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN attendance_assignment_timeline latest_timeline
+          ON latest_timeline.attendance_group_assignment_id =
+                assignment.attendance_group_assignment_id
+         AND latest_timeline.event_sequence = (
+             SELECT MAX(latest.event_sequence)
+             FROM attendance_assignment_timeline latest
+             WHERE latest.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+         )
+        WHERE assignment.attendance_group_assignment_id = #{assignmentId}
+    </select>
+
+    <select id="findAssignmentSuccessor"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$AssignmentRow">
+        SELECT <include refid="assignmentColumns"/>
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN attendance_assignment_timeline latest_timeline
+          ON latest_timeline.attendance_group_assignment_id =
+                assignment.attendance_group_assignment_id
+         AND latest_timeline.event_sequence = (
+             SELECT MAX(latest.event_sequence)
+             FROM attendance_assignment_timeline latest
+             WHERE latest.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+         )
+        WHERE assignment.supersedes_assignment_id = #{predecessorAssignmentId}
+    </select>
+
+    <select id="findAssignmentByIdempotency"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$AssignmentRow">
+        SELECT <include refid="assignmentColumns"/>
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN attendance_assignment_timeline latest_timeline
+          ON latest_timeline.attendance_group_assignment_id =
+                assignment.attendance_group_assignment_id
+        WHERE latest_timeline.actor_id = #{actorId}
+          AND latest_timeline.request_id = #{idempotencyKey}
+          AND latest_timeline.event_sequence = 1
+    </select>
+
+    <select id="listAssignments"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$AssignmentRow">
+        SELECT <include refid="assignmentColumns"/>
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN attendance_assignment_timeline latest_timeline
+          ON latest_timeline.attendance_group_assignment_id =
+                assignment.attendance_group_assignment_id
+         AND latest_timeline.event_sequence = (
+             SELECT MAX(latest.event_sequence)
+             FROM attendance_assignment_timeline latest
+             WHERE latest.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+         )
+        WHERE scoped.attendance_group_id = #{groupId}
+        <if test="asOf != null">
+            AND assignment.effective_from &lt;= #{asOf}
+            AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_assignment_timeline inactive
+                WHERE inactive.attendance_group_assignment_id =
+                        assignment.attendance_group_assignment_id
+                  AND inactive.state = 'INACTIVE'
+                  AND inactive.business_effective_from &lt;= #{asOf}
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_group_assignment successor
+                WHERE successor.supersedes_assignment_id =
+                        assignment.attendance_group_assignment_id
+                  AND successor.effective_from &lt;= #{asOf}
+            )
+        </if>
+        ORDER BY assignment.effective_from, assignment.employee_id,
+                 assignment.attendance_group_assignment_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAssignments" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        WHERE group_revision.attendance_group_id = #{groupId}
+        <if test="asOf != null">
+            AND assignment.effective_from &lt;= #{asOf}
+            AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_assignment_timeline inactive
+                WHERE inactive.attendance_group_assignment_id =
+                        assignment.attendance_group_assignment_id
+                  AND inactive.state = 'INACTIVE'
+                  AND inactive.business_effective_from &lt;= #{asOf}
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_group_assignment successor
+                WHERE successor.supersedes_assignment_id =
+                        assignment.attendance_group_assignment_id
+                  AND successor.effective_from &lt;= #{asOf}
+            )
+        </if>
+    </select>
+
+    <select id="resolveAssignments"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$AssignmentRow">
+        SELECT <include refid="assignmentColumnsAsOf"/>
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN attendance_assignment_timeline latest_timeline
+          ON latest_timeline.attendance_group_assignment_id =
+                assignment.attendance_group_assignment_id
+        WHERE assignment.employee_id = #{employeeId}
+          AND assignment.effective_from &lt;= #{asOf}
+          AND assignment.created_at &lt;= #{knowledgeAsOf}
+          AND latest_timeline.business_effective_from &lt;= #{asOf}
+          AND latest_timeline.recorded_at &lt;= #{knowledgeAsOf}
+          AND latest_timeline.state = 'ACTIVE'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_assignment_timeline newer_timeline
+              WHERE newer_timeline.attendance_group_assignment_id =
+                        assignment.attendance_group_assignment_id
+                AND newer_timeline.business_effective_from &lt;= #{asOf}
+                AND newer_timeline.recorded_at &lt;= #{knowledgeAsOf}
+                AND newer_timeline.event_sequence
+                    &gt; latest_timeline.event_sequence
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_assignment successor
+              WHERE successor.supersedes_assignment_id =
+                        assignment.attendance_group_assignment_id
+                AND successor.effective_from &lt;= #{asOf}
+                AND successor.created_at &lt;= #{knowledgeAsOf}
+          )
+        ORDER BY assignment.effective_from DESC,
+                 assignment.attendance_group_assignment_id
+    </select>
+
+    <select id="hasAssignmentOverlap" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM attendance_group_assignment assignment
+            WHERE assignment.employee_id = #{employeeId}
+              AND (
+                    #{excludeAssignmentId} IS NULL
+                    OR assignment.attendance_group_assignment_id
+                        &lt;&gt; #{excludeAssignmentId}
+              )
+              AND (
+                    #{effectiveTo} IS NULL
+                    OR assignment.effective_from &lt; #{effectiveTo}
+              )
+              AND COALESCE(
+                    (
+                        SELECT MIN(inactive.business_effective_from)
+                        FROM attendance_assignment_timeline inactive
+                        WHERE inactive.attendance_group_assignment_id =
+                                assignment.attendance_group_assignment_id
+                          AND inactive.state = 'INACTIVE'
+                          AND inactive.business_effective_from
+                                &gt; assignment.effective_from
+                    ),
+                    CAST('9999-12-31' AS DATE)
+              ) &gt; #{effectiveFrom}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="lockEmployee" resultType="string">
+        SELECT employee_id
+        FROM employee
+        WHERE employee_id = #{employeeId}
+        FOR UPDATE
+    </select>
+
+    <select id="findAssignmentsCrossingBoundary"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$AssignmentRow">
+        SELECT <include refid="assignmentColumns"/>
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN attendance_assignment_timeline latest_timeline
+          ON latest_timeline.attendance_group_assignment_id =
+                assignment.attendance_group_assignment_id
+         AND latest_timeline.event_sequence = (
+             SELECT MAX(latest.event_sequence)
+             FROM attendance_assignment_timeline latest
+             WHERE latest.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+         )
+        WHERE assignment.attendance_group_revision_id = #{groupRevisionId}
+          AND assignment.effective_from &lt; #{boundary}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_assignment_timeline inactive
+              WHERE inactive.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+                AND inactive.state = 'INACTIVE'
+                AND inactive.business_effective_from &lt;= #{boundary}
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_assignment successor
+              WHERE successor.supersedes_assignment_id =
+                    assignment.attendance_group_assignment_id
+                AND successor.effective_from &lt;= #{boundary}
+          )
+        ORDER BY assignment.employee_id,
+                 assignment.attendance_group_assignment_id
+    </select>
+
+    <select id="lockAssignmentTimeline" resultType="string">
+        SELECT attendance_assignment_timeline_id
+        FROM attendance_assignment_timeline
+        WHERE attendance_group_assignment_id = #{assignmentId}
+        ORDER BY event_sequence
+        FOR UPDATE
+    </select>
+
+    <insert id="insertAssignment">
+        INSERT INTO attendance_group_assignment (
+            attendance_group_assignment_id, employee_id,
+            attendance_group_revision_id, effective_from,
+            supersedes_assignment_id, snapshot_digest,
+            change_reason, created_by, created_at
+        )
+        SELECT
+            #{row.attendanceGroupAssignmentId}, #{row.employeeId},
+            timeline.attendance_group_revision_id, #{row.effectiveFrom},
+            NULL, #{row.snapshotDigest}, #{row.changeReason},
+            #{row.createdBy}, #{row.createdAt}
+        FROM attendance_group_timeline timeline
+        WHERE timeline.attendance_group_id = #{row.attendanceGroupId}
+          AND timeline.state = 'ACTIVE'
+          AND timeline.business_effective_from &lt;= #{row.effectiveFrom}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_timeline newer
+              WHERE newer.attendance_group_id = timeline.attendance_group_id
+                AND newer.business_effective_from &lt;= #{row.effectiveFrom}
+                AND (
+                    newer.business_effective_from
+                        &gt; timeline.business_effective_from
+                    OR (
+                        newer.business_effective_from =
+                            timeline.business_effective_from
+                        AND newer.event_sequence &gt; timeline.event_sequence
+                    )
+                )
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_timeline future
+              WHERE future.attendance_group_id = timeline.attendance_group_id
+                AND future.business_effective_from &gt; #{row.effectiveFrom}
+                AND (
+                    #{row.effectiveTo} IS NULL
+                    OR future.business_effective_from &lt; #{row.effectiveTo}
+                )
+          )
+    </insert>
+
+    <insert id="insertAssignmentSuccessor">
+        INSERT INTO attendance_group_assignment (
+            attendance_group_assignment_id, employee_id,
+            attendance_group_revision_id, effective_from,
+            supersedes_assignment_id, snapshot_digest,
+            change_reason, created_by, created_at
+        )
+        SELECT
+            #{row.attendanceGroupAssignmentId}, #{row.employeeId},
+            timeline.attendance_group_revision_id, #{row.effectiveFrom},
+            #{predecessorAssignmentId}, #{row.snapshotDigest},
+            #{row.changeReason}, #{row.updatedBy}, #{row.updatedAt}
+        FROM attendance_group_timeline timeline
+        WHERE timeline.attendance_group_id = #{row.attendanceGroupId}
+          AND timeline.state = 'ACTIVE'
+          AND timeline.business_effective_from &lt;= #{row.effectiveFrom}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_timeline newer
+              WHERE newer.attendance_group_id = timeline.attendance_group_id
+                AND newer.business_effective_from &lt;= #{row.effectiveFrom}
+                AND newer.business_effective_from
+                    &gt; timeline.business_effective_from
+          )
+    </insert>
+
+    <insert id="insertAssignmentRolloverSuccessor">
+        INSERT INTO attendance_group_assignment (
+            attendance_group_assignment_id, employee_id,
+            attendance_group_revision_id, effective_from,
+            supersedes_assignment_id, snapshot_digest,
+            change_reason, created_by, created_at
+        )
+        SELECT
+            #{row.attendanceGroupAssignmentId},
+            #{row.employeeId},
+            #{row.attendanceGroupRevisionId},
+            #{row.effectiveFrom},
+            #{predecessorAssignmentId},
+            #{row.snapshotDigest},
+            #{row.changeReason},
+            #{row.createdBy},
+            #{row.createdAt}
+        FROM attendance_group_assignment predecessor
+        WHERE predecessor.attendance_group_assignment_id =
+                #{predecessorAssignmentId}
+          AND predecessor.attendance_group_revision_id &lt;&gt;
+                #{row.attendanceGroupRevisionId}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_assignment existing_successor
+              WHERE existing_successor.supersedes_assignment_id =
+                    predecessor.attendance_group_assignment_id
+          )
+    </insert>
+
+    <select id="nextAssignmentTimelineSequence" resultType="int">
+        SELECT COALESCE(MAX(event_sequence), 0) + 1
+        FROM attendance_assignment_timeline
+        WHERE attendance_group_assignment_id = #{assignmentId}
+    </select>
+
+    <select id="latestAssignmentTimelineId" resultType="string">
+        SELECT attendance_assignment_timeline_id
+        FROM attendance_assignment_timeline
+        WHERE attendance_group_assignment_id = #{assignmentId}
+        ORDER BY event_sequence DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertAssignmentTimeline">
+        INSERT INTO attendance_assignment_timeline (
+            attendance_assignment_timeline_id,
+            attendance_group_assignment_id, employee_id,
+            event_sequence, state, business_effective_from,
+            predecessor_timeline_id, recorded_at, actor_id, request_id
+        ) VALUES (
+            #{row.timelineId}, #{row.contentId}, #{row.employeeId},
+            #{row.eventSequence}, #{row.state}, #{row.businessEffectiveFrom},
+            #{row.predecessorTimelineId}, #{row.recordedAt},
+            #{row.actorId}, #{row.requestId}
+        )
+    </insert>
+
+    <select id="countEffectiveAssignments" resultType="int">
+        SELECT COUNT(*)
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        WHERE group_revision.attendance_group_id = #{groupId}
+          AND (
+                #{effectiveTo} IS NULL
+                OR assignment.effective_from &lt; #{effectiveTo}
+          )
+          AND COALESCE(
+                (
+                    SELECT MIN(inactive.business_effective_from)
+                    FROM attendance_assignment_timeline inactive
+                    WHERE inactive.attendance_group_assignment_id =
+                            assignment.attendance_group_assignment_id
+                      AND inactive.state = 'INACTIVE'
+                ),
+                CAST('9999-12-31' AS DATE)
+          ) &gt; #{effectiveFrom}
+    </select>
+</mapper>

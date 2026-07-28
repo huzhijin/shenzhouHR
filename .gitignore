@@ -1,0 +1,39 @@
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Local agent/runtime state
+.claude/
+.codex/
+.docx-qa/
+.learnings/
+.ruff_cache/
+.tmp/
+.umadev/
+knowledge/.umadev/
+w3-real-pgid-*/
+
+# Generated dependencies and temporary files
+node_modules/
+tmp/
+**/__pycache__/
+*.py[cod]
+
+backend/target/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.npm-cache/
+
+# Wave 3 run directories are machine-local, mutable evidence.
+docs/verification/wave3/runs/
+
+.env
+.env.*
+!.env.example
+*.log
+!docs/verification/wave2/runtime/backend-package.log
+!docs/verification/wave2/runtime/static-verification.log
+!docs/verification/wave2/runtime/mysql/verify-wave2-mysql.log
+!docs/verification/wave2/runtime/mysql/wave2-local-mysql.log

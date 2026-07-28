@@ -1,0 +1,1066 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.people.infrastructure.persistence.PeopleMapper">
+
+    <sql id="activeCapabilityScope">
+        FROM auth_principal_role_assignment assignment
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope scope ON scope.scope_id = assignment.data_scope_id
+        WHERE assignment.principal_id = #{principalId}
+          AND assignment.valid_from &lt;= #{at}
+          AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
+          AND scope.valid_from &lt;= #{at}
+          AND (scope.valid_to IS NULL OR scope.valid_to &gt; #{at})
+    </sql>
+
+    <select id="canAccessLegalEntity" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            <include refid="activeCapabilityScope"/>
+              AND scope.scope_type = 'LEGAL_ENTITY'
+              AND scope.legal_entity_id = #{legalEntityId}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="canAccessOrganization" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            <include refid="activeCapabilityScope"/>
+              AND (
+                scope.scope_type = 'LEGAL_ENTITY'
+                AND scope.legal_entity_id = (
+                    SELECT legal_entity_id FROM organization_identity
+                    WHERE organization_id = #{organizationId}
+                )
+                OR scope.scope_type = 'ORGANIZATION'
+                AND (
+                    scope.organization_id = #{organizationId}
+                    OR scope.include_descendants = TRUE AND EXISTS (
+                        SELECT 1 FROM organization_current_closure closure
+                        WHERE closure.ancestor_organization_id = scope.organization_id
+                          AND closure.descendant_organization_id = #{organizationId}
+                    )
+                )
+              )
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="canAccessEmployee" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            <include refid="activeCapabilityScope"/>
+              AND (
+                scope.scope_type = 'LEGAL_ENTITY'
+                AND scope.legal_entity_id = (
+                    SELECT legal_entity_id FROM employee WHERE employee_id = #{employeeId}
+                )
+                OR scope.scope_type = 'SELF'
+                AND EXISTS (
+                    SELECT 1 FROM auth_principal principal
+                    WHERE principal.principal_id = #{principalId}
+                      AND principal.employee_id = #{employeeId}
+                )
+                OR scope.scope_type = 'ORGANIZATION'
+                AND EXISTS (
+                    SELECT 1
+                    FROM employment_assignment employment
+                    WHERE employment.employee_id = #{employeeId}
+                      AND employment.version_valid_to IS NULL
+                      AND employment.record_status = 'ACTIVE'
+                      AND DATE(employment.effective_from) &lt;= #{asOf}
+                      AND (employment.effective_to IS NULL
+                           OR DATE(employment.effective_to) &gt; #{asOf})
+                      AND (
+                        employment.organization_id = scope.organization_id
+                        OR scope.include_descendants = TRUE AND EXISTS (
+                            SELECT 1 FROM organization_current_closure closure
+                            WHERE closure.ancestor_organization_id = scope.organization_id
+                              AND closure.descendant_organization_id =
+                                  employment.organization_id
+                        )
+                      )
+                )
+              )
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="legalEntityExists" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1 FROM legal_entity WHERE legal_entity_id = #{legalEntityId}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="lockLegalEntity" resultType="string">
+        SELECT legal_entity_id
+        FROM legal_entity
+        WHERE legal_entity_id = #{legalEntityId}
+        FOR UPDATE
+    </select>
+
+    <select id="findIdempotency"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$IdempotencyRow">
+        SELECT actor_id, action_code, idempotency_key, request_digest, resource_id, result_json
+        FROM people_idempotency_record
+        WHERE actor_id = #{actorId}
+          AND action_code = #{actionCode}
+          AND idempotency_key = #{idempotencyKey}
+    </select>
+
+    <insert id="insertIdempotency">
+        INSERT INTO people_idempotency_record (
+            idempotency_record_id, actor_id, action_code, idempotency_key,
+            request_digest, resource_id, result_json, created_at
+        ) VALUES (
+            #{id}, #{actorId}, #{actionCode}, #{idempotencyKey},
+            #{requestDigest}, #{resourceId}, #{resultJson}, #{at}
+        )
+    </insert>
+
+    <insert id="insertBatch">
+        INSERT INTO people_import_batch (
+            batch_id, legal_entity_id, template_type, template_version, status,
+            reason, file_sha256, mapping_json, added_count, updated_count,
+            unchanged_count, conflict_count, error_count, blocking_issue_count,
+            precheck_version, row_version, created_by, created_at, updated_by,
+            updated_at, published_at, voided_at, duplicate_of_publication_id
+        ) VALUES (
+            #{batchId}, #{legalEntityId}, #{templateType}, #{templateVersion}, #{status},
+            #{reason}, #{fileSha256}, #{mappingJson}, #{addedCount}, #{updatedCount},
+            #{unchangedCount}, #{conflictCount}, #{errorCount}, #{blockingIssueCount},
+            #{precheckVersion}, #{rowVersion}, #{createdBy}, #{createdAt}, #{updatedBy},
+            #{updatedAt}, #{publishedAt}, #{voidedAt}, #{duplicateOfPublicationId}
+        )
+    </insert>
+
+    <sql id="batchColumns">
+        SELECT batch.batch_id, batch.legal_entity_id, batch.template_type,
+               batch.template_version, batch.status, batch.reason, batch.file_sha256,
+               batch.mapping_json, batch.added_count, batch.updated_count,
+               batch.unchanged_count, batch.conflict_count, batch.error_count,
+               batch.blocking_issue_count, batch.precheck_version, batch.row_version,
+               batch.created_by, batch.created_at, batch.updated_by, batch.updated_at,
+               batch.published_at, batch.voided_at, batch.duplicate_of_publication_id,
+               file.file_id, file.original_file_name, file.media_type, file.size_bytes,
+               file.sha256 AS stored_file_sha256, file.content, file.uploaded_by,
+               file.uploaded_at
+        FROM people_import_batch batch
+        LEFT JOIN people_import_file file ON file.batch_id = batch.batch_id
+    </sql>
+
+    <sql id="batchSummaryColumns">
+        SELECT batch.batch_id, batch.legal_entity_id, batch.template_type,
+               batch.template_version, batch.status, batch.reason, batch.file_sha256,
+               batch.mapping_json, batch.added_count, batch.updated_count,
+               batch.unchanged_count, batch.conflict_count, batch.error_count,
+               batch.blocking_issue_count, batch.precheck_version, batch.row_version,
+               batch.created_by, batch.created_at, batch.updated_by, batch.updated_at,
+               batch.published_at, batch.voided_at, batch.duplicate_of_publication_id,
+               file.file_id, file.original_file_name, file.media_type, file.size_bytes,
+               file.sha256 AS stored_file_sha256, NULL AS content, file.uploaded_by,
+               file.uploaded_at
+        FROM people_import_batch batch
+        LEFT JOIN people_import_file file ON file.batch_id = batch.batch_id
+    </sql>
+
+    <select id="findBatch"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$BatchRow">
+        <include refid="batchColumns"/>
+        WHERE batch.batch_id = #{batchId}
+    </select>
+
+    <sql id="batchAccess">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal_role_assignment assignment
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capability}
+            JOIN auth_data_scope scope ON scope.scope_id = assignment.data_scope_id
+            WHERE assignment.principal_id = #{principalId}
+              AND assignment.valid_from &lt;= #{at}
+              AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
+              AND scope.valid_from &lt;= #{at}
+              AND (scope.valid_to IS NULL OR scope.valid_to &gt; #{at})
+              AND scope.scope_type = 'LEGAL_ENTITY'
+              AND scope.legal_entity_id = batch.legal_entity_id
+        )
+    </sql>
+
+    <select id="listBatches"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$BatchRow">
+        <include refid="batchSummaryColumns"/>
+        WHERE <include refid="batchAccess"/>
+          AND (#{status} IS NULL OR batch.status = #{status})
+        ORDER BY batch.created_at DESC, batch.batch_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countBatches" resultType="long">
+        SELECT COUNT(*)
+        FROM people_import_batch batch
+        WHERE <include refid="batchAccess"/>
+          AND (#{status} IS NULL OR batch.status = #{status})
+    </select>
+
+    <update id="updateBatchState">
+        UPDATE people_import_batch
+        SET status = #{status},
+            added_count = #{added},
+            updated_count = #{updated},
+            unchanged_count = #{unchanged},
+            conflict_count = #{conflict},
+            error_count = #{error},
+            blocking_issue_count = #{blocking},
+            precheck_version = #{precheckVersion},
+            row_version = row_version + 1,
+            updated_by = #{actorId},
+            updated_at = #{at},
+            published_at = COALESCE(#{publishedAt}, published_at),
+            voided_at = COALESCE(#{voidedAt}, voided_at),
+            duplicate_of_publication_id = COALESCE(
+                #{duplicateOfPublicationId}, duplicate_of_publication_id)
+        WHERE batch_id = #{batchId}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <update id="updateBatchMapping">
+        UPDATE people_import_batch
+        SET mapping_json = #{mappingJson},
+            status = 'DRAFT',
+            added_count = 0,
+            updated_count = 0,
+            unchanged_count = 0,
+            conflict_count = 0,
+            error_count = 0,
+            blocking_issue_count = 0,
+            precheck_version = NULL,
+            row_version = row_version + 1,
+            updated_by = #{actorId},
+            updated_at = #{at}
+        WHERE batch_id = #{batchId}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <insert id="insertFile">
+        INSERT INTO people_import_file (
+            file_id, batch_id, original_file_name, media_type, size_bytes,
+            sha256, content, uploaded_by, uploaded_at
+        ) VALUES (
+            #{fileId}, #{batchId}, #{originalFileName}, #{mediaType}, #{sizeBytes},
+            #{storedFileSha256}, #{content}, #{uploadedBy}, #{uploadedAt}
+        )
+    </insert>
+
+    <update id="attachFile">
+        UPDATE people_import_batch
+        SET file_sha256 = #{fileSha256},
+            status = 'DRAFT',
+            row_version = row_version + 1,
+            updated_by = #{actorId},
+            updated_at = #{at}
+        WHERE batch_id = #{batchId}
+          AND row_version = #{expectedVersion}
+          AND file_sha256 IS NULL
+    </update>
+
+    <delete id="deletePrecheckDiffs">
+        DELETE FROM people_import_diff WHERE batch_id = #{batchId}
+    </delete>
+
+    <delete id="deletePrecheckIssues">
+        DELETE FROM people_import_issue WHERE batch_id = #{batchId}
+    </delete>
+
+    <insert id="insertDiff">
+        INSERT INTO people_import_diff (
+            diff_id, batch_id, `row_number`, entity_type, category,
+            matched_resource_id, source_values_json, current_values_json,
+            proposed_values_json
+        ) VALUES (
+            #{diffId}, #{batchId}, #{rowNumber}, #{entityType}, #{category},
+            #{matchedResourceId}, #{sourceValuesJson}, #{currentValuesJson},
+            #{proposedValuesJson}
+        )
+    </insert>
+
+    <insert id="insertIssue">
+        INSERT INTO people_import_issue (
+            issue_id, batch_id, `row_number`, field_name, issue_code,
+            message, severity, candidate_employee_ids_json
+        ) VALUES (
+            #{issueId}, #{batchId}, #{rowNumber}, #{fieldName}, #{issueCode},
+            #{message}, #{severity}, #{candidateEmployeeIdsJson}
+        )
+    </insert>
+
+    <select id="listDiffs"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$DiffRow">
+        SELECT diff_id, batch_id, `row_number`, entity_type, category,
+               matched_resource_id, source_values_json, current_values_json,
+               proposed_values_json
+        FROM people_import_diff
+        WHERE batch_id = #{batchId}
+          AND (#{category} IS NULL OR category = #{category})
+        ORDER BY `row_number`, diff_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countDiffs" resultType="long">
+        SELECT COUNT(*) FROM people_import_diff
+        WHERE batch_id = #{batchId}
+          AND (#{category} IS NULL OR category = #{category})
+    </select>
+
+    <select id="listIssues"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$IssueRow">
+        SELECT issue_id, batch_id, `row_number`, field_name, issue_code,
+               message, severity, candidate_employee_ids_json
+        FROM people_import_issue
+        WHERE batch_id = #{batchId}
+          AND (#{severity} IS NULL OR severity = #{severity})
+        ORDER BY CASE WHEN severity = 'BLOCKING' THEN 0 ELSE 1 END,
+                 `row_number`, issue_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countIssues" resultType="long">
+        SELECT COUNT(*) FROM people_import_issue
+        WHERE batch_id = #{batchId}
+          AND (#{severity} IS NULL OR severity = #{severity})
+    </select>
+
+    <sql id="publicationColumns">
+        SELECT publication_id, batch_id, legal_entity_id, template_type,
+               template_version, file_sha256, snapshot_digest,
+               snapshot_json, local_version_ids_json, published_by, published_at
+        FROM people_import_publication
+    </sql>
+
+    <select id="findPublicationByBatch"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PublicationRow">
+        <include refid="publicationColumns"/>
+        WHERE batch_id = #{batchId}
+    </select>
+
+    <select id="findPublicationById"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PublicationRow">
+        <include refid="publicationColumns"/>
+        WHERE publication_id = #{publicationId}
+    </select>
+
+    <select id="findPublicationByFileHash"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PublicationRow">
+        <include refid="publicationColumns"/>
+        WHERE legal_entity_id = #{legalEntityId}
+          AND template_type = #{templateType}
+          AND template_version = #{templateVersion}
+          AND file_sha256 = #{fileSha256}
+    </select>
+
+    <insert id="insertPublication">
+        INSERT INTO people_import_publication (
+            publication_id, batch_id, legal_entity_id, template_type,
+            template_version, file_sha256, idempotency_key,
+            snapshot_digest, snapshot_json, local_version_ids_json,
+            published_by, published_at
+        ) VALUES (
+            #{row.publicationId}, #{row.batchId}, #{row.legalEntityId},
+            #{row.templateType}, #{row.templateVersion}, #{row.fileSha256},
+            #{idempotencyKey}, #{row.snapshotDigest}, #{row.snapshotJson},
+            #{row.localVersionIdsJson}, #{row.publishedBy}, #{row.publishedAt}
+        )
+    </insert>
+
+    <select id="findDownstreamReferenceIds" resultType="string">
+        SELECT CONCAT('ORG_CHILD:', child.organization_version_id)
+        FROM organization_version source
+        JOIN organization_version child
+          ON child.parent_organization_id = source.organization_id
+        JOIN organization_current_projection child_projection
+          ON child_projection.current_version_id =
+             child.organization_version_id
+        WHERE source.source_import_batch_id = #{batchId}
+          AND (child.source_import_batch_id IS NULL
+               OR child.source_import_batch_id &lt;&gt; #{batchId})
+        UNION ALL
+        SELECT CONCAT('ORG_EMPLOYMENT:', employment.assignment_id)
+        FROM organization_version source
+        JOIN employment_assignment employment
+          ON employment.organization_id = source.organization_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+        WHERE source.source_import_batch_id = #{batchId}
+          AND (employment.source_import_batch_id IS NULL
+               OR employment.source_import_batch_id &lt;&gt; #{batchId})
+        UNION ALL
+        SELECT CONCAT('ORG_SCOPE:', scope.scope_id)
+        FROM organization_version source
+        JOIN auth_data_scope scope ON scope.organization_id = source.organization_id
+        WHERE source.source_import_batch_id = #{batchId}
+        UNION ALL
+        SELECT CONCAT('EMP_EMPLOYMENT:', employment.assignment_id)
+        FROM employee_version source
+        JOIN employment_assignment employment
+          ON employment.employee_id = source.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+        WHERE source.source_import_batch_id = #{batchId}
+          AND (employment.source_import_batch_id IS NULL
+               OR employment.source_import_batch_id &lt;&gt; #{batchId})
+        UNION ALL
+        SELECT CONCAT('EMP_SERVICE:', service.prior_service_record_id)
+        FROM employee_version source
+        JOIN prior_service_record service ON service.employee_id = source.employee_id
+        WHERE source.source_import_batch_id = #{batchId}
+          AND (service.source_import_batch_id IS NULL
+               OR service.source_import_batch_id &lt;&gt; #{batchId})
+        UNION ALL
+        SELECT CONCAT('EMP_PRINCIPAL:', principal.principal_id)
+        FROM employee_version source
+        JOIN auth_principal principal ON principal.employee_id = source.employee_id
+        WHERE source.source_import_batch_id = #{batchId}
+    </select>
+
+    <select id="hasLaterOrganizationVersions" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM organization_version source_version
+            JOIN organization_version later
+              ON later.organization_id = source_version.organization_id
+             AND later.row_version &gt; source_version.row_version
+            WHERE source_version.source_import_batch_id = #{batchId}
+              AND (later.source_import_batch_id IS NULL
+                   OR later.source_import_batch_id &lt;&gt; #{batchId})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="hasLaterEmployeeVersions" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM employee_version source_version
+            JOIN employee_version later
+              ON later.employee_id = source_version.employee_id
+             AND later.row_version &gt; source_version.row_version
+            WHERE source_version.source_import_batch_id = #{batchId}
+              AND (later.source_import_batch_id IS NULL
+                   OR later.source_import_batch_id &lt;&gt; #{batchId})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="hasLaterEmploymentVersions" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM employment_assignment source_version
+            JOIN employment_assignment later
+              ON later.employment_period_id = source_version.employment_period_id
+             AND later.row_version &gt; source_version.row_version
+            WHERE source_version.source_import_batch_id = #{batchId}
+              AND (later.source_import_batch_id IS NULL
+                   OR later.source_import_batch_id &lt;&gt; #{batchId})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="hasLaterPriorServiceRecords" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM prior_service_record source_record
+            JOIN prior_service_record later
+              ON later.employee_id = source_record.employee_id
+             AND later.row_version &gt; source_record.row_version
+            WHERE source_record.source_import_batch_id = #{batchId}
+              AND (later.source_import_batch_id IS NULL
+                   OR later.source_import_batch_id &lt;&gt; #{batchId})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="findRollbackByPublication"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$RollbackRow">
+        SELECT rollback_id, batch_id, source_publication_id,
+               restored_snapshot_digest, created_version_ids_json,
+               rolled_back_by, rolled_back_at
+        FROM people_import_rollback
+        WHERE source_publication_id = #{publicationId}
+    </select>
+
+    <insert id="insertRollback">
+        INSERT INTO people_import_rollback (
+            rollback_id, batch_id, source_publication_id, idempotency_key,
+            reason, restored_snapshot_digest, created_version_ids_json,
+            rolled_back_by, rolled_back_at
+        ) VALUES (
+            #{row.rollbackId}, #{row.batchId}, #{row.sourcePublicationId},
+            #{idempotencyKey}, #{reason}, #{row.restoredSnapshotDigest},
+            #{row.createdVersionIdsJson}, #{row.rolledBackBy}, #{row.rolledBackAt}
+        )
+    </insert>
+
+    <sql id="organizationColumns">
+        SELECT version.organization_version_id, version.organization_id,
+               identity.legal_entity_id, version.parent_organization_id,
+               version.code, version.name, version.org_type AS organization_type,
+               version.status, DATE(version.effective_from) AS effective_from,
+               DATE(version.effective_to) AS effective_to, version.source_authority,
+               version.source_import_batch_id, version.row_version,
+               version.change_reason, version.created_by, version.created_at,
+               (SELECT COUNT(*)
+                FROM organization_version child
+                JOIN organization_current_projection child_projection
+                  ON child_projection.current_version_id =
+                     child.organization_version_id
+                WHERE child.parent_organization_id = version.organization_id)
+                    AS child_count
+        FROM organization_version version
+        JOIN organization_identity identity
+          ON identity.organization_id = version.organization_id
+    </sql>
+
+    <select id="findCurrentOrganization"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$OrganizationRow">
+        <include refid="organizationColumns"/>
+        JOIN organization_current_projection projection
+          ON projection.organization_id = version.organization_id
+         AND projection.current_version_id = version.organization_version_id
+        WHERE version.organization_id = #{organizationId}
+    </select>
+
+    <select id="findOrganizationVersion"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$OrganizationRow">
+        <include refid="organizationColumns"/>
+        WHERE version.organization_version_id = #{organizationVersionId}
+    </select>
+
+    <select id="findOrganizationAsOf"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$OrganizationRow">
+        <include refid="organizationColumns"/>
+        WHERE version.organization_id = #{organizationId}
+          AND DATE(version.effective_from) &lt;= #{asOf}
+          AND (version.effective_to IS NULL OR DATE(version.effective_to) &gt; #{asOf})
+        ORDER BY version.effective_from DESC
+        LIMIT 1
+    </select>
+
+    <select id="findOrganizationByCode"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$OrganizationRow">
+        <include refid="organizationColumns"/>
+        JOIN organization_current_projection projection
+          ON projection.organization_id = version.organization_id
+         AND projection.current_version_id = version.organization_version_id
+        WHERE identity.legal_entity_id = #{legalEntityId}
+          AND version.code = #{code}
+    </select>
+
+    <select id="listOrganizationVersions"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$OrganizationRow">
+        <include refid="organizationColumns"/>
+        WHERE version.organization_id = #{organizationId}
+        ORDER BY version.effective_from DESC, version.created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countOrganizationVersions" resultType="long">
+        SELECT COUNT(*) FROM organization_version WHERE organization_id = #{organizationId}
+    </select>
+
+    <select id="organizationCodeExists" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM organization_version version
+            JOIN organization_identity identity
+              ON identity.organization_id = version.organization_id
+            JOIN organization_current_projection projection
+              ON projection.organization_id = version.organization_id
+             AND projection.current_version_id = version.organization_version_id
+            WHERE identity.legal_entity_id = #{legalEntityId}
+              AND version.code = #{code}
+              AND (#{excludeOrganizationId} IS NULL
+                   OR version.organization_id &lt;&gt; #{excludeOrganizationId})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="organizationWouldCycle" resultType="boolean">
+        SELECT CASE WHEN #{parentOrganizationId} IS NOT NULL AND (
+            #{parentOrganizationId} = #{organizationId}
+            OR EXISTS (
+                SELECT 1 FROM organization_current_closure closure
+                WHERE closure.ancestor_organization_id = #{organizationId}
+                  AND closure.descendant_organization_id = #{parentOrganizationId}
+            )
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <insert id="insertOrganizationIdentity">
+        INSERT INTO organization_identity (
+            organization_id, legal_entity_id, identity_status, created_at
+        ) VALUES (#{organizationId}, #{legalEntityId}, #{status}, #{at})
+    </insert>
+
+    <insert id="insertOrganizationVersion">
+        INSERT INTO organization_version (
+            organization_version_id, organization_id, parent_organization_id,
+            code, name, org_type, status, effective_from, effective_to,
+            row_version, source_authority, source_import_batch_id, change_reason,
+            created_by, created_at
+        ) VALUES (
+            #{organizationVersionId}, #{organizationId}, #{parentOrganizationId},
+            #{code}, #{name}, #{organizationType}, #{status}, #{effectiveFrom},
+            #{effectiveTo}, #{rowVersion}, #{sourceAuthority}, #{sourceImportBatchId},
+            #{changeReason}, #{createdBy}, #{createdAt}
+        )
+    </insert>
+
+    <update id="updateOrganizationIdentityStatus">
+        UPDATE organization_identity
+        SET identity_status = #{status}
+        WHERE organization_id = #{organizationId}
+    </update>
+
+    <update id="closeCurrentOrganizationVersion">
+        UPDATE organization_version
+        SET effective_to = COALESCE(effective_to, #{effectiveTo})
+        WHERE organization_version_id = (
+            SELECT projection.current_version_id
+            FROM organization_current_projection projection
+            WHERE projection.organization_id = #{organizationId}
+        )
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <insert id="upsertOrganizationProjection">
+        INSERT INTO organization_current_projection (
+            organization_id, current_version_id, projection_batch_id, projected_at
+        ) VALUES (
+            #{organizationId}, #{versionId}, #{projectionBatchId}, #{at}
+        )
+        ON DUPLICATE KEY UPDATE
+            current_version_id = VALUES(current_version_id),
+            projection_batch_id = VALUES(projection_batch_id),
+            projected_at = VALUES(projected_at)
+    </insert>
+
+    <delete id="deleteOrganizationClosure">
+        DELETE FROM organization_current_closure
+    </delete>
+
+    <insert id="rebuildOrganizationClosure">
+        INSERT INTO organization_current_closure (
+            ancestor_organization_id, descendant_organization_id, depth,
+            projection_batch_id
+        )
+        WITH RECURSIVE closure_tree (
+            ancestor_organization_id, descendant_organization_id, depth
+        ) AS (
+            SELECT version.organization_id, version.organization_id, 0
+            FROM organization_version version
+            JOIN organization_current_projection projection
+              ON projection.current_version_id = version.organization_version_id
+            UNION ALL
+            SELECT closure_tree.ancestor_organization_id,
+                   child.organization_id,
+                   closure_tree.depth + 1
+            FROM closure_tree
+            JOIN organization_current_projection child_projection
+              ON TRUE
+            JOIN organization_version child
+              ON child.organization_version_id = child_projection.current_version_id
+             AND child.parent_organization_id = closure_tree.descendant_organization_id
+        )
+        SELECT ancestor_organization_id, descendant_organization_id, depth,
+               #{projectionBatchId}
+        FROM closure_tree
+    </insert>
+
+    <sql id="currentEmployeeColumns">
+        SELECT version.employee_version_id, version.employee_id,
+               employee.legal_entity_id, version.employee_number,
+               version.display_name, version.status, version.external_employee_id,
+               version.effective_from, version.effective_to,
+               version.source_authority, version.source_import_batch_id,
+               employee.row_version, version.change_reason, version.created_by,
+               version.created_at
+        FROM employee_version version
+        JOIN employee ON employee.employee_id = version.employee_id
+    </sql>
+
+    <sql id="historicalEmployeeColumns">
+        SELECT version.employee_version_id, version.employee_id,
+               employee.legal_entity_id, version.employee_number,
+               version.display_name, version.status, version.external_employee_id,
+               version.effective_from, version.effective_to,
+               version.source_authority, version.source_import_batch_id,
+               version.row_version, version.change_reason, version.created_by,
+               version.created_at
+        FROM employee_version version
+        JOIN employee ON employee.employee_id = version.employee_id
+    </sql>
+
+    <select id="findCurrentEmployee"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmployeeRow">
+        <include refid="currentEmployeeColumns"/>
+        JOIN employee_current_projection projection
+          ON projection.employee_id = version.employee_id
+         AND projection.current_version_id = version.employee_version_id
+        WHERE version.employee_id = #{employeeId}
+    </select>
+
+    <select id="findEmployeeAggregateVersion" resultType="long">
+        SELECT row_version FROM employee WHERE employee_id = #{employeeId}
+    </select>
+
+    <select id="findEmployeeVersion"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmployeeRow">
+        <include refid="historicalEmployeeColumns"/>
+        WHERE version.employee_version_id = #{employeeVersionId}
+    </select>
+
+    <select id="findEmployeeAsOf"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmployeeRow">
+        <include refid="historicalEmployeeColumns"/>
+        WHERE version.employee_id = #{employeeId}
+          AND version.effective_from &lt;= #{asOf}
+          AND (version.effective_to IS NULL OR version.effective_to &gt; #{asOf})
+        ORDER BY version.effective_from DESC
+        LIMIT 1
+    </select>
+
+    <select id="findEmployeeByNumber"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmployeeRow">
+        <include refid="currentEmployeeColumns"/>
+        JOIN employee_current_projection projection
+          ON projection.employee_id = version.employee_id
+         AND projection.current_version_id = version.employee_version_id
+        WHERE employee.legal_entity_id = #{legalEntityId}
+          AND version.employee_number = #{employeeNumber}
+    </select>
+
+    <select id="findEmployeesByExternalId"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmployeeRow">
+        <include refid="currentEmployeeColumns"/>
+        JOIN employee_current_projection projection
+          ON projection.employee_id = version.employee_id
+         AND projection.current_version_id = version.employee_version_id
+        WHERE employee.legal_entity_id = #{legalEntityId}
+          AND version.external_employee_id = #{externalEmployeeId}
+        ORDER BY version.employee_id
+    </select>
+
+    <select id="listEmployeeVersions"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmployeeRow">
+        <include refid="historicalEmployeeColumns"/>
+        WHERE version.employee_id = #{employeeId}
+        ORDER BY version.effective_from DESC, version.created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countEmployeeVersions" resultType="long">
+        SELECT COUNT(*) FROM employee_version WHERE employee_id = #{employeeId}
+    </select>
+
+    <select id="employeeNumberExists" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1 FROM employee
+            WHERE legal_entity_id = #{legalEntityId}
+              AND employee_number = #{employeeNumber}
+              AND (#{excludeEmployeeId} IS NULL OR employee_id &lt;&gt; #{excludeEmployeeId})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <insert id="insertEmployeeIdentity">
+        INSERT INTO employee (
+            employee_id, legal_entity_id, employee_number, display_name,
+            employment_status, onboard_date, row_version, created_at, updated_at
+        ) VALUES (
+            #{employeeId}, #{legalEntityId}, #{employeeNumber}, #{displayName},
+            #{status}, #{onboardDate}, 0, #{at}, #{at}
+        )
+    </insert>
+
+    <update id="updateEmployeeIdentity">
+        UPDATE employee
+        SET employee_number = #{employeeNumber},
+            display_name = #{displayName},
+            employment_status = #{status},
+            row_version = row_version + 1,
+            updated_at = #{at}
+        WHERE employee_id = #{employeeId}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <insert id="insertEmployeeVersion">
+        INSERT INTO employee_version (
+            employee_version_id, employee_id, employee_number, display_name,
+            status, external_employee_id, effective_from, effective_to,
+            source_authority, source_import_batch_id, row_version, change_reason,
+            created_by, created_at
+        ) VALUES (
+            #{employeeVersionId}, #{employeeId}, #{employeeNumber}, #{displayName},
+            #{status}, #{externalEmployeeId}, #{effectiveFrom}, #{effectiveTo},
+            #{sourceAuthority}, #{sourceImportBatchId}, #{rowVersion}, #{changeReason},
+            #{createdBy}, #{createdAt}
+        )
+    </insert>
+
+    <update id="closeCurrentEmployeeVersion">
+        UPDATE employee_version
+        SET effective_to = COALESCE(effective_to, #{effectiveTo})
+        WHERE employee_version_id = (
+            SELECT projection.current_version_id
+            FROM employee_current_projection projection
+            WHERE projection.employee_id = #{employeeId}
+        )
+          AND EXISTS (
+            SELECT 1
+            FROM employee identity
+            WHERE identity.employee_id = #{employeeId}
+              AND identity.row_version = #{expectedVersion}
+          )
+    </update>
+
+    <insert id="upsertEmployeeProjection">
+        INSERT INTO employee_current_projection (
+            employee_id, current_version_id, projected_at
+        ) VALUES (#{employeeId}, #{versionId}, #{at})
+        ON DUPLICATE KEY UPDATE
+            current_version_id = VALUES(current_version_id),
+            projected_at = VALUES(projected_at)
+    </insert>
+
+    <sql id="employmentColumns">
+        SELECT employment_period_id, assignment_id, employee_id, organization_id,
+               position_id, DATE(effective_from) AS start_date, termination_date,
+               DATE(effective_to) AS end_exclusive, record_status,
+               source_import_batch_id,
+               row_version, change_reason, created_by, created_at
+        FROM employment_assignment
+        WHERE version_valid_to IS NULL
+          AND record_status = 'ACTIVE'
+    </sql>
+
+    <select id="listEmploymentPeriods"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmploymentRow">
+        <include refid="employmentColumns"/>
+          AND employee_id = #{employeeId}
+          AND (#{asOf} IS NULL
+               OR DATE(effective_from) &lt;= #{asOf}
+                  AND (effective_to IS NULL OR DATE(effective_to) &gt; #{asOf}))
+        ORDER BY effective_from DESC, assignment_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countEmploymentPeriods" resultType="long">
+        SELECT COUNT(*)
+        FROM employment_assignment
+        WHERE version_valid_to IS NULL
+          AND record_status = 'ACTIVE'
+          AND employee_id = #{employeeId}
+          AND (#{asOf} IS NULL
+               OR DATE(effective_from) &lt;= #{asOf}
+                  AND (effective_to IS NULL OR DATE(effective_to) &gt; #{asOf}))
+    </select>
+
+    <sql id="accessibleEmploymentScope">
+        AND EXISTS (
+            SELECT 1
+            <include refid="activeCapabilityScope"/>
+              AND (
+                scope.scope_type = 'LEGAL_ENTITY'
+                AND scope.legal_entity_id = (
+                    SELECT identity.legal_entity_id
+                    FROM organization_identity identity
+                    WHERE identity.organization_id = employment.organization_id
+                )
+                OR scope.scope_type = 'ORGANIZATION'
+                AND (
+                    scope.organization_id = employment.organization_id
+                    OR scope.include_descendants = TRUE AND EXISTS (
+                        SELECT 1
+                        FROM organization_current_closure closure
+                        WHERE closure.ancestor_organization_id = scope.organization_id
+                          AND closure.descendant_organization_id = employment.organization_id
+                    )
+                )
+                OR scope.scope_type = 'SELF'
+                AND EXISTS (
+                    SELECT 1
+                    FROM auth_principal principal
+                    WHERE principal.principal_id = #{principalId}
+                      AND principal.employee_id = employment.employee_id
+                )
+              )
+        )
+    </sql>
+
+    <select id="listAccessibleEmploymentPeriods"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmploymentRow">
+        SELECT employment.employment_period_id, employment.assignment_id,
+               employment.employee_id, employment.organization_id,
+               employment.position_id, DATE(employment.effective_from) AS start_date,
+               employment.termination_date,
+               DATE(employment.effective_to) AS end_exclusive,
+               employment.record_status, employment.source_import_batch_id,
+               employment.row_version, employment.change_reason,
+               employment.created_by, employment.created_at
+        FROM employment_assignment employment
+        WHERE employment.version_valid_to IS NULL
+          AND employment.record_status = 'ACTIVE'
+          AND employment.employee_id = #{employeeId}
+          AND (#{asOf} IS NULL
+               OR DATE(employment.effective_from) &lt;= #{asOf}
+                  AND (employment.effective_to IS NULL
+                       OR DATE(employment.effective_to) &gt; #{asOf}))
+        <include refid="accessibleEmploymentScope"/>
+        ORDER BY employment.effective_from DESC, employment.assignment_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAccessibleEmploymentPeriods" resultType="long">
+        SELECT COUNT(*)
+        FROM employment_assignment employment
+        WHERE employment.version_valid_to IS NULL
+          AND employment.record_status = 'ACTIVE'
+          AND employment.employee_id = #{employeeId}
+          AND (#{asOf} IS NULL
+               OR DATE(employment.effective_from) &lt;= #{asOf}
+                  AND (employment.effective_to IS NULL
+                       OR DATE(employment.effective_to) &gt; #{asOf}))
+        <include refid="accessibleEmploymentScope"/>
+    </select>
+
+    <select id="findCurrentEmploymentPeriodVersion"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmploymentRow">
+        <include refid="employmentColumns"/>
+          AND employment_period_id = #{employmentPeriodId}
+    </select>
+
+    <select id="findEmploymentVersion"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmploymentRow">
+        SELECT employment_period_id, assignment_id, employee_id, organization_id,
+               position_id, DATE(effective_from) AS start_date, termination_date,
+               DATE(effective_to) AS end_exclusive, record_status,
+               source_import_batch_id, row_version, change_reason, created_by, created_at
+        FROM employment_assignment
+        WHERE assignment_id = #{assignmentVersionId}
+    </select>
+
+    <select id="findEmploymentVersionsBySourceBatch"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmploymentRow">
+        SELECT employment_period_id, assignment_id, employee_id, organization_id,
+               position_id, DATE(effective_from) AS start_date, termination_date,
+               DATE(effective_to) AS end_exclusive, record_status,
+               source_import_batch_id, row_version, change_reason, created_by, created_at
+        FROM employment_assignment
+        WHERE source_import_batch_id = #{batchId}
+          AND version_valid_to IS NULL
+          AND record_status = 'ACTIVE'
+        ORDER BY created_at, assignment_id
+    </select>
+
+    <select id="hasEmploymentOverlap" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM employment_assignment
+            WHERE employee_id = #{employeeId}
+              AND version_valid_to IS NULL
+              AND record_status = 'ACTIVE'
+              AND (#{excludeEmploymentPeriodId} IS NULL
+                   OR employment_period_id &lt;&gt; #{excludeEmploymentPeriodId})
+              AND DATE(effective_from) &lt; COALESCE(#{endExclusive}, DATE('9999-12-31'))
+              AND (effective_to IS NULL OR DATE(effective_to) &gt; #{start})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="lockEmployee" resultType="string">
+        SELECT employee_id FROM employee WHERE employee_id = #{employeeId} FOR UPDATE
+    </select>
+
+    <update id="touchEmployee">
+        UPDATE employee
+        SET row_version = row_version + 1,
+            updated_at = #{at}
+        WHERE employee_id = #{employeeId}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <insert id="insertEmploymentPeriodVersion">
+        INSERT INTO employment_assignment (
+            assignment_id, employment_period_id, employee_id, organization_id,
+            position_id, effective_from, effective_to, termination_date,
+            record_status, source_import_batch_id, row_version, change_reason, created_by,
+            created_at, version_valid_to
+        ) VALUES (
+            #{row.assignmentId}, #{row.employmentPeriodId}, #{row.employeeId},
+            #{row.organizationId}, #{row.positionId}, #{row.startDate},
+            #{row.endExclusive}, #{row.terminationDate}, #{row.recordStatus},
+            #{row.sourceImportBatchId},
+            #{row.rowVersion}, #{row.changeReason}, #{row.createdBy},
+            #{row.createdAt}, NULL
+        )
+    </insert>
+
+    <update id="closeEmploymentPeriodVersion">
+        UPDATE employment_assignment
+        SET version_valid_to = CURRENT_TIMESTAMP
+        WHERE employment_period_id = #{employmentPeriodId}
+          AND version_valid_to IS NULL
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <sql id="priorServiceColumns">
+        SELECT prior_service_record_id, employee_id, record_type, amount_days,
+               reason, business_date, source_import_batch_id,
+               reversal_of_record_id, resulting_total_days, actor_id, occurred_at,
+               request_id, row_version
+        FROM prior_service_record
+    </sql>
+
+    <select id="listPriorServiceRecords"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PriorServiceRow">
+        <include refid="priorServiceColumns"/>
+        WHERE employee_id = #{employeeId}
+        ORDER BY row_version, occurred_at, prior_service_record_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listAllPriorServiceRecords"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PriorServiceRow">
+        <include refid="priorServiceColumns"/>
+        WHERE employee_id = #{employeeId}
+        ORDER BY row_version, occurred_at, prior_service_record_id
+    </select>
+
+    <select id="findPriorServiceRecord"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PriorServiceRow">
+        <include refid="priorServiceColumns"/>
+        WHERE prior_service_record_id = #{priorServiceRecordId}
+    </select>
+
+    <select id="findPriorServiceRecordsBySourceBatch"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PriorServiceRow">
+        <include refid="priorServiceColumns"/>
+        WHERE source_import_batch_id = #{batchId}
+        ORDER BY row_version, occurred_at, prior_service_record_id
+    </select>
+
+    <select id="countPriorServiceRecords" resultType="long">
+        SELECT COUNT(*) FROM prior_service_record WHERE employee_id = #{employeeId}
+    </select>
+
+    <insert id="insertPriorServiceRecord">
+        INSERT INTO prior_service_record (
+            prior_service_record_id, employee_id, record_type, amount_days,
+            reason, business_date, source_import_batch_id, reversal_of_record_id,
+            resulting_total_days, actor_id, occurred_at, request_id, row_version
+        ) VALUES (
+            #{priorServiceRecordId}, #{employeeId}, #{recordType}, #{amountDays},
+            #{reason}, #{businessDate}, #{sourceImportBatchId}, #{reversalOfRecordId},
+            #{resultingTotalDays}, #{actorId}, #{occurredAt}, #{requestId}, #{rowVersion}
+        )
+    </insert>
+</mapper>

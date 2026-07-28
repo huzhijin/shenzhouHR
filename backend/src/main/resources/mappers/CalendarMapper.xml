@@ -1,0 +1,571 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarMapper">
+
+    <sql id="calendarColumns">
+        scoped.work_calendar_id, scoped.legal_entity_id, scoped.location_id,
+        scoped.calendar_code, version.work_calendar_version_id,
+        version.version_number, version.calendar_name, version.calendar_year,
+        version.time_zone_snapshot,
+        CASE
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM calendar_publication_timeline state_fact
+                WHERE state_fact.work_calendar_version_id =
+                        version.work_calendar_version_id
+            ) THEN 'DRAFT'
+            ELSE (
+                SELECT state_fact.state
+                FROM calendar_publication_timeline state_fact
+                WHERE state_fact.work_calendar_version_id =
+                        version.work_calendar_version_id
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            )
+        END AS status,
+        version.effective_from, version.effective_to,
+        version.snapshot_digest,
+        (
+            SELECT COUNT(*)
+            FROM work_calendar_version lineage
+            WHERE lineage.work_calendar_id = version.work_calendar_id
+              AND lineage.effective_from = version.effective_from
+              AND lineage.supersedes_work_calendar_version_id IS NOT NULL
+              AND lineage.version_number &lt;= version.version_number
+        ) + (
+            SELECT COUNT(*)
+            FROM calendar_publication_timeline state_fact
+            WHERE state_fact.work_calendar_version_id =
+                    version.work_calendar_version_id
+        ) AS row_version,
+        version.change_reason, scoped.created_by, scoped.created_at,
+        COALESCE(
+            (
+                SELECT state_fact.actor_id
+                FROM calendar_publication_timeline state_fact
+                WHERE state_fact.work_calendar_version_id =
+                        version.work_calendar_version_id
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_by
+        ) AS updated_by,
+        COALESCE(
+            (
+                SELECT state_fact.recorded_at
+                FROM calendar_publication_timeline state_fact
+                WHERE state_fact.work_calendar_version_id =
+                        version.work_calendar_version_id
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_at
+        ) AS updated_at
+    </sql>
+
+    <sql id="calendarColumnsAsOf">
+        scoped.work_calendar_id, scoped.legal_entity_id, scoped.location_id,
+        scoped.calendar_code, version.work_calendar_version_id,
+        version.version_number, version.calendar_name, version.calendar_year,
+        version.time_zone_snapshot,
+        'PUBLISHED' AS status,
+        version.effective_from, version.effective_to,
+        version.snapshot_digest,
+        (
+            SELECT COUNT(*)
+            FROM work_calendar_version lineage
+            WHERE lineage.work_calendar_id = version.work_calendar_id
+              AND lineage.effective_from = version.effective_from
+              AND lineage.supersedes_work_calendar_version_id IS NOT NULL
+              AND lineage.version_number &lt;= version.version_number
+              AND lineage.created_at &lt;= #{knowledgeAsOf}
+        ) + (
+            SELECT COUNT(*)
+            FROM calendar_publication_timeline state_fact
+            WHERE state_fact.work_calendar_version_id =
+                    version.work_calendar_version_id
+              AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+        ) AS row_version,
+        version.change_reason, scoped.created_by, scoped.created_at,
+        COALESCE(
+            (
+                SELECT state_fact.actor_id
+                FROM calendar_publication_timeline state_fact
+                WHERE state_fact.work_calendar_version_id =
+                        version.work_calendar_version_id
+                  AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_by
+        ) AS updated_by,
+        COALESCE(
+            (
+                SELECT state_fact.recorded_at
+                FROM calendar_publication_timeline state_fact
+                WHERE state_fact.work_calendar_version_id =
+                        version.work_calendar_version_id
+                  AND state_fact.recorded_at &lt;= #{knowledgeAsOf}
+                ORDER BY state_fact.event_sequence DESC
+                LIMIT 1
+            ),
+            version.created_at
+        ) AS updated_at
+    </sql>
+
+    <sql id="dayColumns">
+        calendar_day.work_calendar_day_id, calendar.work_calendar_id,
+        calendar_day.work_calendar_version_id, calendar_day.business_date,
+        calendar_day.day_type, calendar_day.shift_version_override_id,
+        calendar_day.snapshot_digest,
+        0 AS row_version, '不可变日历日' AS change_reason,
+        calendar_day.created_by, calendar_day.created_at,
+        calendar_day.created_by AS updated_by,
+        calendar_day.created_at AS updated_at
+    </sql>
+
+    <select id="findCalendar"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$CalendarRow">
+        SELECT <include refid="calendarColumns"/>
+        FROM work_calendar scoped
+        JOIN work_calendar_version version
+          ON version.work_calendar_id = scoped.work_calendar_id
+         AND version.version_number = (
+             SELECT MAX(latest.version_number)
+             FROM work_calendar_version latest
+             WHERE latest.work_calendar_id = scoped.work_calendar_id
+         )
+        WHERE scoped.work_calendar_id = #{calendarId}
+    </select>
+
+    <select id="resolvePublishedVersions"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$CalendarRow">
+        SELECT <include refid="calendarColumnsAsOf"/>
+        FROM work_calendar scoped
+        JOIN calendar_publication_timeline resolved_fact
+          ON resolved_fact.work_calendar_id = scoped.work_calendar_id
+        JOIN work_calendar_version version
+          ON version.work_calendar_version_id =
+                resolved_fact.work_calendar_version_id
+        WHERE scoped.work_calendar_id = #{calendarId}
+          AND resolved_fact.business_effective_from &lt;= #{businessDate}
+          AND resolved_fact.recorded_at &lt;= #{knowledgeAsOf}
+          AND resolved_fact.state = 'PUBLISHED'
+          AND version.effective_from &lt;= #{businessDate}
+          AND version.effective_to &gt; #{businessDate}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM calendar_publication_timeline newer
+              WHERE newer.work_calendar_id = resolved_fact.work_calendar_id
+                AND newer.business_effective_from &lt;= #{businessDate}
+                AND newer.recorded_at &lt;= #{knowledgeAsOf}
+                AND (
+                    newer.business_effective_from
+                        &gt; resolved_fact.business_effective_from
+                    OR (
+                        newer.business_effective_from =
+                            resolved_fact.business_effective_from
+                        AND newer.event_sequence &gt; resolved_fact.event_sequence
+                    )
+                )
+          )
+        ORDER BY version.version_number, version.work_calendar_version_id
+    </select>
+
+    <select id="findNextPublicationBoundary" resultType="java.time.LocalDate">
+        SELECT MIN(timeline.business_effective_from)
+        FROM calendar_publication_timeline timeline
+        WHERE timeline.work_calendar_id = #{calendarId}
+          AND timeline.business_effective_from &gt; #{after}
+          AND timeline.recorded_at &lt;= #{knowledgeAsOf}
+    </select>
+
+    <select id="findVersion"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$CalendarRow">
+        SELECT <include refid="calendarColumns"/>
+        FROM work_calendar scoped
+        JOIN work_calendar_version version
+          ON version.work_calendar_id = scoped.work_calendar_id
+        WHERE version.work_calendar_version_id = #{calendarVersionId}
+    </select>
+
+    <select id="listVersions"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$CalendarRow">
+        SELECT <include refid="calendarColumns"/>
+        FROM work_calendar scoped
+        JOIN work_calendar_version version
+          ON version.work_calendar_id = scoped.work_calendar_id
+        WHERE scoped.work_calendar_id = #{calendarId}
+        ORDER BY version.version_number DESC, version.work_calendar_version_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countVersions" resultType="long">
+        SELECT COUNT(*)
+        FROM work_calendar_version version
+        WHERE version.work_calendar_id = #{calendarId}
+    </select>
+
+    <select id="findCalendarByIdempotency"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$CalendarRow">
+        SELECT <include refid="calendarColumns"/>
+        FROM work_calendar scoped
+        JOIN work_calendar_version version
+          ON version.work_calendar_id = scoped.work_calendar_id
+        WHERE 1 = 0
+    </select>
+
+    <select id="findVersionByIdempotency"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$CalendarRow">
+        SELECT <include refid="calendarColumns"/>
+        FROM work_calendar scoped
+        JOIN work_calendar_version version
+          ON version.work_calendar_id = scoped.work_calendar_id
+        WHERE 1 = 0
+    </select>
+
+    <select id="listCalendars"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$CalendarRow">
+        SELECT DISTINCT <include refid="calendarColumns"/>
+        FROM work_calendar scoped
+        JOIN work_calendar_version version
+          ON version.work_calendar_id = scoped.work_calendar_id
+         AND version.version_number = (
+             SELECT MAX(latest.version_number)
+             FROM work_calendar_version latest
+             WHERE latest.work_calendar_id = scoped.work_calendar_id
+         )
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = #{principalId}
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+         AND data_scope.scope_type = 'LEGAL_ENTITY'
+         AND data_scope.legal_entity_id = scoped.legal_entity_id
+        WHERE role_assignment.valid_from &lt;= #{at}
+          AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
+          AND data_scope.valid_from &lt;= #{at}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+        <if test="year != null">
+            AND version.calendar_year = #{year}
+        </if>
+        ORDER BY version.calendar_year DESC, version.calendar_name,
+                 scoped.work_calendar_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countCalendars" resultType="long">
+        SELECT COUNT(DISTINCT scoped.work_calendar_id)
+        FROM work_calendar scoped
+        JOIN work_calendar_version version
+          ON version.work_calendar_id = scoped.work_calendar_id
+         AND version.version_number = (
+             SELECT MAX(latest.version_number)
+             FROM work_calendar_version latest
+             WHERE latest.work_calendar_id = scoped.work_calendar_id
+         )
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = #{principalId}
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+         AND data_scope.scope_type = 'LEGAL_ENTITY'
+         AND data_scope.legal_entity_id = scoped.legal_entity_id
+        WHERE role_assignment.valid_from &lt;= #{at}
+          AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
+          AND data_scope.valid_from &lt;= #{at}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+        <if test="year != null">
+            AND version.calendar_year = #{year}
+        </if>
+    </select>
+
+    <insert id="insertCalendarIdentity">
+        INSERT INTO work_calendar (
+            work_calendar_id, legal_entity_id, location_id,
+            calendar_code, created_by, created_at
+        ) VALUES (
+            #{row.workCalendarId}, #{row.legalEntityId}, #{row.locationId},
+            #{row.calendarCode}, #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <insert id="insertCalendarVersion">
+        INSERT INTO work_calendar_version (
+            work_calendar_version_id, work_calendar_id, version_number,
+            calendar_name, calendar_year, time_zone_snapshot,
+            effective_from, effective_to,
+            supersedes_work_calendar_version_id, snapshot_digest,
+            change_reason, created_by, created_at
+        ) VALUES (
+            #{row.workCalendarVersionId}, #{row.workCalendarId},
+            #{row.versionNumber}, #{row.calendarName}, #{row.calendarYear},
+            #{row.timeZoneSnapshot}, #{row.effectiveFrom}, #{row.effectiveTo},
+            #{predecessorVersionId},
+            #{row.snapshotDigest}, #{row.changeReason},
+            #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <select id="nextVersionNumber" resultType="int">
+        SELECT COALESCE(MAX(version_number), 0) + 1
+        FROM work_calendar_version
+        WHERE work_calendar_id = #{calendarId}
+    </select>
+
+    <select id="updateCalendarVersion" resultType="int">
+        SELECT COUNT(*)
+        FROM work_calendar_version version
+        WHERE version.work_calendar_version_id = #{row.workCalendarVersionId}
+          AND (
+              SELECT COUNT(*)
+              FROM work_calendar_version lineage
+              WHERE lineage.work_calendar_id = version.work_calendar_id
+                AND lineage.effective_from = version.effective_from
+                AND lineage.supersedes_work_calendar_version_id IS NOT NULL
+                AND lineage.version_number &lt;= version.version_number
+          ) + (
+              SELECT COUNT(*)
+              FROM calendar_publication_timeline state_fact
+              WHERE state_fact.work_calendar_version_id =
+                    version.work_calendar_version_id
+          ) = #{expectedVersion}
+    </select>
+
+    <select id="publishVersion" resultType="int">
+        SELECT COUNT(*)
+        FROM work_calendar_version version
+        WHERE version.work_calendar_version_id = #{calendarVersionId}
+          AND version.snapshot_digest = #{canonicalSnapshotDigest}
+          AND (
+              SELECT COUNT(*)
+              FROM work_calendar_version lineage
+              WHERE lineage.work_calendar_id = version.work_calendar_id
+                AND lineage.effective_from = version.effective_from
+                AND lineage.supersedes_work_calendar_version_id IS NOT NULL
+                AND lineage.version_number &lt;= version.version_number
+          ) = #{expectedVersion}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM calendar_publication_timeline state_fact
+              WHERE state_fact.work_calendar_version_id =
+                    version.work_calendar_version_id
+          )
+    </select>
+
+    <select id="transitionVersionStatus" resultType="int">
+        SELECT COUNT(*)
+        FROM work_calendar_version version
+        WHERE version.work_calendar_version_id = #{calendarVersionId}
+          AND (
+              SELECT COUNT(*)
+              FROM work_calendar_version lineage
+              WHERE lineage.work_calendar_id = version.work_calendar_id
+                AND lineage.effective_from = version.effective_from
+                AND lineage.supersedes_work_calendar_version_id IS NOT NULL
+                AND lineage.version_number &lt;= version.version_number
+          ) + (
+              SELECT COUNT(*)
+              FROM calendar_publication_timeline state_fact
+              WHERE state_fact.work_calendar_version_id =
+                    version.work_calendar_version_id
+          ) = #{expectedVersion}
+          AND (
+              SELECT state_fact.state
+              FROM calendar_publication_timeline state_fact
+              WHERE state_fact.work_calendar_version_id =
+                    version.work_calendar_version_id
+              ORDER BY state_fact.event_sequence DESC
+              LIMIT 1
+          ) = #{expectedStatus}
+    </select>
+
+    <select id="nextPublicationSequence" resultType="int">
+        SELECT COALESCE(MAX(event_sequence), 0) + 1
+        FROM calendar_publication_timeline
+        WHERE work_calendar_id = #{calendarId}
+    </select>
+
+    <select id="latestPublicationTimelineId" resultType="string">
+        SELECT calendar_publication_timeline_id
+        FROM calendar_publication_timeline
+        WHERE work_calendar_id = #{calendarId}
+        ORDER BY event_sequence DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertPublicationTimeline">
+        INSERT INTO calendar_publication_timeline (
+            calendar_publication_timeline_id, work_calendar_id,
+            work_calendar_version_id, event_sequence, state,
+            business_effective_from, predecessor_timeline_id,
+            recorded_at, actor_id, request_id
+        ) VALUES (
+            #{row.timelineId}, #{row.familyId}, #{row.contentId},
+            #{row.eventSequence}, #{row.state}, #{row.businessEffectiveFrom},
+            #{row.predecessorTimelineId}, #{row.recordedAt},
+            #{row.actorId}, #{row.requestId}
+        )
+    </insert>
+
+    <select id="lockCalendar" resultType="string">
+        SELECT work_calendar_id
+        FROM work_calendar
+        WHERE work_calendar_id = #{calendarId}
+        FOR UPDATE
+    </select>
+
+    <select id="hasPublishedOverlap" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM calendar_publication_timeline published
+            JOIN work_calendar_version other_version
+              ON other_version.work_calendar_version_id =
+                    published.work_calendar_version_id
+            WHERE published.work_calendar_id = #{calendarId}
+              AND published.state = 'PUBLISHED'
+              AND other_version.work_calendar_version_id
+                    &lt;&gt; #{excludeVersionId}
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM calendar_publication_timeline newer_state
+                    WHERE newer_state.work_calendar_version_id =
+                            published.work_calendar_version_id
+                      AND newer_state.event_sequence
+                            &gt; published.event_sequence
+              )
+              AND other_version.effective_from &lt; #{effectiveTo}
+              AND other_version.effective_to &gt; #{effectiveFrom}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="listDays"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$DayRow">
+        SELECT <include refid="dayColumns"/>
+        FROM work_calendar_day calendar_day
+        JOIN work_calendar_version version
+          ON version.work_calendar_version_id =
+                calendar_day.work_calendar_version_id
+        JOIN work_calendar calendar
+          ON calendar.work_calendar_id = version.work_calendar_id
+        WHERE calendar_day.work_calendar_version_id = #{calendarId}
+          AND calendar_day.business_date &gt;= #{from}
+          AND calendar_day.business_date &lt;= #{to}
+        ORDER BY calendar_day.business_date, calendar_day.work_calendar_day_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countDays" resultType="long">
+        SELECT COUNT(*)
+        FROM work_calendar_day calendar_day
+        WHERE calendar_day.work_calendar_version_id = #{calendarId}
+          AND calendar_day.business_date &gt;= #{from}
+          AND calendar_day.business_date &lt;= #{to}
+    </select>
+
+    <select id="findDay"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarRows$DayRow">
+        SELECT <include refid="dayColumns"/>
+        FROM work_calendar_day calendar_day
+        JOIN work_calendar_version version
+          ON version.work_calendar_version_id =
+                calendar_day.work_calendar_version_id
+        JOIN work_calendar calendar
+          ON calendar.work_calendar_id = version.work_calendar_id
+        WHERE calendar_day.work_calendar_version_id = #{calendarId}
+          AND calendar_day.business_date = #{businessDate}
+          AND version.created_at &lt;= #{knowledgeAsOf}
+          AND calendar_day.created_at &lt;= #{knowledgeAsOf}
+    </select>
+
+    <select id="touchCalendar" resultType="int">
+        SELECT COUNT(*)
+        FROM work_calendar_version version
+        WHERE version.work_calendar_version_id = #{calendarId}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM calendar_publication_timeline published
+              WHERE published.work_calendar_version_id =
+                    version.work_calendar_version_id
+          )
+          AND (
+              SELECT COUNT(*)
+              FROM work_calendar_version lineage
+              WHERE lineage.work_calendar_id = version.work_calendar_id
+                AND lineage.effective_from = version.effective_from
+                AND lineage.supersedes_work_calendar_version_id IS NOT NULL
+                AND lineage.version_number &lt;= version.version_number
+          ) = #{expectedVersion}
+    </select>
+
+    <insert id="insertDays">
+        INSERT INTO work_calendar_day (
+            work_calendar_day_id, work_calendar_version_id, business_date,
+            day_type, shift_version_override_id, snapshot_digest,
+            created_by, created_at
+        ) VALUES
+        <foreach collection="rows" item="row" separator=",">
+            (
+                #{row.workCalendarDayId}, #{row.workCalendarVersionId},
+                #{row.businessDate}, #{row.dayType},
+                #{row.shiftVersionOverrideId}, #{row.snapshotDigest},
+                #{row.createdBy}, #{row.createdAt}
+            )
+        </foreach>
+    </insert>
+
+    <select id="updateDay" resultType="int">
+        SELECT 0
+    </select>
+
+    <select id="hasActiveGroupReferencesAtOrAfter" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM attendance_group_timeline active_fact
+            JOIN attendance_group_revision revision
+              ON revision.attendance_group_revision_id =
+                    active_fact.attendance_group_revision_id
+            WHERE revision.work_calendar_id = #{calendarId}
+              AND active_fact.state = 'ACTIVE'
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_group_timeline same_boundary
+                    WHERE same_boundary.attendance_group_id =
+                            active_fact.attendance_group_id
+                      AND same_boundary.business_effective_from =
+                            active_fact.business_effective_from
+                      AND same_boundary.event_sequence
+                            &gt; active_fact.event_sequence
+              )
+              AND COALESCE(
+                    (
+                        SELECT MIN(next_fact.business_effective_from)
+                        FROM attendance_group_timeline next_fact
+                        WHERE next_fact.attendance_group_id =
+                                active_fact.attendance_group_id
+                          AND (
+                                next_fact.business_effective_from
+                                    &gt; active_fact.business_effective_from
+                                OR (
+                                    next_fact.business_effective_from =
+                                        active_fact.business_effective_from
+                                    AND next_fact.event_sequence
+                                        &gt; active_fact.event_sequence
+                                )
+                          )
+                    ),
+                    CAST('9999-12-31' AS DATE)
+              ) &gt; #{businessEffectiveFrom}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+</mapper>

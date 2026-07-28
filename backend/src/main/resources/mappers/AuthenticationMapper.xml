@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.identityaccess.infrastructure.persistence.AuthenticationMapper">
+    <sql id="accountColumns">
+        SELECT account.account_id, account.principal_id, account.username,
+               account.normalized_username, account.display_name, account.status,
+               account.first_password_change_required, account.locked_until,
+               account.last_login_at, account.session_epoch, account.row_version,
+               employee.legal_entity_id
+        FROM local_account account
+        JOIN auth_principal principal ON principal.principal_id = account.principal_id
+        LEFT JOIN employee ON employee.employee_id = principal.employee_id
+    </sql>
+
+    <select id="findAccountByNormalizedUsername"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.AccountRow">
+        <include refid="accountColumns"/>
+        WHERE account.normalized_username = #{normalizedUsername}
+    </select>
+
+    <select id="findAccountById"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.AccountRow">
+        <include refid="accountColumns"/>
+        WHERE account.account_id = #{accountId}
+    </select>
+
+    <select id="findAccountByPrincipalId"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.AccountRow">
+        <include refid="accountColumns"/>
+        WHERE account.principal_id = #{principalId}
+    </select>
+
+    <select id="findCredential"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.CredentialRow">
+        SELECT account_id, password_hash, row_version
+        FROM password_credential
+        WHERE account_id = #{accountId}
+    </select>
+
+    <select id="findFailure"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.FailureRow">
+        SELECT failure_count, window_started_at, last_failed_at, locked_until, row_version
+        FROM login_failure_window
+        WHERE account_id = #{accountId}
+    </select>
+
+    <select id="findActiveSessionByDigest"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.SessionRow">
+        SELECT session_id, account_id, token_digest, status, created_at,
+               last_seen_at, idle_expires_at, absolute_expires_at,
+               request_id, row_version
+        FROM user_session
+        WHERE token_digest = #{tokenDigest}
+          AND status = 'ACTIVE'
+          AND idle_expires_at &gt; #{at}
+          AND absolute_expires_at &gt; #{at}
+    </select>
+
+    <select id="findSessionById"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.SessionRow">
+        SELECT session_id, account_id, token_digest, status, created_at,
+               last_seen_at, idle_expires_at, absolute_expires_at,
+               request_id, row_version
+        FROM user_session
+        WHERE session_id = #{sessionId}
+    </select>
+
+    <select id="findActiveResetGrant"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.ResetGrantRow">
+        SELECT grant_id, account_id, expires_at, used_at, row_version
+        FROM password_reset_grant
+        WHERE token_digest = #{digest}
+          AND used_at IS NULL
+          AND expires_at &gt; #{at}
+    </select>
+</mapper>

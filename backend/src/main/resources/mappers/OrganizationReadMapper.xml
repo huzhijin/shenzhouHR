@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.organization.infrastructure.persistence.OrganizationReadMapper">
+    <select id="findCurrentVisibleTo"
+            resultType="com.szsemicon.hr.organization.infrastructure.persistence.OrganizationUnitRow">
+        SELECT DISTINCT
+            identity.organization_id,
+            version.organization_version_id,
+            version.parent_organization_id,
+            version.code,
+            version.name,
+            version.org_type AS organization_type,
+            version.status,
+            source_binding.source_org_id AS source_organization_id,
+            version.effective_from,
+            version.effective_to,
+            version.source_authority,
+            version.row_version
+        FROM auth_principal principal
+        JOIN auth_principal_role_assignment assignment
+          ON assignment.principal_id = principal.principal_id
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capabilityCode}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = assignment.data_scope_id
+        JOIN organization_identity identity
+          ON (
+              (data_scope.scope_type = 'LEGAL_ENTITY'
+               AND identity.legal_entity_id = data_scope.legal_entity_id)
+              OR
+              (data_scope.scope_type = 'ORGANIZATION'
+               AND (
+                   identity.organization_id = data_scope.organization_id
+                   OR (data_scope.include_descendants = TRUE AND EXISTS (
+                       SELECT 1
+                       FROM organization_current_closure closure
+                       WHERE closure.ancestor_organization_id = data_scope.organization_id
+                         AND closure.descendant_organization_id = identity.organization_id
+                   ))
+               ))
+          )
+        JOIN organization_version version
+          ON version.organization_id = identity.organization_id
+         AND version.effective_from &lt;= #{effectiveAt}
+         AND (version.effective_to IS NULL OR version.effective_to &gt; #{effectiveAt})
+        LEFT JOIN organization_source_binding source_binding
+          ON source_binding.organization_id = identity.organization_id
+         AND source_binding.source_system = 'SEEYON'
+         AND source_binding.effective_from &lt;= #{effectiveAt}
+         AND (source_binding.effective_to IS NULL OR source_binding.effective_to &gt; #{effectiveAt})
+        WHERE principal.principal_id = #{principalId}
+          AND principal.status = 'ACTIVE'
+          AND (
+              #{includeInactive} = TRUE
+              OR version.status = 'ACTIVE' AND identity.identity_status = 'ACTIVE'
+          )
+          AND assignment.valid_from &lt;= #{permissionAt}
+          AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{permissionAt})
+          AND data_scope.valid_from &lt;= #{permissionAt}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{permissionAt})
+        ORDER BY version.code, version.name, identity.organization_id
+    </select>
+</mapper>

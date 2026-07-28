@@ -1,0 +1,365 @@
+{
+  "schemaVersion": 1,
+  "contractId": "wave3-evidence-contract-v1",
+  "invalidatedRunIds": [
+    "w3-20260726-1917"
+  ],
+  "source": {
+    "roots": [
+      "backend",
+      "frontend",
+      "api",
+      "openspec/changes/wave3-attendance-setup-and-policies",
+      "scripts/qa",
+      "deploy/mysql"
+    ],
+    "additionalFiles": [
+      "deploy/nginx/shenzhouhr.conf",
+      "docs/verification/wave2/UIUX.md",
+      "design/output/v1.9/v19-od-03-people-initial-import.html",
+      "design/output/v1.9/v19-od-04-organization-employment.html",
+      "design/output/v1.9/route-to-artifact.json",
+      "design/output/v1.9/page-state-matrix.md",
+      "design/output/v1.9/design-system/DESIGN.md",
+      "design/output/v1.9/react-implementation-notes.md"
+    ],
+    "excludedDirectoryNames": [
+      ".git",
+      ".npm-cache",
+      "__pycache__",
+      "dist",
+      "node_modules",
+      "target"
+    ],
+    "excludedFileSuffixes": [
+      ".log",
+      ".pyc"
+    ],
+    "tasksPath": "openspec/changes/wave3-attendance-setup-and-policies/tasks.md",
+    "checkboxNormalization": "- [ ] and - [x] at Markdown task-list line starts become - [~]; every other byte remains bound"
+  },
+  "preReviewLeafIds": [
+    "W3-VER-W2-RETAINED",
+    "W3-VER-W2-PUBLIC-ORACLE",
+    "W3-VER-CANONICALIZER",
+    "W3-VER-SEED-ORACLE",
+    "W3-VER-MIGRATION-PATHS",
+    "W3-VER-MYSQL8410",
+    "W3-VER-OPENAPI-CLOSURE",
+    "W3-VER-BACKEND-FULL",
+    "W3-VER-W1-REGRESSION",
+    "W3-VER-W2-REGRESSION",
+    "W3-VER-W3-REGRESSION",
+    "W3-VER-FRONTEND-TYPECHECK",
+    "W3-VER-FRONTEND-LINT",
+    "W3-VER-FRONTEND-TESTS",
+    "W3-VER-PROD-BUILD",
+    "W3-VER-DEMO-BUILD",
+    "W3-VER-DEMO-ISOLATION",
+    "W3-VER-W2-CURRENT-SMOKE",
+    "W3-VER-NORMAL-BROWSER",
+    "W3-VER-PAYROLL-ZERO"
+  ],
+  "leafContracts": {
+    "W3-VER-W2-RETAINED": {
+      "slug": "w2-retained",
+      "requiredMarkers": [
+        "W3_W2_RETAINED_SUBSET=PASS"
+      ],
+      "primaryArtifactRole": "retained-verification-log",
+      "requiredArtifactRoles": [
+        "retained-verification-log",
+        "w2-registry",
+        "v4-schema-oracle",
+        "before-snapshot",
+        "after-snapshot",
+        "subset-diff",
+        "w1-w2-regression-log"
+      ],
+      "databaseBound": true
+    },
+    "W3-VER-W2-PUBLIC-ORACLE": {
+      "slug": "w2-public-oracle",
+      "requiredMarkers": [
+        "W3_W2_PUBLIC_ORACLE=PASS fixtureVersion=2 deterministic=PASS"
+      ],
+      "primaryArtifactRole": "public-oracle-log",
+      "requiredArtifactRoles": [
+        "public-oracle-log",
+        "v1-integrity-report",
+        "supersession-decision",
+        "v2-provenance-fixture",
+        "extractor-hash",
+        "actual-export",
+        "exact-diff",
+        "source-mutant-log"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-CANONICALIZER": {
+      "slug": "canonicalizer",
+      "requiredMarkers": [
+        "W3_RETAINED_CANONICAL_GOLDENS=PASS"
+      ],
+      "primaryArtifactRole": "canonicalizer-log",
+      "requiredArtifactRoles": [
+        "canonicalizer-log",
+        "retained-registry",
+        "canonicalizer-executable-hash",
+        "golden-vectors",
+        "locale-timezone-repeat-diff"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-SEED-ORACLE": {
+      "slug": "seed-oracle",
+      "requiredMarkers": [
+        "W3_TARGET7_SEED_ORACLE=PASS templates=3 scopes=3 versions=3"
+      ],
+      "primaryArtifactRole": "seed-oracle-log",
+      "requiredArtifactRoles": [
+        "seed-oracle-log",
+        "immutable-seed-fixture",
+        "target7-database-export",
+        "digest-recomputation",
+        "no-extras-query"
+      ],
+      "databaseBound": true
+    },
+    "W3-VER-MIGRATION-PATHS": {
+      "slug": "migration-paths",
+      "requiredMarkers": [
+        "W3_EMPTY_TO_LATEST=PASS",
+        "W3_V6_TARGET7_LATEST=PASS",
+        "W3_TARGET7_SNAPSHOT_BEFORE_CHILD_LATEST=PASS"
+      ],
+      "primaryArtifactRole": "migration-paths-log",
+      "requiredArtifactRoles": [
+        "migration-paths-log",
+        "database-identity",
+        "flyway-info-sequence",
+        "ordered-child-invocations",
+        "retained-snapshots",
+        "repeat-noop-fingerprints"
+      ],
+      "databaseBound": true
+    },
+    "W3-VER-MYSQL8410": {
+      "slug": "mysql8410",
+      "requiredMarkers": [
+        "W3_MYSQL8410=PASS version=8.4.10 port=13306"
+      ],
+      "primaryArtifactRole": "mysql8410-verification-log",
+      "requiredArtifactRoles": [
+        "mysql8410-verification-log",
+        "source-tarball-sha256",
+        "build-install-init-log",
+        "isolated-instance-identity",
+        "schema-lock-dml-grant-log",
+        "existing-instance-before-after"
+      ],
+      "databaseBound": true
+    },
+    "W3-VER-OPENAPI-CLOSURE": {
+      "slug": "openapi-closure",
+      "requiredMarkers": [
+        "W3_CONTROLLER_OPENAPI_CLOSURE=PASS"
+      ],
+      "primaryArtifactRole": "openapi-closure-log",
+      "requiredArtifactRoles": [
+        "openapi-closure-log",
+        "controller-operation-export",
+        "openapi-operation-export",
+        "operation-set-diff",
+        "resolved-ref-instance-report"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-BACKEND-FULL": {
+      "slug": "backend-full",
+      "requiredMarkers": [
+        "W3_BACKEND_FULL=PASS"
+      ],
+      "primaryArtifactRole": "backend-full-log",
+      "requiredArtifactRoles": [
+        "backend-full-log",
+        "backend-test-summary"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-W1-REGRESSION": {
+      "slug": "w1-regression",
+      "requiredMarkers": [
+        "W3_W1_REGRESSION=PASS"
+      ],
+      "primaryArtifactRole": "w1-regression-log",
+      "requiredArtifactRoles": [
+        "w1-regression-log"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-W2-REGRESSION": {
+      "slug": "w2-regression",
+      "requiredMarkers": [
+        "W3_W2_REGRESSION=PASS"
+      ],
+      "primaryArtifactRole": "w2-regression-log",
+      "requiredArtifactRoles": [
+        "w2-regression-log"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-W3-REGRESSION": {
+      "slug": "w3-regression",
+      "requiredMarkers": [
+        "W3_W3_REGRESSION=PASS"
+      ],
+      "primaryArtifactRole": "w3-regression-log",
+      "requiredArtifactRoles": [
+        "w3-regression-log"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-FRONTEND-TYPECHECK": {
+      "slug": "frontend-typecheck",
+      "requiredMarkers": [
+        "W3_FRONTEND_TYPECHECK=PASS"
+      ],
+      "primaryArtifactRole": "frontend-typecheck-log",
+      "requiredArtifactRoles": [
+        "frontend-typecheck-log"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-FRONTEND-LINT": {
+      "slug": "frontend-lint",
+      "requiredMarkers": [
+        "W3_FRONTEND_LINT=PASS"
+      ],
+      "primaryArtifactRole": "frontend-lint-log",
+      "requiredArtifactRoles": [
+        "frontend-lint-log"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-FRONTEND-TESTS": {
+      "slug": "frontend-tests",
+      "requiredMarkers": [
+        "W3_FRONTEND_TESTS=PASS"
+      ],
+      "primaryArtifactRole": "frontend-tests-log",
+      "requiredArtifactRoles": [
+        "frontend-tests-log",
+        "frontend-test-summary"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-PROD-BUILD": {
+      "slug": "prod-build",
+      "requiredMarkers": [
+        "W3_PROD_BUILD=PASS"
+      ],
+      "primaryArtifactRole": "prod-build-log",
+      "requiredArtifactRoles": [
+        "prod-build-log",
+        "prod-dist-inventory"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-DEMO-BUILD": {
+      "slug": "demo-build",
+      "requiredMarkers": [
+        "W3_DEMO_BUILD=PASS"
+      ],
+      "primaryArtifactRole": "demo-build-log",
+      "requiredArtifactRoles": [
+        "demo-build-log",
+        "demo-dist-inventory"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-DEMO-ISOLATION": {
+      "slug": "demo-isolation",
+      "requiredMarkers": [
+        "W3_DEMO_ISOLATION=PASS businessRequests=0 mysqlConnections=0"
+      ],
+      "primaryArtifactRole": "demo-isolation-log",
+      "requiredArtifactRoles": [
+        "demo-isolation-log",
+        "demo-network-har",
+        "demo-database-connection-delta"
+      ],
+      "databaseBound": false
+    },
+    "W3-VER-W2-CURRENT-SMOKE": {
+      "slug": "w2-current-smoke",
+      "requiredMarkers": [
+        "W3_W2_CURRENT_SMOKE=PASS"
+      ],
+      "primaryArtifactRole": "w2-current-smoke-log",
+      "requiredArtifactRoles": [
+        "w2-current-smoke-log"
+      ],
+      "databaseBound": true
+    },
+    "W3-VER-NORMAL-BROWSER": {
+      "slug": "normal-browser",
+      "requiredMarkers": [
+        "W3_NORMAL_BROWSER_MATRIX=PASS roles=SYSTEM_ADMIN,HR_ADMIN,AUDITOR viewports=390x844,768x1024,1024x768,1366x768,1440x900,1920x1080 transport=normal db=real"
+      ],
+      "primaryArtifactRole": "normal-browser-matrix",
+      "requiredArtifactRoles": [
+        "normal-browser-matrix",
+        "normal-runtime-source-hash",
+        "database-flyway-identity",
+        "principal-role-capability-export",
+        "playwright-trace-inventory",
+        "screenshot-inventory",
+        "http-request-response-log",
+        "backend-correlation-log",
+        "database-read-marker",
+        "axe-keyboard-report"
+      ],
+      "databaseBound": true
+    },
+    "W3-VER-PAYROLL-ZERO": {
+      "slug": "payroll-zero",
+      "requiredMarkers": [
+        "W3_PAYROLL_ZERO_DISCOVERABILITY=PASS"
+      ],
+      "primaryArtifactRole": "zero-discoverability-report",
+      "requiredArtifactRoles": [
+        "zero-discoverability-report",
+        "scan-scope-manifest",
+        "request-target-exclusions",
+        "line-addressed-allowlist",
+        "normalized-scan-output",
+        "normal-role-runtime-probes"
+      ],
+      "databaseBound": true
+    }
+  },
+  "reviewId": "W3-VER-INDEPENDENT-REVIEW",
+  "integrityId": "W3-VER-EVIDENCE-INTEGRITY",
+  "finalGateId": "W3-VER-FINAL-GATE",
+  "finalMarker": "W3_FINAL_INDEPENDENT_ACCEPTANCE=PASS",
+  "verificationTaskIds": [
+    "6.3.1",
+    "6.3.2",
+    "6.3.3",
+    "6.3.4",
+    "6.4.1",
+    "6.4.2",
+    "6.4.3",
+    "6.5.1",
+    "6.5.2",
+    "6.5.3",
+    "6.5.4",
+    "6.5.5",
+    "6.6.1",
+    "6.6.2",
+    "6.6.3",
+    "6.6.4",
+    "6.6.5"
+  ]
+}

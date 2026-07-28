@@ -1,0 +1,477 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.policy.infrastructure.persistence.PolicyMapper">
+
+    <sql id="templateFilter">
+        WHERE 1 = 1
+        <if test="query != null and query != ''">
+            AND (
+                UPPER(template.template_code) LIKE
+                    CONCAT('%', UPPER(#{query}), '%')
+                OR UPPER(template.name) LIKE
+                    CONCAT('%', UPPER(#{query}), '%')
+            )
+        </if>
+        <if test="status != null">
+            AND template.status = #{status}
+        </if>
+    </sql>
+
+    <select id="countTemplates" resultType="long">
+        SELECT COUNT(*)
+        FROM policy_template template
+        <include refid="templateFilter"/>
+    </select>
+
+    <select id="findTemplates"
+            resultType="com.szsemicon.hr.policy.infrastructure.persistence.PolicyRows$TemplateRow">
+        SELECT
+            template.template_id,
+            template.template_code,
+            template.name,
+            template.description,
+            template.field_definitions_json,
+            template.status,
+            COALESCE(MAX(version.version_number), 0) AS latest_version_number,
+            template.row_version,
+            template.created_by,
+            template.created_at,
+            template.updated_by,
+            template.updated_at
+        FROM policy_template template
+        LEFT JOIN policy_version version
+          ON version.template_id = template.template_id
+        <include refid="templateFilter"/>
+        GROUP BY
+            template.template_id,
+            template.template_code,
+            template.name,
+            template.description,
+            template.field_definitions_json,
+            template.status,
+            template.row_version,
+            template.created_by,
+            template.created_at,
+            template.updated_by,
+            template.updated_at
+        <choose>
+            <when test="sort == 'templateCode'">
+                ORDER BY template.template_code, template.template_id
+            </when>
+            <when test="sort == 'updatedAt'">
+                ORDER BY template.updated_at DESC, template.template_id
+            </when>
+            <otherwise>
+                ORDER BY template.created_at DESC, template.template_id
+            </otherwise>
+        </choose>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findTemplate"
+            resultType="com.szsemicon.hr.policy.infrastructure.persistence.PolicyRows$TemplateRow">
+        SELECT
+            template.template_id,
+            template.template_code,
+            template.name,
+            template.description,
+            template.field_definitions_json,
+            template.status,
+            COALESCE(MAX(version.version_number), 0) AS latest_version_number,
+            template.row_version,
+            template.created_by,
+            template.created_at,
+            template.updated_by,
+            template.updated_at
+        FROM policy_template template
+        LEFT JOIN policy_version version
+          ON version.template_id = template.template_id
+        WHERE template.template_id = #{templateId}
+        GROUP BY
+            template.template_id,
+            template.template_code,
+            template.name,
+            template.description,
+            template.field_definitions_json,
+            template.status,
+            template.row_version,
+            template.created_by,
+            template.created_at,
+            template.updated_by,
+            template.updated_at
+    </select>
+
+    <select id="countTemplateCode" resultType="long">
+        SELECT COUNT(*)
+        FROM policy_template
+        WHERE template_code = #{code}
+    </select>
+
+    <insert id="insertTemplate">
+        INSERT INTO policy_template (
+            template_id,
+            template_code,
+            name,
+            description,
+            field_definitions_json,
+            status,
+            row_version,
+            created_by,
+            created_at,
+            updated_by,
+            updated_at
+        ) VALUES (
+            #{templateId},
+            #{templateCode},
+            #{name},
+            #{description},
+            #{fieldDefinitionsJson},
+            #{status},
+            #{rowVersion},
+            #{createdBy},
+            #{createdAt},
+            #{updatedBy},
+            #{updatedAt}
+        )
+    </insert>
+
+    <select id="countVersions" resultType="long">
+        SELECT COUNT(*)
+        FROM policy_version
+        WHERE template_id = #{templateId}
+    </select>
+
+    <select id="findVersions"
+            resultType="com.szsemicon.hr.policy.infrastructure.persistence.PolicyRows$VersionRow">
+        SELECT
+            version_id,
+            template_id,
+            version_number,
+            status,
+            parameters_json,
+            effective_from,
+            effective_to,
+            change_reason,
+            validation_json,
+            snapshot_json,
+            snapshot_digest,
+            rollback_of_version_id,
+            row_version,
+            created_by,
+            created_at,
+            published_at,
+            updated_by,
+            updated_at
+        FROM policy_version
+        WHERE template_id = #{templateId}
+        ORDER BY version_number DESC, version_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findVersion"
+            resultType="com.szsemicon.hr.policy.infrastructure.persistence.PolicyRows$VersionRow">
+        SELECT
+            version_id,
+            template_id,
+            version_number,
+            status,
+            parameters_json,
+            effective_from,
+            effective_to,
+            change_reason,
+            validation_json,
+            snapshot_json,
+            snapshot_digest,
+            rollback_of_version_id,
+            row_version,
+            created_by,
+            created_at,
+            published_at,
+            updated_by,
+            updated_at
+        FROM policy_version
+        WHERE template_id = #{templateId}
+          AND version_id = #{versionId}
+    </select>
+
+    <select id="maxVersionNumber" resultType="int">
+        SELECT COALESCE(MAX(version_number), 0)
+        FROM policy_version
+        WHERE template_id = #{templateId}
+    </select>
+
+    <insert id="insertVersion">
+        INSERT INTO policy_version (
+            version_id,
+            template_id,
+            version_number,
+            status,
+            parameters_json,
+            effective_from,
+            effective_to,
+            change_reason,
+            validation_json,
+            snapshot_json,
+            snapshot_digest,
+            rollback_of_version_id,
+            row_version,
+            created_by,
+            created_at,
+            published_at,
+            updated_by,
+            updated_at
+        ) VALUES (
+            #{versionId},
+            #{templateId},
+            #{versionNumber},
+            #{status},
+            #{parametersJson},
+            #{effectiveFrom},
+            #{effectiveTo},
+            #{changeReason},
+            #{validationJson},
+            #{snapshotJson},
+            #{snapshotDigest},
+            #{rollbackOfVersionId},
+            #{rowVersion},
+            #{createdBy},
+            #{createdAt},
+            #{publishedAt},
+            #{updatedBy},
+            #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateDraft">
+        UPDATE policy_version
+        SET parameters_json = #{version.parametersJson},
+            effective_from = #{version.effectiveFrom},
+            effective_to = #{version.effectiveTo},
+            change_reason = #{version.changeReason},
+            validation_json = #{version.validationJson},
+            status = 'DRAFT',
+            snapshot_json = NULL,
+            snapshot_digest = NULL,
+            row_version = #{newVersion},
+            updated_by = #{actorId},
+            updated_at = #{now}
+        WHERE template_id = #{version.templateId}
+          AND version_id = #{version.versionId}
+          AND status IN ('DRAFT', 'VALIDATED')
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <update id="saveValidation">
+        UPDATE policy_version
+        SET validation_json = #{validationJson},
+            status = #{status},
+            row_version = #{newVersion},
+            updated_by = #{actorId},
+            updated_at = #{now}
+        WHERE template_id = #{templateId}
+          AND version_id = #{versionId}
+          AND status IN ('DRAFT', 'VALIDATED')
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <update id="transitionVersion">
+        UPDATE policy_version
+        SET status = #{status},
+            change_reason = #{changeReason},
+            snapshot_json = #{snapshotJson},
+            snapshot_digest = #{snapshotDigest},
+            row_version = #{newVersion},
+            updated_by = #{actorId},
+            updated_at = #{now},
+            published_at = #{publishedAt}
+        WHERE template_id = #{templateId}
+          AND version_id = #{versionId}
+          AND status = #{expectedStatus}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <update id="touchDraft">
+        UPDATE policy_version
+        SET status = 'DRAFT',
+            validation_json = NULL,
+            row_version = #{newVersion},
+            updated_by = #{actorId},
+            updated_at = #{now}
+        WHERE template_id = #{templateId}
+          AND version_id = #{versionId}
+          AND status IN ('DRAFT', 'VALIDATED')
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <update id="claimVersion">
+        UPDATE policy_version
+        SET row_version = #{newVersion},
+            updated_by = #{actorId},
+            updated_at = #{now}
+        WHERE template_id = #{templateId}
+          AND version_id = #{versionId}
+          AND status = #{expectedStatus}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <select id="findScopes"
+            resultType="com.szsemicon.hr.policy.infrastructure.persistence.PolicyRows$ScopeRow">
+        SELECT
+            binding_id,
+            version_id,
+            scope_type,
+            scope_resource_id,
+            priority,
+            effective_from,
+            effective_to,
+            row_version
+        FROM policy_scope_binding
+        WHERE version_id = #{versionId}
+        ORDER BY priority DESC, scope_type, scope_resource_id, binding_id
+    </select>
+
+    <delete id="deleteScopes">
+        DELETE FROM policy_scope_binding
+        WHERE version_id = #{versionId}
+    </delete>
+
+    <insert id="insertScope">
+        INSERT INTO policy_scope_binding (
+            binding_id,
+            version_id,
+            scope_type,
+            scope_resource_id,
+            priority,
+            effective_from,
+            effective_to,
+            row_version
+        ) VALUES (
+            #{bindingId},
+            #{versionId},
+            #{scopeType},
+            #{scopeResourceId},
+            #{priority},
+            #{effectiveFrom},
+            #{effectiveTo},
+            #{rowVersion}
+        )
+    </insert>
+
+    <select id="findPublicationConflicts"
+            resultType="com.szsemicon.hr.policy.infrastructure.persistence.PolicyRows$ConflictRow">
+        SELECT DISTINCT
+            other_version.version_id AS conflicting_version_id,
+            candidate.scope_type,
+            candidate.scope_resource_id,
+            candidate.priority,
+            candidate.effective_from,
+            candidate.effective_to
+        FROM policy_scope_binding candidate
+        JOIN policy_version candidate_version
+          ON candidate_version.version_id = candidate.version_id
+        JOIN policy_scope_binding other
+          ON other.scope_type = candidate.scope_type
+         AND other.scope_resource_id = candidate.scope_resource_id
+         AND other.priority = candidate.priority
+         AND other.version_id &lt;&gt; candidate.version_id
+         AND other.effective_from &lt;= COALESCE(candidate.effective_to, DATE '9999-12-31')
+         AND COALESCE(other.effective_to, DATE '9999-12-31') &gt;= candidate.effective_from
+        JOIN policy_version other_version
+          ON other_version.version_id = other.version_id
+         AND other_version.template_id = candidate_version.template_id
+         AND other_version.status = 'PUBLISHED'
+        WHERE candidate_version.template_id = #{templateId}
+          AND candidate_version.version_id = #{versionId}
+        ORDER BY other_version.version_id, candidate.scope_type, candidate.scope_resource_id
+    </select>
+
+    <insert id="insertPublication">
+        INSERT INTO policy_publication_record (
+            publication_id,
+            template_id,
+            version_id,
+            action,
+            reason,
+            actor_id,
+            request_id,
+            result,
+            occurred_at,
+            snapshot_digest
+        ) VALUES (
+            #{publicationId},
+            #{templateId},
+            #{versionId},
+            #{action},
+            #{reason},
+            #{actorId},
+            #{requestId},
+            #{result},
+            #{occurredAt},
+            #{snapshotDigest}
+        )
+    </insert>
+
+    <insert id="insertRollback">
+        INSERT INTO policy_rollback_record (
+            rollback_id,
+            template_id,
+            source_version_id,
+            target_version_id,
+            created_version_id,
+            reason,
+            actor_id,
+            request_id,
+            result,
+            occurred_at
+        ) VALUES (
+            #{rollbackId},
+            #{templateId},
+            #{sourceVersionId},
+            #{targetVersionId},
+            #{createdVersionId},
+            #{reason},
+            #{actorId},
+            #{requestId},
+            #{result},
+            #{occurredAt}
+        )
+    </insert>
+
+    <insert id="insertAudit">
+        INSERT INTO audit_event (
+            event_id,
+            occurred_at,
+            actor_id_ref,
+            actor_type,
+            action_code,
+            resource_type,
+            resource_id_ref,
+            result_code,
+            reason_code,
+            policy_version,
+            before_digest,
+            after_digest,
+            correlation_id,
+            request_id,
+            event_hash
+        ) VALUES (
+            #{eventId},
+            #{occurredAt},
+            #{actorId},
+            'USER',
+            #{action},
+            #{resourceType},
+            #{resourceId},
+            #{result},
+            #{reason},
+            #{policyVersion},
+            #{beforeDigest},
+            #{afterDigest},
+            #{requestId},
+            #{requestId},
+            #{eventHash}
+        )
+    </insert>
+</mapper>

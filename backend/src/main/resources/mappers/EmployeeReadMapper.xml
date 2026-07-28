@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.employee.infrastructure.persistence.EmployeeReadMapper">
+    <sql id="peopleAsOfCte">
+        WITH employee_at AS (
+            SELECT ranked.*
+            FROM (
+                SELECT version.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY version.employee_id
+                           ORDER BY version.effective_from DESC,
+                                    version.created_at DESC,
+                                    version.employee_version_id
+                       ) AS selected_row
+                FROM employee_version version
+                WHERE version.effective_from &lt;= DATE(#{at})
+                  AND (version.effective_to IS NULL
+                       OR version.effective_to &gt; DATE(#{at}))
+            ) ranked
+            WHERE ranked.selected_row = 1
+        ),
+        current_assignment AS (
+            SELECT ranked.*
+            FROM (
+                SELECT assignment.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY assignment.employee_id
+                           ORDER BY assignment.effective_from DESC, assignment.assignment_id
+                       ) AS assignment_row_number
+                FROM employment_assignment assignment
+                WHERE assignment.effective_from &lt;= #{at}
+                  AND (assignment.effective_to IS NULL OR assignment.effective_to &gt; #{at})
+                  AND assignment.version_valid_to IS NULL
+                  AND assignment.record_status = 'ACTIVE'
+            ) ranked
+            WHERE ranked.assignment_row_number = 1
+        )
+    </sql>
+
+    <sql id="visibilityPredicate">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN auth_principal_role_assignment role_assignment
+              ON role_assignment.principal_id = principal.principal_id
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capabilityCode}
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+            WHERE principal.principal_id = #{principalId}
+              AND principal.status = 'ACTIVE'
+              AND role_assignment.valid_from &lt;= #{at}
+              AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
+              AND data_scope.valid_from &lt;= #{at}
+              AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+              AND (
+                  (data_scope.scope_type = 'LEGAL_ENTITY'
+                   AND data_scope.legal_entity_id = employee.legal_entity_id)
+                  OR
+                  (data_scope.scope_type = 'ORGANIZATION'
+                   AND current_assignment.organization_id IS NOT NULL
+                   AND (
+                       current_assignment.organization_id = data_scope.organization_id
+                       OR (data_scope.include_descendants = TRUE AND EXISTS (
+                           SELECT 1
+                           FROM organization_current_closure closure
+                           WHERE closure.ancestor_organization_id = data_scope.organization_id
+                             AND closure.descendant_organization_id = current_assignment.organization_id
+                       ))
+                   ))
+              )
+        )
+    </sql>
+
+    <sql id="employeeFilters">
+        <if test="query != null">
+            AND (
+                LOWER(employee_at.employee_number) LIKE
+                    CONCAT('%', LOWER(#{query}), '%')
+                OR LOWER(employee_at.display_name) LIKE
+                    CONCAT('%', LOWER(#{query}), '%')
+            )
+        </if>
+        <if test="organizationId != null">
+            AND current_assignment.organization_id = #{organizationId}
+        </if>
+        <if test="status != null">
+            AND employee_at.status = #{status}
+        </if>
+    </sql>
+
+    <select id="countVisibleTo" resultType="long">
+        <include refid="peopleAsOfCte"/>
+        SELECT COUNT(*)
+        FROM employee employee
+        JOIN employee_at ON employee_at.employee_id = employee.employee_id
+        LEFT JOIN current_assignment
+          ON current_assignment.employee_id = employee.employee_id
+        WHERE <include refid="visibilityPredicate"/>
+        <include refid="employeeFilters"/>
+    </select>
+
+    <select id="findVisibleTo"
+            resultType="com.szsemicon.hr.employee.infrastructure.persistence.EmployeeSummaryRow">
+        <include refid="peopleAsOfCte"/>
+        SELECT
+            employee.employee_id,
+            employee_at.employee_version_id,
+            employee_at.employee_number,
+            employee_at.display_name,
+            employee_at.status AS employment_status,
+            current_assignment.organization_id,
+            organization_version.name AS organization_name,
+            organization_version.code AS organization_code,
+            source_binding.seeyon_oa_code,
+            source_binding.binding_status,
+            current_assignment.effective_from AS assignment_effective_from,
+            current_assignment.effective_to AS assignment_effective_to,
+            employee_at.source_authority,
+            employee.row_version
+        FROM employee employee
+        JOIN employee_at ON employee_at.employee_id = employee.employee_id
+        LEFT JOIN current_assignment
+          ON current_assignment.employee_id = employee.employee_id
+        LEFT JOIN organization_current_projection projection
+          ON projection.organization_id = current_assignment.organization_id
+        LEFT JOIN organization_version organization_version
+          ON organization_version.organization_version_id = projection.current_version_id
+        LEFT JOIN employee_source_binding source_binding
+          ON source_binding.employee_id = employee.employee_id
+         AND source_binding.effective_to IS NULL
+        WHERE <include refid="visibilityPredicate"/>
+        <include refid="employeeFilters"/>
+        ORDER BY
+        <choose>
+            <when test="sort == 'employeeNumber'">
+                employee_at.employee_number
+            </when>
+            <when test="sort == 'employmentStatus'">
+                employee_at.status
+            </when>
+            <when test="sort == 'organizationName'">
+                organization_version.name
+            </when>
+            <when test="sort == 'updatedAt'">
+                employee.updated_at
+            </when>
+            <otherwise>
+                employee_at.display_name
+            </otherwise>
+        </choose>,
+        employee.employee_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+</mapper>

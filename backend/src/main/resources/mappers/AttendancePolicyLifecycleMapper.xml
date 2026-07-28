@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyLifecycleMapper">
+
+    <sql id="versionColumns">
+        version.scoped_version_id, version.scope_id,
+        scope.policy_template_id AS template_id, scope.legal_entity_id,
+        template.template_code AS policy_kind,
+        version.version_number,
+        COALESCE((
+            SELECT CASE event.action
+                WHEN 'VALIDATED' THEN 'VALIDATED'
+                WHEN 'PUBLISHED' THEN 'PUBLISHED'
+                WHEN 'ROLLED_BACK' THEN 'PUBLISHED'
+                ELSE 'DRAFT'
+            END
+            FROM attendance_policy_lifecycle_event event
+            WHERE event.scoped_version_id = version.scoped_version_id
+              AND event.action IN (
+                  'DRAFT_CREATED', 'VALIDATED', 'PUBLISHED', 'ROLLED_BACK'
+              )
+            ORDER BY event.event_sequence DESC
+            LIMIT 1
+        ), 'DRAFT') AS status,
+        version.parameters_json,
+        version.effective_from, version.effective_to, version.change_reason,
+        version.validation_json, version.snapshot_json, version.snapshot_digest,
+        version.rollback_of_scoped_version_id,
+        GREATEST(0, (
+            SELECT COUNT(*) - 1
+            FROM attendance_policy_lifecycle_event event
+            WHERE event.scoped_version_id = version.scoped_version_id
+        )) AS row_version,
+        version.created_by, version.created_at,
+        (
+            SELECT MAX(event.recorded_at)
+            FROM attendance_policy_lifecycle_event event
+            WHERE event.scoped_version_id = version.scoped_version_id
+              AND event.action = 'VALIDATED'
+        ) AS validated_at,
+        (
+            SELECT MIN(event.recorded_at)
+            FROM attendance_policy_lifecycle_event event
+            WHERE event.scoped_version_id = version.scoped_version_id
+              AND event.action IN ('PUBLISHED', 'ROLLED_BACK')
+        ) AS published_at,
+        (
+            SELECT MIN(event.business_effective_from)
+            FROM attendance_policy_lifecycle_event event
+            WHERE event.scope_id = version.scope_id
+              AND event.scoped_version_id = version.scoped_version_id
+              AND event.action IN ('DEACTIVATE_SCHEDULED', 'ROLLED_BACK')
+        ) AS deactivation_effective_from
+    </sql>
+
+    <sql id="scopeColumns">
+        SELECT scope.scope_id, scope.policy_template_id AS template_id,
+               scope.legal_entity_id, template.template_code AS policy_kind,
+               scope.row_version
+        FROM attendance_policy_scope scope
+        JOIN attendance_policy_template template
+          ON template.policy_template_id = scope.policy_template_id
+        WHERE scope.policy_template_id = #{templateId}
+          AND scope.legal_entity_id = #{legalEntityId}
+    </sql>
+
+    <select id="findScope"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyLifecycleRows$ScopeRow">
+        <include refid="scopeColumns"/>
+    </select>
+
+    <select id="lockScope"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyLifecycleRows$ScopeRow">
+        <include refid="scopeColumns"/>
+        FOR UPDATE
+    </select>
+
+    <select id="countVersions" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_policy_scoped_version version
+        JOIN attendance_policy_scope scope ON scope.scope_id = version.scope_id
+        WHERE scope.policy_template_id = #{templateId}
+          AND scope.legal_entity_id = #{legalEntityId}
+    </select>
+
+    <select id="listVersions"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyLifecycleRows$VersionRow">
+        SELECT <include refid="versionColumns"/>
+        FROM attendance_policy_scoped_version version
+        JOIN attendance_policy_scope scope ON scope.scope_id = version.scope_id
+        JOIN attendance_policy_template template
+          ON template.policy_template_id = scope.policy_template_id
+        WHERE scope.policy_template_id = #{templateId}
+          AND scope.legal_entity_id = #{legalEntityId}
+        ORDER BY version.version_number DESC, version.scoped_version_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findVersion"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyLifecycleRows$VersionRow">
+        SELECT <include refid="versionColumns"/>
+        FROM attendance_policy_scoped_version version
+        JOIN attendance_policy_scope scope ON scope.scope_id = version.scope_id
+        JOIN attendance_policy_template template
+          ON template.policy_template_id = scope.policy_template_id
+        WHERE scope.policy_template_id = #{templateId}
+          AND scope.legal_entity_id = #{legalEntityId}
+          AND version.scoped_version_id = #{scopedVersionId}
+    </select>
+
+    <select id="findVersionByScopedVersionId"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyLifecycleRows$VersionRow">
+        SELECT <include refid="versionColumns"/>
+        FROM attendance_policy_scoped_version version
+        JOIN attendance_policy_scope scope ON scope.scope_id = version.scope_id
+        JOIN attendance_policy_template template
+          ON template.policy_template_id = scope.policy_template_id
+        WHERE version.scoped_version_id = #{scopedVersionId}
+    </select>
+
+    <select id="maxVersionNumber" resultType="int">
+        SELECT COALESCE(MAX(version_number), 0)
+        FROM attendance_policy_scoped_version
+        WHERE scope_id = #{scopeId}
+    </select>
+
+    <select id="findPublishedAt" resultType="string">
+        SELECT version.scoped_version_id
+        FROM attendance_policy_scoped_version version
+        WHERE version.scope_id = #{scopeId}
+          AND version.effective_from &lt;= #{businessDate}
+          AND (version.effective_to IS NULL
+               OR version.effective_to &gt; #{businessDate})
+          AND EXISTS (
+              SELECT 1
+              FROM attendance_policy_lifecycle_event publication
+              WHERE publication.scope_id = version.scope_id
+                AND publication.scoped_version_id = version.scoped_version_id
+                AND publication.action = 'PUBLISHED'
+                AND publication.business_effective_from &lt;= #{businessDate}
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_policy_lifecycle_event later
+                    WHERE later.scope_id = publication.scope_id
+                      AND later.event_sequence &gt; publication.event_sequence
+                      AND later.business_effective_from &lt;= #{businessDate}
+                      AND later.action IN (
+                          'DEACTIVATE_SCHEDULED', 'ROLLED_BACK'
+                      )
+                )
+          )
+        ORDER BY version.version_number, version.scoped_version_id
+    </select>
+
+    <select id="findLatestPublishedVersionId" resultType="string">
+        SELECT event.scoped_version_id
+        FROM attendance_policy_lifecycle_event event
+        WHERE event.scope_id = #{scopeId}
+          AND event.action = 'PUBLISHED'
+        ORDER BY event.event_sequence DESC
+        LIMIT 1
+    </select>
+
+    <select id="hasPublicationAtOrAfter" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM attendance_policy_lifecycle_event publication
+            WHERE publication.scope_id = #{scopeId}
+              AND publication.action = 'PUBLISHED'
+              AND publication.business_effective_from
+                    &gt;= #{businessEffectiveFrom}
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <insert id="insertVersion">
+        INSERT INTO attendance_policy_scoped_version (
+            scoped_version_id, scope_id, version_number,
+            parameters_json, effective_from, effective_to, validation_json,
+            snapshot_json, snapshot_digest, rollback_of_scoped_version_id,
+            row_version, change_reason, created_by, created_at
+        ) VALUES (
+            #{row.scopedVersionId}, #{row.scopeId}, #{row.versionNumber},
+            #{row.parametersJson}, #{row.effectiveFrom},
+            #{row.effectiveTo}, #{row.validationJson}, #{row.snapshotJson},
+            #{row.snapshotDigest}, #{row.rollbackOfScopedVersionId},
+            #{row.rowVersion}, #{row.changeReason}, #{row.createdBy},
+            #{row.createdAt}
+        )
+    </insert>
+
+    <select id="lifecycleHead"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyLifecycleRows$LifecycleHeadRow">
+        SELECT lifecycle_event_id, event_sequence
+        FROM attendance_policy_lifecycle_event
+        WHERE scope_id = #{scopeId}
+        ORDER BY event_sequence DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertLifecycle">
+        INSERT INTO attendance_policy_lifecycle_event (
+            lifecycle_event_id, scope_id, scoped_version_id, event_sequence,
+            predecessor_event_id, action, business_effective_from, reason,
+            actor_id, request_id, recorded_at
+        ) VALUES (
+            #{lifecycleEventId}, #{scopeId}, #{scopedVersionId},
+            #{eventSequence}, #{predecessorEventId}, #{action},
+            #{businessEffectiveFrom}, #{reason}, #{actorId}, #{requestId},
+            #{recordedAt}
+        )
+    </insert>
+</mapper>

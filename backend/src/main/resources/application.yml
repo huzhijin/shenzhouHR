@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: shenzhou-hr
+  datasource:
+    url: ${SHENZHOUHR_DB_URL}
+    username: ${SHENZHOUHR_DB_USERNAME}
+    password: ${SHENZHOUHR_DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: ${SHENZHOUHR_DB_POOL_SIZE:12}
+      minimum-idle: ${SHENZHOUHR_DB_MIN_IDLE:2}
+      connection-timeout: 5000
+  flyway:
+    enabled: ${SHENZHOUHR_FLYWAY_ENABLED:true}
+    url: ${SHENZHOUHR_FLYWAY_URL:${SHENZHOUHR_DB_URL}}
+    user: ${SHENZHOUHR_FLYWAY_USERNAME}
+    password: ${SHENZHOUHR_FLYWAY_PASSWORD}
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-migration-naming: true
+  jackson:
+    default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: true
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
+
+server:
+  address: ${SHENZHOUHR_SERVER_ADDRESS:127.0.0.1}
+  port: ${SHENZHOUHR_SERVER_PORT:8080}
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+
+mybatis:
+  mapper-locations: classpath:mappers/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    local-cache-scope: statement
+    default-statement-timeout: 5
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  pattern:
+    level: "%5p [correlation_id=%X{correlation_id:-}]"
+
+shenzhouhr:
+  development-principal:
+    enabled: false
+  security:
+    login:
+      max-failures: ${SHENZHOUHR_LOGIN_MAX_FAILURES:5}
+      failure-window: ${SHENZHOUHR_LOGIN_FAILURE_WINDOW:PT15M}
+      lock-duration: ${SHENZHOUHR_LOGIN_LOCK_DURATION:PT30M}
+    session:
+      cookie-secure: ${SHENZHOUHR_SESSION_COOKIE_SECURE:true}
+      idle-timeout: ${SHENZHOUHR_SESSION_IDLE_TIMEOUT:PT30M}
+      absolute-timeout: ${SHENZHOUHR_SESSION_ABSOLUTE_TIMEOUT:PT8H}
+  people-import:
+    max-file-bytes: 20971520
+    max-rows: 50000
+    max-sheets: 8

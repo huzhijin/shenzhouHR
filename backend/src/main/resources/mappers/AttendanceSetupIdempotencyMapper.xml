@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceSetupIdempotencyMapper">
+
+    <select id="find"
+            resultType="com.szsemicon.hr.attendance.application.AttendanceSetupIdempotencyRepository$StoredResponse">
+        SELECT attendance_setup_idempotency_id AS record_id,
+               request_digest, state, response_status,
+               response_headers_json, response_body_json, created_at
+        FROM attendance_setup_idempotency
+        WHERE actor_id = #{actorId}
+          AND operation_code = #{operation}
+          AND resource_type = #{resourceType}
+          AND resource_id = #{resourceId}
+          AND idempotency_key = #{idempotencyKey}
+    </select>
+
+    <insert id="insertStarted">
+        INSERT INTO attendance_setup_idempotency (
+            attendance_setup_idempotency_id, actor_id, operation_code,
+            resource_type, resource_id, idempotency_key, request_digest,
+            state, created_at
+        ) VALUES (
+            #{recordId}, #{actorId}, #{operation}, #{resourceType},
+            #{resourceId}, #{idempotencyKey}, #{requestDigest},
+            'STARTED', #{createdAt}
+        )
+        ON DUPLICATE KEY UPDATE
+            attendance_setup_idempotency_id =
+                attendance_setup_idempotency_id
+    </insert>
+
+    <update id="takeOverStarted">
+        UPDATE attendance_setup_idempotency
+        SET attendance_setup_idempotency_id = #{nextRecordId},
+            created_at = #{createdAt}
+        WHERE attendance_setup_idempotency_id = #{currentRecordId}
+          AND request_digest = #{requestDigest}
+          AND state = 'STARTED'
+          AND created_at &lt;= #{staleBefore}
+    </update>
+
+    <update id="complete">
+        UPDATE attendance_setup_idempotency
+        SET state = 'COMPLETED_SUCCESS',
+            response_status = #{responseStatus},
+            response_headers_json = #{responseHeadersJson},
+            response_body_json = #{responseBodyJson},
+            completed_at = #{completedAt}
+        WHERE attendance_setup_idempotency_id = #{recordId}
+          AND request_digest = #{requestDigest}
+          AND state = 'STARTED'
+    </update>
+</mapper>

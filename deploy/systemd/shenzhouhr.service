@@ -1,0 +1,32 @@
+[Unit]
+Description=Shenzhou HR Attendance and Payroll System
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=shenzhouhr
+Group=shenzhouhr
+WorkingDirectory=/opt/shenzhouhr/app
+EnvironmentFile=/etc/shenzhouhr/shenzhouhr.env
+ExecStart=/usr/bin/java -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -jar /opt/shenzhouhr/app/shenzhou-hr.jar
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=45s
+SuccessExitStatus=143
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/shenzhouhr
+
+[Install]
+WantedBy=multi-user.target
+

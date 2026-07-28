@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.authorization.infrastructure.persistence.CapabilityMapper">
+    <select id="findActiveCodes" resultType="string">
+        SELECT DISTINCT capability.capability_code
+        FROM auth_principal principal
+        JOIN auth_principal_role_assignment assignment
+          ON assignment.principal_id = principal.principal_id
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+        WHERE principal.principal_id = #{principalId}
+          AND principal.status = 'ACTIVE'
+          AND assignment.valid_from &lt;= #{at}
+          AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
+        ORDER BY capability.capability_code
+    </select>
+</mapper>

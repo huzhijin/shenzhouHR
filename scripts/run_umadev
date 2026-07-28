@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+# A read-only critic on this repository receives a multi-artifact evidence
+# payload. Keep the documented UmaDev override explicit without lowering model
+# reasoning quality for every Codex turn.
+: "${UMADEV_REVIEW_TURN_TIMEOUT_SECS:=300}"
+export UMADEV_REVIEW_TURN_TIMEOUT_SECS
+
+exec umadev "$@"

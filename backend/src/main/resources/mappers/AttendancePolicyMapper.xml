@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyMapper">
+
+    <sql id="storedBindingEffectiveTo">
+        CASE
+            WHEN revision.change_reason LIKE '@@effectiveTo=____-__-__%'
+            THEN CAST(SUBSTRING(revision.change_reason, 15, 10) AS DATE)
+            ELSE NULL
+        END
+    </sql>
+
+    <sql id="bindingColumns">
+        family.binding_family_id AS attendance_policy_binding_id,
+        revision.binding_revision_id AS attendance_policy_binding_revision_id,
+        revision.revision_number,
+        group_identity.legal_entity_id,
+        family.policy_kind,
+        revision.attendance_policy_scoped_version_id AS policy_version_id,
+        family.attendance_group_id,
+        revision.attendance_group_revision_id,
+        revision.effective_from,
+        NULLIF(
+            LEAST(
+                COALESCE(
+                    <include refid="storedBindingEffectiveTo"/>,
+                    CAST('9999-12-31' AS DATE)),
+                COALESCE(
+                    (
+                        SELECT MIN(successor.effective_from)
+                        FROM attendance_policy_binding_revision successor
+                        WHERE successor.binding_family_id =
+                                revision.binding_family_id
+                          AND successor.revision_number &gt;
+                                revision.revision_number
+                    ),
+                    CAST('9999-12-31' AS DATE))),
+            CAST('9999-12-31' AS DATE)
+        ) AS effective_to,
+        'ACTIVE' AS status,
+        revision.snapshot_digest,
+        revision.revision_number - 1 AS row_version,
+        revision.change_reason,
+        revision.created_by,
+        revision.created_at,
+        revision.created_by AS updated_by,
+        revision.created_at AS updated_at
+    </sql>
+
+    <sql id="bindingColumnsAtKnowledge">
+        family.binding_family_id AS attendance_policy_binding_id,
+        revision.binding_revision_id AS attendance_policy_binding_revision_id,
+        revision.revision_number,
+        group_identity.legal_entity_id,
+        family.policy_kind,
+        revision.attendance_policy_scoped_version_id AS policy_version_id,
+        family.attendance_group_id,
+        revision.attendance_group_revision_id,
+        revision.effective_from,
+        NULLIF(
+            LEAST(
+                COALESCE(
+                    <include refid="storedBindingEffectiveTo"/>,
+                    CAST('9999-12-31' AS DATE)),
+                COALESCE(
+                    (
+                        SELECT MIN(successor.effective_from)
+                        FROM attendance_policy_binding_revision successor
+                        WHERE successor.binding_family_id =
+                                revision.binding_family_id
+                          AND successor.revision_number &gt;
+                                revision.revision_number
+                          AND successor.created_at &lt;= #{knowledgeAsOf}
+                    ),
+                    CAST('9999-12-31' AS DATE))),
+            CAST('9999-12-31' AS DATE)
+        ) AS effective_to,
+        'ACTIVE' AS status,
+        revision.snapshot_digest,
+        revision.revision_number - 1 AS row_version,
+        revision.change_reason,
+        revision.created_by,
+        revision.created_at,
+        revision.created_by AS updated_by,
+        revision.created_at AS updated_at
+    </sql>
+
+    <sql id="bindingFrom">
+        attendance_policy_binding_family family
+        JOIN attendance_policy_binding_revision revision
+          ON revision.binding_family_id = family.binding_family_id
+        JOIN attendance_group group_identity
+          ON group_identity.attendance_group_id = family.attendance_group_id
+    </sql>
+
+    <sql id="publishedVersion">
+        EXISTS (
+            SELECT 1
+            FROM attendance_policy_lifecycle_event publication
+            WHERE publication.scope_id = version.scope_id
+              AND publication.scoped_version_id = version.scoped_version_id
+              AND publication.action = 'PUBLISHED'
+              AND publication.business_effective_from &lt;= #{effectiveFrom}
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM attendance_policy_lifecycle_event later
+                  WHERE later.scope_id = publication.scope_id
+                    AND later.event_sequence &gt; publication.event_sequence
+                    AND later.action IN ('DEACTIVATE_SCHEDULED', 'ROLLED_BACK')
+                    AND (
+                        #{effectiveTo} IS NULL
+                        OR later.business_effective_from &lt; #{effectiveTo}
+                    )
+              )
+        )
+    </sql>
+
+    <select id="findBinding"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyRows$BindingRow">
+        SELECT <include refid="bindingColumns"/>
+        FROM <include refid="bindingFrom"/>
+        WHERE family.binding_family_id = #{bindingId}
+        ORDER BY revision.revision_number DESC
+        LIMIT 1
+    </select>
+
+    <select id="findBindingRevision"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyRows$BindingRow">
+        SELECT <include refid="bindingColumns"/>
+        FROM <include refid="bindingFrom"/>
+        WHERE revision.binding_revision_id = #{bindingRevisionId}
+    </select>
+
+    <select id="findPublishedVersionIdsByKind" resultType="string">
+        SELECT version.scoped_version_id
+        FROM attendance_policy_scoped_version version
+        JOIN attendance_policy_scope scope ON scope.scope_id = version.scope_id
+        JOIN attendance_policy_template template
+          ON template.policy_template_id = scope.policy_template_id
+        WHERE scope.legal_entity_id = #{legalEntityId}
+          AND template.template_code = #{policyKind}
+          AND version.effective_from &lt;= #{effectiveFrom}
+          AND (version.effective_to IS NULL
+               OR (#{effectiveTo} IS NOT NULL
+                   AND version.effective_to &gt;= #{effectiveTo}))
+          AND <include refid="publishedVersion"/>
+        ORDER BY version.version_number DESC, version.scoped_version_id
+    </select>
+
+    <select id="listBindings"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyRows$BindingRow">
+        SELECT DISTINCT <include refid="bindingColumns"/>
+        FROM <include refid="bindingFrom"/>
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = #{principalId}
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+         AND data_scope.scope_type = 'LEGAL_ENTITY'
+         AND data_scope.legal_entity_id = group_identity.legal_entity_id
+        WHERE (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
+          AND (#{asOf} IS NULL OR revision.effective_from &lt;= #{asOf})
+          AND (#{asOf} IS NULL
+               OR <include refid="storedBindingEffectiveTo"/> IS NULL
+               OR <include refid="storedBindingEffectiveTo"/> &gt; #{asOf})
+          AND revision.created_at &lt;= #{at}
+          AND role_assignment.valid_from &lt;= #{at}
+          AND (role_assignment.valid_to IS NULL
+               OR role_assignment.valid_to &gt; #{at})
+          AND data_scope.valid_from &lt;= #{at}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+          AND NOT EXISTS (
+              SELECT 1 FROM attendance_policy_binding_revision newer
+              WHERE newer.binding_family_id = revision.binding_family_id
+                AND newer.revision_number &gt; revision.revision_number
+                AND (#{asOf} IS NULL OR newer.effective_from &lt;= #{asOf})
+                AND newer.created_at &lt;= #{at}
+          )
+        ORDER BY family.policy_kind, revision.effective_from,
+                 family.binding_family_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countBindings" resultType="long">
+        SELECT COUNT(DISTINCT family.binding_family_id)
+        FROM <include refid="bindingFrom"/>
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = #{principalId}
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+         AND data_scope.scope_type = 'LEGAL_ENTITY'
+         AND data_scope.legal_entity_id = group_identity.legal_entity_id
+        WHERE (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
+          AND (#{asOf} IS NULL OR revision.effective_from &lt;= #{asOf})
+          AND (#{asOf} IS NULL
+               OR <include refid="storedBindingEffectiveTo"/> IS NULL
+               OR <include refid="storedBindingEffectiveTo"/> &gt; #{asOf})
+          AND revision.created_at &lt;= #{at}
+          AND role_assignment.valid_from &lt;= #{at}
+          AND (role_assignment.valid_to IS NULL
+               OR role_assignment.valid_to &gt; #{at})
+          AND data_scope.valid_from &lt;= #{at}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+          AND NOT EXISTS (
+              SELECT 1 FROM attendance_policy_binding_revision newer
+              WHERE newer.binding_family_id = revision.binding_family_id
+                AND newer.revision_number &gt; revision.revision_number
+                AND (#{asOf} IS NULL OR newer.effective_from &lt;= #{asOf})
+                AND newer.created_at &lt;= #{at}
+          )
+    </select>
+
+    <select id="findBindingFamilyHeads"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyRows$BindingRow">
+        SELECT <include refid="bindingColumns"/>
+        FROM <include refid="bindingFrom"/>
+        WHERE family.attendance_group_id = #{groupId}
+          AND family.policy_kind = #{policyKind}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_policy_binding_revision newer
+              WHERE newer.binding_family_id = revision.binding_family_id
+                AND newer.revision_number &gt; revision.revision_number
+          )
+        ORDER BY family.binding_family_id
+    </select>
+
+    <select id="lockBindingFamily" resultType="string">
+        SELECT binding_family_id
+        FROM attendance_policy_binding_family
+        WHERE binding_family_id = #{bindingId}
+        FOR UPDATE
+    </select>
+
+    <insert id="insertBindingFamily">
+        INSERT INTO attendance_policy_binding_family (
+            binding_family_id, attendance_group_id, policy_kind,
+            created_by, created_at
+        ) VALUES (
+            #{row.attendancePolicyBindingId}, #{row.attendanceGroupId},
+            #{row.policyKind}, #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <insert id="insertBindingRevision">
+        INSERT INTO attendance_policy_binding_revision (
+            binding_revision_id, binding_family_id,
+            attendance_group_revision_id,
+            attendance_policy_scoped_version_id, revision_number,
+            effective_from, supersedes_binding_revision_id, snapshot_digest,
+            change_reason, created_by, created_at
+        )
+        VALUES (
+               #{row.attendancePolicyBindingRevisionId},
+               #{row.attendancePolicyBindingId},
+               #{row.attendanceGroupRevisionId},
+               #{row.policyVersionId}, #{row.revisionNumber},
+               #{row.effectiveFrom}, NULL, #{row.snapshotDigest},
+               #{row.changeReason}, #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <insert id="updateBinding">
+        INSERT INTO attendance_policy_binding_revision (
+            binding_revision_id, binding_family_id,
+            attendance_group_revision_id,
+            attendance_policy_scoped_version_id, revision_number,
+            effective_from, supersedes_binding_revision_id, snapshot_digest,
+            change_reason, created_by, created_at
+        )
+        SELECT #{row.attendancePolicyBindingRevisionId},
+               current_revision.binding_family_id,
+               #{row.attendanceGroupRevisionId},
+               #{row.policyVersionId}, #{row.revisionNumber},
+               #{row.effectiveFrom}, current_revision.binding_revision_id,
+               #{row.snapshotDigest}, #{row.changeReason},
+               #{row.createdBy}, #{row.createdAt}
+        FROM attendance_policy_binding_revision current_revision
+        JOIN attendance_policy_binding_family family
+          ON family.binding_family_id = current_revision.binding_family_id
+        WHERE current_revision.binding_family_id =
+              #{row.attendancePolicyBindingId}
+          AND current_revision.revision_number = #{row.revisionNumber} - 1
+          AND current_revision.revision_number - 1 = #{expectedVersion}
+          AND NOT EXISTS (
+              SELECT 1 FROM attendance_policy_binding_revision newer
+              WHERE newer.binding_family_id = current_revision.binding_family_id
+                AND newer.revision_number &gt; current_revision.revision_number
+          )
+    </insert>
+
+    <select id="publishedVersionMatchesKind" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM attendance_policy_scoped_version version
+            JOIN attendance_policy_scope scope ON scope.scope_id = version.scope_id
+            JOIN attendance_policy_template template
+              ON template.policy_template_id = scope.policy_template_id
+            WHERE version.scoped_version_id = #{policyVersionId}
+              AND scope.legal_entity_id = #{legalEntityId}
+              AND template.template_code = #{policyKind}
+              AND version.effective_from &lt;= #{effectiveFrom}
+              AND (version.effective_to IS NULL
+                   OR (#{effectiveTo} IS NOT NULL
+                       AND version.effective_to &gt;= #{effectiveTo}))
+              AND <include refid="publishedVersion"/>
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="publishedVersionDigest" resultType="string">
+        SELECT snapshot_digest
+        FROM attendance_policy_scoped_version
+        WHERE scoped_version_id = #{policyVersionId}
+    </select>
+
+    <select id="publishedVersionParameters" resultType="string">
+        SELECT parameters_json
+        FROM attendance_policy_scoped_version
+        WHERE scoped_version_id = #{policyVersionId}
+    </select>
+
+    <select id="hasOtherFamily" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1 FROM attendance_policy_binding_family family
+            WHERE family.policy_kind = #{policyKind}
+              AND family.attendance_group_id = #{groupId}
+              AND (#{excludeBindingId} IS NULL
+                   OR family.binding_family_id &lt;&gt; #{excludeBindingId})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="resolveBindings"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyRows$BindingRow">
+        SELECT <include refid="bindingColumnsAtKnowledge"/>
+        FROM <include refid="bindingFrom"/>
+        JOIN attendance_policy_scoped_version version
+          ON version.scoped_version_id =
+             revision.attendance_policy_scoped_version_id
+        WHERE family.attendance_group_id = #{groupId}
+          AND revision.attendance_group_revision_id = #{groupRevisionId}
+          AND revision.effective_from &lt;= #{businessDate}
+          AND (<include refid="storedBindingEffectiveTo"/> IS NULL
+               OR <include refid="storedBindingEffectiveTo"/>
+                    &gt; #{businessDate})
+          AND revision.created_at &lt;= #{knowledgeAsOf}
+          AND version.effective_from &lt;= #{businessDate}
+          AND (version.effective_to IS NULL
+               OR version.effective_to &gt; #{businessDate})
+          AND NOT EXISTS (
+              SELECT 1 FROM attendance_policy_binding_revision newer
+              WHERE newer.binding_family_id = revision.binding_family_id
+                AND newer.revision_number &gt; revision.revision_number
+                AND newer.effective_from &lt;= #{businessDate}
+                AND newer.created_at &lt;= #{knowledgeAsOf}
+          )
+          AND EXISTS (
+              SELECT 1 FROM attendance_policy_lifecycle_event publication
+              WHERE publication.scope_id = version.scope_id
+                AND publication.scoped_version_id = version.scoped_version_id
+                AND publication.action = 'PUBLISHED'
+                AND publication.business_effective_from &lt;= #{businessDate}
+                AND publication.recorded_at &lt;= #{knowledgeAsOf}
+                AND NOT EXISTS (
+                    SELECT 1 FROM attendance_policy_lifecycle_event later
+                    WHERE later.scope_id = publication.scope_id
+                      AND later.event_sequence &gt; publication.event_sequence
+                      AND later.business_effective_from &lt;= #{businessDate}
+                      AND later.recorded_at &lt;= #{knowledgeAsOf}
+                      AND later.action IN ('DEACTIVATE_SCHEDULED', 'ROLLED_BACK')
+                )
+          )
+        ORDER BY family.policy_kind, family.binding_family_id
+    </select>
+</mapper>
