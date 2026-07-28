@@ -182,6 +182,18 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
         ):
             producer.require_public_contract_match(actual, {})
 
+    def test_retained_canonical_golden_matches_current_schema(self) -> None:
+        golden = producer.load_json(
+            producer.CANONICAL_GOLDEN, "retained canonical golden"
+        )
+        validated = producer.validate_retained_canonical_golden(
+            golden, producer.W3_REGISTRY
+        )
+        self.assertEqual(
+            set(validated["framing"]),
+            {"field", "row", "snapshotLine", "finalHashInput"},
+        )
+
     def test_openapi_controller_and_request_schema_closure(self) -> None:
         comparison = producer.compare_operation_closure(
             self.controllers, self.operations, self.openapi

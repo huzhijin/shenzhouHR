@@ -4006,7 +4006,7 @@ def validate_retained_canonical_golden(
     )
     framing = require_exact_object(
         document["framing"],
-        {"value", "row", "line", "final"},
+        {"field", "row", "snapshotLine", "finalHashInput"},
         "retained canonical golden framing",
     )
     if (
@@ -5595,6 +5595,10 @@ def produce(
 
 def self_test() -> None:
     validate_fixed_semantic_oracles()
+    validate_retained_canonical_golden(
+        load_json(CANONICAL_GOLDEN, "retained canonical golden"),
+        W3_REGISTRY,
+    )
     controllers = controller_operation_export()
     document = load_unique_yaml(OPENAPI.read_text(encoding="utf-8"))
     operations = openapi_operation_export(document)
