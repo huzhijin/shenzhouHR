@@ -41,10 +41,16 @@ public final class TimeAccountLedger {
         Map<String, TimeAccountLedgerEntry> processedEntries = new HashMap<>();
         Set<String> reversedTargets = new HashSet<>();
         BigDecimal balance = ZERO_HOURS;
+        String employmentPeriodId = null;
 
         for (TimeAccountLedgerEntry entry : entries) {
             if (!accountId.equals(entry.accountId())) {
                 throw new IllegalArgumentException("流水账户与重放账户不一致");
+            }
+            if (employmentPeriodId == null) {
+                employmentPeriodId = entry.employmentPeriodId();
+            } else if (!employmentPeriodId.equals(entry.employmentPeriodId())) {
+                throw new IllegalArgumentException("同一时间账户不得混用任职周期");
             }
             if (entry.type() == LedgerEntryType.REVERSAL) {
                 validateReversal(entry, processedEntries, reversedTargets);

@@ -238,6 +238,32 @@ class TimeAccountLedgerTest {
     }
 
     @Test
+    void rehire_cannot_mix_old_employment_entries_into_the_new_account_cycle() {
+        var newEmploymentOpening =
+                entry("entry-new-employment-opening", 1, LedgerEntryType.OPENING, "8.00");
+        var oldEmploymentAdjustment = TimeAccountLedgerEntry.create(
+                "entry-old-employment-adjustment",
+                ACCOUNT_ID,
+                "employment-synthetic-old",
+                2,
+                LedgerEntryType.ADJUSTMENT,
+                new BigDecimal("1.00"),
+                provenance(
+                        "MANUAL_ADJUSTMENT",
+                        "adjustment-synthetic-old",
+                        "2026-07-21",
+                        null),
+                null);
+
+        assertThatThrownBy(() -> TimeAccountLedger.replay(
+                ACCOUNT_ID,
+                TimeAccountType.ANNUAL_LEAVE,
+                List.of(newEmploymentOpening, oldEmploymentAdjustment)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("同一时间账户不得混用任职周期");
+    }
+
+    @Test
     void replay_is_deterministic_by_sequence_not_input_or_business_date_order() {
         var opening = entry("entry-opening", 1, LedgerEntryType.OPENING, "20.00");
         var use = TimeAccountLedgerEntry.create(
