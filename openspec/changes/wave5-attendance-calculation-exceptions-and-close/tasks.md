@@ -1,9 +1,9 @@
 ## 1. Domain Boundary And RED Baseline
 
-- [ ] 1.1 Create the framework-free `attendance.calculation` package structure and provider-neutral use-case/store/upstream port skeletons without importing W4 DTOs, Mappers or Controllers.
-- [ ] 1.2 Add immutable input, segment, evidence, adjustment, result, explanation, exception, difference and period records with closed enums and constructor invariants.
-- [ ] 1.3 Add synthetic RED tests for canonical input order, segment calculation/explanation and exception behavior, then record the intended failures.
-- [ ] 1.4 Add synthetic RED tests for version difference and frozen/closed/stale period protection, then record the intended failures.
+- [x] 1.1 Create the framework-free `attendance.calculation` package structure and provider-neutral use-case/store/upstream port skeletons without importing W4 DTOs, Mappers or Controllers.
+- [x] 1.2 Add immutable input, segment, evidence, adjustment, result, explanation, exception, difference and period records with closed enums and constructor invariants.
+- [x] 1.3 Add synthetic RED tests for canonical input order, segment calculation/explanation and exception behavior, then record the intended failures.
+- [x] 1.4 Add synthetic RED tests for version difference and frozen/closed/stale period protection, then record the intended failures.
 
 ## 2. Deterministic Calculation And Explanation
 
