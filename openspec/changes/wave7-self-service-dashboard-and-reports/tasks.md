@@ -20,8 +20,8 @@
 
 ## 4. Independent phase gates
 
-- [ ] 4.1 Run and pass frontend lint, unit tests, typecheck, production build, and existing PAYROLL zero-discoverability checks.
-- [ ] 4.2 Validate the OpenSpec change and record an evidence note that separates completed fixture/contract UI evidence from real API, MySQL, export-worker, browser, screenshot, and performance evidence marked `NOT_VERIFIED`.
+- [x] 4.1 Run and pass frontend lint, unit tests, typecheck, production build, and existing PAYROLL zero-discoverability checks.
+- [x] 4.2 Validate the OpenSpec change and record an evidence note that separates completed fixture/contract UI evidence from real API, MySQL, export-worker, browser, screenshot, and performance evidence marked `NOT_VERIFIED`.
 
 ## 5. Upstream-dependent integration
 
