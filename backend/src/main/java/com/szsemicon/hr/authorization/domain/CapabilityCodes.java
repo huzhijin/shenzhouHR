@@ -88,7 +88,17 @@ public final class CapabilityCodes {
             "ATTENDANCE_FEEDBACK:READ";
     public static final String ATTENDANCE_FEEDBACK_CREATE =
             "ATTENDANCE_FEEDBACK:CREATE";
+    public static final String PAYROLL_RESERVATION_READ =
+            "PAYROLL:RESERVATION_READ";
+
+    private static final String SERVER_INTERNAL_PAYROLL_PREFIX = "PAYROLL:";
 
     private CapabilityCodes() {
+    }
+
+    public static boolean isExternallyDiscoverable(String capabilityCode) {
+        return capabilityCode != null
+                && !capabilityCode.isBlank()
+                && !capabilityCode.startsWith(SERVER_INTERNAL_PAYROLL_PREFIX);
     }
 }

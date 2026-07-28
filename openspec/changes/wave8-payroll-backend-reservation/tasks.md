@@ -6,15 +6,15 @@
 
 ## 2. Default-Off and Default-Deny Access Boundary
 
-- [ ] 2.1 Add the default-false `shenzhouhr.payroll-reservation.enabled` configuration and prove missing/false configuration stays disabled.
-- [ ] 2.2 Add `PAYROLL:RESERVATION_READ` without grants and keep every `PAYROLL:*` code out of ordinary capability, role, account, and menu responses.
-- [ ] 2.3 Implement the ordered feature → capability → real-adapter → snapshot validation gate and stable fail-closed errors.
-- [ ] 2.4 Add the narrow payroll denial audit port and production adapter using stable, payload-free audit fields.
+- [x] 2.1 Add the default-false `shenzhouhr.payroll-reservation.enabled` configuration and prove missing/false configuration stays disabled.
+- [x] 2.2 Add `PAYROLL:RESERVATION_READ` without grants and keep every `PAYROLL:*` code out of ordinary capability, role, account, and menu responses.
+- [x] 2.3 Implement the ordered feature → capability → real-adapter → snapshot validation gate and stable fail-closed errors.
+- [x] 2.4 Add the narrow payroll denial audit port and production adapter using stable, payload-free audit fields.
 
 ## 3. Security, Audit, and Isolation Verification
 
-- [ ] 3.1 Add negative tests for feature-off, missing capability, missing W5 adapter, and invalid snapshot state/version/digest/period, including no-later-dependency assertions.
-- [ ] 3.2 Add audit negative tests that prove exactly one allowlisted denial event and no payload, capability-list, exception, secret, or sensitive-value leakage.
+- [x] 3.1 Add negative tests for feature-off, missing capability, missing W5 adapter, and invalid snapshot state/version/digest/period, including no-later-dependency assertions.
+- [x] 3.2 Add audit negative tests that prove exactly one allowlisted denial event and no payload, capability-list, exception, secret, or sensitive-value leakage.
 - [ ] 3.3 Add architecture tests for payroll layer isolation, no inward dependency from other business packages, and zero W5 snapshot-port implementations.
 - [ ] 3.4 Add a dependency-free Unicode NFKC/case-fold verifier and unit tests for frontend source/dist zero discoverability, backend REST/OpenAPI absence, and prohibited scope.
 
