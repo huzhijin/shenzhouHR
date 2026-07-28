@@ -6,9 +6,10 @@ info:
     name: Proprietary
     identifier: LicenseRef-Proprietary
   description: |
-    V1.9 WAVE-3 契约：在完整保留 WAVE-1 本地账号、登录会话、权限、审计与
+    V1.9 WAVE-3 兼容版本上的 WAVE-4 预发布契约冻结：在完整保留 WAVE-1 本地账号、登录会话、权限、审计与
     版本化规则配置底座，以及 WAVE-2 组织、员工期初导入与本地人员权威的基础上，
-    增加考勤地点、考勤组、员工期限分配、不可变班次版本、工作日历和基础策略绑定。
+    保留 WAVE-3 考勤配置面，并冻结考勤来源、统一证据账本与离线打卡导入接口。
+    WAVE-3 FINAL 尚未随本变更提供，因此 WAVE-4 验收前置仍明确为未满足。
     所有 ID 均按 string 传输；响应和示例不包含密码、密码哈希、session token 或 reset token。
 servers:
   - url: /api/v1
@@ -17,6 +18,7 @@ security:
 x-delivery-contract:
   version: 1.0.0
   status: BINDING
+  wave4ContractVersion: 1.10.0-wave4-prerelease
   activeStage: WAVE_3
   activeCallableSurface: paths
   plannedSurfacePolicy:
@@ -27,6 +29,14 @@ x-delivery-contract:
       - request and response schemas are present under components
       - controller and OpenAPI operation closure is exact
       - authorization, audit, idempotency and concurrency tests pass
+  prereleasePathPolicy:
+    WAVE_4:
+      pathPresence: CONTRACT_FREEZE_ONLY
+      prerequisiteState: W3_FINAL_NOT_SUPPLIED
+      callableClaimAllowedOnlyAfter:
+        - W3 FINAL manifest and integrity PASS are synchronized
+        - the operation has an exact runtime controller
+        - its action, scope, audit, idempotency and concurrency tests pass
   transport:
     basePath: /api/v1
     mediaType: application/json
@@ -104,7 +114,8 @@ x-delivery-contract:
         LATE_GRACE: LATE_GRACE
         MONTHLY_LATE_EXEMPTION: MONTHLY_LATE_EXEMPTION
     WAVE_4:
-      state: PLANNED_NON_CALLABLE
+      state: IMPLEMENTATION_IN_PROGRESS_AWAITING_W3_FINAL
+      prerequisiteEvidence: NOT_SUPPLIED
       dependsOn: [WAVE_3_ACCEPTED, WAVE_2_REGRESSION_PASS]
       requirements:
         - AC-PUNCH-01..15
@@ -271,6 +282,12 @@ tags:
     description: V1.9 基线保留的既有主数据只读接口。
   - name: AttendanceSetup
     description: WAVE-3 考勤地点、考勤组、班次版本、工作日历和基础策略配置。
+  - name: AttendanceSources
+    description: WAVE-4 得力、OA 与文件来源配置、同步作业、水位和隔离证据。
+  - name: PunchImports
+    description: WAVE-4 离线异构 XLSX 模板、预检、发布、冲正和行级证据。
+  - name: AttendanceEvidence
+    description: WAVE-4 统一 raw→effective 证据追溯和近重复人工裁决。
 paths:
   /auth/login:
     post:
@@ -3803,6 +3820,570 @@ paths:
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
         '409': { $ref: '#/components/responses/AttendanceSetupConflict' }
+  /attendance-sources:
+    get:
+      tags: [AttendanceSources]
+      operationId: listAttendanceSources
+      x-capability: ATTENDANCE_SOURCE:READ
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200': { $ref: '#/components/responses/AttendanceSourcePageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+    post:
+      tags: [AttendanceSources]
+      operationId: createAttendanceSource
+      x-capability: ATTENDANCE_SOURCE:CONFIGURE
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AttendanceSourceMutationRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/W4MutationCreated' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-sources/integration-status:
+    get:
+      tags: [AttendanceSources]
+      operationId: getAttendanceSourceIntegrationStatus
+      x-capability: ATTENDANCE_SOURCE:READ
+      responses:
+        '200':
+          description: 契约桩与真实联调/存储验证状态；两者禁止互相替代
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceIntegrationStatusView' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-sources/{sourceId}:
+    parameters:
+      - { $ref: '#/components/parameters/SourceId' }
+    get:
+      tags: [AttendanceSources]
+      operationId: getAttendanceSource
+      x-capability: ATTENDANCE_SOURCE:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4ResourceOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+    patch:
+      tags: [AttendanceSources]
+      operationId: updateAttendanceSource
+      x-capability: ATTENDANCE_SOURCE:CONFIGURE
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AttendanceSourceMutationRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-sources/{sourceId}/watermark:
+    parameters:
+      - { $ref: '#/components/parameters/SourceId' }
+    get:
+      tags: [AttendanceSources]
+      operationId: getAttendanceSourceWatermark
+      x-capability: ATTENDANCE_SOURCE:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4ResourceOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-sources/{sourceId}/devices:
+    parameters:
+      - { $ref: '#/components/parameters/SourceId' }
+    get:
+      tags: [AttendanceSources]
+      operationId: listAttendanceSourceDevices
+      x-capability: ATTENDANCE_SOURCE:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4PageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-sources/{sourceId}/device-person-bindings:
+    parameters:
+      - { $ref: '#/components/parameters/SourceId' }
+    get:
+      tags: [AttendanceSources]
+      operationId: listAttendanceSourceDeviceBindings
+      x-capability: ATTENDANCE_SOURCE:CONFIGURE
+      responses:
+        '200': { $ref: '#/components/responses/W4PageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-sources/{sourceId}/documents:
+    parameters:
+      - { $ref: '#/components/parameters/SourceId' }
+    get:
+      tags: [AttendanceSources]
+      operationId: listAttendanceSourceDocuments
+      x-capability: ATTENDANCE_SOURCE:READ
+      responses:
+        '200': { $ref: '#/components/responses/OaDocumentPageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-sources/{sourceId}/quarantine:
+    parameters:
+      - { $ref: '#/components/parameters/SourceId' }
+    get:
+      tags: [AttendanceSources]
+      operationId: listAttendanceSourceQuarantine
+      x-capability: ATTENDANCE_SOURCE:QUARANTINE_READ
+      responses:
+        '200': { $ref: '#/components/responses/W4PageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-source-jobs:
+    get:
+      tags: [AttendanceSources]
+      operationId: listAttendanceSourceJobs
+      x-capability: ATTENDANCE_SOURCE:READ
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200': { $ref: '#/components/responses/SourceJobPageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+    post:
+      tags: [AttendanceSources]
+      operationId: startAttendanceSourceJob
+      x-capability: ATTENDANCE_SOURCE:RUN
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SourceJobStartRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/W4MutationCreated' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-source-jobs/{jobId}:
+    parameters:
+      - { $ref: '#/components/parameters/JobId' }
+    get:
+      tags: [AttendanceSources]
+      operationId: getAttendanceSourceJob
+      x-capability: ATTENDANCE_SOURCE:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4ResourceOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-source-jobs/{jobId}/retry:
+    parameters:
+      - { $ref: '#/components/parameters/JobId' }
+    post:
+      tags: [AttendanceSources]
+      operationId: retryAttendanceSourceJob
+      x-capability: ATTENDANCE_SOURCE:RETRY
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-punch-mapping-profiles:
+    get:
+      tags: [PunchImports]
+      operationId: listAttendancePunchMappingProfiles
+      x-capability: ATTENDANCE_PUNCH_IMPORT:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4PageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+    post:
+      tags: [PunchImports]
+      operationId: createAttendancePunchMappingProfile
+      x-capability: ATTENDANCE_PUNCH_IMPORT:UPLOAD
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchMappingProfileRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/W4MutationCreated' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-punch-mapping-profiles/{profileId}/versions:
+    parameters:
+      - { $ref: '#/components/parameters/ProfileId' }
+    get:
+      tags: [PunchImports]
+      operationId: listAttendancePunchMappingProfileVersions
+      x-capability: ATTENDANCE_PUNCH_IMPORT:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4PageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-punch-imports/template:
+    get:
+      tags: [PunchImports]
+      operationId: downloadAttendancePunchTemplate
+      x-capability: ATTENDANCE_PUNCH_IMPORT:TEMPLATE_DOWNLOAD
+      responses:
+        '200':
+          description: 当前六工作表 XLSX 模板；示例均为合成数据
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            ETag: { schema: { type: string } }
+            X-Template-Version: { schema: { type: string } }
+            X-Field-Contract-SHA256:
+              schema: { type: string, pattern: '^[0-9a-f]{64}$' }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-punch-imports:
+    get:
+      tags: [PunchImports]
+      operationId: listAttendancePunchImports
+      x-capability: ATTENDANCE_PUNCH_IMPORT:READ
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200': { $ref: '#/components/responses/PunchImportPageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+    post:
+      tags: [PunchImports]
+      operationId: uploadAttendancePunchImport
+      x-capability: ATTENDANCE_PUNCH_IMPORT:UPLOAD
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/PunchImportUploadRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/W4MutationCreated' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+  /attendance-punch-imports/{batchId}:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    get:
+      tags: [PunchImports]
+      operationId: getAttendancePunchImport
+      x-capability: ATTENDANCE_PUNCH_IMPORT:READ
+      responses:
+        '200': { $ref: '#/components/responses/PunchImportOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-punch-imports/{batchId}/mapping:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    put:
+      tags: [PunchImports]
+      operationId: setAttendancePunchImportMapping
+      x-capability: ATTENDANCE_PUNCH_IMPORT:UPLOAD
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchImportMappingRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-punch-imports/{batchId}/precheck:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    post:
+      tags: [PunchImports]
+      operationId: precheckAttendancePunchImport
+      x-capability: ATTENDANCE_PUNCH_IMPORT:PRECHECK
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-punch-imports/{batchId}/preview:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    get:
+      tags: [PunchImports]
+      operationId: previewAttendancePunchImport
+      x-capability: ATTENDANCE_PUNCH_IMPORT:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4ResourceOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-punch-imports/{batchId}/errors:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    get:
+      tags: [PunchImports]
+      operationId: listAttendancePunchImportErrors
+      x-capability: ATTENDANCE_PUNCH_IMPORT:READ
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200': { $ref: '#/components/responses/PunchImportIssuePageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-punch-imports/{batchId}/error-report:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    get:
+      tags: [PunchImports]
+      operationId: downloadAttendancePunchImportErrorReport
+      x-capability: ATTENDANCE_PUNCH_IMPORT:ERROR_REPORT_DOWNLOAD
+      responses:
+        '200': { $ref: '#/components/responses/W4BinaryOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-punch-imports/{batchId}/file:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    get:
+      tags: [PunchImports]
+      operationId: downloadAttendancePunchImportFile
+      x-capability: ATTENDANCE_PUNCH_IMPORT:RAW_FILE_READ
+      responses:
+        '200': { $ref: '#/components/responses/W4BinaryOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-punch-imports/{batchId}/rows:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    get:
+      tags: [PunchImports]
+      operationId: listAttendancePunchImportRows
+      x-capability: ATTENDANCE_PUNCH_IMPORT:RAW_ROW_READ
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200': { $ref: '#/components/responses/PunchImportRowPageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-punch-imports/{batchId}/rows/{rowId}:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+      - { $ref: '#/components/parameters/RowId' }
+    get:
+      tags: [PunchImports]
+      operationId: getAttendancePunchImportRow
+      x-capability: ATTENDANCE_PUNCH_IMPORT:RAW_ROW_READ
+      responses:
+        '200': { $ref: '#/components/responses/W4ResourceOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-punch-imports/{batchId}/publish:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    post:
+      tags: [PunchImports]
+      operationId: publishAttendancePunchImport
+      x-capability: ATTENDANCE_PUNCH_IMPORT:PUBLISH
+      x-additional-capability:
+        when: request.mode == VALID_ROWS_ONLY
+        require: ATTENDANCE_PUNCH_IMPORT:PARTIAL_PUBLISH
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchImportPublishRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-punch-imports/{batchId}/void-or-reverse:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    post:
+      tags: [PunchImports]
+      operationId: voidOrReverseAttendancePunchImport
+      x-capability: ATTENDANCE_PUNCH_IMPORT:VOID_OR_REVERSE
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchImportVoidRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-punch-imports/{batchId}/recalculation-intents:
+    parameters:
+      - { $ref: '#/components/parameters/BatchId' }
+    get:
+      tags: [PunchImports]
+      operationId: listAttendancePunchImportRecalculationIntents
+      x-capability: ATTENDANCE_PUNCH_IMPORT:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4PageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+    post:
+      tags: [PunchImports]
+      operationId: requestAttendancePunchImportRecalculation
+      x-capability: ATTENDANCE_PUNCH_IMPORT:RECALCULATE
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecalculationIntentRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/W4MutationCreated' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-events/{eventId}/evidence:
+    parameters:
+      - { $ref: '#/components/parameters/EventId' }
+    get:
+      tags: [AttendanceEvidence]
+      operationId: getAttendanceEventEvidence
+      x-capability: ATTENDANCE_SOURCE:READ
+      responses:
+        '200': { $ref: '#/components/responses/W4ResourceOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-duplicate-reviews:
+    get:
+      tags: [AttendanceEvidence]
+      operationId: listAttendanceDuplicateReviews
+      x-capability: ATTENDANCE_PUNCH_IMPORT:DUPLICATE_REVIEW
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200': { $ref: '#/components/responses/W4PageOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-duplicate-reviews/{groupId}:
+    parameters:
+      - { $ref: '#/components/parameters/GroupId' }
+    get:
+      tags: [AttendanceEvidence]
+      operationId: getAttendanceDuplicateReview
+      x-capability: ATTENDANCE_PUNCH_IMPORT:DUPLICATE_REVIEW
+      responses:
+        '200': { $ref: '#/components/responses/W4ResourceOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+  /attendance-duplicate-reviews/{groupId}/resolve:
+    parameters:
+      - { $ref: '#/components/parameters/GroupId' }
+    post:
+      tags: [AttendanceEvidence]
+      operationId: resolveAttendanceDuplicateReview
+      x-capability: ATTENDANCE_PUNCH_IMPORT:DUPLICATE_REVIEW
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DuplicateReviewResolutionRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
 components:
   securitySchemes:
     sessionCookie:
@@ -3915,6 +4496,31 @@ components:
       schema: { $ref: '#/components/schemas/ResourceId' }
     BatchId:
       name: batchId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ResourceId' }
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ResourceId' }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ResourceId' }
+    ProfileId:
+      name: profileId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ResourceId' }
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ResourceId' }
+    RowId:
+      name: rowId
       in: path
       required: true
       schema: { $ref: '#/components/schemas/ResourceId' }
@@ -6050,6 +6656,430 @@ components:
         total: { type: integer, format: int64, minimum: 0 }
         page: { type: integer, minimum: 0 }
         size: { type: integer, minimum: 1, maximum: 100 }
+    AttendanceSourceType:
+      type: string
+      enum: [DELI_CLOUD, OA_ATTENDANCE, DEVICE_EXCEL, STANDARD_XLSX]
+    AttendanceSourceState:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+    SourceIntegrationStatusView:
+      type: object
+      additionalProperties: false
+      required:
+        [deliContractStub, oaContractStub, filePortContract, deliLive, oaLive,
+         productionFileStorage]
+      properties:
+        deliContractStub: { type: string, const: PASS }
+        oaContractStub: { type: string, const: PASS }
+        filePortContract: { type: string, const: PASS }
+        deliLive: { type: string, const: NOT_VERIFIED }
+        oaLive: { type: string, const: NOT_VERIFIED }
+        productionFileStorage: { type: string, const: NOT_VERIFIED }
+    SourceJobState:
+      type: string
+      enum: [QUEUED, RUNNING, SUCCEEDED, PARTIALLY_QUARANTINED, FAILED, CANCELLED]
+    PunchImportState:
+      type: string
+      enum:
+        - DRAFT
+        - VALIDATING
+        - VALIDATION_FAILED
+        - AWAITING_CONFIRMATION
+        - BLOCKED_BY_FROZEN_PERIOD
+        - PUBLISHING
+        - PUBLISHED
+        - PARTIALLY_PUBLISHED
+        - PUBLISH_FAILED
+        - VOIDED
+    DuplicateResolution:
+      type: string
+      enum: [SAME_FACT, DISTINCT_FACTS]
+    MappingTransform:
+      type: string
+      enum: [COLUMN, DATE_PARSE, TIME_PARSE, TIMEZONE, TRIM, ENUM_MAP]
+    AttendanceSourceMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [legalEntityId, sourceType, code, displayName, secretReference]
+      properties:
+        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        sourceType: { $ref: '#/components/schemas/AttendanceSourceType' }
+        code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
+        displayName: { type: string, minLength: 1, maxLength: 120 }
+        secretReference:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: 外部秘密存储的不透明引用；禁止提交凭据值。
+        timeZone: { type: string, minLength: 1, maxLength: 64 }
+        endpointAlias: { type: [string, 'null'], maxLength: 128 }
+        state: { $ref: '#/components/schemas/AttendanceSourceState' }
+    SourceJobStartRequest:
+      type: object
+      additionalProperties: false
+      required: [sourceId, mode]
+      properties:
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        mode: { type: string, enum: [INCREMENTAL, REPLAY_FROM_WATERMARK] }
+        maximumPages: { type: integer, minimum: 1, maximum: 1000 }
+    PunchMappingRule:
+      type: object
+      additionalProperties: false
+      required: [targetField, sourceColumn, transforms]
+      properties:
+        targetField: { type: string, minLength: 1, maxLength: 64 }
+        sourceColumn: { type: string, minLength: 1, maxLength: 128 }
+        transforms:
+          type: array
+          maxItems: 8
+          items: { $ref: '#/components/schemas/MappingTransform' }
+    PunchMappingProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [legalEntityId, name, rules]
+      properties:
+        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        rules:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: { $ref: '#/components/schemas/PunchMappingRule' }
+    PunchImportMetadata:
+      type: object
+      additionalProperties: false
+      required: [legalEntityId, sourceId]
+      properties:
+        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        locationId:
+          oneOf:
+            - { $ref: '#/components/schemas/ResourceId' }
+            - { type: 'null' }
+    PunchImportUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [file, metadata]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: 最大 20 MiB 的安全 `.xlsx`；实际 MIME 与 OOXML 内容必须一致。
+        metadata: { $ref: '#/components/schemas/PunchImportMetadata' }
+    PunchImportMappingRequest:
+      type: object
+      additionalProperties: false
+      required: [mappingProfileVersionId]
+      properties:
+        mappingProfileVersionId: { $ref: '#/components/schemas/ResourceId' }
+    PunchImportPublishRequest:
+      type: object
+      additionalProperties: false
+      required: [precheckToken, mode, confirmation]
+      properties:
+        precheckToken: { type: string, minLength: 32, maxLength: 512 }
+        mode: { type: string, enum: [STRICT, VALID_ROWS_ONLY] }
+        confirmation: { type: string, enum: [CONFIRM_PUBLISH] }
+    PunchImportVoidRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation: { type: string, enum: [CONFIRM_VOID_OR_REVERSE] }
+    DuplicateReviewResolutionRequest:
+      type: object
+      additionalProperties: false
+      required: [resolution, confirmation]
+      properties:
+        resolution: { $ref: '#/components/schemas/DuplicateResolution' }
+        confirmation: { type: string, enum: [CONFIRM_DUPLICATE_RESOLUTION] }
+    RecalculationIntentRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation:
+          type: string
+          enum: [CONFIRM_RECALCULATION_INTENT]
+    AttendanceSourceView:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceId
+        - legalEntityId
+        - sourceType
+        - code
+        - displayName
+        - state
+        - timeZone
+        - configurationRevision
+        - committedWatermark
+        - lastSuccessfulSyncAt
+        - rowVersion
+      properties:
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        sourceType: { $ref: '#/components/schemas/AttendanceSourceType' }
+        code: { type: string, maxLength: 64 }
+        displayName: { type: string, maxLength: 100 }
+        state: { $ref: '#/components/schemas/AttendanceSourceState' }
+        timeZone: { type: string, maxLength: 64 }
+        configurationRevision: { type: integer, minimum: 0 }
+        committedWatermark: { type: [string, 'null'], maxLength: 512 }
+        lastSuccessfulSyncAt: { type: [string, 'null'], format: date-time }
+        rowVersion: { type: integer, format: int64, minimum: 0 }
+    AttendanceSourcePage:
+      type: object
+      additionalProperties: false
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AttendanceSourceView' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    AttendanceSourceJobView:
+      type: object
+      additionalProperties: false
+      required:
+        - jobId
+        - sourceId
+        - sourceDisplayName
+        - sourceType
+        - state
+        - committedPages
+        - rawFactCount
+        - quarantinedCount
+        - safeErrorSummary
+        - startedAt
+        - completedAt
+        - rowVersion
+      properties:
+        jobId: { $ref: '#/components/schemas/ResourceId' }
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        sourceDisplayName: { type: string, maxLength: 100 }
+        sourceType: { $ref: '#/components/schemas/AttendanceSourceType' }
+        state: { $ref: '#/components/schemas/SourceJobState' }
+        committedPages: { type: integer, minimum: 0 }
+        rawFactCount: { type: integer, format: int64, minimum: 0 }
+        quarantinedCount: { type: integer, format: int64, minimum: 0 }
+        safeErrorSummary: { type: [string, 'null'], maxLength: 64 }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        rowVersion: { type: integer, format: int64, minimum: 0 }
+    AttendanceSourceJobPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AttendanceSourceJobView' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    OaAttendanceDocumentView:
+      type: object
+      additionalProperties: false
+      required:
+        - documentId
+        - sourceDocumentId
+        - sourceVersion
+        - documentType
+        - sourceStatus
+        - effectiveCandidate
+        - employeeNumber
+        - intervalStart
+        - intervalEndExclusive
+      properties:
+        documentId: { $ref: '#/components/schemas/ResourceId' }
+        sourceDocumentId: { type: string, minLength: 1, maxLength: 191 }
+        sourceVersion: { type: string, minLength: 1, maxLength: 128 }
+        documentType: { type: string, minLength: 1, maxLength: 64 }
+        sourceStatus:
+          type: string
+          enum: [APPROVED, DRAFT, REJECTED, UNKNOWN, MODIFIED, SUPPLEMENTED, REVOKED]
+        effectiveCandidate: { type: boolean }
+        employeeNumber: { type: [string, 'null'] }
+        intervalStart: { type: [string, 'null'], format: date-time }
+        intervalEndExclusive: { type: [string, 'null'], format: date-time }
+    OaAttendanceDocumentPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OaAttendanceDocumentView' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    PunchImportBatchView:
+      type: object
+      additionalProperties: false
+      required:
+        - batchId
+        - legalEntityId
+        - sourceId
+        - originalFilename
+        - fileSha256
+        - state
+        - totalRows
+        - validRows
+        - invalidRows
+        - exactDuplicateRows
+        - nearDuplicateRows
+        - affectedEmployees
+        - affectedDateFrom
+        - affectedDateTo
+        - precheckTokenPresent
+        - precheckToken
+        - createdAt
+        - rowVersion
+      properties:
+        batchId: { $ref: '#/components/schemas/ResourceId' }
+        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        originalFilename: { type: string, maxLength: 255 }
+        fileSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        state: { $ref: '#/components/schemas/PunchImportState' }
+        totalRows: { type: integer, format: int64, minimum: 0 }
+        validRows: { type: integer, format: int64, minimum: 0 }
+        invalidRows: { type: integer, format: int64, minimum: 0 }
+        exactDuplicateRows: { type: integer, format: int64, minimum: 0 }
+        nearDuplicateRows: { type: integer, format: int64, minimum: 0 }
+        affectedEmployees: { type: integer, format: int64, minimum: 0 }
+        affectedDateFrom: { type: [string, 'null'], format: date }
+        affectedDateTo: { type: [string, 'null'], format: date }
+        precheckTokenPresent: { type: boolean }
+        precheckToken:
+          type: [string, 'null']
+          description: 只在刚完成预检的响应中返回；持久化和后续详情只保留摘要。
+        createdAt: { type: string, format: date-time }
+        rowVersion: { type: integer, format: int64, minimum: 0 }
+    PunchImportPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PunchImportBatchView' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    PunchImportIssueView:
+      type: object
+      additionalProperties: false
+      required: [issueId, rowNumber, field, code, severity, safeMessage]
+      properties:
+        issueId: { $ref: '#/components/schemas/ResourceId' }
+        rowNumber: { type: integer, minimum: 0, maximum: 50000 }
+        field: { type: [string, 'null'], maxLength: 64 }
+        code: { type: string, maxLength: 64 }
+        severity: { type: string, enum: [BLOCKING, WARNING] }
+        safeMessage: { type: string, maxLength: 500 }
+    PunchImportIssuePage:
+      type: object
+      additionalProperties: false
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PunchImportIssueView' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    PunchImportRowView:
+      type: object
+      additionalProperties: false
+      required:
+        [rowId, rowNumber, employeeNumber, punchTime, sourceTimeZone,
+         matchState, duplicateState, publishable]
+      properties:
+        rowId: { $ref: '#/components/schemas/ResourceId' }
+        rowNumber: { type: integer, minimum: 1, maximum: 50000 }
+        employeeNumber: { type: [string, 'null'] }
+        punchTime: { type: [string, 'null'] }
+        sourceTimeZone: { type: [string, 'null'] }
+        matchState:
+          type: string
+          enum: [MATCHED, UNMATCHED, AMBIGUOUS, OUT_OF_SCOPE]
+        duplicateState:
+          type: string
+          enum: [NONE, EXACT, NEAR_PENDING]
+        publishable: { type: boolean }
+    PunchImportRowPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PunchImportRowView' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    W4ResourceView:
+      type: object
+      additionalProperties: false
+      required: [resourceId, resourceType, status, rowVersion]
+      properties:
+        resourceId: { $ref: '#/components/schemas/ResourceId' }
+        resourceType:
+          type: string
+          enum: [SOURCE, WATERMARK, DEVICE, DEVICE_BINDING, DOCUMENT, QUARANTINE, SOURCE_JOB, MAPPING_PROFILE, PUNCH_IMPORT, PUNCH_ROW, EVIDENCE_TRACE, DUPLICATE_REVIEW, RECALCULATION_INTENT]
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - INACTIVE
+            - QUEUED
+            - RUNNING
+            - SUCCEEDED
+            - PARTIALLY_QUARANTINED
+            - FAILED
+            - CANCELLED
+            - DRAFT
+            - VALIDATING
+            - VALIDATION_FAILED
+            - AWAITING_CONFIRMATION
+            - BLOCKED_BY_FROZEN_PERIOD
+            - PUBLISHING
+            - PUBLISHED
+            - PARTIALLY_PUBLISHED
+            - PUBLISH_FAILED
+            - VOIDED
+            - PENDING
+            - SAME_FACT
+            - DISTINCT_FACTS
+        displayName: { type: [string, 'null'], maxLength: 200 }
+        sourceType:
+          oneOf:
+            - { $ref: '#/components/schemas/AttendanceSourceType' }
+            - { type: 'null' }
+        occurredAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: [string, 'null'], format: date-time }
+        rowVersion: { type: integer, format: int64, minimum: 0 }
+    W4ResourcePage:
+      type: object
+      additionalProperties: false
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/W4ResourceView' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
     FieldError:
       type: object
       additionalProperties: false
@@ -6159,3 +7189,126 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ApiError'
+    InvalidRequest:
+      description: W4 请求字段、受控枚举、multipart 部件或业务前置校验失败
+      headers:
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    PayloadTooLarge:
+      description: XLSX 文件或解压后的安全边界超限
+      headers:
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    UnsupportedMediaType:
+      description: 扩展名、声明 MIME、OOXML 信封或实际内容不一致
+      headers:
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    AttendanceSourcePageOk:
+      description: 先按法人作用域过滤、再稳定分页的考勤来源
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AttendanceSourcePage' }
+    SourceJobPageOk:
+      description: 先按来源法人作用域过滤、再稳定分页的同步作业
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AttendanceSourceJobPage' }
+    OaDocumentPageOk:
+      description: 当前来源的只读版本化 OA 单据
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/OaAttendanceDocumentPage' }
+    PunchImportPageOk:
+      description: 先按法人作用域过滤、再稳定分页的打卡导入批次
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PunchImportPage' }
+    PunchImportOk:
+      description: 打卡导入批次服务端派生状态与最近预检摘要
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        ETag: { $ref: '#/components/headers/ETag' }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PunchImportBatchView' }
+    PunchImportIssuePageOk:
+      description: 最近一次不可变预检尝试的问题页
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PunchImportIssuePage' }
+    PunchImportRowPageOk:
+      description: 需要 RAW_ROW_READ 的原始行、匹配与重复状态
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PunchImportRowPage' }
+    W4PageOk:
+      description: 经过服务端作用域过滤后再分页的稳定 W4 资源页
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/W4ResourcePage' }
+    W4ResourceOk:
+      description: W4 资源详情
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        ETag: { $ref: '#/components/headers/ETag' }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/W4ResourceView' }
+    W4MutationCreated:
+      description: W4 资源创建成功
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+        Idempotency-Key: { $ref: '#/components/headers/IdempotencyKeyEcho' }
+        Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/W4ResourceView' }
+    W4MutationOk:
+      description: W4 幂等变更成功
+      headers:
+        ETag: { $ref: '#/components/headers/ETag' }
+        Idempotency-Key: { $ref: '#/components/headers/IdempotencyKeyEcho' }
+        Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/W4ResourceView' }
+    W4BinaryOk:
+      description: 受权限保护、记访问审计的 W4 二进制下载
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/octet-stream:
+          schema: { type: string, format: binary }

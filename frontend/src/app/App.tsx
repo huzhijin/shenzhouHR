@@ -30,6 +30,11 @@ const AttendanceGroupsPage = lazy(() => import('../features/attendanceSetup/Atte
 const ShiftsPage = lazy(() => import('../features/attendanceSetup/ShiftsPage'));
 const CalendarsPage = lazy(() => import('../features/attendanceSetup/CalendarsPage'));
 const AttendancePolicyPage = lazy(() => import('../features/attendanceSetup/AttendancePolicyPage'));
+const SourceOverviewPage = lazy(() => import('../features/attendanceSources/SourceOverviewPage'));
+const OaSourcesPage = lazy(() => import('../features/attendanceSources/OaSourcesPage'));
+const SourceJobsPage = lazy(() => import('../features/attendanceSources/SourceJobsPage'));
+const PunchImportsPage = lazy(() => import('../features/punchImport/PunchImportsPage'));
+const PunchImportDetailPage = lazy(() => import('../features/punchImport/PunchImportDetailPage'));
 
 const theme = {
   token: {
@@ -155,6 +160,30 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
               <Route path="/rules/calendars" element={<AccessDenied />} />
               <Route path="/rules/attendance-policy" element={<AccessDenied />} />
               <Route path="/rules/attendance-policy/:versionId" element={<AccessDenied />} />
+            </>
+          )}
+          {session.capabilities.includes('ATTENDANCE_SOURCE:READ') ? (
+            <>
+              <Route path="/sources/online" element={<SourceOverviewPage />} />
+              <Route path="/sources/oa" element={<OaSourcesPage />} />
+              <Route path="/sources/jobs" element={<SourceJobsPage capabilities={session.capabilities} />} />
+            </>
+          ) : (
+            <>
+              <Route path="/sources/online" element={<AccessDenied />} />
+              <Route path="/sources/oa" element={<AccessDenied />} />
+              <Route path="/sources/jobs" element={<AccessDenied />} />
+            </>
+          )}
+          {session.capabilities.includes('ATTENDANCE_PUNCH_IMPORT:READ') ? (
+            <>
+              <Route path="/sources/attendance-excel" element={<PunchImportsPage capabilities={session.capabilities} />} />
+              <Route path="/sources/attendance-excel/:batchId" element={<PunchImportDetailPage capabilities={session.capabilities} />} />
+            </>
+          ) : (
+            <>
+              <Route path="/sources/attendance-excel" element={<AccessDenied />} />
+              <Route path="/sources/attendance-excel/:batchId" element={<AccessDenied />} />
             </>
           )}
           {session.capabilities.includes('ACCOUNT:READ') ? (

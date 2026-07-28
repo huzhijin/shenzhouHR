@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper">
+
+    <sql id="sourceVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal_role_assignment assignment
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capability}
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = assignment.data_scope_id
+            WHERE assignment.principal_id = #{principalId}
+              AND assignment.valid_from &lt;= #{at}
+              AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
+              AND data_scope.valid_from &lt;= #{at}
+              AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+              AND data_scope.scope_type = 'LEGAL_ENTITY'
+              AND data_scope.legal_entity_id = source.legal_entity_id
+        )
+    </sql>
+
+    <select id="countSources" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_source source
+        WHERE <include refid="sourceVisibility"/>
+    </select>
+
+    <select id="listSources"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$SourceView">
+        SELECT source.attendance_source_id AS source_id,
+               source.legal_entity_id,
+               source.source_type,
+               source.source_code AS code,
+               source.display_name,
+               source.status AS state,
+               COALESCE(configuration.source_time_zone, 'UNKNOWN') AS time_zone,
+               COALESCE(configuration.revision_number, 0) AS configuration_revision,
+               watermark.committed_cursor AS committed_watermark,
+               (
+                   SELECT MAX(success.finished_at)
+                   FROM attendance_sync_job success
+                   WHERE success.attendance_source_id = source.attendance_source_id
+                     AND success.status IN ('SUCCEEDED', 'PARTIALLY_QUARANTINED')
+               ) AS last_successful_sync_at,
+               source.row_version
+        FROM attendance_source source
+        LEFT JOIN attendance_source_config_revision configuration
+          ON configuration.source_config_revision_id = (
+              SELECT candidate.source_config_revision_id
+              FROM attendance_source_config_revision candidate
+              WHERE candidate.attendance_source_id = source.attendance_source_id
+              ORDER BY candidate.revision_number DESC,
+                       candidate.source_config_revision_id DESC
+              LIMIT 1
+          )
+        LEFT JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE <include refid="sourceVisibility"/>
+        ORDER BY source.source_type, source.display_name, source.attendance_source_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countJobs" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        WHERE <include refid="sourceVisibility"/>
+    </select>
+
+    <select id="listJobs"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$JobView">
+        SELECT job.attendance_sync_job_id AS job_id,
+               source.attendance_source_id AS source_id,
+               source.display_name AS source_display_name,
+               source.source_type,
+               job.status AS state,
+               job.page_count AS committed_pages,
+               job.accepted_count AS raw_fact_count,
+               job.quarantined_count,
+               job.safe_error_code AS safe_error_summary,
+               job.started_at,
+               job.finished_at AS completed_at,
+               job.row_version
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        WHERE <include refid="sourceVisibility"/>
+        ORDER BY job.created_at DESC, job.attendance_sync_job_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countOaDocuments" resultType="long">
+        SELECT COUNT(*)
+        FROM oa_attendance_document document
+        JOIN attendance_source source
+          ON source.attendance_source_id = document.attendance_source_id
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'OA_ATTENDANCE'
+          AND <include refid="sourceVisibility"/>
+    </select>
+
+    <select id="listOaDocuments"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$OaDocumentView">
+        SELECT document.oa_attendance_document_id AS document_id,
+               document.source_business_key AS source_document_id,
+               document.source_version,
+               document.document_type,
+               document.source_status,
+               CASE WHEN document.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
+                    THEN TRUE ELSE FALSE END AS effective_candidate,
+               NULL AS employee_number,
+               normalized.interval_start,
+               normalized.interval_end AS interval_end_exclusive
+        FROM oa_attendance_document document
+        JOIN attendance_source source
+          ON source.attendance_source_id = document.attendance_source_id
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             document.normalized_attendance_record_id
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'OA_ATTENDANCE'
+          AND <include refid="sourceVisibility"/>
+        ORDER BY document.knowledge_rank DESC,
+                 document.created_at DESC,
+                 document.oa_attendance_document_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+</mapper>

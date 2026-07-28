@@ -44,6 +44,7 @@ class Wave4MigrationContractTest {
         assertThat(Files.list(MIGRATIONS)
                 .map(path -> path.getFileName().toString())
                 .filter(name -> name.matches("V(8|9)__.*\\.sql"))
+                .sorted()
                 .toList())
                 .containsExactly(
                         "V8__attendance_source_and_evidence.sql",
@@ -60,7 +61,8 @@ class Wave4MigrationContractTest {
                         MIGRATIONS.resolve("V9__attendance_punch_import.sql"));
         Map<String, java.util.List<String>> actual = tableColumns(sql);
 
-        assertThat(actual.keySet()).containsExactlyElementsOf(oracle.tables().keySet());
+        assertThat(actual.keySet()).containsExactlyInAnyOrderElementsOf(
+                oracle.tables().keySet());
         oracle.tables().forEach((table, columns) ->
                 assertThat(actual.get(table)).as(table).containsExactlyElementsOf(columns));
     }

@@ -26,7 +26,10 @@ class MyBatisMapperContractTest {
                 "mappers/CalendarMapper.xml",
                 "mappers/AttendancePolicyMapper.xml",
                 "mappers/AttendancePolicyLifecycleMapper.xml",
-                "mappers/AttendanceSetupIdempotencyMapper.xml");
+                "mappers/AttendanceSetupIdempotencyMapper.xml",
+                "mappers/AttendanceEvidenceMapper.xml",
+                "mappers/AttendanceSourceReadMapper.xml",
+                "mappers/PunchImportReadMapper.xml");
 
         for (String resource : mapperResources) {
             try (InputStream input = Resources.getResourceAsStream(resource)) {
@@ -118,7 +121,32 @@ class MyBatisMapperContractTest {
                         "com.szsemicon.hr.attendance.infrastructure.persistence.AttendancePolicyLifecycleMapper.insertLifecycle",
                         "com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceSetupIdempotencyMapper.find",
                         "com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceSetupIdempotencyMapper.insertStarted",
-                        "com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceSetupIdempotencyMapper.complete")
+                        "com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceSetupIdempotencyMapper.complete",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.findRawBySourceIdentity",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.findRawByFingerprint",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertRawFact",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertNormalizedRecord",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertMatchDecision",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.findExactEvents",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.findNearEvents",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertEffectiveEvent",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertLifecycleFact",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertEvidenceLink",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.insertRecalculationIntent",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper.evidenceTrace",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.countSources",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.listSources",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.countJobs",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.listJobs",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.countOaDocuments",
+                        "com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper.listOaDocuments",
+                        "com.szsemicon.hr.punchimport.infrastructure.persistence.PunchImportReadMapper.countBatches",
+                        "com.szsemicon.hr.punchimport.infrastructure.persistence.PunchImportReadMapper.listBatches",
+                        "com.szsemicon.hr.punchimport.infrastructure.persistence.PunchImportReadMapper.findBatch",
+                        "com.szsemicon.hr.punchimport.infrastructure.persistence.PunchImportReadMapper.countIssues",
+                        "com.szsemicon.hr.punchimport.infrastructure.persistence.PunchImportReadMapper.listIssues",
+                        "com.szsemicon.hr.punchimport.infrastructure.persistence.PunchImportReadMapper.countRows",
+                        "com.szsemicon.hr.punchimport.infrastructure.persistence.PunchImportReadMapper.listRows")
                 .doesNotContain(
                         "com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupMapper.resolveAssignment",
                         "com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupMapper.insertLocation",

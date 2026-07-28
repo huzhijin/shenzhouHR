@@ -9,6 +9,10 @@ import {
   IconMenu2,
   IconShieldLock,
   IconShieldCheck,
+  IconFileSpreadsheet,
+  IconServer,
+  IconRefresh,
+  IconFileDescription,
   IconUsers,
   IconUsersGroup,
 } from '@tabler/icons-react';
@@ -46,6 +50,10 @@ const menuIcons = {
   'attendance-shifts': IconClock,
   'attendance-calendars': IconCalendar,
   'attendance-policies': IconShieldCheck,
+  'attendance-sources-online': IconServer,
+  'attendance-sources-oa': IconFileDescription,
+  'attendance-source-jobs': IconRefresh,
+  'attendance-punch-imports': IconFileSpreadsheet,
 };
 
 export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {

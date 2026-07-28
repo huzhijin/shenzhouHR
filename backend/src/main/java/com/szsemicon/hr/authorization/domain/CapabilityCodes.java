@@ -38,6 +38,40 @@ public final class CapabilityCodes {
             "ATTENDANCE_SETUP:MANAGE_CALENDAR";
     public static final String ATTENDANCE_SETUP_MANAGE_POLICY =
             "ATTENDANCE_SETUP:MANAGE_POLICY";
+    public static final String ATTENDANCE_SOURCE_READ =
+            "ATTENDANCE_SOURCE:READ";
+    public static final String ATTENDANCE_SOURCE_CONFIGURE =
+            "ATTENDANCE_SOURCE:CONFIGURE";
+    public static final String ATTENDANCE_SOURCE_RUN =
+            "ATTENDANCE_SOURCE:RUN";
+    public static final String ATTENDANCE_SOURCE_RETRY =
+            "ATTENDANCE_SOURCE:RETRY";
+    public static final String ATTENDANCE_SOURCE_QUARANTINE_READ =
+            "ATTENDANCE_SOURCE:QUARANTINE_READ";
+    public static final String ATTENDANCE_PUNCH_IMPORT_READ =
+            "ATTENDANCE_PUNCH_IMPORT:READ";
+    public static final String ATTENDANCE_PUNCH_IMPORT_TEMPLATE_DOWNLOAD =
+            "ATTENDANCE_PUNCH_IMPORT:TEMPLATE_DOWNLOAD";
+    public static final String ATTENDANCE_PUNCH_IMPORT_UPLOAD =
+            "ATTENDANCE_PUNCH_IMPORT:UPLOAD";
+    public static final String ATTENDANCE_PUNCH_IMPORT_PRECHECK =
+            "ATTENDANCE_PUNCH_IMPORT:PRECHECK";
+    public static final String ATTENDANCE_PUNCH_IMPORT_PUBLISH =
+            "ATTENDANCE_PUNCH_IMPORT:PUBLISH";
+    public static final String ATTENDANCE_PUNCH_IMPORT_PARTIAL_PUBLISH =
+            "ATTENDANCE_PUNCH_IMPORT:PARTIAL_PUBLISH";
+    public static final String ATTENDANCE_PUNCH_IMPORT_VOID_OR_REVERSE =
+            "ATTENDANCE_PUNCH_IMPORT:VOID_OR_REVERSE";
+    public static final String ATTENDANCE_PUNCH_IMPORT_RAW_FILE_READ =
+            "ATTENDANCE_PUNCH_IMPORT:RAW_FILE_READ";
+    public static final String ATTENDANCE_PUNCH_IMPORT_RAW_ROW_READ =
+            "ATTENDANCE_PUNCH_IMPORT:RAW_ROW_READ";
+    public static final String ATTENDANCE_PUNCH_IMPORT_ERROR_REPORT_DOWNLOAD =
+            "ATTENDANCE_PUNCH_IMPORT:ERROR_REPORT_DOWNLOAD";
+    public static final String ATTENDANCE_PUNCH_IMPORT_DUPLICATE_REVIEW =
+            "ATTENDANCE_PUNCH_IMPORT:DUPLICATE_REVIEW";
+    public static final String ATTENDANCE_PUNCH_IMPORT_RECALCULATE =
+            "ATTENDANCE_PUNCH_IMPORT:RECALCULATE";
 
     private CapabilityCodes() {
     }

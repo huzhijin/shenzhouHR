@@ -37,3 +37,34 @@ are synchronized and verified against the hashes above.
 Only deterministic synthetic contract adapters are authorized in this worktree.
 No production endpoint, credential, employee record, attendance record or file
 is used.
+
+## Independent verification completed
+
+The following commands were run from this worktree on 2026-07-28:
+
+- `cd backend && ./mvnw -Dtest='Wave4*Test,MyBatisMapperContractTest' test`
+  — 32 tests passed.
+- `cd backend && ./mvnw test` — 208 tests passed, including the retained W1,
+  W2 and in-branch W3 suites. This is regression evidence only and does not
+  substitute for a separately accepted W3 FINAL manifest.
+- `cd frontend && npm run typecheck` — passed.
+- `cd frontend && npm run lint` — passed.
+- `cd frontend && npm test -- --maxWorkers=1 --no-file-parallelism --reporter=dot`
+  — 27 test files and 236 tests passed.
+- `cd frontend && npm run build:all` — production and demo builds passed.
+  The production artifact contains none of the W4 synthetic fixture markers;
+  the demo artifact contains them, and both artifact inventories are newer
+  than their source files.
+
+## Verification deliberately not claimed
+
+- Exact MySQL 8.4.10 migration, constraint, denied-DDL, concurrency and query
+  plan gates were not run. The repository helper available in this checkout
+  targets a different original working tree, which is outside this delegated
+  worktree's authorized write boundary.
+- V8/V9 have not yet been mirrored into the retained H2 test schema.
+- Normal-mode browser acceptance, live 得力/OA connectivity and production
+  file storage were not run.
+- Mutation workflows for upload/precheck/publication/partial publication,
+  void/reversal, durable retry, access audit and concurrent ledger writes are
+  intentionally still incomplete and remain unchecked in `tasks.md`.

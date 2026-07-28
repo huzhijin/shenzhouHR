@@ -231,6 +231,20 @@ public class AuthenticationController {
             menu.add(new MenuItem(
                     "attendance-policies", "考勤基础策略", "/rules/attendance-policy"));
         }
+        if (capabilities.contains("ATTENDANCE_SOURCE:READ")) {
+            menu.add(new MenuItem(
+                    "attendance-sources-online", "在线考勤来源", "/sources/online"));
+            menu.add(new MenuItem(
+                    "attendance-sources-oa", "OA 考勤单据", "/sources/oa"));
+            menu.add(new MenuItem(
+                    "attendance-source-jobs", "来源同步作业", "/sources/jobs"));
+        }
+        if (capabilities.contains("ATTENDANCE_PUNCH_IMPORT:READ")) {
+            menu.add(new MenuItem(
+                    "attendance-punch-imports",
+                    "异构考勤 Excel",
+                    "/sources/attendance-excel"));
+        }
         return List.copyOf(menu);
     }
 

@@ -1,0 +1,90 @@
+import type {
+  PunchImportBatchView,
+  PunchImportIssueView,
+  PunchImportRowView,
+} from './punchImportTypes';
+
+export const demoPunchImports: PunchImportBatchView[] = [
+  {
+    batchId: 'synthetic-punch-batch-001',
+    legalEntityId: 'synthetic-legal-entity',
+    sourceId: 'synthetic-source-xlsx',
+    originalFilename: 'synthetic-attendance.xlsx',
+    fileSha256: 'a'.repeat(64),
+    state: 'AWAITING_CONFIRMATION',
+    totalRows: 48,
+    validRows: 46,
+    invalidRows: 2,
+    exactDuplicateRows: 3,
+    nearDuplicateRows: 1,
+    affectedEmployees: 12,
+    affectedDateFrom: '2026-07-01',
+    affectedDateTo: '2026-07-05',
+    precheckTokenPresent: true,
+    precheckToken: 'synthetic-precheck-token-not-for-production',
+    createdAt: '2026-07-28T02:00:00Z',
+    rowVersion: 4,
+  },
+  {
+    batchId: 'synthetic-punch-batch-002',
+    legalEntityId: 'synthetic-legal-entity',
+    sourceId: 'synthetic-source-xlsx',
+    originalFilename: 'synthetic-frozen.xlsx',
+    fileSha256: 'b'.repeat(64),
+    state: 'BLOCKED_BY_FROZEN_PERIOD',
+    totalRows: 8,
+    validRows: 8,
+    invalidRows: 0,
+    exactDuplicateRows: 0,
+    nearDuplicateRows: 0,
+    affectedEmployees: 2,
+    affectedDateFrom: '2026-06-30',
+    affectedDateTo: '2026-06-30',
+    precheckTokenPresent: false,
+    precheckToken: null,
+    createdAt: '2026-07-28T02:10:00Z',
+    rowVersion: 2,
+  },
+];
+
+export const demoPunchIssues: PunchImportIssueView[] = [
+  {
+    issueId: 'synthetic-issue-001',
+    rowNumber: 17,
+    field: 'employeeNumber',
+    code: 'EMPLOYEE_NOT_FOUND',
+    severity: 'BLOCKING',
+    safeMessage: '员工号在打卡时点没有唯一有效任职。',
+  },
+  {
+    issueId: 'synthetic-issue-002',
+    rowNumber: 29,
+    field: 'punchTime',
+    code: 'NEAR_DUPLICATE_PENDING',
+    severity: 'WARNING',
+    safeMessage: '与已有证据相差 1–60 秒，发布前需完成重复裁决。',
+  },
+];
+
+export const demoPunchRows: PunchImportRowView[] = [
+  {
+    rowId: 'synthetic-row-001',
+    rowNumber: 2,
+    employeeNumber: 'SYNTHETIC-E001',
+    punchTime: '2026-07-01 09:00:00',
+    sourceTimeZone: 'Asia/Shanghai',
+    matchState: 'MATCHED',
+    duplicateState: 'EXACT',
+    publishable: true,
+  },
+  {
+    rowId: 'synthetic-row-002',
+    rowNumber: 17,
+    employeeNumber: 'SYNTHETIC-MISSING',
+    punchTime: '2026-07-01 09:00:32',
+    sourceTimeZone: 'Asia/Shanghai',
+    matchState: 'UNMATCHED',
+    duplicateState: 'NEAR_PENDING',
+    publishable: false,
+  },
+];

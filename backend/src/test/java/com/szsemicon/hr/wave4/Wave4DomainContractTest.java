@@ -9,6 +9,9 @@ import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.EvidenceCandidat
 import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.IntervalCandidate;
 import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.Resolution;
 import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.SourceType;
+import com.szsemicon.hr.evidenceingestion.domain.EvidenceResolutionPolicy;
+import com.szsemicon.hr.evidenceingestion.domain.SourcePageCommitPolicy;
+import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -52,7 +55,7 @@ class Wave4DomainContractTest {
     @Test
     void nearDuplicateBoundariesAreZeroOneOrN() {
         EvidenceCandidate anchor = candidate(
-                "raw-1", SourceType.DEVICE_EXCEL, "2026-07-28T01:00:00Z");
+                "raw-anchor", SourceType.DEVICE_EXCEL, "2026-07-28T01:00:00Z");
         assertThat(EvidenceLedger.classify(
                 List.of(anchor, candidate(
                         "raw-0", SourceType.DELI_CLOUD, "2026-07-28T01:00:00Z")),
@@ -62,7 +65,8 @@ class Wave4DomainContractTest {
                     List.of(anchor, candidate(
                             "raw-" + seconds,
                             SourceType.DELI_CLOUD,
-                            "2026-07-28T01:00:%02dZ".formatted(seconds))),
+                            Instant.parse("2026-07-28T01:00:00Z")
+                                    .plusSeconds(seconds))),
                     60);
             assertThat(result.pendingReview()).isTrue();
             assertThat(result.activeEventCount()).isZero();
@@ -106,10 +110,101 @@ class Wave4DomainContractTest {
                 .hasMessageContaining("half-open");
     }
 
+    @Test
+    void employeeNumberWinsAndZeroOrMultipleMatchesFailClosed() {
+        EmployeeEmploymentResolverPort resolver = new EmployeeEmploymentResolverPort() {
+            @Override
+            public List<Resolution> resolveByEmployeeNumber(
+                    String legalEntityId,
+                    String employeeNumber,
+                    Instant at) {
+                return switch (employeeNumber) {
+                    case "ONE" -> List.of(resolution("employee-number"));
+                    case "MANY" -> List.of(
+                            resolution("employee-b"),
+                            resolution("employee-a"));
+                    default -> List.of();
+                };
+            }
+
+            @Override
+            public List<Resolution> resolveByConfirmedBinding(
+                    String legalEntityId,
+                    String locationId,
+                    String deviceId,
+                    String externalPersonRef,
+                    Instant at) {
+                return "BOUND".equals(externalPersonRef)
+                        ? List.of(resolution("employee-binding"))
+                        : List.of();
+            }
+        };
+
+        assertThat(EvidenceResolutionPolicy.resolve(
+                resolver, "legal-1", "ONE", "location-1",
+                "device-1", "BOUND", Instant.EPOCH).reason())
+                .isEqualTo("EMPLOYEE_NUMBER");
+        assertThat(EvidenceResolutionPolicy.resolve(
+                resolver, "legal-1", "MANY", "location-1",
+                "device-1", "BOUND", Instant.EPOCH).status())
+                .isEqualTo(EvidenceResolutionPolicy.MatchStatus.AMBIGUOUS);
+        assertThat(EvidenceResolutionPolicy.resolve(
+                resolver, "legal-1", "NONE", "location-1",
+                "device-1", "BOUND", Instant.EPOCH).reason())
+                .isEqualTo("CONFIRMED_BINDING");
+        assertThat(EvidenceResolutionPolicy.resolve(
+                resolver, "legal-1", "NONE", "location-1",
+                "device-1", "NONE", Instant.EPOCH).status())
+                .isEqualTo(EvidenceResolutionPolicy.MatchStatus.UNMATCHED);
+    }
+
+    @Test
+    void onlyACompleteCommittedPageCanAdvanceItsWatermark() {
+        String digest = "a".repeat(64);
+        var quarantined = SourcePageCommitPolicy.decide(
+                new SourcePageCommitPolicy.PageOutcome(
+                        "cursor-1", "cursor-2", 3, 2, 1, digest,
+                        true, true, true));
+        assertThat(quarantined.commitPage()).isTrue();
+        assertThat(quarantined.advanceWatermark()).isTrue();
+        assertThat(quarantined.reason())
+                .isEqualTo("COMPLETE_PAGE_WITH_QUARANTINE");
+
+        for (var failed : List.of(
+                new SourcePageCommitPolicy.PageOutcome(
+                        "cursor-1", "cursor-2", 3, 3, 0, digest,
+                        false, true, true),
+                new SourcePageCommitPolicy.PageOutcome(
+                        "cursor-1", "cursor-2", 3, 3, 0, digest,
+                        true, false, true),
+                new SourcePageCommitPolicy.PageOutcome(
+                        "cursor-1", "cursor-2", 3, 3, 0, digest,
+                        true, true, false),
+                new SourcePageCommitPolicy.PageOutcome(
+                        "cursor-1", "cursor-1", 3, 3, 0, digest,
+                        true, true, true))) {
+            assertThat(SourcePageCommitPolicy.decide(failed).advanceWatermark())
+                    .isFalse();
+        }
+    }
+
+    private static EmployeeEmploymentResolverPort.Resolution resolution(
+            String employeeId) {
+        return new EmployeeEmploymentResolverPort.Resolution(
+                employeeId,
+                employeeId + "-employment",
+                "a".repeat(64));
+    }
+
     private static EvidenceCandidate candidate(
             String rawId, SourceType source, String instant) {
+        return candidate(rawId, source, Instant.parse(instant));
+    }
+
+    private static EvidenceCandidate candidate(
+            String rawId, SourceType source, Instant instant) {
         return new EvidenceCandidate(
                 rawId, source, "legal-1", "employee-1",
-                Instant.parse(instant), Direction.IN);
+                instant, Direction.IN);
     }
 }

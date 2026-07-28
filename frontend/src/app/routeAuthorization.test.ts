@@ -140,4 +140,37 @@ describe('firstAuthorizedPath', () => {
     expect(selectedMenuKey(menu, '/rules/attendance-policy/version-1'))
       .toBe('attendance-policies');
   });
+
+  it('exposes WAVE-4 source and import routes only with their read capabilities', () => {
+    const sourceMenu = [
+      { key: 'attendance-sources-online', label: '在线来源', path: '/sources/online' },
+      { key: 'attendance-sources-oa', label: 'OA 单据', path: '/sources/oa' },
+      { key: 'attendance-source-jobs', label: '同步作业', path: '/sources/jobs' },
+    ];
+    const importMenu = [{
+      key: 'attendance-punch-imports',
+      label: '异构考勤 Excel',
+      path: '/sources/attendance-excel',
+    }];
+
+    expect(authorizedMenu({
+      capabilities: ['ATTENDANCE_SOURCE:READ'],
+      menu: [...sourceMenu, ...importMenu],
+    })).toEqual(sourceMenu);
+    expect(authorizedMenu({
+      capabilities: ['ATTENDANCE_PUNCH_IMPORT:READ'],
+      menu: [...sourceMenu, ...importMenu],
+    })).toEqual(importMenu);
+    expect(authorizedMenu({
+      capabilities: [
+        'ATTENDANCE_SOURCE:CONFIGURE',
+        'ATTENDANCE_PUNCH_IMPORT:PUBLISH',
+      ],
+      menu: [...sourceMenu, ...importMenu],
+    })).toEqual([]);
+    expect(selectedMenuKey(
+      importMenu,
+      '/sources/attendance-excel/synthetic-batch',
+    )).toBe('attendance-punch-imports');
+  });
 });
