@@ -194,6 +194,26 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
             {"field", "row", "snapshotLine", "finalHashInput"},
         )
 
+    def test_mysql_database_identity_tsv_is_exact(self) -> None:
+        identity = (
+            "mysql8410:533ca0bc-89c8-11f1-a08b-1ee9344ad44b:"
+            "shenzhou_hr_test"
+        )
+        self.assertEqual(
+            producer.expected_mysql_db_identity_tsv(identity),
+            (
+                f"db_identity\t{identity}\n"
+                "server_uuid\t533ca0bc-89c8-11f1-a08b-1ee9344ad44b\n"
+                "database\tshenzhou_hr_test\n"
+            ).encode("utf-8"),
+        )
+        with self.assertRaisesRegex(
+            producer.ProducerError, "database identity is invalid"
+        ):
+            producer.expected_mysql_db_identity_tsv(
+                "mysql8410:not-a-uuid:shenzhou_hr_test"
+            )
+
     def test_openapi_controller_and_request_schema_closure(self) -> None:
         comparison = producer.compare_operation_closure(
             self.controllers, self.operations, self.openapi

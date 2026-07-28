@@ -4181,6 +4181,17 @@ def parse_tsv_bytes(contents: bytes, label: str) -> dict[str, str]:
     return values
 
 
+def expected_mysql_db_identity_tsv(database_identity: str) -> bytes:
+    if not DATABASE_IDENTITY_PATTERN.fullmatch(database_identity):
+        fail("isolated MySQL database identity is invalid")
+    server_uuid = database_identity.split(":", 2)[1]
+    return (
+        f"db_identity\t{database_identity}\n"
+        f"server_uuid\t{server_uuid}\n"
+        "database\tshenzhou_hr_test\n"
+    ).encode("utf-8")
+
+
 def produce(
     run_context_path: Path,
     runtime_env_path: Path,
@@ -4688,6 +4699,7 @@ def produce(
             {
                 "verify-run-context.tsv",
                 "verify.log",
+                "verify-db-identity.tsv",
                 "verify-mysql8410-server-identity.tsv",
                 "existing-mysql8034-verify-before.tsv",
                 "existing-mysql8034-verify-after.tsv",
@@ -4740,6 +4752,11 @@ def produce(
         }
         if verify_context != expected_verify_context:
             fail("isolated MySQL verify run-context TSV semantics differ")
+        if read_identity_evidence(
+            "verify-db-identity.tsv",
+            "isolated MySQL verify database identity",
+        ) != expected_mysql_db_identity_tsv(context["databaseIdentity"]):
+            fail("isolated MySQL verify database identity TSV semantics differ")
 
         mysql_capture_dir = stage_root / "internal/mysql-semantic-captures"
         mysql_capture_fd, capture_identity = (
