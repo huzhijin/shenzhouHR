@@ -1,0 +1,13 @@
+{
+  "kind": "critique-panel",
+  "artifact": "V19-OD-15",
+  "score": 4,
+  "axes": {
+    "clarity": {"score": 5, "notes": "核心指标、口径、源水位、展示刷新和授权范围清晰分离。"},
+    "hierarchy": {"score": 4, "notes": "页头、六项 KPI、趋势结构和运行状态形成稳定的 16:9 扫读顺序。"},
+    "typography": {"score": 4, "notes": "大屏数值使用等宽字体，正文保持制造控制台密度，1920 与 4K 等比一致。"},
+    "motion": {"score": 4, "notes": "仅范围切换、刷新确认和状态加载使用短反馈，并支持 reduced-motion。"},
+    "brand": {"score": 5, "notes": "完整横版 Logo、品牌蓝、状态色、8px 节奏和克制的企业控制台语言保持一致。"}
+  },
+  "refine": "修正部门范围下月结阻断、待处理批次和图表可访问文本的范围口径矛盾，并锁定 16:9 等比缩放。"
+}

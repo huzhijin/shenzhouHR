@@ -1,0 +1,339 @@
+{
+  "schema": "open-design.design-manifest.v1",
+  "title": "design",
+  "entryFile": "open-design/v1.9/v19-od-00-project-brief.html",
+  "sourceFiles": {
+    "all": [
+      "open-design/v1.9/artifact-index.md",
+      "open-design/v1.9/assets/shenzhou-logo.svg",
+      "open-design/v1.9/assets/v19-prototype.css",
+      "open-design/v1.9/assets/v19-prototype.js",
+      "open-design/v1.9/assumptions.md",
+      "open-design/v1.9/batch-critique.json",
+      "open-design/v1.9/component-inventory.md",
+      "open-design/v1.9/demo-data-registry.json",
+      "open-design/v1.9/demo-flow.md",
+      "open-design/v1.9/design-handoff.md",
+      "open-design/v1.9/design-system/brand-spec.md",
+      "open-design/v1.9/design-system/design-tokens.json",
+      "open-design/v1.9/design-system/DESIGN.md",
+      "open-design/v1.9/design-system/manifest.json",
+      "open-design/v1.9/design-system/tokens.css",
+      "open-design/v1.9/missing-blocked-not-verified.md",
+      "open-design/v1.9/page-state-matrix.md",
+      "open-design/v1.9/qa.md",
+      "open-design/v1.9/react-implementation-notes.md",
+      "open-design/v1.9/responsive-screenshot-checklist.md",
+      "open-design/v1.9/route-to-artifact.json",
+      "open-design/v1.9/shenzhou-hr-design-system.zip",
+      "open-design/v1.9/v19-od-00-project-brief.html",
+      "open-design/v1.9/v19-od-01-login-shell.html",
+      "open-design/v1.9/v19-od-02-role-workbench.html",
+      "open-design/v1.9/v19-od-03-people-initial-import.html",
+      "open-design/v1.9/v19-od-04-organization-employment.html",
+      "open-design/v1.9/v19-od-05-rule-center.html",
+      "open-design/v1.9/v19-od-06-attendance-groups-shifts.html",
+      "open-design/v1.9/v19-od-07-attendance-policies.html",
+      "open-design/v1.9/v19-od-08-leave-annual-policy.html",
+      "open-design/v1.9/v19-od-09-time-accounts.html",
+      "open-design/v1.9/v19-od-10a-offline-punch-import.html",
+      "open-design/v1.9/v19-od-10b-online-oa-sources.html",
+      "open-design/v1.9/v19-od-11-attendance-evidence.html",
+      "open-design/v1.9/v19-od-12-exceptions-close-reports.html",
+      "open-design/v1.9/v19-od-13-employee-mobile.html",
+      "open-design/v1.9/v19-od-14-access-audit-ops.html",
+      "open-design/v1.9/v19-od-15-attendance-screen.html",
+      "open-design/v1.9/v19-od-15-critique.json",
+      "open-design/v1.9/v19-od-16-critique.json",
+      "open-design/v1.9/v19-od-16-qa-handoff.html"
+    ],
+    "html": [
+      "open-design/v1.9/v19-od-00-project-brief.html",
+      "open-design/v1.9/v19-od-01-login-shell.html",
+      "open-design/v1.9/v19-od-02-role-workbench.html",
+      "open-design/v1.9/v19-od-03-people-initial-import.html",
+      "open-design/v1.9/v19-od-04-organization-employment.html",
+      "open-design/v1.9/v19-od-05-rule-center.html",
+      "open-design/v1.9/v19-od-06-attendance-groups-shifts.html",
+      "open-design/v1.9/v19-od-07-attendance-policies.html",
+      "open-design/v1.9/v19-od-08-leave-annual-policy.html",
+      "open-design/v1.9/v19-od-09-time-accounts.html",
+      "open-design/v1.9/v19-od-10a-offline-punch-import.html",
+      "open-design/v1.9/v19-od-10b-online-oa-sources.html",
+      "open-design/v1.9/v19-od-11-attendance-evidence.html",
+      "open-design/v1.9/v19-od-12-exceptions-close-reports.html",
+      "open-design/v1.9/v19-od-13-employee-mobile.html",
+      "open-design/v1.9/v19-od-14-access-audit-ops.html",
+      "open-design/v1.9/v19-od-15-attendance-screen.html",
+      "open-design/v1.9/v19-od-16-qa-handoff.html"
+    ],
+    "css": [
+      "open-design/v1.9/assets/v19-prototype.css",
+      "open-design/v1.9/design-system/tokens.css"
+    ],
+    "scriptsAndComponents": [
+      "open-design/v1.9/assets/v19-prototype.js"
+    ],
+    "assets": [
+      "open-design/v1.9/artifact-index.md",
+      "open-design/v1.9/assets/shenzhou-logo.svg",
+      "open-design/v1.9/assumptions.md",
+      "open-design/v1.9/batch-critique.json",
+      "open-design/v1.9/component-inventory.md",
+      "open-design/v1.9/demo-data-registry.json",
+      "open-design/v1.9/demo-flow.md",
+      "open-design/v1.9/design-handoff.md",
+      "open-design/v1.9/design-system/brand-spec.md",
+      "open-design/v1.9/design-system/design-tokens.json",
+      "open-design/v1.9/design-system/DESIGN.md",
+      "open-design/v1.9/design-system/manifest.json",
+      "open-design/v1.9/missing-blocked-not-verified.md",
+      "open-design/v1.9/page-state-matrix.md",
+      "open-design/v1.9/qa.md",
+      "open-design/v1.9/react-implementation-notes.md",
+      "open-design/v1.9/responsive-screenshot-checklist.md",
+      "open-design/v1.9/route-to-artifact.json",
+      "open-design/v1.9/shenzhou-hr-design-system.zip",
+      "open-design/v1.9/v19-od-15-critique.json",
+      "open-design/v1.9/v19-od-16-critique.json"
+    ]
+  },
+  "screens": [
+    {
+      "file": "open-design/v1.9/v19-od-00-project-brief.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-01-login-shell.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-02-role-workbench.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-03-people-initial-import.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-04-organization-employment.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-05-rule-center.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-06-attendance-groups-shifts.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-07-attendance-policies.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-08-leave-annual-policy.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-09-time-accounts.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-10a-offline-punch-import.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-10b-online-oa-sources.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-11-attendance-evidence.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-12-exceptions-close-reports.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-13-employee-mobile.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-14-access-audit-ops.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-15-attendance-screen.html",
+      "role": "product-screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    },
+    {
+      "file": "open-design/v1.9/v19-od-16-qa-handoff.html",
+      "role": "screen",
+      "implementationNote": "Preserve visual hierarchy, responsive behavior, and interactive states from this screen."
+    }
+  ],
+  "screenFilePolicy": {
+    "mode": "screen-file-first",
+    "entryFileRole": "primary-screen",
+    "rules": [
+      "Each distinct user-facing screen or surface must be delivered and implemented as its own file/route.",
+      "If a landing page is present or requested, keep it in landing.html and do not merge it into the product app screen.",
+      "When multiple HTML screens exist, index.html is a launcher/overview only; it must not be treated as the combined final UI.",
+      "Keep product app screens, landing pages, platform screens, and OS widget surfaces separate in production code."
+    ]
+  },
+  "appModules": [
+    "Identify domain-specific in-app modules from the exported UI; do not reduce them to generic cards.",
+    "For each major module, implement purpose, default/loading/empty/error/success states, and responsive behavior.",
+    "Keep app modules separate from OS home-screen widgets in the production component model."
+  ],
+  "osWidgets": [
+    "If the export includes home-screen, lock-screen, Live Activity, tablet glance, or Android widget surfaces, implement them as platform quick-access surfaces outside the app UI.",
+    "If none are present, do not invent OS widgets unless the product requirements request them."
+  ],
+  "landingPage": {
+    "detection": "Inspect files and screen names for a marketing/landing page surface. If present, keep it separate from product app screens.",
+    "requiredSections": [
+      "hero",
+      "value props",
+      "product proof/screenshots",
+      "feature proof",
+      "CTA"
+    ]
+  },
+  "tokens": {
+    "source": [
+      "open-design/v1.9/assets/v19-prototype.css",
+      "open-design/v1.9/design-system/tokens.css"
+    ],
+    "required": [
+      "background",
+      "surface",
+      "foreground",
+      "muted text",
+      "border",
+      "accent",
+      "radius",
+      "shadow",
+      "spacing",
+      "type scale",
+      "motion"
+    ],
+    "note": "Extract/freeze tokens before framework implementation so coding tools do not substitute default theme colors or typography."
+  },
+  "interactions": {
+    "source": [
+      "open-design/v1.9/assets/v19-prototype.js"
+    ],
+    "requiredStates": [
+      "default",
+      "hover",
+      "focus",
+      "active",
+      "disabled",
+      "loading",
+      "empty",
+      "error",
+      "success"
+    ],
+    "requiredBehaviors": [
+      "forms/validation where present",
+      "tabs/filters where present",
+      "dialogs/sheets/drawers where present",
+      "copy/generate/share actions where present",
+      "player or quick controls where present"
+    ],
+    "note": "If the prototype is static, derive missing behavior from visible controls and document it before coding."
+  },
+  "responsiveViewports": [
+    {
+      "name": "mobile-compact",
+      "width": 360,
+      "height": 800,
+      "category": "mobile",
+      "mustAvoidHorizontalScroll": true
+    },
+    {
+      "name": "mobile-standard",
+      "width": 390,
+      "height": 844,
+      "category": "mobile",
+      "mustAvoidHorizontalScroll": true
+    },
+    {
+      "name": "mobile-large",
+      "width": 430,
+      "height": 932,
+      "category": "mobile",
+      "mustAvoidHorizontalScroll": true
+    },
+    {
+      "name": "foldable-small-tablet",
+      "width": 600,
+      "height": 960,
+      "category": "foldable-tablet",
+      "mustAvoidHorizontalScroll": true
+    },
+    {
+      "name": "tablet-portrait",
+      "width": 820,
+      "height": 1180,
+      "category": "tablet",
+      "mustAvoidHorizontalScroll": true
+    },
+    {
+      "name": "tablet-landscape",
+      "width": 1024,
+      "height": 768,
+      "category": "tablet",
+      "mustAvoidHorizontalScroll": true
+    },
+    {
+      "name": "laptop",
+      "width": 1366,
+      "height": 768,
+      "category": "desktop",
+      "mustAvoidHorizontalScroll": true
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "category": "desktop",
+      "mustAvoidHorizontalScroll": true
+    },
+    {
+      "name": "wide",
+      "width": 1920,
+      "height": 1080,
+      "category": "wide",
+      "mustAvoidHorizontalScroll": true
+    }
+  ],
+  "implementationChecklist": [
+    "Open entryFile first and map screens, modules, tokens, and interactions.",
+    "Extract tokens before writing framework components.",
+    "Implement app-specific modules with real states instead of generic card grids.",
+    "Preserve or rebuild JS interactions for meaningful UX actions.",
+    "Validate screenshots at desktop/tablet/mobile viewports with no horizontal overflow.",
+    "Keep landing pages, in-app modules, and OS widgets as separate implementation surfaces."
+  ]
+}

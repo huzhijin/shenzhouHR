@@ -1,0 +1,7 @@
+metric	value
+server_version	8.0.34
+server_hostname	huzhijindeMacBook-Pro.local
+server_port	3306
+character_set_server	utf8mb4
+collation_server	utf8mb4_0900_ai_ci
+default_storage_engine	InnoDB

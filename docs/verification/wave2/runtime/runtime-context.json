@@ -1,0 +1,12 @@
+{
+  "runId": "ms17xm8i0bb61873",
+  "generatedAt": "2026-07-26T03:08:32.863Z",
+  "legalEntityId": "30000000-0000-0000-0000-000000000001",
+  "organizationId": "7fa6b537-9e00-49bc-87b1-c8e5aa1dde92",
+  "organizationCode": "W2ROOTXM8I0BB61873",
+  "employeeId": "c6d261dc-6198-4f37-9e7b-e55e165775c8",
+  "employeeNumber": "W2UNDERTESTXM8I0BB61873",
+  "importedEmployeeId": "8511deda-5e9f-4fb3-ba63-68e64cf92ad6",
+  "blockingBatchId": "fd2b36c4-00be-416a-8c8b-aa07ab3840e4",
+  "blockingBatchStatus": "VALIDATION_FAILED"
+}

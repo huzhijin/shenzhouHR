@@ -1,0 +1,18 @@
+# UmaDev project configuration
+[quality]
+threshold = 90
+skip_checks = []
+
+[pipeline]
+skip_phases = []
+max_review_rounds = 3
+strict_coverage = false
+auto_approve_gates = false
+
+[knowledge]
+enabled = true
+engine = "hybrid"
+top_k = 6
+
+[codex]
+sandbox_mode = "danger-full-access"

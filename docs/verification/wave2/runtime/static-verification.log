@@ -1,0 +1,471 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------------< com.szsemicon:shenzhou-hr >----------------------
+[INFO] Building shenzhou-hr 0.1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- enforcer:3.6.2:enforce (enforce-java) @ shenzhou-hr ---
+[INFO] Rule 0: org.apache.maven.enforcer.rules.version.RequireJavaVersion passed
+[INFO] 
+[INFO] --- resources:3.5.0:resources (default-resources) @ shenzhou-hr ---
+[INFO] Copying 2 resources from src/main/resources to target/classes
+[INFO] Copying 13 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.15.0:compile (default-compile) @ shenzhou-hr ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.5.0:testResources (default-testResources) @ shenzhou-hr ---
+[INFO] Copying 4 resources from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.15.0:testCompile (default-testCompile) @ shenzhou-hr ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 20 source files with javac [debug parameters release 21] to target/test-classes
+[INFO] 
+[INFO] --- surefire:3.5.6:test (default-test) @ shenzhou-hr ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.szsemicon.hr.wave2.Wave2OpenApiContractTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.627 s -- in com.szsemicon.hr.wave2.Wave2OpenApiContractTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  11.639 s
+[INFO] Finished at: 2026-07-26T11:31:08+08:00
+[INFO] ------------------------------------------------------------------------
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------------< com.szsemicon:shenzhou-hr >----------------------
+[INFO] Building shenzhou-hr 0.1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- enforcer:3.6.2:enforce (enforce-java) @ shenzhou-hr ---
+[INFO] Rule 0: org.apache.maven.enforcer.rules.version.RequireJavaVersion passed
+[INFO] 
+[INFO] --- resources:3.5.0:resources (default-resources) @ shenzhou-hr ---
+[INFO] Copying 2 resources from src/main/resources to target/classes
+[INFO] Copying 13 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.15.0:compile (default-compile) @ shenzhou-hr ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.5.0:testResources (default-testResources) @ shenzhou-hr ---
+[INFO] Copying 4 resources from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.15.0:testCompile (default-testCompile) @ shenzhou-hr ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 20 source files with javac [debug parameters release 21] to target/test-classes
+[INFO] 
+[INFO] --- surefire:3.5.6:test (default-test) @ shenzhou-hr ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.szsemicon.hr.organization.application.CurrentOrganizationQueryServiceTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.266 s -- in com.szsemicon.hr.organization.application.CurrentOrganizationQueryServiceTest
+[INFO] Running com.szsemicon.hr.wave2.Wave2OpenApiContractTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.153 s -- in com.szsemicon.hr.wave2.Wave2OpenApiContractTest
+[INFO] Running com.szsemicon.hr.wave2.PeopleWorkbookTemplateContractTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.443 s -- in com.szsemicon.hr.wave2.PeopleWorkbookTemplateContractTest
+[INFO] Running com.szsemicon.hr.shared.security.DevelopmentPrincipalFilterTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.083 s -- in com.szsemicon.hr.shared.security.DevelopmentPrincipalFilterTest
+[INFO] Running com.szsemicon.hr.shared.web.CorrelationIdFilterTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.010 s -- in com.szsemicon.hr.shared.web.CorrelationIdFilterTest
+[INFO] Running com.szsemicon.hr.shared.ExternalPreciseIdTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.007 s -- in com.szsemicon.hr.shared.ExternalPreciseIdTest
+[INFO] Running com.szsemicon.hr.architecture.LayerDependencyTest
+11:31:26.672 [main] INFO com.tngtech.archunit.core.PluginLoader -- Detected Java version 21.0.11
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 10.74 s -- in com.szsemicon.hr.architecture.LayerDependencyTest
+[INFO] Running com.szsemicon.hr.architecture.MyBatisMapperContractTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.336 s -- in com.szsemicon.hr.architecture.MyBatisMapperContractTest
+[INFO] Running com.szsemicon.hr.wave1.Wave1AuthenticationSecurityIntegrationTest
+11:31:37.853 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1AuthenticationSecurityIntegrationTest]: Wave1AuthenticationSecurityIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+11:31:38.062 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave1AuthenticationSecurityIntegrationTest
+11:31:38.234 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1AuthenticationSecurityIntegrationTest]: Wave1AuthenticationSecurityIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+11:31:38.235 [main] INFO org.springframework.test.context.support.AnnotationConfigContextLoaderUtils -- Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1IntegrationTestSupport]: Wave1IntegrationTestSupport does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+11:31:38.240 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave1AuthenticationSecurityIntegrationTest
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v4.1.0)
+
+2026-07-26T11:31:38.936+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] ve1AuthenticationSecurityIntegrationTest : Starting Wave1AuthenticationSecurityIntegrationTest using Java 21.0.11 with PID 57754 (started by huzhijin in /Users/huzhijin/Downloads/shenzhouHR/backend)
+2026-07-26T11:31:38.939+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] ve1AuthenticationSecurityIntegrationTest : The following 1 profile is active: "test"
+2026-07-26T11:31:41.590+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-07-26T11:31:41.961+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:shenzhouhr-d836cda5-5511-473e-9d2d-9e3754789917 user=SA
+2026-07-26T11:31:41.964+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-07-26T11:31:45.936+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-07-26T11:31:45.936+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-07-26T11:31:45.977+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 3 endpoints beneath base path '/actuator'
+2026-07-26T11:31:46.045+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 109 ms
+2026-07-26T11:31:46.388+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] ve1AuthenticationSecurityIntegrationTest : Started Wave1AuthenticationSecurityIntegrationTest in 8.058 seconds (process running for 25.684)
+Mockito is currently self-attaching to enable the inline-mock-maker. This will no longer work in future releases of the JDK. Please add Mockito as an agent to your build as described in Mockito's documentation: https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
+WARNING: A Java agent has been loaded dynamically (/Users/huzhijin/.m2/repository/net/bytebuddy/byte-buddy-agent/1.18.10/byte-buddy-agent-1.18.10.jar)
+WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning
+WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information
+WARNING: Dynamic loading of agents will be disallowed by default in a future release
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 15.89 s -- in com.szsemicon.hr.wave1.Wave1AuthenticationSecurityIntegrationTest
+[INFO] Running com.szsemicon.hr.wave1.Wave2PeopleAcceptanceIntegrationTest
+2026-07-26T11:31:53.634+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave2PeopleAcceptanceIntegrationTest]: Wave2PeopleAcceptanceIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:53.641+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave2PeopleAcceptanceIntegrationTest
+2026-07-26T11:31:53.644+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave2PeopleAcceptanceIntegrationTest]: Wave2PeopleAcceptanceIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:53.644+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1IntegrationTestSupport]: Wave1IntegrationTestSupport does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:53.648+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave2PeopleAcceptanceIntegrationTest
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.024 s -- in com.szsemicon.hr.wave1.Wave2PeopleAcceptanceIntegrationTest
+[INFO] Running com.szsemicon.hr.wave1.Wave1OpenApiContractTest
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.048 s -- in com.szsemicon.hr.wave1.Wave1OpenApiContractTest
+[INFO] Running com.szsemicon.hr.wave1.Wave2ApiBehaviorContractIntegrationTest
+2026-07-26T11:31:54.709+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave2ApiBehaviorContractIntegrationTest]: Wave2ApiBehaviorContractIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:54.714+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave2ApiBehaviorContractIntegrationTest
+2026-07-26T11:31:54.715+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave2ApiBehaviorContractIntegrationTest]: Wave2ApiBehaviorContractIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:54.716+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1IntegrationTestSupport]: Wave1IntegrationTestSupport does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:54.721+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave2ApiBehaviorContractIntegrationTest
+2026-07-26T11:31:54.758+08:00  WARN [correlation_id=5d56bd92-eb55-42fa-89a5-6af04f620bdb] 57754 --- [shenzhou-hr] [           main] .w.s.m.s.DefaultHandlerExceptionResolver : Resolved [org.springframework.web.HttpRequestMethodNotSupportedException: Request method 'DELETE' is not supported]
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.873 s -- in com.szsemicon.hr.wave1.Wave2ApiBehaviorContractIntegrationTest
+[INFO] Running com.szsemicon.hr.wave1.Wave2PeopleExtendedAcceptanceIntegrationTest
+2026-07-26T11:31:55.584+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave2PeopleExtendedAcceptanceIntegrationTest]: Wave2PeopleExtendedAcceptanceIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:55.587+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave2PeopleExtendedAcceptanceIntegrationTest
+2026-07-26T11:31:55.589+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave2PeopleExtendedAcceptanceIntegrationTest]: Wave2PeopleExtendedAcceptanceIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:55.589+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1IntegrationTestSupport]: Wave1IntegrationTestSupport does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:55.592+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave2PeopleExtendedAcceptanceIntegrationTest
+2026-07-26T11:31:56.353+08:00  WARN [correlation_id=3e428c02-c8eb-41df-a6ee-de939f26662b] 57754 --- [shenzhou-hr] [           main] .w.s.m.s.DefaultHandlerExceptionResolver : Resolved [org.springframework.web.HttpRequestMethodNotSupportedException: Request method 'DELETE' is not supported]
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.871 s -- in com.szsemicon.hr.wave1.Wave2PeopleExtendedAcceptanceIntegrationTest
+[INFO] Running com.szsemicon.hr.wave1.Wave1AccountAuthorizationAuditIntegrationTest
+2026-07-26T11:31:56.457+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1AccountAuthorizationAuditIntegrationTest]: Wave1AccountAuthorizationAuditIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:56.460+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave1AccountAuthorizationAuditIntegrationTest
+2026-07-26T11:31:56.462+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1AccountAuthorizationAuditIntegrationTest]: Wave1AccountAuthorizationAuditIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:56.463+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1IntegrationTestSupport]: Wave1IntegrationTestSupport does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:56.466+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave1AccountAuthorizationAuditIntegrationTest
+2026-07-26T11:31:56.878+08:00  WARN [correlation_id=c9f09b2a-93c2-474c-a66d-b577ccfa4a70] 57754 --- [shenzhou-hr] [           main] .w.s.m.s.DefaultHandlerExceptionResolver : Resolved [org.springframework.web.HttpRequestMethodNotSupportedException: Request method 'POST' is not supported]
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.207 s -- in com.szsemicon.hr.wave1.Wave1AccountAuthorizationAuditIntegrationTest
+[INFO] Running com.szsemicon.hr.wave1.Wave1PolicyLifecycleIntegrationTest
+2026-07-26T11:31:57.666+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1PolicyLifecycleIntegrationTest]: Wave1PolicyLifecycleIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:57.671+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave1PolicyLifecycleIntegrationTest
+2026-07-26T11:31:57.672+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1PolicyLifecycleIntegrationTest]: Wave1PolicyLifecycleIntegrationTest does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:57.673+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1IntegrationTestSupport]: Wave1IntegrationTestSupport does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:57.676+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.Wave1PolicyLifecycleIntegrationTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.651 s -- in com.szsemicon.hr.wave1.Wave1PolicyLifecycleIntegrationTest
+[INFO] Running com.szsemicon.hr.wave1.SyntheticAdminBootstrapTest
+2026-07-26T11:31:58.324+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.SyntheticAdminBootstrapTest
+2026-07-26T11:31:58.326+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] t.c.s.AnnotationConfigContextLoaderUtils : Could not detect default configuration classes for test class [com.szsemicon.hr.wave1.Wave1IntegrationTestSupport]: Wave1IntegrationTestSupport does not declare any static, non-private, non-final, nested classes annotated with @Configuration.
+2026-07-26T11:31:58.330+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.wave1.SyntheticAdminBootstrapTest
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v4.1.0)
+
+2026-07-26T11:31:58.411+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] c.s.h.wave1.SyntheticAdminBootstrapTest  : Starting SyntheticAdminBootstrapTest using Java 21.0.11 with PID 57754 (started by huzhijin in /Users/huzhijin/Downloads/shenzhouHR/backend)
+2026-07-26T11:31:58.411+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] c.s.h.wave1.SyntheticAdminBootstrapTest  : The following 1 profile is active: "test"
+2026-07-26T11:31:59.348+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-2 - Starting...
+2026-07-26T11:31:59.353+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-2 - Added connection conn3: url=jdbc:h2:mem:shenzhouhr-32a8cfb8-65c9-42db-8622-65394efb31f9 user=SA
+2026-07-26T11:31:59.354+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-2 - Start completed.
+2026-07-26T11:32:01.338+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-07-26T11:32:01.338+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-07-26T11:32:01.355+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 3 endpoints beneath base path '/actuator'
+2026-07-26T11:32:01.378+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 39 ms
+2026-07-26T11:32:01.481+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] c.s.h.wave1.SyntheticAdminBootstrapTest  : Started SyntheticAdminBootstrapTest in 3.135 seconds (process running for 40.778)
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.414 s -- in com.szsemicon.hr.wave1.SyntheticAdminBootstrapTest
+[INFO] Running com.szsemicon.hr.api.ReadApiSecurityIntegrationTest
+2026-07-26T11:32:07.775+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.api.ReadApiSecurityIntegrationTest
+2026-07-26T11:32:07.778+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] .b.t.c.SpringBootTestContextBootstrapper : Found @SpringBootConfiguration com.szsemicon.hr.ShenzhouHrApplication for test class com.szsemicon.hr.api.ReadApiSecurityIntegrationTest
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v4.1.0)
+
+2026-07-26T11:32:07.839+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] c.s.h.a.ReadApiSecurityIntegrationTest   : Starting ReadApiSecurityIntegrationTest using Java 21.0.11 with PID 57754 (started by huzhijin in /Users/huzhijin/Downloads/shenzhouHR/backend)
+2026-07-26T11:32:07.839+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] c.s.h.a.ReadApiSecurityIntegrationTest   : The following 1 profile is active: "test"
+2026-07-26T11:32:08.473+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-3 - Starting...
+2026-07-26T11:32:08.478+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-3 - Added connection conn6: url=jdbc:h2:mem:shenzhouhr-4fbbbfee-7828-47c6-9713-6dfa32d54e44 user=SA
+2026-07-26T11:32:08.479+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-3 - Start completed.
+2026-07-26T11:32:10.138+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.b.t.m.w.SpringBootMockServletContext : Initializing Spring TestDispatcherServlet ''
+2026-07-26T11:32:10.138+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-07-26T11:32:10.148+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 3 endpoints beneath base path '/actuator'
+2026-07-26T11:32:10.163+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 25 ms
+2026-07-26T11:32:10.243+08:00  INFO [correlation_id=] 57754 --- [shenzhou-hr] [           main] c.s.h.a.ReadApiSecurityIntegrationTest   : Started ReadApiSecurityIntegrationTest in 2.458 seconds (process running for 49.54)
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.021 s -- in com.szsemicon.hr.api.ReadApiSecurityIntegrationTest
+[INFO] Running com.szsemicon.hr.authorization.application.CurrentCapabilityServiceTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.007 s -- in com.szsemicon.hr.authorization.application.CurrentCapabilityServiceTest
+[INFO] Running com.szsemicon.hr.employee.application.EmployeeListQueryServiceTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.010 s -- in com.szsemicon.hr.employee.application.EmployeeListQueryServiceTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 87, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  58.793 s
+[INFO] Finished at: 2026-07-26T11:32:10+08:00
+[INFO] ------------------------------------------------------------------------
+
+> shenzhou-hr-frontend@0.1.0 lint
+> eslint .
+
+
+> shenzhou-hr-frontend@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/huzhijin/Downloads/shenzhouHR/frontend
+
+
+ Test Files  16 passed (16)
+      Tests  126 passed (126)
+   Start at  11:32:19
+   Duration  23.76s (transform 2.78s, setup 9.84s, import 36.67s, tests 20.83s, environment 75.19s)
+
+
+> shenzhou-hr-frontend@0.1.0 build
+> tsc -b && vite build
+
+vite v8.1.5 building client environment for production...
+[2Ktransforming...✓ 7726 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                     1.33 kB │ gzip:   0.60 kB
+dist/assets/shenzhou-logo-BaomUe1Z.svg             80.09 kB │ gzip:  23.75 kB
+dist/assets/index-DcCXsbta.css                     30.83 kB │ gzip:   6.00 kB
+dist/assets/IconPlus-C3Lwp9u5.js                    0.16 kB │ gzip:   0.15 kB
+dist/assets/IconShieldCheck-D33eVuM1.js             0.27 kB │ gzip:   0.21 kB
+dist/assets/IconEdit-DDOomf_1.js                    0.31 kB │ gzip:   0.22 kB
+dist/assets/IconPlayerPause-CaAIuZca.js             0.31 kB │ gzip:   0.18 kB
+dist/assets/rolldown-runtime-Bh1tDfsg.js            0.56 kB │ gzip:   0.36 kB
+dist/assets/PlusOutlined-JZtHZjhE.js                0.79 kB │ gzip:   0.52 kB
+dist/assets/useIcons-gquyd_0O.js                    1.05 kB │ gzip:   0.57 kB
+dist/assets/RolesPage-nw4aXOjT.js                   1.12 kB │ gzip:   0.58 kB
+dist/assets/auditApi-_nhuIIza.js                    1.51 kB │ gzip:   0.77 kB
+dist/assets/AuditDetailPage-Bo5peh4G.js             2.15 kB │ gzip:   1.00 kB
+dist/assets/AuditPage-DphLR51u.js                   2.31 kB │ gzip:   1.09 kB
+dist/assets/PolicyTemplatesPage-Co9idmM7.js         3.12 kB │ gzip:   1.35 kB
+dist/assets/accessApi-DWjpGtNU.js                   3.25 kB │ gzip:   1.27 kB
+dist/assets/AccessComponents-B-6erTop.js            3.38 kB │ gzip:   1.29 kB
+dist/assets/PolicyTemplateDetailPage-DlELyD0l.js    3.73 kB │ gzip:   1.47 kB
+dist/assets/PeopleCommon-DuCmNgAk.js                4.44 kB │ gzip:   1.68 kB
+dist/assets/policyApi-C7gNhUur.js                   4.62 kB │ gzip:   1.82 kB
+dist/assets/useForm-DYJme7zZ.js                     4.71 kB │ gzip:   2.11 kB
+dist/assets/AccountDetailPage-DpFA421Q.js           4.74 kB │ gzip:   1.97 kB
+dist/assets/EmployeesPage-BVHzWAJ6.js               5.74 kB │ gzip:   2.25 kB
+dist/assets/AccountsPage-DBC5ntlA.js                5.77 kB │ gzip:   2.28 kB
+dist/assets/PolicyComponents-6SWOWqnE.js            7.22 kB │ gzip:   2.19 kB
+dist/assets/checkbox-DiRWaoR2.js                    7.45 kB │ gzip:   3.10 kB
+dist/assets/employeeApi-CBp3v2gr.js                 9.15 kB │ gzip:   3.11 kB
+dist/assets/RulesHomePage-DcuF3AJg.js              10.44 kB │ gzip:   3.66 kB
+dist/assets/OrganizationPage-DbQ5aI9d.js           13.45 kB │ gzip:   4.51 kB
+dist/assets/EmployeeDetailPage-CXw4rY6u.js         14.72 kB │ gzip:   4.24 kB
+dist/assets/PolicyVersionPage-BfI2ArWz.js          16.19 kB │ gzip:   5.79 kB
+dist/assets/input-number-BgOe-Cd_.js               20.93 kB │ gzip:   7.58 kB
+dist/assets/PagePrimitives-DH4rGyCA.js             21.83 kB │ gzip:   7.18 kB
+dist/assets/tabs-CVYXVOYu.js                       34.67 kB │ gzip:  10.84 kB
+dist/assets/useAsyncResource-BSm1zgUr.js           55.80 kB │ gzip:  16.66 kB
+dist/assets/select-B1o929sZ.js                     69.53 kB │ gzip:  24.15 kB
+dist/assets/index-CQEUMIVw.js                      69.67 kB │ gzip:  24.08 kB
+dist/assets/PeopleImportPage-CuGqvrcP.js           77.44 kB │ gzip:  24.87 kB
+dist/assets/date-picker-Bt7hSGO_.js               107.11 kB │ gzip:  34.01 kB
+dist/assets/StatePanel-DDvK7NNo.js                142.21 kB │ gzip:  47.17 kB
+dist/assets/DataTable-aTeV-zn4.js                 184.52 kB │ gzip:  57.43 kB
+dist/assets/jsx-runtime-DWlBgGoG.js               574.27 kB │ gzip: 187.87 kB
+
+✓ built in 1.66s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+> shenzhou-hr-frontend@0.1.0 build:demo
+> tsc -b && vite build --mode demo
+
+vite v8.1.5 building client environment for demo...
+[2Ktransforming...✓ 7726 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                     1.33 kB │ gzip:   0.60 kB
+dist/assets/shenzhou-logo-BaomUe1Z.svg             80.09 kB │ gzip:  23.75 kB
+dist/assets/index-DcCXsbta.css                     30.83 kB │ gzip:   6.00 kB
+dist/assets/IconPlus-C3Lwp9u5.js                    0.16 kB │ gzip:   0.15 kB
+dist/assets/IconShieldCheck-D33eVuM1.js             0.27 kB │ gzip:   0.21 kB
+dist/assets/IconEdit-DDOomf_1.js                    0.31 kB │ gzip:   0.22 kB
+dist/assets/IconPlayerPause-CaAIuZca.js             0.31 kB │ gzip:   0.18 kB
+dist/assets/rolldown-runtime-Bh1tDfsg.js            0.56 kB │ gzip:   0.36 kB
+dist/assets/PlusOutlined-JZtHZjhE.js                0.79 kB │ gzip:   0.52 kB
+dist/assets/useIcons-VnISwClk.js                    1.05 kB │ gzip:   0.58 kB
+dist/assets/RolesPage-B-bZ-_tU.js                   1.12 kB │ gzip:   0.58 kB
+dist/assets/auditApi-CyhUoDRz.js                    1.51 kB │ gzip:   0.77 kB
+dist/assets/AuditDetailPage-Cxt7fvBq.js             2.15 kB │ gzip:   1.00 kB
+dist/assets/AuditPage-BAEI8I3p.js                   2.31 kB │ gzip:   1.09 kB
+dist/assets/PolicyTemplatesPage-CrjMdIg7.js         3.12 kB │ gzip:   1.35 kB
+dist/assets/accessApi-BsbGoKmV.js                   3.25 kB │ gzip:   1.27 kB
+dist/assets/AccessComponents-d8maciLv.js            3.38 kB │ gzip:   1.29 kB
+dist/assets/PolicyTemplateDetailPage-Xx2Drtrv.js    3.73 kB │ gzip:   1.47 kB
+dist/assets/PeopleCommon-BjS7r4pD.js                4.44 kB │ gzip:   1.68 kB
+dist/assets/policyApi-BT1th7RA.js                   4.62 kB │ gzip:   1.82 kB
+dist/assets/useForm-DYJme7zZ.js                     4.71 kB │ gzip:   2.11 kB
+dist/assets/AccountDetailPage-Cc49b1WO.js           4.74 kB │ gzip:   1.97 kB
+dist/assets/EmployeesPage-B1Arr62h.js               5.74 kB │ gzip:   2.25 kB
+dist/assets/AccountsPage-BRjGywmD.js                5.77 kB │ gzip:   2.28 kB
+dist/assets/PolicyComponents-Bi3i1R7c.js            7.22 kB │ gzip:   2.20 kB
+dist/assets/checkbox-DiRWaoR2.js                    7.45 kB │ gzip:   3.10 kB
+dist/assets/employeeApi-CmCrci7D.js                 9.15 kB │ gzip:   3.11 kB
+dist/assets/RulesHomePage-DghDvygg.js              10.44 kB │ gzip:   3.66 kB
+dist/assets/OrganizationPage-Rs0L2v1x.js           13.45 kB │ gzip:   4.51 kB
+dist/assets/EmployeeDetailPage-B5W80yKn.js         14.72 kB │ gzip:   4.24 kB
+dist/assets/PolicyVersionPage-BrXcegV0.js          16.19 kB │ gzip:   5.79 kB
+dist/assets/input-number-BgOe-Cd_.js               20.93 kB │ gzip:   7.58 kB
+dist/assets/PagePrimitives-DH4rGyCA.js             21.83 kB │ gzip:   7.18 kB
+dist/assets/tabs-CVYXVOYu.js                       34.67 kB │ gzip:  10.84 kB
+dist/assets/useAsyncResource-DHi2o3f6.js           55.80 kB │ gzip:  16.67 kB
+dist/assets/select-D4Pd8W62.js                     69.53 kB │ gzip:  24.15 kB
+dist/assets/index-DVpWaE9Y.js                      69.67 kB │ gzip:  24.07 kB
+dist/assets/PeopleImportPage-C8v42i4q.js           77.44 kB │ gzip:  24.87 kB
+dist/assets/date-picker-nhJUPYDl.js               107.11 kB │ gzip:  34.01 kB
+dist/assets/StatePanel-CXl2e3IK.js                142.21 kB │ gzip:  47.17 kB
+dist/assets/DataTable-Da2fveOf.js                 184.52 kB │ gzip:  57.43 kB
+dist/assets/jsx-runtime-DWlBgGoG.js               574.27 kB │ gzip: 187.87 kB
+
+✓ built in 1.67s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+> shenzhou-hr-frontend@0.1.0 check
+> npm run lint && npm run test && npm run build
+
+
+> shenzhou-hr-frontend@0.1.0 lint
+> eslint .
+
+
+> shenzhou-hr-frontend@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 /Users/huzhijin/Downloads/shenzhouHR/frontend
+
+
+ Test Files  16 passed (16)
+      Tests  126 passed (126)
+   Start at  11:33:16
+   Duration  22.35s (transform 2.52s, setup 9.40s, import 34.81s, tests 18.96s, environment 71.04s)
+
+
+> shenzhou-hr-frontend@0.1.0 build
+> tsc -b && vite build
+
+vite v8.1.5 building client environment for production...
+[2Ktransforming...✓ 7726 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                     1.33 kB │ gzip:   0.60 kB
+dist/assets/shenzhou-logo-BaomUe1Z.svg             80.09 kB │ gzip:  23.75 kB
+dist/assets/index-DcCXsbta.css                     30.83 kB │ gzip:   6.00 kB
+dist/assets/IconPlus-C3Lwp9u5.js                    0.16 kB │ gzip:   0.15 kB
+dist/assets/IconShieldCheck-D33eVuM1.js             0.27 kB │ gzip:   0.21 kB
+dist/assets/IconEdit-DDOomf_1.js                    0.31 kB │ gzip:   0.22 kB
+dist/assets/IconPlayerPause-CaAIuZca.js             0.31 kB │ gzip:   0.18 kB
+dist/assets/rolldown-runtime-Bh1tDfsg.js            0.56 kB │ gzip:   0.36 kB
+dist/assets/PlusOutlined-JZtHZjhE.js                0.79 kB │ gzip:   0.52 kB
+dist/assets/useIcons-gquyd_0O.js                    1.05 kB │ gzip:   0.57 kB
+dist/assets/RolesPage-nw4aXOjT.js                   1.12 kB │ gzip:   0.58 kB
+dist/assets/auditApi-_nhuIIza.js                    1.51 kB │ gzip:   0.77 kB
+dist/assets/AuditDetailPage-Bo5peh4G.js             2.15 kB │ gzip:   1.00 kB
+dist/assets/AuditPage-DphLR51u.js                   2.31 kB │ gzip:   1.09 kB
+dist/assets/PolicyTemplatesPage-Co9idmM7.js         3.12 kB │ gzip:   1.35 kB
+dist/assets/accessApi-DWjpGtNU.js                   3.25 kB │ gzip:   1.27 kB
+dist/assets/AccessComponents-B-6erTop.js            3.38 kB │ gzip:   1.29 kB
+dist/assets/PolicyTemplateDetailPage-DlELyD0l.js    3.73 kB │ gzip:   1.47 kB
+dist/assets/PeopleCommon-DuCmNgAk.js                4.44 kB │ gzip:   1.68 kB
+dist/assets/policyApi-C7gNhUur.js                   4.62 kB │ gzip:   1.82 kB
+dist/assets/useForm-DYJme7zZ.js                     4.71 kB │ gzip:   2.11 kB
+dist/assets/AccountDetailPage-DpFA421Q.js           4.74 kB │ gzip:   1.97 kB
+dist/assets/EmployeesPage-BVHzWAJ6.js               5.74 kB │ gzip:   2.25 kB
+dist/assets/AccountsPage-DBC5ntlA.js                5.77 kB │ gzip:   2.28 kB
+dist/assets/PolicyComponents-6SWOWqnE.js            7.22 kB │ gzip:   2.19 kB
+dist/assets/checkbox-DiRWaoR2.js                    7.45 kB │ gzip:   3.10 kB
+dist/assets/employeeApi-CBp3v2gr.js                 9.15 kB │ gzip:   3.11 kB
+dist/assets/RulesHomePage-DcuF3AJg.js              10.44 kB │ gzip:   3.66 kB
+dist/assets/OrganizationPage-DbQ5aI9d.js           13.45 kB │ gzip:   4.51 kB
+dist/assets/EmployeeDetailPage-CXw4rY6u.js         14.72 kB │ gzip:   4.24 kB
+dist/assets/PolicyVersionPage-BfI2ArWz.js          16.19 kB │ gzip:   5.79 kB
+dist/assets/input-number-BgOe-Cd_.js               20.93 kB │ gzip:   7.58 kB
+dist/assets/PagePrimitives-DH4rGyCA.js             21.83 kB │ gzip:   7.18 kB
+dist/assets/tabs-CVYXVOYu.js                       34.67 kB │ gzip:  10.84 kB
+dist/assets/useAsyncResource-BSm1zgUr.js           55.80 kB │ gzip:  16.66 kB
+dist/assets/select-B1o929sZ.js                     69.53 kB │ gzip:  24.15 kB
+dist/assets/index-CQEUMIVw.js                      69.67 kB │ gzip:  24.08 kB
+dist/assets/PeopleImportPage-CuGqvrcP.js           77.44 kB │ gzip:  24.87 kB
+dist/assets/date-picker-Bt7hSGO_.js               107.11 kB │ gzip:  34.01 kB
+dist/assets/StatePanel-DDvK7NNo.js                142.21 kB │ gzip:  47.17 kB
+dist/assets/DataTable-aTeV-zn4.js                 184.52 kB │ gzip:  57.43 kB
+dist/assets/jsx-runtime-DWlBgGoG.js               574.27 kB │ gzip: 187.87 kB
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.70s
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LC_ALL = "C.UTF-8",
+	LC_CTYPE = "C.UTF-8",
+	LANG = "C.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+[shenzhouhr-mysql] WAVE1_MIGRATION_SOURCE_CHECKSUMS=PASS
+[shenzhouhr-mysql] PROJECT_ROOT_SCOPE=PASS root=/Users/huzhijin/Downloads/shenzhouHR
+[shenzhouhr-mysql] PAYROLL_DISCOVERABILITY=ZERO
+[shenzhouhr-mysql] WAVE3_WAVE4_PUBLIC_ROUTES=ZERO
+[shenzhouhr-mysql] ORGANIZATION_SYNC_DISCOVERABILITY=ZERO
+[shenzhouhr-mysql] USER_VISIBLE_CJK_HARDCODING=ZERO
+[shenzhouhr-mysql] SOURCE_SECRET_SCAN=PASS signatures=db-password,login-password,private-key,known-token,credential-url scope=api,backend/src,frontend/src,frontend/package.json,frontend/package-lock.json,deploy,scripts/qa,docs/verification/wave1,docs/verification/wave2,design/open-design/v1.9,README.md,AGENTS.md,umadev.yaml
+[shenzhouhr-mysql] WAVE2_STATIC_VERIFICATION=PASS
