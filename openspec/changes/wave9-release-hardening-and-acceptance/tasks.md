@@ -40,9 +40,9 @@
 
 ## 7. Integrated verification and handoff
 
-- [ ] 7.1 实现 W9 本地总编排入口，运行静态/单元门并生成 harness-ready、release `NOT_VERIFIED` 摘要
-- [ ] 7.2 运行 OpenSpec 校验、W9 自动化测试、前端相关合同测试和后端回归，记录命令与真实结果
-- [ ] 7.3 更新 README/W9 验收索引，说明独立可验证范围、禁止生产连接和后续 integrated commit 重跑要求
+- [x] 7.1 实现 W9 本地总编排入口，运行静态/单元门并生成 harness-ready、release `NOT_VERIFIED` 摘要
+- [x] 7.2 运行 OpenSpec 校验、W9 自动化测试、前端相关合同测试和后端回归，记录命令与真实结果
+- [x] 7.3 更新 README/W9 验收索引，说明独立可验证范围、禁止生产连接和后续 integrated commit 重跑要求
 
 ## 8. External release gates
 

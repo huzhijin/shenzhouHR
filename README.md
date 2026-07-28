@@ -1,6 +1,25 @@
 # 神州 HR 考勤与薪资核算系统
 
-当前正式需求基线为 V1.9 `docs_confirm`。本仓库正在实施 WAVE-1：本地账号、登录会话、服务端权限、审计与版本化通用规则配置底座；在人工确认前不得进入后续考勤或薪资业务波次。
+当前正式需求基线为 V1.9 `docs_confirm`。仓库包含按波次交付的访问控制、人员、规则与考勤能力；任何发布结论必须以最终 integrated commit 的门禁证据为准。
+
+## W9 发布加固与验收
+
+W9 提供考勤 P0-A 的离线安全检查、50 并发/36 个月容量合同、原生 Nginx/systemd 预检、MySQL 备份恢复安全脚本、浏览器验收矩阵和严格 release evidence contract。当前状态是 **harness ready，release `NOT_VERIFIED`**：
+
+- W9 依赖 W7 FINAL，不依赖 W8；
+- 本 worktree 禁止连接生产，也不执行切流、恢复或 MySQL 8.4 人工演练；
+- 本地门通过只说明工具合同可运行，不代表系统上线通过；
+- 同步 W7 FINAL 后必须在新的干净 integrated commit 上重跑全部证据。
+
+本地只读总编排：
+
+```bash
+python3 scripts/release/verify_wave9.py \
+  --repo . \
+  --run-id w9-local-20260728-01
+```
+
+验收索引见 [`docs/verification/wave9/README.md`](docs/verification/wave9/README.md)，当前真实验证记录见 [`docs/verification/wave9/LOCAL-VERIFICATION.md`](docs/verification/wave9/LOCAL-VERIFICATION.md)，最终清单模板见 [`docs/verification/wave9/release-manifest.template.json`](docs/verification/wave9/release-manifest.template.json)。
 
 ## 技术基线
 
