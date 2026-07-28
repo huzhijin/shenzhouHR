@@ -29,6 +29,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AccountAccessService {
 
+    private static final String ACCOUNT_READ = "ACCOUNT:READ";
+    private static final String ACCOUNT_EDIT = "ACCOUNT:EDIT";
+    private static final String ACCOUNT_LOCK = "ACCOUNT:LOCK";
+    private static final String ACCOUNT_UNLOCK = "ACCOUNT:UNLOCK";
+    private static final String ACCOUNT_RESET_PASSWORD =
+            "ACCOUNT:RESET_PASSWORD";
+    private static final String ROLE_ASSIGN = "ROLE:ASSIGN";
+
     private final AccountPersistence accountPersistence;
     private final AuthenticationPersistence authenticationPersistence;
     private final AuditService auditService;
@@ -109,26 +117,33 @@ public class AccountAccessService {
         int boundedSize = Math.min(Math.max(size, 1), 100);
         int boundedPage = Math.max(page, 0);
         String actorId = principalId();
+        Instant now = clock.instant();
         List<AccountSummary> items = accountPersistence.listAccounts(
                         actorId,
+                        ACCOUNT_READ,
                         query,
                         status,
                         boundedSize,
                         boundedPage * boundedSize,
-                        clock.instant())
+                        now)
                 .stream()
                 .map(AccountAccessService::summary)
                 .toList();
         return new AccountPage(
                 items,
-                accountPersistence.countAccounts(actorId, query, status, clock.instant()),
+                accountPersistence.countAccounts(
+                        actorId,
+                        ACCOUNT_READ,
+                        query,
+                        status,
+                        now),
                 boundedPage,
                 boundedSize);
     }
 
     @Transactional(readOnly = true)
     public AccountDetail getAccount(String accountId) {
-        return detail(requireVisible(accountId));
+        return detail(requireVisible(accountId, ACCOUNT_READ));
     }
 
     @Transactional
@@ -143,7 +158,7 @@ public class AccountAccessService {
                     "VALIDATION_ERROR",
                     "账号状态不受支持");
         }
-        AccountRecord account = requireVisible(accountId);
+        AccountRecord account = requireVisible(accountId, ACCOUNT_EDIT);
         String actorId = principalId();
         Instant now = clock.instant();
         accountPersistence.updateAccountStatus(
@@ -172,7 +187,9 @@ public class AccountAccessService {
 
     @Transactional
     public void lock(String accountId, boolean locked, String reason) {
-        AccountRecord account = requireVisible(accountId);
+        AccountRecord account = requireVisible(
+                accountId,
+                locked ? ACCOUNT_LOCK : ACCOUNT_UNLOCK);
         String actorId = principalId();
         Instant now = clock.instant();
         accountPersistence.setAccountLock(account.accountId(), locked, actorId, now);
@@ -195,7 +212,9 @@ public class AccountAccessService {
 
     @Transactional
     public void issueResetGrant(String accountId, String reason) {
-        AccountRecord account = requireVisible(accountId);
+        AccountRecord account = requireVisible(
+                accountId,
+                ACCOUNT_RESET_PASSWORD);
         String actorId = principalId();
         String rawGrant = tokenService.newOpaqueToken();
         Instant now = clock.instant();
@@ -222,7 +241,7 @@ public class AccountAccessService {
             String reason,
             long expectedVersion) {
         validateAssignments(assignments);
-        AccountRecord account = requireVisible(accountId);
+        AccountRecord account = requireVisible(accountId, ROLE_ASSIGN);
         String actorId = principalId();
         Instant now = clock.instant();
         List<ResolvedRoleAssignmentInput> authorizedAssignments =
@@ -254,9 +273,15 @@ public class AccountAccessService {
         return accountPersistence.findRoles();
     }
 
-    private AccountRecord requireVisible(String accountId) {
+    private AccountRecord requireVisible(
+            String accountId,
+            String requiredCapability) {
         String actorId = principalId();
-        if (!accountPersistence.canAccessAccount(actorId, accountId, clock.instant())) {
+        if (!accountPersistence.canAccessAccount(
+                actorId,
+                accountId,
+                requiredCapability,
+                clock.instant())) {
             throw unavailable();
         }
         return authenticationPersistence.findAccountById(accountId)

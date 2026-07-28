@@ -12,7 +12,11 @@ import java.util.Optional;
 
 public interface AccountPersistence {
 
-    boolean canAccessAccount(String principalId, String accountId, Instant at);
+    boolean canAccessAccount(
+            String principalId,
+            String accountId,
+            String requiredCapability,
+            Instant at);
 
     String createAccount(
             String username,
@@ -25,13 +29,19 @@ public interface AccountPersistence {
 
     List<AccountRecord> listAccounts(
             String principalId,
+            String requiredCapability,
             String query,
             String status,
             int limit,
             int offset,
             Instant at);
 
-    long countAccounts(String principalId, String query, String status, Instant at);
+    long countAccounts(
+            String principalId,
+            String requiredCapability,
+            String query,
+            String status,
+            Instant at);
 
     void updateAccountStatus(
             String accountId,
