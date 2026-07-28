@@ -1,0 +1,197 @@
+import { IconLock, IconSnowflake } from '@tabler/icons-react';
+import type { ReactNode } from 'react';
+import { NavLink } from 'react-router-dom';
+
+import type { ApiRequestError } from '../../shared/api/apiClient';
+import { StatePanel } from '../../shared/components/StatePanel';
+import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import type {
+  DashboardMetricProjection,
+  Wave7ProjectionMetadata,
+} from './wave7Contracts';
+
+export function Wave7AsyncBoundary<T>({
+  loader,
+  isEmpty,
+  children,
+}: {
+  loader: () => Promise<T>;
+  isEmpty: (projection: T) => boolean;
+  children: (projection: T) => ReactNode;
+}) {
+  const { resource, reload } = useAsyncResource(loader, isEmpty, [loader]);
+
+  if (resource.status === 'loading' || resource.status === 'partial-loading') {
+    return <StatePanel state={resource.status} />;
+  }
+  if (resource.status === 'empty') {
+    return <StatePanel state="empty" description="当前授权范围内暂无可显示数据。" />;
+  }
+  if ('error' in resource) {
+    return <Wave7ErrorState error={resource.error} onRetry={reload} />;
+  }
+  if (resource.status === 'ready') {
+    return children(resource.data);
+  }
+  return null;
+}
+
+export function ProjectionMetadata({ metadata }: { metadata: Wave7ProjectionMetadata }) {
+  return (
+    <dl className="wave7-context" aria-label="投影上下文">
+      <div>
+        <dt>范围</dt>
+        <dd>{metadata.scope.label}</dd>
+      </div>
+      <div>
+        <dt>期间</dt>
+        <dd>{metadata.periodLabel}</dd>
+      </div>
+      <div>
+        <dt>数据截至</dt>
+        <dd><time dateTime={metadata.dataAsOf}>{formatDateTime(metadata.dataAsOf)}</time></dd>
+      </div>
+      <div>
+        <dt>投影版本</dt>
+        <dd><code>{metadata.projectionVersion}</code></dd>
+      </div>
+    </dl>
+  );
+}
+
+export function FrozenHistoryNotice({ metadata }: { metadata: Wave7ProjectionMetadata }) {
+  if (metadata.periodState !== 'FROZEN' && metadata.periodState !== 'CLOSED') {
+    return null;
+  }
+  return (
+    <section className="wave7-frozen" role="status" aria-labelledby="wave7-frozen-title">
+      <IconSnowflake aria-hidden="true" stroke={2} />
+      <div>
+        <h2 id="wave7-frozen-title">
+          {metadata.periodState === 'CLOSED' ? '已月结版本' : '冻结版本'}
+        </h2>
+        <p>
+          当前显示 {metadata.periodLabel} 的不可变历史版本
+          <code>{metadata.projectionVersion}</code>；后续变化不会静默覆盖本版本。
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export function DashboardMetricGrid({
+  metrics,
+  projectionVersion,
+  canDrillDown,
+  onDrillDown,
+}: {
+  metrics: DashboardMetricProjection[];
+  projectionVersion: string;
+  canDrillDown: boolean;
+  onDrillDown?: (reference: string, projectionVersion: string) => void;
+}) {
+  return (
+    <dl className="wave7-metric-grid" aria-label="授权考勤指标">
+      {metrics.map((metric) => (
+        <div className="wave7-metric" key={metric.key}>
+          <dt>{metric.label}</dt>
+          <dd>
+            {metric.suppressed
+              ? <span className="wave7-suppressed">{metric.suppressionLabel ?? '已按小样本规则隐藏'}</span>
+              : metric.displayValue}
+          </dd>
+          {metric.drillDownReference ? (
+            <button
+              className="wave7-link-button"
+              type="button"
+              disabled={!canDrillDown || !onDrillDown}
+              aria-label={`下钻查看${metric.label}`}
+              data-projection-version={projectionVersion}
+              data-drill-down-reference={metric.drillDownReference}
+              onClick={() => onDrillDown?.(metric.drillDownReference!, projectionVersion)}
+            >
+              查看同版本明细
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export function SelfServiceNavigation({ capabilities }: { capabilities: readonly string[] }) {
+  const items = [
+    { path: '/me/today', label: '今日', capability: 'ATTENDANCE_SELF:READ' },
+    { path: '/me/records', label: '记录', capability: 'ATTENDANCE_SELF:READ' },
+    { path: '/me/leave', label: '假期', capability: 'LEAVE_SELF:READ' },
+    { path: '/me/feedback', label: '反馈', capability: 'ATTENDANCE_FEEDBACK:READ' },
+  ].filter((item) => capabilities.includes(item.capability));
+
+  if (items.length === 0) return null;
+  return (
+    <nav className="wave7-self-navigation" aria-label="员工自助">
+      {items.map((item) => (
+        <NavLink
+          key={item.path}
+          to={item.path}
+          className={({ isActive }) => isActive ? 'is-active' : undefined}
+        >
+          {item.label}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
+export function LockedActionReason({ children }: { children: ReactNode }) {
+  return (
+    <span className="wave7-locked-action" role="note">
+      <IconLock aria-hidden="true" stroke={2} />
+      {children}
+    </span>
+  );
+}
+
+export function formatHours(minutes: number): string {
+  return `${(minutes / 60).toFixed(2)} 小时`;
+}
+
+export function formatDate(value: string): string {
+  const timestamp = Date.parse(`${value.slice(0, 10)}T00:00:00+08:00`);
+  if (!Number.isFinite(timestamp)) return value;
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'medium',
+    timeZone: 'Asia/Shanghai',
+  }).format(timestamp);
+}
+
+export function formatDateTime(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return value;
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Shanghai',
+  }).format(timestamp);
+}
+
+function Wave7ErrorState({ error, onRetry }: {
+  error: ApiRequestError;
+  onRetry: () => void;
+}) {
+  if (error.status === 401) {
+    return <StatePanel state="401" description="会话已失效，请重新登录。" />;
+  }
+  if (error.status === 403 || error.status === 404) {
+    return <StatePanel state="403" description="当前账号无权访问该内容。" />;
+  }
+  return (
+    <StatePanel
+      state={error.status === 0 ? 'network-error' : 'error'}
+      description={error.correlationId
+        ? `${error.message}；关联标识 ${error.correlationId}`
+        : error.message}
+      onRetry={error.retryable ? onRetry : undefined}
+    />
+  );
+}

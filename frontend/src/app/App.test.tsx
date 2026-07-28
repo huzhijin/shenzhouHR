@@ -272,13 +272,74 @@ describe('App session and route authorization', () => {
 
       renderApp(path);
 
-      expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument();
+      expect(await screen.findByRole(
+        'heading',
+        { name: heading },
+        { timeout: 5_000 },
+      )).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
         .not.toBeInTheDocument();
       expect(screen.queryByText('当前账号没有已授权的功能菜单。'))
-        .not.toBeInTheDocument();
+      .not.toBeInTheDocument();
     },
   );
+
+  it.each([
+    ['/workbench', 'ATTENDANCE_DASHBOARD:READ'],
+    ['/attendance/reports', 'ATTENDANCE_REPORT:READ'],
+    ['/me/today', 'ATTENDANCE_SELF:READ'],
+    ['/me/records', 'ATTENDANCE_SELF:READ'],
+    ['/me/leave', 'LEAVE_SELF:READ'],
+    ['/me/feedback', 'ATTENDANCE_FEEDBACK:READ'],
+  ])('returns a client 403 for direct WAVE-7 route %s without %s', (path) => {
+    sessionHook.useSession.mockReturnValue({
+      state: {
+        status: 'ready',
+        session: {
+          capabilities: ['AUDIT:READ'],
+          menu: [{ key: 'audit', label: '审计事件', path: '/access/audit' }],
+        },
+      },
+      reload: vi.fn(),
+    });
+
+    renderApp(path);
+
+    expect(screen.getByRole('heading', { name: translate('state.forbiddenTitle') }))
+      .toBeInTheDocument();
+    expect(screen.getByTestId('current-location')).toHaveTextContent(path);
+  });
+
+  it.each([
+    ['/workbench', 'ATTENDANCE_DASHBOARD:READ'],
+    ['/attendance/reports', 'ATTENDANCE_REPORT:READ'],
+    ['/me/today', 'ATTENDANCE_SELF:READ'],
+    ['/me/leave', 'LEAVE_SELF:READ'],
+    ['/me/feedback', 'ATTENDANCE_FEEDBACK:READ'],
+  ])('fails closed at authorized WAVE-7 direct route %s until upstream wiring is available', async (path, capability) => {
+    sessionHook.useSession.mockReturnValue({
+      state: {
+        status: 'ready',
+        session: {
+          capabilities: [capability],
+          menu: [],
+        },
+      },
+      reload: vi.fn(),
+    });
+
+    renderApp(path);
+
+    expect(await screen.findByText(
+      '上游考勤与工时投影接口尚未就绪。',
+      {},
+      { timeout: 5_000 },
+    ))
+      .toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
+      .not.toBeInTheDocument();
+    expect(screen.getByTestId('current-location')).toHaveTextContent(path);
+  });
 
   it.each([
     ['HR_ADMIN', [

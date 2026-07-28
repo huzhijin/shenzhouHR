@@ -23,6 +23,12 @@ const capabilitiesByPath: Readonly<Record<string, readonly string[]>> = {
   '/access/accounts': ['ACCOUNT:READ'],
   '/access/roles': ['ROLE:READ'],
   '/access/audit': ['AUDIT:READ'],
+  '/workbench': ['ATTENDANCE_DASHBOARD:READ'],
+  '/attendance/reports': ['ATTENDANCE_REPORT:READ'],
+  '/me/today': ['ATTENDANCE_SELF:READ'],
+  '/me/records': ['ATTENDANCE_SELF:READ'],
+  '/me/leave': ['LEAVE_SELF:READ'],
+  '/me/feedback': ['ATTENDANCE_FEEDBACK:READ'],
 };
 
 export function authorizedMenu(session: CurrentCapabilities): MenuItem[] {

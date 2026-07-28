@@ -35,6 +35,16 @@ const OaSourcesPage = lazy(() => import('../features/attendanceSources/OaSources
 const SourceJobsPage = lazy(() => import('../features/attendanceSources/SourceJobsPage'));
 const PunchImportsPage = lazy(() => import('../features/punchImport/PunchImportsPage'));
 const PunchImportDetailPage = lazy(() => import('../features/punchImport/PunchImportDetailPage'));
+const DashboardRoute = lazy(() => import('../features/wave7/DashboardPage'));
+const ReportsRoute = lazy(() => import('../features/wave7/ReportsPage'));
+const EmployeeTodayRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
+  .then((module) => ({ default: module.EmployeeTodayRoute })));
+const EmployeeRecordsRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
+  .then((module) => ({ default: module.EmployeeRecordsRoute })));
+const EmployeeLeaveRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
+  .then((module) => ({ default: module.EmployeeLeaveRoute })));
+const EmployeeFeedbackRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
+  .then((module) => ({ default: module.EmployeeFeedbackRoute })));
 
 const theme = {
   token: {
@@ -211,6 +221,29 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
               <Route path="/access/audit/:auditEventId" element={<AccessDenied />} />
             </>
           )}
+          {session.capabilities.includes('ATTENDANCE_DASHBOARD:READ')
+            ? <Route path="/workbench" element={<DashboardRoute />} />
+            : <Route path="/workbench" element={<AccessDenied />} />}
+          {session.capabilities.includes('ATTENDANCE_REPORT:READ')
+            ? <Route path="/attendance/reports" element={<ReportsRoute capabilities={session.capabilities} />} />
+            : <Route path="/attendance/reports" element={<AccessDenied />} />}
+          {session.capabilities.includes('ATTENDANCE_SELF:READ') ? (
+            <>
+              <Route path="/me/today" element={<EmployeeTodayRoute capabilities={session.capabilities} />} />
+              <Route path="/me/records" element={<EmployeeRecordsRoute capabilities={session.capabilities} />} />
+            </>
+          ) : (
+            <>
+              <Route path="/me/today" element={<AccessDenied />} />
+              <Route path="/me/records" element={<AccessDenied />} />
+            </>
+          )}
+          {session.capabilities.includes('LEAVE_SELF:READ')
+            ? <Route path="/me/leave" element={<EmployeeLeaveRoute capabilities={session.capabilities} />} />
+            : <Route path="/me/leave" element={<AccessDenied />} />}
+          {session.capabilities.includes('ATTENDANCE_FEEDBACK:READ')
+            ? <Route path="/me/feedback" element={<EmployeeFeedbackRoute capabilities={session.capabilities} />} />
+            : <Route path="/me/feedback" element={<AccessDenied />} />}
           {hasAllCapabilities(session, ['PEOPLE_IMPORT:READ', 'PEOPLE_IMPORT:TEMPLATE_DOWNLOAD']) ? (
             <Route path="/people/import" element={<PeopleImportPage capabilities={session.capabilities} />} />
           ) : (

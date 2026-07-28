@@ -54,6 +54,12 @@ const menuIcons = {
   'attendance-sources-oa': IconFileDescription,
   'attendance-source-jobs': IconRefresh,
   'attendance-punch-imports': IconFileSpreadsheet,
+  workbench: IconFileAnalytics,
+  'attendance-reports': IconFileAnalytics,
+  'self-today': IconClock,
+  'self-records': IconCalendar,
+  'self-leave': IconCalendar,
+  'self-feedback': IconFileAnalytics,
 };
 
 export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {

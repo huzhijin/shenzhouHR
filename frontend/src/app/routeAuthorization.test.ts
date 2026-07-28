@@ -173,4 +173,45 @@ describe('firstAuthorizedPath', () => {
       '/sources/attendance-excel/synthetic-batch',
     )).toBe('attendance-punch-imports');
   });
+
+  it('exposes each WAVE-7 route only with its exact read capability', () => {
+    const menu = [
+      { key: 'workbench', label: '管理看板', path: '/workbench' },
+      { key: 'attendance-reports', label: '统计报表', path: '/attendance/reports' },
+      { key: 'self-today', label: '今日', path: '/me/today' },
+      { key: 'self-records', label: '记录', path: '/me/records' },
+      { key: 'self-leave', label: '假期', path: '/me/leave' },
+      { key: 'self-feedback', label: '反馈', path: '/me/feedback' },
+    ];
+    const capabilities = [
+      'ATTENDANCE_DASHBOARD:READ',
+      'ATTENDANCE_REPORT:READ',
+      'ATTENDANCE_SELF:READ',
+      'LEAVE_SELF:READ',
+      'ATTENDANCE_FEEDBACK:READ',
+    ];
+
+    expect(authorizedMenu({ capabilities, menu })).toEqual(menu);
+    expect(authorizedMenu({
+      capabilities: ['ATTENDANCE_REPORT:EXPORT_CREATE', 'ATTENDANCE_FEEDBACK:CREATE'],
+      menu,
+    })).toEqual([]);
+  });
+
+  it('rejects prototype-only and excluded WAVE-7 routes from a server menu', () => {
+    expect(authorizedMenu({
+      capabilities: [
+        'ATTENDANCE_DASHBOARD:READ',
+        'ATTENDANCE_REPORT:READ',
+        'ATTENDANCE_SELF:READ',
+        'PAYROLL:READ',
+      ],
+      menu: [
+        { key: 'qa', label: '设计交付', path: '/qa/handoff' },
+        { key: 'prototype-recalc', label: '旧重算入口', path: '/attendance/recalc' },
+        { key: 'demo-person', label: '原型人员', path: '/people/employees/EMP-DEMO-001' },
+        { key: 'excluded-module', label: '受排除模块', path: '/payroll' },
+      ],
+    })).toEqual([]);
+  });
 });
