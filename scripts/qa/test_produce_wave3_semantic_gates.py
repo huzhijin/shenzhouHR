@@ -98,6 +98,7 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
         plan = producer.plan_document()
         self.assertEqual(plan["leafCount"], 7)
         self.assertEqual(tuple(plan["leafIds"]), producer.SEMANTIC_IDS)
+
         self.assertEqual(tuple(plan["requiredRoles"]), producer.SEMANTIC_IDS)
         self.assertEqual(
             plan["requiredRoles"]["W3-VER-W2-RETAINED"],
@@ -143,6 +144,23 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
                 producer.ProducerError, "exactly the reviewed V7"
             ):
                 producer.validate_unique_v7_migration(migration_dir)
+
+    def test_semantic_plan_loader_passes_bound_context(self) -> None:
+        verifier = object()
+        run_root = (
+            producer.REPOSITORY_ROOT
+            / "docs/verification/wave3/runs/test-run"
+        )
+        context = {"runId": "test-run"}
+        leaves = [{"evidenceId": producer.SEMANTIC_IDS[0]}]
+        with patch.object(
+            producer,
+            "load_plan_for_run",
+            return_value=(run_root / "orchestration/leaf-plan.json", leaves),
+        ) as loader:
+            plan = producer.load_semantic_plan(verifier, run_root, context)
+        loader.assert_called_once_with(verifier, run_root, context)
+        self.assertEqual(plan, {"leaves": leaves})
 
     def test_openapi_controller_and_request_schema_closure(self) -> None:
         comparison = producer.compare_operation_closure(

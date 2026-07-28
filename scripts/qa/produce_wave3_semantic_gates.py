@@ -2642,6 +2642,15 @@ def artifact_map(plan: Mapping[str, Any]) -> dict[str, dict[str, str]]:
     return result
 
 
+def load_semantic_plan(
+    verifier: Wave3Evidence,
+    run_root: Path,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    _plan_path, leaves = load_plan_for_run(verifier, run_root, context)
+    return {"leaves": leaves}
+
+
 def validate_build_regression_log(
     verifier: Wave3Evidence,
     context: Mapping[str, Any],
@@ -4241,7 +4250,7 @@ def produce(
             "runtime environment requires SHENZHOUHR_DEV_DB_PASSWORD "
             "for the all-gate dev privilege probe"
         )
-    plan = load_plan_for_run(verifier, run_root)
+    plan = load_semantic_plan(verifier, run_root, context)
     roles = artifact_map(plan)
     for evidence_id, role_paths in roles.items():
         for relative in role_paths.values():
