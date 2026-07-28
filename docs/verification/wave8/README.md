@@ -52,6 +52,21 @@ Operational rollback is to leave or restore
 `SHENZHOUHR_PAYROLL_RESERVATION_ENABLED=false`; this phase has no data
 migration to reverse.
 
+## Latest independent result
+
+Executed on 2026-07-28 in the W8 worktree:
+
+- Focused backend boundary/security/audit tests: 22 passed.
+- Payroll and shared layer architecture tests: 5 passed.
+- Full backend Maven suite: 200 passed, 0 failed, 0 errors, 0 skipped.
+- Frontend production build: passed.
+- Frontend demo build: passed.
+- Verifier unit suite: 6 passed.
+- Unicode zero-discoverability: passed across 79 product source files,
+  104 production/demo build files, and 30 public REST/OpenAPI contract files.
+- Baseline diff: no frontend, OpenAPI, migration, payroll controller, or
+  payroll DTO change.
+
 ## Blocked by W5 FINAL
 
 The following work deliberately remains incomplete:

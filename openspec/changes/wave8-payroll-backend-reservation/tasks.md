@@ -21,7 +21,7 @@
 ## 4. Independent Phase Verification and Documentation
 
 - [x] 4.1 Document the feature flag, fail-closed behavior, W5 integration block, rollback, and explicit non-goals without adding any frontend or public API artifact.
-- [ ] 4.2 Run focused W8 tests, the Unicode discoverability verifier, the full backend test suite, and repository diff scans proving frontend/OpenAPI/public-route scope is unchanged.
+- [x] 4.2 Run focused W8 tests, the Unicode discoverability verifier, the full backend test suite, and repository diff scans proving frontend/OpenAPI/public-route scope is unchanged.
 
 ## 5. W5 FINAL Integration (Blocked)
 
