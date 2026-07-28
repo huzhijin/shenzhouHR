@@ -1,0 +1,67 @@
+{
+  "schema_version": "shenzhouhr.w9.threat-matrix/v1",
+  "data_policy": "SYNTHETIC_ONLY",
+  "authorization_required": true,
+  "cases": [
+    {
+      "id": "THREAT-BOLA-EMPLOYEE",
+      "category": "BOLA_IDOR",
+      "mutation": "replace employee identifier in URL and body",
+      "expected": "deny without object-existence or sensitive-field disclosure; audit decision"
+    },
+    {
+      "id": "THREAT-SCOPE-ORGANIZATION",
+      "category": "CROSS_SCOPE",
+      "mutation": "replace organization with an out-of-scope identifier",
+      "expected": "deny at service and persistence scope; no partial rows"
+    },
+    {
+      "id": "THREAT-ENUMERATION",
+      "category": "OBJECT_ENUMERATION",
+      "mutation": "issue sequential and random object identifiers",
+      "expected": "equivalent denial envelope, rate limit and security alert"
+    },
+    {
+      "id": "THREAT-BULK-EXPORT",
+      "category": "BULK_EXPORT",
+      "mutation": "expand filters and reuse another subject's download token",
+      "expected": "revalidate capability, scope and field allowlist at create and download"
+    },
+    {
+      "id": "THREAT-CACHE-REVOCATION",
+      "category": "CACHE_SESSION",
+      "mutation": "logout or revoke, then use history, restored tab and cached response",
+      "expected": "no protected content recovery and old session is rejected"
+    },
+    {
+      "id": "THREAT-LOCATION",
+      "category": "SENSITIVE_FIELD",
+      "mutation": "request coordinates without LOCATION:READ or reason",
+      "expected": "deny or omit coordinates and produce location access audit"
+    },
+    {
+      "id": "THREAT-DEV-ENTRY",
+      "category": "DEVELOPMENT_BYPASS",
+      "mutation": "enable dev profile, demo mode, bootstrap or X-Development-Principal",
+      "expected": "candidate preflight fails before traffic"
+    },
+    {
+      "id": "THREAT-LOG-LEAK",
+      "category": "SENSITIVE_LOGGING",
+      "mutation": "place token and sensitive values in query, header and body",
+      "expected": "access/application/audit evidence excludes query and sensitive values"
+    },
+    {
+      "id": "THREAT-SECURITY-HEADERS",
+      "category": "BROWSER_BOUNDARY",
+      "mutation": "inspect HTML, API, error and static asset response headers",
+      "expected": "TLS and CSP boundary is present; API and HTML remain no-store"
+    },
+    {
+      "id": "THREAT-PAYROLL-ZERO",
+      "category": "PAYROLL_NON_DISCOVERY",
+      "mutation": "search menus, routes, assets, prefetch, APIs and exports",
+      "expected": "P0-A surface contains zero discoverable payroll detail"
+    }
+  ]
+}
