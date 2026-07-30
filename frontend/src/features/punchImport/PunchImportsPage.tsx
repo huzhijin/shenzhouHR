@@ -18,7 +18,7 @@ import {
 import type { PunchImportBatchView } from './punchImportTypes';
 
 interface UploadFields {
-  legalEntityId: string;
+  companyId: string;
   sourceId: string;
   reason: string;
 }
@@ -63,7 +63,7 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
     try {
       const batch = await uploadPunchImport(
         file,
-        values.legalEntityId,
+        values.companyId,
         values.sourceId,
         values.reason,
       );
@@ -105,7 +105,7 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
             form={form}
             layout="vertical"
             initialValues={demoMode ? {
-              legalEntityId: 'LEGAL-JIANGSU',
+              companyId: 'LEGAL-JIANGSU',
               sourceId: 'SRC-XLS-OFFLINE-A',
               reason: '客户演示导入',
             } : undefined}
@@ -114,7 +114,7 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
             <div className="form-grid">
               <Form.Item
                 label="公司"
-                name="legalEntityId"
+                name="companyId"
                 rules={[{ required: true, message: '请选择公司' }]}
               >
                 {demoMode ? (

@@ -2,7 +2,7 @@ package com.szsemicon.hr.reporting.infrastructure.persistence;
 
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository;
-import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.LegalEntityOption;
+import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.CompanyOption;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
@@ -41,7 +41,7 @@ public class MyBatisAttendanceReportSourceRepository
     }
 
     @Override
-    public List<LegalEntityOption> listAuthorizedLegalEntities(
+    public List<CompanyOption> listAuthorizedCompanies(
             String principalId,
             String capabilityCode,
             YearMonth period,
@@ -56,8 +56,8 @@ public class MyBatisAttendanceReportSourceRepository
         }
         var periodStart = period.atDay(1);
         var periodEndExclusive = period.plusMonths(1).atDay(1);
-        List<ReportRows.LegalEntityRow> rows =
-                mapper.listAuthorizedLegalEntities(
+        List<ReportRows.CompanyRow> rows =
+                mapper.listAuthorizedCompanies(
                         principalId,
                         capabilityCode,
                         periodStart,
@@ -67,7 +67,7 @@ public class MyBatisAttendanceReportSourceRepository
             return List.of();
         }
         return rows.stream()
-                .map(ReportRows.LegalEntityRow::toDomain)
+                .map(ReportRows.CompanyRow::toDomain)
                 .distinct()
                 .toList();
     }
@@ -93,7 +93,7 @@ public class MyBatisAttendanceReportSourceRepository
                 capabilityCode,
                 periodStart,
                 periodEndExclusive,
-                filter.legalEntityId(),
+                filter.companyId(),
                 authorizationTime);
         /*
          * A missing selector is retained only for single-company compatibility.
@@ -103,14 +103,14 @@ public class MyBatisAttendanceReportSourceRepository
             return Optional.empty();
         }
         var projection = projections.getFirst();
-        if (filter.legalEntityId() != null
-                && !filter.legalEntityId().equals(
-                        projection.legalEntityId())) {
+        if (filter.companyId() != null
+                && !filter.companyId().equals(
+                        projection.companyId())) {
             return Optional.empty();
         }
         ReportFilter resolvedFilter = new ReportFilter(
                 filter.period(),
-                projection.legalEntityId(),
+                projection.companyId(),
                 filter.organizationId(),
                 filter.employeeId(),
                 filter.status());
@@ -118,7 +118,7 @@ public class MyBatisAttendanceReportSourceRepository
                 principalId,
                 capabilityCode,
                 projection.projectionId(),
-                projection.legalEntityId(),
+                projection.companyId(),
                 authorizationTime);
         if (scopeRows.isEmpty()) {
             return Optional.empty();
@@ -139,7 +139,7 @@ public class MyBatisAttendanceReportSourceRepository
                                 projection.projectionId(),
                                 periodStart,
                                 periodEndExclusive,
-                                projection.legalEntityId(),
+                                projection.companyId(),
                                 filter.organizationId(),
                                 filter.employeeId(),
                                 authorizationTime)
@@ -152,7 +152,7 @@ public class MyBatisAttendanceReportSourceRepository
                                 projection.projectionId(),
                                 periodStartAt,
                                 periodEndExclusiveAt,
-                                projection.legalEntityId(),
+                                projection.companyId(),
                                 filter.organizationId(),
                                 filter.employeeId(),
                                 authorizationTime)
@@ -165,7 +165,7 @@ public class MyBatisAttendanceReportSourceRepository
                                 projection.projectionId(),
                                 periodStart,
                                 periodEndExclusive,
-                                projection.legalEntityId(),
+                                projection.companyId(),
                                 filter.organizationId(),
                                 filter.employeeId(),
                                 filter.status(),
@@ -177,7 +177,7 @@ public class MyBatisAttendanceReportSourceRepository
                                 principalId,
                                 capabilityCode,
                                 projection.projectionId(),
-                                projection.legalEntityId(),
+                                projection.companyId(),
                                 filter.organizationId(),
                                 filter.employeeId(),
                                 authorizationTime)
@@ -199,8 +199,8 @@ public class MyBatisAttendanceReportSourceRepository
                 .toList();
         String digest = authorizationDigest(rows);
         ScopeType type = rows.stream().anyMatch(
-                row -> ScopeType.LEGAL_ENTITY.name().equals(row.scopeType()))
-                        ? ScopeType.LEGAL_ENTITY
+                row -> ScopeType.COMPANY.name().equals(row.scopeType()))
+                        ? ScopeType.COMPANY
                         : rows.stream().anyMatch(
                                 row -> ScopeType.ORGANIZATION.name().equals(
                                         row.scopeType()))
@@ -209,7 +209,7 @@ public class MyBatisAttendanceReportSourceRepository
         String label = rows.size() > 1
                 ? "组合授权范围"
                 : switch (type) {
-                    case LEGAL_ENTITY -> "法人授权范围";
+                    case COMPANY -> "公司授权范围";
                     case ORGANIZATION -> "组织授权范围";
                     case SELF -> "本人授权范围";
                 };
@@ -269,7 +269,7 @@ public class MyBatisAttendanceReportSourceRepository
                 "\u001f",
                 required(row.scopeId()),
                 required(row.scopeType()),
-                nullable(row.legalEntityId()),
+                nullable(row.companyId()),
                 nullable(row.organizationId()),
                 Boolean.toString(row.includeDescendants()),
                 nullable(row.principalEmployeeId()));

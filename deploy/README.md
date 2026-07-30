@@ -23,7 +23,7 @@ Nginx 文件分为：
 ## 安装边界
 
 1. 使用 Ubuntu 官方 `openjdk-21-jre-headless`，MySQL 使用已批准的 8.4 LTS Community 仓库。
-2. 创建无登录 shell 的 `shenzhouhr` 系统账号；应用账号无 MySQL DDL 权限。发布流程使用独立临时迁移账号对 `/opt/shenzhouhr/db/migration` 执行 Flyway `validate/migrate`，成功后撤销该账号，再以 `SHENZHOUHR_FLYWAY_ENABLED=false` 启动应用。
+2. 创建无登录 shell 的 `shenzhouhr` 系统账号；应用账号无 MySQL DDL 权限。发布流程使用独立临时迁移账号，先执行与仓库公司切换合同一致的精确 V10 preflight，再分段执行 Flyway `validate → target=11 migrate → validate`；禁止直接从旧版本无门禁迁移到 V11。成功后撤销该账号，再以 `SHENZHOUHR_FLYWAY_ENABLED=false` 启动应用。
 3. 将模板复制到系统目录前，由基础设施负责人替换内部域名与企业证书，并验证 CSP、出站白名单和反向代理可信地址。
 4. 执行 `nginx -t`、`systemd-analyze verify`、Flyway `validate/migrate`、健康检查和回滚演练后才能切流。
 5. `dev` profile 和 `X-Development-Principal` 头严禁出现在预发布或生产。
@@ -49,7 +49,7 @@ python3 scripts/release/native_preflight.py \
 ## 迁移、切流与回滚
 
 1. 对不可变候选执行 artifact SHA、`nginx -t`、`systemd-analyze verify`。
-2. 使用临时迁移账号执行 `flyway validate → migrate → validate`，随后撤销账号；应用始终以 `SHENZHOUHR_FLYWAY_ENABLED=false` 启动。
+2. 使用临时迁移账号先迁移到精确 V10，执行 29 张边界表/29 个公司列、28 张依赖表/29 条关系边、范围 CHECK、索引、孤儿记录和在途事务 preflight；通过后再执行 `target=11 migrate → validate`。随后撤销账号；应用始终以 `SHENZHOUHR_FLYWAY_ENABLED=false` 启动。
 3. 以 loopback actuator 确认健康，并完成权限/缓存/开发入口 smoke 后才切流。
 4. 回滚只把应用和前端不可变版本指针切回上一候选；数据库禁止 `clean`、逆向 SQL 或删除业务数据。
 5. 如果迁移后 schema 与上一应用不兼容，必须在切流前停止发布，改用新的前向修复迁移。

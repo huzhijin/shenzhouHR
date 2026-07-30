@@ -5,7 +5,7 @@
 <mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceConfigurationAuthorityMapper">
 
     <!--
-      This is intentionally one exact legal-entity/business-date authority
+      This is intentionally one exact company/business-date authority
       query. LIMIT 2 preserves ambiguity for the adapter to reject instead of
       selecting an arbitrary employment, assignment, or publication.
     -->
@@ -13,7 +13,7 @@
             resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceConfigurationAuthorityRow">
         SELECT
             #{businessDate} AS business_date,
-            legal_entity.legal_entity_id,
+            company.company_id,
             employee.employee_id,
             employee_version.employee_version_id,
             employee_version.row_version AS employee_version,
@@ -44,9 +44,9 @@
             effective_shift.shift_version_id,
             effective_shift.time_zone_snapshot AS shift_time_zone,
             effective_shift.snapshot_digest AS shift_snapshot_digest
-        FROM legal_entity legal_entity
+        FROM company company
         JOIN employee employee
-          ON employee.legal_entity_id = legal_entity.legal_entity_id
+          ON employee.company_id = company.company_id
          AND employee.employee_id = #{employeeId}
         JOIN employee_version employee_version
           ON employee_version.employee_id = employee.employee_id
@@ -69,7 +69,7 @@
          AND employment.created_at &lt;= #{knowledgeAsOf}
         JOIN organization_identity organization
           ON organization.organization_id = employment.organization_id
-         AND organization.legal_entity_id = legal_entity.legal_entity_id
+         AND organization.company_id = company.company_id
          AND organization.identity_status = 'ACTIVE'
         JOIN attendance_group_assignment attendance_assignment
           ON attendance_assignment.employee_id = employee.employee_id
@@ -108,8 +108,8 @@
         JOIN attendance_group attendance_group
           ON attendance_group.attendance_group_id =
                 group_revision.attendance_group_id
-         AND attendance_group.legal_entity_id =
-                legal_entity.legal_entity_id
+         AND attendance_group.company_id =
+                company.company_id
         JOIN attendance_group_timeline group_timeline
           ON group_timeline.attendance_group_id =
                 attendance_group.attendance_group_id
@@ -134,7 +134,7 @@
                 group_revision.location_revision_id
         JOIN location location
           ON location.location_id = location_revision.location_id
-         AND location.legal_entity_id = legal_entity.legal_entity_id
+         AND location.company_id = company.company_id
         JOIN location_timeline location_timeline
           ON location_timeline.location_id = location.location_id
          AND location_timeline.location_revision_id =
@@ -156,8 +156,8 @@
         JOIN work_calendar work_calendar
           ON work_calendar.work_calendar_id =
                 group_revision.work_calendar_id
-         AND work_calendar.legal_entity_id =
-                legal_entity.legal_entity_id
+         AND work_calendar.company_id =
+                company.company_id
          AND work_calendar.location_id = location.location_id
         JOIN calendar_publication_timeline calendar_publication
           ON calendar_publication.work_calendar_id =
@@ -212,8 +212,8 @@
         JOIN shift_template effective_shift_template
           ON effective_shift_template.shift_template_id =
                 effective_shift.shift_template_id
-         AND effective_shift_template.legal_entity_id =
-                legal_entity.legal_entity_id
+         AND effective_shift_template.company_id =
+                company.company_id
          AND effective_shift_template.location_id = location.location_id
         JOIN shift_publication_timeline shift_publication
           ON shift_publication.shift_template_id =
@@ -246,11 +246,11 @@
         JOIN shift_template group_shift_template
           ON group_shift_template.shift_template_id =
                 group_revision.shift_template_id
-         AND group_shift_template.legal_entity_id =
-                legal_entity.legal_entity_id
+         AND group_shift_template.company_id =
+                company.company_id
          AND group_shift_template.location_id = location.location_id
-        WHERE legal_entity.legal_entity_id = #{legalEntityId}
-          AND legal_entity.status = 'ACTIVE'
+        WHERE company.company_id = #{companyId}
+          AND company.status = 'ACTIVE'
           AND location_revision.time_zone =
                 calendar_version.time_zone_snapshot
           AND location_revision.time_zone =

@@ -10,7 +10,7 @@ public final class CalendarCommands {
     }
 
     public record CalendarCommand(
-            String legalEntityId,
+            String companyId,
             String locationId,
             String code,
             String name,

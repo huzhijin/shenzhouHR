@@ -42,7 +42,7 @@ public class AttendanceReportExportController {
         ExportView result = exportService.create(
                 request.reportType(),
                 request.period(),
-                request.legalEntityId(),
+                request.companyId(),
                 request.organizationId(),
                 request.employeeId(),
                 request.status(),
@@ -91,7 +91,7 @@ public class AttendanceReportExportController {
     record CreateExportRequest(
             @NotNull ReportType reportType,
             @NotNull YearMonth period,
-            @Size(max = 36) String legalEntityId,
+            @Size(max = 36) String companyId,
             @Size(max = 36) String organizationId,
             @Size(max = 36) String employeeId,
             @Size(max = 32) String status,
@@ -106,8 +106,8 @@ public class AttendanceReportExportController {
                     + reportType
                     + ", period="
                     + period
-                    + ", legalEntityId="
-                    + legalEntityId
+                    + ", companyId="
+                    + companyId
                     + ", organizationId="
                     + organizationId
                     + ", employeeId="

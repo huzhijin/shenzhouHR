@@ -48,7 +48,7 @@ public class DeliSourceRegistrationController {
     }
 
     public record RegisterDeliSourceRequest(
-            @NotBlank @Size(max = 36) String legalEntityId,
+            @NotBlank @Size(max = 36) String companyId,
             @NotBlank
                     @Pattern(regexp = "[A-Z0-9][A-Z0-9_-]{1,63}")
                     String sourceCode,
@@ -64,7 +64,7 @@ public class DeliSourceRegistrationController {
 
         DeliSourceRegistrationModels.Command toCommand() {
             return new DeliSourceRegistrationModels.Command(
-                    legalEntityId,
+                    companyId,
                     sourceCode,
                     displayName,
                     sourceTimeZone,

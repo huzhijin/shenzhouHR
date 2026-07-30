@@ -63,7 +63,7 @@ abstract class Wave1IntegrationTestSupport {
 
     static final String ADMIN_ROLE = "11000000-0000-0000-0000-000000000001";
     static final String READER_ROLE = "11000000-0000-0000-0000-000000000002";
-    static final String LEGAL_ENTITY_SCOPE = "90000000-0000-0000-0000-000000000001";
+    static final String COMPANY_SCOPE = "90000000-0000-0000-0000-000000000001";
 
     static final String POLICY_TEMPLATE = "83000000-0000-0000-0000-000000000001";
     static final String POLICY_PUBLISHED_VERSION = "84000000-0000-0000-0000-000000000001";
@@ -202,7 +202,7 @@ abstract class Wave1IntegrationTestSupport {
                 assignmentId,
                 principalId,
                 roleId,
-                LEGAL_ENTITY_SCOPE,
+                COMPANY_SCOPE,
                 Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")),
                 ADMIN_PRINCIPAL);
     }

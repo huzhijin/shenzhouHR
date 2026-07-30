@@ -146,7 +146,7 @@ One frozen-source W4 run SHALL produce these exact 24 pre-review leaf gates, eac
 - **THEN** the application account can perform required DML but DDL, GRANT and cross-schema access fail
 
 ### Requirement: Authorization gate is action, scope, field and state complete
-`W4-VER-AUTH-SCOPE` SHALL exercise every W4 capability independently with authenticated principals, legal-entity/location/organization scopes and protected-period/object states, asserting both response and database delta.
+`W4-VER-AUTH-SCOPE` SHALL exercise every W4 capability independently with authenticated principals, company/location/organization scopes and protected-period/object states, asserting both response and database delta.
 
 #### Scenario: Capability pair matrix
 - **WHEN** each action is tested once with its exact capability and once without it
@@ -157,7 +157,7 @@ One frozen-source W4 run SHALL produce these exact 24 pre-review leaf gates, eac
 - **THEN** direct URL/API/download attempts are rejected before sensitive selection and no raw data reaches response/log
 
 #### Scenario: Pagination cannot reveal out-of-scope counts
-- **WHEN** list data contains mixed legal entities and locations
+- **WHEN** list data contains mixed companies and locations
 - **THEN** SQL-level scope changes rows, total counts and cursors so unauthorized cardinality is not inferable
 
 #### Scenario: Period and stale-state conflicts

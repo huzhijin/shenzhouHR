@@ -31,40 +31,40 @@ public class ProjectionBackedAttendancePeriodProtection
     @Override
     @Transactional(readOnly = true)
     public Protection protectionFor(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate) {
-        requireIdentifier(legalEntityId, "legalEntityId");
+        requireIdentifier(companyId, "companyId");
         requireIdentifier(employeeId, "employeeId");
         Objects.requireNonNull(businessDate, "businessDate");
 
         List<AttendancePeriodProjectionRow> rows =
                 mapper.resolveLatestPublished(
-                        legalEntityId, employeeId, businessDate);
+                        companyId, employeeId, businessDate);
         if (rows == null) {
             throw new IllegalStateException(
                     "attendance period protection mapper returned null");
         }
         if (rows.size() != 1) {
-            return unknown(legalEntityId, employeeId, businessDate);
+            return unknown(companyId, employeeId, businessDate);
         }
         AttendancePeriodProjectionRow row = rows.getFirst();
-        if (!valid(row, legalEntityId, employeeId, businessDate)) {
-            return unknown(legalEntityId, employeeId, businessDate);
+        if (!valid(row, companyId, employeeId, businessDate)) {
+            return unknown(companyId, employeeId, businessDate);
         }
 
         PeriodStatus status;
         try {
             status = PeriodStatus.valueOf(row.periodState());
         } catch (RuntimeException exception) {
-            return unknown(legalEntityId, employeeId, businessDate);
+            return unknown(companyId, employeeId, businessDate);
         }
         if (status == PeriodStatus.UNKNOWN) {
-            return unknown(legalEntityId, employeeId, businessDate);
+            return unknown(companyId, employeeId, businessDate);
         }
         String snapshotDigest = StableAuthorityDigest.sha256(
                 "ATTENDANCE_PERIOD_PROJECTION_AUTHORITY_V1",
-                legalEntityId,
+                companyId,
                 employeeId,
                 businessDate.toString(),
                 row.projectionId(),
@@ -87,11 +87,11 @@ public class ProjectionBackedAttendancePeriodProtection
 
     private static boolean valid(
             AttendancePeriodProjectionRow row,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate) {
         return row != null
-                && legalEntityId.equals(row.legalEntityId())
+                && companyId.equals(row.companyId())
                 && employeeId.equals(row.employeeId())
                 && row.periodStart() != null
                 && row.periodEndExclusive() != null
@@ -111,7 +111,7 @@ public class ProjectionBackedAttendancePeriodProtection
     }
 
     private static Protection unknown(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate) {
         return new Protection(
@@ -119,7 +119,7 @@ public class ProjectionBackedAttendancePeriodProtection
                 "UNKNOWN",
                 StableAuthorityDigest.sha256(
                         "ATTENDANCE_PERIOD_UNKNOWN_V1",
-                        legalEntityId,
+                        companyId,
                         employeeId,
                         businessDate.toString()));
     }

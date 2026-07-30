@@ -64,7 +64,7 @@ public final class AttendanceExceptionModels {
 
     public record ExceptionFinding(
             String fingerprint,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate,
             String segmentOrSliceKey,
@@ -76,7 +76,7 @@ public final class AttendanceExceptionModels {
 
         public ExceptionFinding {
             fingerprint = requireText(fingerprint, "fingerprint");
-            legalEntityId = requireText(legalEntityId, "legalEntityId");
+            companyId = requireText(companyId, "companyId");
             employeeId = requireText(employeeId, "employeeId");
             Objects.requireNonNull(businessDate, "businessDate");
             segmentOrSliceKey = requireText(

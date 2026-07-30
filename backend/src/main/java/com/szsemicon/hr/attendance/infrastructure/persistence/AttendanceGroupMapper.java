@@ -142,6 +142,11 @@ interface AttendanceGroupMapper {
             @Param("asOf") LocalDate asOf,
             @Param("knowledgeAsOf") Instant knowledgeAsOf);
 
+    boolean hasAssignmentCompanyMismatch(
+            @Param("employeeId") String employeeId,
+            @Param("asOf") LocalDate asOf,
+            @Param("knowledgeAsOf") Instant knowledgeAsOf);
+
     boolean hasAssignmentOverlap(
             @Param("employeeId") String employeeId,
             @Param("effectiveFrom") LocalDate effectiveFrom,
@@ -161,7 +166,7 @@ interface AttendanceGroupMapper {
             @Param("row") AttendanceGroupRows.AssignmentRow row,
             @Param("idempotencyKey") String idempotencyKey);
 
-    void insertAssignmentSuccessor(
+    int insertAssignmentSuccessor(
             @Param("row") AttendanceGroupRows.AssignmentRow row,
             @Param("predecessorAssignmentId") String predecessorAssignmentId);
 
@@ -175,7 +180,7 @@ interface AttendanceGroupMapper {
     String latestAssignmentTimelineId(
             @Param("assignmentId") String assignmentId);
 
-    void insertAssignmentTimeline(
+    int insertAssignmentTimeline(
             @Param("row") AttendanceGroupRows.TimelineFactRow row);
 
     int countEffectiveAssignments(

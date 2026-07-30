@@ -105,7 +105,7 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
       ? template.templateId === routeContext.templateId
       : template.policyKind === effectivePolicyKind)
     : undefined;
-  const lifecycleLegalEntityId = routeContext?.legalEntityId ?? '';
+  const lifecycleCompanyId = routeContext?.companyId ?? '';
   const effectiveVersionId = routeContext?.scopedVersionId ?? '';
   const applyVersionId = () => {
     const trimmed = draftVersionId.trim();
@@ -504,11 +504,11 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
               </nav>
             ) : null}
           </section>
-          {routeContextReady && selectedTemplate && lifecycleLegalEntityId ? (
+          {routeContextReady && selectedTemplate && lifecycleCompanyId ? (
             <AttendancePolicyLifecyclePanel
-              key={`${selectedTemplate.templateId}-${lifecycleLegalEntityId}-${effectiveVersionId}`}
+              key={`${selectedTemplate.templateId}-${lifecycleCompanyId}-${effectiveVersionId}`}
               templateId={selectedTemplate.templateId}
-              legalEntityId={lifecycleLegalEntityId}
+              companyId={lifecycleCompanyId}
               selectedVersionId={effectiveVersionId}
               fields={selectedTemplate.fields}
               canManage={canManage}

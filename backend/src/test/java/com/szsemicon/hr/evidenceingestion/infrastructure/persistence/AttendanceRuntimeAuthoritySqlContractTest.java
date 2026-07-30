@@ -22,7 +22,7 @@ class AttendanceRuntimeAuthoritySqlContractTest {
         String sql = normalize(Files.readString(CONFIGURATION_MAPPER));
 
         assertThat(sql)
-                .contains("legal_entity.legal_entity_id = #{legalEntityId}")
+                .contains("company.company_id = #{companyId}")
                 .contains("employee.employee_id = #{employeeId}")
                 .contains("employee_version.status = 'ACTIVE'")
                 .contains("employment.record_status = 'ACTIVE'")
@@ -52,8 +52,8 @@ class AttendanceRuntimeAuthoritySqlContractTest {
         String sql = normalize(Files.readString(PERIOD_MAPPER));
 
         assertThat(sql)
-                .contains("latest.legal_entity_id = #{legalEntityId}")
-                .contains("projection.legal_entity_id = #{legalEntityId}")
+                .contains("latest.company_id = #{companyId}")
+                .contains("projection.company_id = #{companyId}")
                 .contains("employee.employee_id = #{employeeId}")
                 .contains("latest.status = 'PUBLISHED'")
                 .contains("projection.status = 'PUBLISHED'")

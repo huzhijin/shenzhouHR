@@ -17,7 +17,7 @@ public final class AttendanceCalculationPorts {
     public interface AttendanceEvidenceSnapshotPort {
 
         EvidenceSnapshot read(
-                String legalEntityId,
+                String companyId,
                 String employeeId,
                 LocalDate businessDate,
                 Instant knowledgeCutoff,
@@ -79,7 +79,7 @@ public final class AttendanceCalculationPorts {
             String intentId,
             long version,
             String leaseToken,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             List<LocalDate> candidateBusinessDates,
             List<String> evidenceReferences,
@@ -94,13 +94,13 @@ public final class AttendanceCalculationPorts {
     public interface AttendancePeriodStatePort {
 
         PeriodStateSnapshot read(
-                String legalEntityId, LocalDate businessDate);
+                String companyId, LocalDate businessDate);
     }
 
     public interface AttendanceCloseDependencyPort {
 
         CloseDependencySnapshot read(
-                String legalEntityId,
+                String companyId,
                 LocalDate startDate,
                 LocalDate endExclusive,
                 Instant knowledgeCutoff);

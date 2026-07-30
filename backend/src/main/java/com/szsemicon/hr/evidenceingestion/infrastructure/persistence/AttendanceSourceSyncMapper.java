@@ -10,8 +10,8 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 interface AttendanceSourceSyncMapper {
 
-    String lockAuthorizedLegalEntity(
-            @Param("legalEntityId") String legalEntityId,
+    String lockAuthorizedCompany(
+            @Param("companyId") String companyId,
             @Param("principalId") String principalId,
             @Param("capability") String capability,
             @Param("at") Instant at);
@@ -22,7 +22,7 @@ interface AttendanceSourceSyncMapper {
             @Param("idempotencyKey") String idempotencyKey);
 
     DeliSourceRegistrationModels.SourceView findDeliSourceByCode(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("sourceCode") String sourceCode);
 
     int countActiveSourcesForCredentialReference(
@@ -155,7 +155,7 @@ interface AttendanceSourceSyncMapper {
 
     record AuthorizedDeliSourceRow(
             String sourceId,
-            String legalEntityId,
+            String companyId,
             String displayName,
             String secretReferenceName,
             String sourceTimeZone,
@@ -170,7 +170,7 @@ interface AttendanceSourceSyncMapper {
             String originalStatus,
             long originalRowVersion,
             String sourceId,
-            String legalEntityId,
+            String companyId,
             String displayName,
             String secretReferenceName,
             String sourceTimeZone,

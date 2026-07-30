@@ -1,6 +1,6 @@
 package com.szsemicon.hr.reporting.infrastructure.persistence;
 
-import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.LegalEntityOption;
+import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.CompanyOption;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionFact;
@@ -18,16 +18,16 @@ final class ReportRows {
     private ReportRows() {
     }
 
-    record LegalEntityRow(String legalEntityId, String name) {
+    record CompanyRow(String companyId, String companyName) {
 
-        LegalEntityOption toDomain() {
-            return new LegalEntityOption(legalEntityId, name);
+        CompanyOption toDomain() {
+            return new CompanyOption(companyId, companyName);
         }
     }
 
     record ProjectionRow(
             String projectionId,
-            String legalEntityId,
+            String companyId,
             String projectionVersion,
             String periodState,
             String sourceVersionsJson,
@@ -37,7 +37,7 @@ final class ReportRows {
     record ScopeRow(
             String scopeId,
             String scopeType,
-            String legalEntityId,
+            String companyId,
             String organizationId,
             boolean includeDescendants,
             String principalEmployeeId) {
@@ -45,7 +45,7 @@ final class ReportRows {
 
     record DailyRow(
             String factId,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             String employeeNumber,
             String employeeName,
@@ -73,7 +73,7 @@ final class ReportRows {
         DailyFact toDomain() {
             return new DailyFact(
                     factId,
-                    legalEntityId,
+                    companyId,
                     employeeId,
                     employeeNumber,
                     employeeName,

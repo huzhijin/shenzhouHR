@@ -31,22 +31,22 @@ import org.junit.jupiter.api.Test;
 class AttendanceReportQueryServiceTest {
 
     private static final String PRINCIPAL = "principal-report";
-    private static final String LEGAL_ENTITY = "legal-a";
+    private static final String COMPANY = "legal-a";
     private static final Instant NOW =
             Instant.parse("2026-07-29T01:00:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     @Test
-    void legalEntityDirectoryIsBoundToCurrentPrincipalPeriodAndReadCapability() {
+    void companyDirectoryIsBoundToCurrentPrincipalPeriodAndReadCapability() {
         CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);
         AttendanceReportSourceRepository repository =
                 mock(AttendanceReportSourceRepository.class);
         YearMonth period = YearMonth.of(2026, 7);
         var expected = List.of(
-                new AttendanceReportSourceRepository.LegalEntityOption(
-                        LEGAL_ENTITY, "神州半导体"));
-        when(repository.listAuthorizedLegalEntities(
+                new AttendanceReportSourceRepository.CompanyOption(
+                        COMPANY, "神州半导体"));
+        when(repository.listAuthorizedCompanies(
                         PRINCIPAL,
                         CapabilityCodes.ATTENDANCE_REPORT_READ,
                         period,
@@ -55,10 +55,10 @@ class AttendanceReportQueryServiceTest {
         var service = new AttendanceReportQueryService(
                 capabilities, principal(), repository, CLOCK);
 
-        assertThat(service.legalEntities(period)).isEqualTo(expected);
+        assertThat(service.companies(period)).isEqualTo(expected);
         verify(capabilities).require(
                 CapabilityCodes.ATTENDANCE_REPORT_READ);
-        verify(repository).listAuthorizedLegalEntities(
+        verify(repository).listAuthorizedCompanies(
                 PRINCIPAL,
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 period,
@@ -73,7 +73,7 @@ class AttendanceReportQueryServiceTest {
                 mock(AttendanceReportSourceRepository.class);
         ReportFilter filter = new ReportFilter(
                 YearMonth.of(2026, 7),
-                LEGAL_ENTITY,
+                COMPANY,
                 "org-a",
                 null,
                 null);
@@ -94,7 +94,7 @@ class AttendanceReportQueryServiceTest {
         AttendanceReportPage result = service.query(
                 ReportType.ATTENDANCE_DETAIL,
                 filter.period(),
-                filter.legalEntityId(),
+                filter.companyId(),
                 filter.organizationId(),
                 null,
                 null,
@@ -225,7 +225,7 @@ class AttendanceReportQueryServiceTest {
     void queryFingerprintBindsFiltersProjectionScopeAndFormula() {
         var filter = new ReportFilter(
                 YearMonth.of(2026, 7),
-                LEGAL_ENTITY,
+                COMPANY,
                 "org-a",
                 "employee-a",
                 null);
@@ -242,7 +242,7 @@ class AttendanceReportQueryServiceTest {
                 "projection-1",
                 "scope-b",
                 "formula-1");
-        String otherLegalEntity = AttendanceReportQueryService.fingerprint(
+        String otherCompany = AttendanceReportQueryService.fingerprint(
                 ReportType.WORK_HOURS,
                 new ReportFilter(
                         filter.period(),
@@ -257,7 +257,7 @@ class AttendanceReportQueryServiceTest {
         assertThat(first)
                 .hasSize(64)
                 .isNotEqualTo(second)
-                .isNotEqualTo(otherLegalEntity);
+                .isNotEqualTo(otherCompany);
     }
 
     private CurrentPrincipalProvider principal() {

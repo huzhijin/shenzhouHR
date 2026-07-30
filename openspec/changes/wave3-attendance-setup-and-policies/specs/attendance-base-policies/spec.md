@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
-### Requirement: W3 policies use an independent legal-entity scoped aggregate
-The system SHALL keep the W2 generic policy schema, Java model, repository, lifecycle, DTO and OpenAPI contract unchanged. W3 SHALL store attendance-specific templates, legal-entity scopes, scoped versions, lifecycle events and bindings only in `attendance_policy_*` aggregates. An attendance binding SHALL reference `attendance_policy_scoped_version`, never W2 `policy_version`.
+### Requirement: W3 policies use an independent company-scoped aggregate
+The system SHALL keep the W2 generic policy schema, Java model, repository, lifecycle, DTO and OpenAPI contract unchanged. W3 SHALL store attendance-specific templates, company scopes, scoped versions, lifecycle events and bindings only in `attendance_policy_*` aggregates. An attendance binding SHALL reference `attendance_policy_scoped_version`, never W2 `policy_version`.
 
 #### Scenario: Preserve the W2 policy contract
 - **GIVEN** a V6 database and existing W2 policy rows/API fixtures
@@ -9,7 +9,7 @@ The system SHALL keep the W2 generic policy schema, Java model, repository, life
 - **THEN** W2 table columns, indexes, constraints, DTO schemas and full-row hashes are byte-for-byte retained
 
 #### Scenario: Reject cross-entity scoped lifecycle access
-- **WHEN** a capable actor queries or mutates a W3 scoped version outside their legal-entity data scope
+- **WHEN** a capable actor queries or mutates a W3 scoped version outside their company data scope
 - **THEN** the safe resource-not-available response is returned, no W3 mutation occurs, and no success audit is written
 
 ### Requirement: W3 provides exactly three controlled policy kinds
@@ -20,7 +20,7 @@ The W3 template catalog SHALL contain exactly `MEAL_DEDUCTION`, `LATE_GRACE`, an
 - **THEN** validation produces a field-level issue and publication is blocked
 
 #### Scenario: Seed only the fixed oracle baselines
-- **GIVEN** the explicit baseline legal entity exists
+- **GIVEN** the explicit baseline company exists
 - **WHEN** V7 is applied
 - **THEN** exactly three W3 templates, three scopes and three PUBLISHED v1 scoped versions with oracle IDs/JSON/digests exist and no extra W3 baseline exists
 
@@ -44,7 +44,7 @@ Every W3 scoped version business-content row and lifecycle fact SHALL be append-
 - **THEN** the operation returns a stable freeze conflict, writes no success fact/audit, and retains all prior content
 
 ### Requirement: Group creation provisions three default bindings atomically
-Creating or enabling an attendance-group revision SHALL, in the same transaction, provision one valid default binding for each W3 policy kind. Each scoped version SHALL match the group legal entity and business interval and SHALL be uniquely PUBLISHED. Meal deduction SHALL default to enabled.
+Creating or enabling an attendance-group revision SHALL, in the same transaction, provision one valid default binding for each W3 policy kind. Each scoped version SHALL match the group company and business interval and SHALL be uniquely PUBLISHED. Meal deduction SHALL default to enabled.
 
 #### Scenario: Provision all default bindings
 - **WHEN** a valid future group revision is created and each scoped baseline resolves exactly once
@@ -59,7 +59,7 @@ Creating or enabling an attendance-group revision SHALL, in the same transaction
 - **THEN** creation fails with `POLICY_AMBIGUOUS`; mapper single-value coercion or `LIMIT 1` is forbidden
 
 ### Requirement: Binding resolution is deterministic and history safe
-Each binding family SHALL be uniquely and stably owned by `(attendanceGroupId, policyKind)`. An immutable binding revision SHALL reference exactly one group revision and one PUBLISHED W3 scoped version. Group rollover SHALL append a successor revision under the same family, never replace the family or create another family for the kind. Its derived interval SHALL be contained by both group and scoped-version intervals. Resolution SHALL evaluate legal entity, kind, business date, lifecycle publication and half-open intervals and SHALL yield exactly one revision per kind. Priority SHALL NOT be part of the W3 binding model.
+Each binding family SHALL be uniquely and stably owned by `(attendanceGroupId, policyKind)`. An immutable binding revision SHALL reference exactly one group revision and one PUBLISHED W3 scoped version. Group rollover SHALL append a successor revision under the same family, never replace the family or create another family for the kind. Its derived interval SHALL be contained by both group and scoped-version intervals. Resolution SHALL evaluate company, kind, business date, lifecycle publication and half-open intervals and SHALL yield exactly one revision per kind. Priority SHALL NOT be part of the W3 binding model.
 
 #### Scenario: Rollover retains the stable binding family
 - **WHEN** a group revision rolls over with all three default policies
@@ -83,7 +83,7 @@ Each binding family SHALL be uniquely and stably owned by `(attendanceGroupId, p
 - **THEN** the mutation requires a real-scope impact token bound to the identical canonical request digest
 
 ### Requirement: Policy lifecycle uses durable locked idempotency
-Draft, validate, publish, future deactivate and rollback SHALL use actor+operation+resource+key and a canonical request digest including reason, legal entity and expected version. The service SHALL acquire the stable scope lock, perform a second idempotency lookup, then check `If-Match` in the same transaction. Exact replay SHALL apply only to committed `COMPLETED_SUCCESS` results. Failed transactions SHALL roll back mutation, success audit and completion; a separately committed failure audit SHALL NOT make the failed response replayable, and the same key/digest MAY retry after rollback or provably stale STARTED takeover.
+Draft, validate, publish, future deactivate and rollback SHALL use actor+operation+resource+key and a canonical request digest including reason, company and expected version. The service SHALL acquire the stable scope lock, perform a second idempotency lookup, then check `If-Match` in the same transaction. Exact replay SHALL apply only to committed `COMPLETED_SUCCESS` results. Failed transactions SHALL roll back mutation, success audit and completion; a separately committed failure audit SHALL NOT make the failed response replayable, and the same key/digest MAY retry after rollback or provably stale STARTED takeover.
 
 #### Scenario: Replay an identical lifecycle response
 - **GIVEN** the first request committed `COMPLETED_SUCCESS`

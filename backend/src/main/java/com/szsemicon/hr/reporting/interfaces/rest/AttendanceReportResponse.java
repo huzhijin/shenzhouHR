@@ -40,7 +40,7 @@ record AttendanceReportResponse(
     record ReportFilters(
             String period,
             String scopeReference,
-            String legalEntityId,
+            String companyId,
             String organizationId,
             String employeeId,
             String status) {

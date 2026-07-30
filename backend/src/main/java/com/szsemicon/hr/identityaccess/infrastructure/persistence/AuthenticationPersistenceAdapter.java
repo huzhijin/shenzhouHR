@@ -362,7 +362,7 @@ public class AuthenticationPersistenceAdapter implements AuthenticationPersisten
                 row.lastLoginAt(),
                 row.sessionEpoch(),
                 row.rowVersion(),
-                row.legalEntityId());
+                row.companyId());
     }
 
     private static SessionRecord toSession(SessionRow row) {

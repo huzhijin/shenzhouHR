@@ -71,13 +71,13 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
     @Autowired
     private MutableUsageProvider testUsageProvider;
 
-    private static final String LEGAL_ENTITY =
+    private static final String COMPANY =
             "30000000-0000-0000-0000-000000000001";
     private static final String EMPLOYEE =
             "b0000000-0000-0000-0000-000000000001";
     private static final String SECOND_EMPLOYEE =
             "b0000000-0000-0000-0000-000000000002";
-    private static final String OUTSIDE_LEGAL_ENTITY_EMPLOYEE =
+    private static final String OUTSIDE_COMPANY_EMPLOYEE =
             "b0000000-0000-0000-0000-000000000004";
     private static final String MEAL_TEMPLATE =
             "86000000-0000-0000-0000-000000000001";
@@ -324,11 +324,11 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
         jdbc.update(
                 """
                 INSERT INTO auth_data_scope (
-                    scope_id, scope_type, legal_entity_id, include_descendants,
+                    scope_id, scope_type, company_id, include_descendants,
                     valid_from, valid_to
                 ) VALUES (
                     '99000000-0000-0000-0000-000000000002',
-                    'LEGAL_ENTITY',
+                    'COMPANY',
                     '30000000-0000-0000-0000-000000000002',
                     TRUE, TIMESTAMP '2020-01-01 00:00:00', NULL
                 )
@@ -781,18 +781,18 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
     }
 
     @Test
-    void resolution_rejects_employee_group_legal_entity_mismatch()
+    void resolution_rejects_employee_group_company_mismatch()
             throws Exception {
         Setup setup = createBaseSetup();
         createAssignment(
                 setup.firstGroupId(),
-                "wave3-assignment-cross-legal-entity",
+                "wave3-assignment-cross-company",
                 "2026-08-14",
                 null);
         jdbc.update(
                 """
                 UPDATE attendance_group
-                SET legal_entity_id = '30000000-0000-0000-0000-000000000002'
+                SET company_id = '30000000-0000-0000-0000-000000000002'
                 WHERE attendance_group_id = ?
                 """,
                 setup.firstGroupId());
@@ -842,7 +842,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-reference-calendar",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"REFERENCE_2026",
                   "name":"关联校验日历",
                   "calendarYear":2026,
@@ -852,7 +852,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2026-08-15",
                   "reason":"WAVE-3 时区关联负例"
                 }
-                """.formatted(LEGAL_ENTITY, firstLocationId))
+                """.formatted(COMPANY, firstLocationId))
                 .andExpect(status().isCreated())
                 .andReturn();
         String calendarId = value(calendar, "$.calendarId");
@@ -876,7 +876,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-reference-group-mismatch",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"REFERENCE_GROUP",
                   "name":"关联校验考勤组",
                   "locationId":"%s",
@@ -886,7 +886,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "reason":"WAVE-3 关联一致性负例"
                 }
                 """.formatted(
-                        LEGAL_ENTITY,
+                        COMPANY,
                         secondLocationId,
                         calendarId,
                         shiftId))
@@ -935,7 +935,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-calendar-validation-draft",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"VALIDATION_2026",
                   "name":"日历校验草稿",
                   "calendarYear":2026,
@@ -945,7 +945,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2026-09-02",
                   "reason":"WAVE-3 日历负例草稿"
                 }
-                """.formatted(LEGAL_ENTITY, setup.locationId()))
+                """.formatted(COMPANY, setup.locationId()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn();
@@ -1007,7 +1007,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-calendar-history-draft",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"HISTORY_2026",
                   "name":"日历日历史草稿",
                   "calendarYear":2026,
@@ -1017,7 +1017,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2026-08-16",
                   "reason":"WAVE-3 日历日历史草稿"
                 }
-                """.formatted(LEGAL_ENTITY, setup.locationId()))
+                """.formatted(COMPANY, setup.locationId()))
                 .andExpect(status().isCreated())
                 .andReturn();
         String draftCalendarId = value(draftCalendar, "$.calendarId");
@@ -1154,7 +1154,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-calendar-digest-create",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"DIGEST_2026",
                   "name":"摘要一致性日历",
                   "calendarYear":2026,
@@ -1164,7 +1164,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2026-08-15",
                   "reason":"WAVE-3 创建摘要一致性日历"
                 }
-                """.formatted(LEGAL_ENTITY, locationId))
+                """.formatted(COMPANY, locationId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.snapshotDigest")
                         .value(org.hamcrest.Matchers.matchesPattern(
@@ -1487,7 +1487,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-calendar-future-close-family",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"FUTURE_CLOSE_2026",
                   "name":"未来停用连续日历一",
                   "calendarYear":2026,
@@ -1497,7 +1497,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2026-08-03",
                   "reason":"WAVE-3 创建第一段连续日历"
                 }
-                """.formatted(LEGAL_ENTITY, locationId))
+                """.formatted(COMPANY, locationId))
                 .andExpect(status().isCreated())
                 .andReturn();
         String calendarId = value(created, "$.calendarId");
@@ -1696,13 +1696,13 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-lifecycle-shift",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "locationId":"%s",
                   "code":"LIFECYCLE_SHIFT",
                   "name":"生命周期班次",
                   "reason":"WAVE-3 生命周期班次建档"
                 }
-                """.formatted(LEGAL_ENTITY, locationId))
+                """.formatted(COMPANY, locationId))
                 .andExpect(status().isCreated())
                 .andReturn();
         String shiftId = value(shift, "$.shiftId");
@@ -1719,13 +1719,13 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "legalEntityId":"%s",
+                                  "companyId":"%s",
                                   "locationId":"%s",
                                   "code":"LIFECYCLE_SHIFT",
                                   "name":"生命周期班次修订",
                                   "reason":"WAVE-3 班次模板修订"
                                 }
-                                """.formatted(LEGAL_ENTITY, locationId)))
+                                """.formatted(COMPANY, locationId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.rowVersion").value(1));
         changeShiftTemplateStatus(shiftId, 1, "INACTIVE")
@@ -1762,7 +1762,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-lifecycle-calendar",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"LIFECYCLE_2026",
                   "name":"生命周期日历",
                   "calendarYear":2026,
@@ -1772,7 +1772,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2026-08-15",
                   "reason":"WAVE-3 生命周期日历建档"
                 }
-                """.formatted(LEGAL_ENTITY, locationId))
+                """.formatted(COMPANY, locationId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andReturn();
@@ -1791,7 +1791,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "legalEntityId":"%s",
+                                  "companyId":"%s",
                                   "code":"LIFECYCLE_2026",
                                   "name":"生命周期日历修订",
                                   "calendarYear":2026,
@@ -1801,7 +1801,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                                   "effectiveTo":"2026-08-15",
                                   "reason":"WAVE-3 日历草稿修订"
                                 }
-                                """.formatted(LEGAL_ENTITY, locationId)))
+                                """.formatted(COMPANY, locationId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.rowVersion").value(1));
         replaceCalendarDays(
@@ -1955,13 +1955,13 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "wave3-fixed-clock-shift",
                         """
                         {
-                          "legalEntityId":"%s",
+                          "companyId":"%s",
                           "locationId":"%s",
                           "code":"FIXED_CLOCK_SHIFT",
                           "name":"固定时钟班次",
                           "reason":"WAVE-3 固定时钟班次建档"
                         }
-                        """.formatted(LEGAL_ENTITY, locationId))
+                        """.formatted(COMPANY, locationId))
                         .andReturn(),
                 "$.shiftId");
 
@@ -2035,7 +2035,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
         mockMvc.perform(get(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         LATE_TEMPLATE)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .with(user(ADMIN_PRINCIPAL)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].scopedVersionId").value(LATE_VERSION));
@@ -2044,7 +2044,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         LATE_TEMPLATE,
                         LATE_VERSION)
                         .queryParam(
-                                "legalEntityId",
+                                "companyId",
                                 "30000000-0000-0000-0000-000000000002")
                         .with(user(ADMIN_PRINCIPAL)))
                 .andExpect(status().isNotFound())
@@ -2062,7 +2062,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         LATE_TEMPLATE)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header("Idempotency-Key", "wave3-policy-draft-create"),
                 draftRequest)
                 .andExpect(status().isCreated())
@@ -2073,7 +2073,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         LATE_TEMPLATE)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header("Idempotency-Key", "wave3-policy-draft-create"),
                 draftRequest)
                 .andExpect(status().isCreated())
@@ -2085,7 +2085,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}",
                         LATE_TEMPLATE,
                         originalDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .with(user(ADMIN_PRINCIPAL))
                         .with(csrf())
                         .header(HttpHeaders.IF_MATCH, "\"0\"")
@@ -2111,7 +2111,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}",
                         LATE_TEMPLATE,
                         originalDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .with(user(ADMIN_PRINCIPAL))
                         .with(csrf())
                         .header(HttpHeaders.IF_MATCH, "\"0\"")
@@ -2139,7 +2139,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + updatedVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-validate"),
                 "{}")
@@ -2153,7 +2153,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + updatedVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-validate"),
                 "{}")
@@ -2176,7 +2176,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + updatedVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-validate-stale"),
                 "{}")
@@ -2207,7 +2207,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .with(user(ADMIN_PRINCIPAL)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("VALIDATED"))
@@ -2225,7 +2225,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/publish",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + validatedVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-publish"),
                 """
@@ -2243,7 +2243,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/publish",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + validatedVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-publish"),
                 """
@@ -2259,7 +2259,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/deactivate",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + publishedVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-deactivate"),
                 """
@@ -2280,7 +2280,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/deactivate",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + publishedVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-deactivate"),
                 """
@@ -2299,7 +2299,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/rollback",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + inactiveVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-rollback-create"),
                 """
@@ -2318,7 +2318,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/rollback",
                         LATE_TEMPLATE,
                         draftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"" + inactiveVersion + "\"")
                         .header("Idempotency-Key", "wave3-policy-rollback-create"),
                 """
@@ -2379,7 +2379,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
         mockMvc.perform(post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         LATE_TEMPLATE)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .with(user(LIMITED_PRINCIPAL))
                         .with(csrf())
                         .header("Idempotency-Key", "wave3-policy-denied-create")
@@ -2538,7 +2538,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-distinct-calendar-family",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "locationId":"%s",
                   "code":"ALT_2026",
                   "name":"替代工作日历",
@@ -2548,7 +2548,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2026-08-15",
                   "reason":"WAVE-3 不同组独立日历版本"
                 }
-                """.formatted(LEGAL_ENTITY, setup.locationId()))
+                """.formatted(COMPANY, setup.locationId()))
                 .andExpect(status().isCreated())
                 .andReturn();
         String alternateCalendarId =
@@ -2624,7 +2624,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
     }
 
     @Test
-    void assignment_rejects_inactive_group_and_cross_legal_entity_employee()
+    void assignment_rejects_inactive_group_and_cross_company_employee()
             throws Exception {
         Setup setup = createBaseSetup();
         write(
@@ -2650,9 +2650,9 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
         create(
                 "/api/v1/attendance-setup/groups/%s/assignments"
                         .formatted(setup.firstGroupId()),
-                "wave3-assignment-cross-legal-entity-write",
+                "wave3-assignment-cross-company-write",
                 assignmentBody(
-                        OUTSIDE_LEGAL_ENTITY_EMPLOYEE,
+                        OUTSIDE_COMPANY_EMPLOYEE,
                         "2026-08-14",
                         "2026-08-15"))
                 .andExpect(status().isNotFound())
@@ -2895,14 +2895,14 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "legalEntityId":"%s",
+                                  "companyId":"%s",
                                   "code":"SHENZHOU_SZ",
                                   "name":"神州半导体苏州厂区二期",
                                   "timeZone":"Asia/Shanghai",
                                   "effectiveFrom":"2026-09-01",
                                   "reason":"WAVE-3 地点完整集合联动换版"
                                 }
-                                """.formatted(LEGAL_ENTITY)))
+                                """.formatted(COMPANY)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.revisionNumber").value(2));
 
@@ -3224,14 +3224,14 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "legalEntityId":"%s",
+                                  "companyId":"%s",
                                   "code":"SHENZHOU_SZ",
                                   "name":"神州半导体苏州厂区",
                                   "timeZone":"UTC",
                                   "effectiveFrom":"2027-01-01",
                                   "reason":"WAVE-3 地点时区未来换版"
                                 }
-                                """.formatted(LEGAL_ENTITY)))
+                                """.formatted(COMPANY)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code")
                         .value("CALENDAR_VERSION_MISSING"));
@@ -3273,7 +3273,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-finite-location",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"FINITE_LOCATION",
                   "name":"有限期间地点",
                   "timeZone":"Asia/Shanghai",
@@ -3281,7 +3281,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2026-09-01",
                   "reason":"WAVE-3 地点半开期间"
                 }
-                """.formatted(LEGAL_ENTITY))
+                """.formatted(COMPANY))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.effectiveTo").value("2026-09-01"))
                 .andReturn();
@@ -3310,7 +3310,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-finite-group",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"FINITE_GROUP",
                   "name":"有限期间考勤组",
                   "locationId":"%s",
@@ -3321,7 +3321,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "reason":"WAVE-3 考勤组半开期间"
                 }
                 """.formatted(
-                        LEGAL_ENTITY,
+                        COMPANY,
                         setup.locationId(),
                         setup.calendarId(),
                         setup.shiftId()))
@@ -3440,7 +3440,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
         Instant successorRecordedAt = testClock.instant();
         Location locationSuccessor = new Location(
                 finiteLocation.locationId(),
-                finiteLocation.legalEntityId(),
+                finiteLocation.companyId(),
                 finiteLocation.code(),
                 java.util.UUID.randomUUID().toString(),
                 2,
@@ -3462,7 +3462,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
 
         AttendanceGroup groupSuccessor = new AttendanceGroup(
                 finiteGroup.groupId(),
-                finiteGroup.legalEntityId(),
+                finiteGroup.companyId(),
                 finiteGroup.code(),
                 java.util.UUID.randomUUID().toString(),
                 2,
@@ -3810,14 +3810,14 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "legalEntityId":"%s",
+                                  "companyId":"%s",
                                   "code":"BITEMPORAL",
                                   "name":"双时态地点",
                                   "timeZone":"UTC",
                                   "effectiveFrom":"2026-09-01",
                                   "reason":"WAVE-3 地点双时态换版"
                                 }
-                                """.formatted(LEGAL_ENTITY)))
+                                """.formatted(COMPANY)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.revisionNumber").value(2));
 
@@ -3893,7 +3893,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
         Instant recordedAt = testClock.instant().plusSeconds(1);
         AttendanceGroup successor = new AttendanceGroup(
                 current.groupId(),
-                current.legalEntityId(),
+                current.companyId(),
                 current.code(),
                 java.util.UUID.randomUUID().toString(),
                 current.revisionNumber() + 1,
@@ -4154,13 +4154,13 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-shift-template",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "locationId":"%s",
                   "code":"NIGHT_A",
                   "name":"夜班 A",
                   "reason":"WAVE-3 夜班模板建档"
                 }
-                """.formatted(LEGAL_ENTITY, locationId))
+                """.formatted(COMPANY, locationId))
                 .andExpect(status().isCreated())
                 .andReturn();
         String shiftId = value(shift, "$.shiftId");
@@ -4228,7 +4228,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 "wave3-calendar-create",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "locationId":"%s",
                   "code":"CN_2026",
                   "name":"中国区 2026 工作日历",
@@ -4238,7 +4238,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "effectiveTo":"2027-01-01",
                   "reason":"WAVE-3 工作日历建档"
                 }
-                """.formatted(LEGAL_ENTITY, locationId))
+                """.formatted(COMPANY, locationId))
                 .andExpect(status().isCreated())
                 .andReturn();
         String calendarId = value(calendar, "$.calendarId");
@@ -4289,7 +4289,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
             String shiftId) throws Exception {
         String body = """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"%s",
                   "name":"%s",
                   "locationId":"%s",
@@ -4299,7 +4299,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "reason":"WAVE-3 考勤组建档"
                 }
                 """.formatted(
-                LEGAL_ENTITY, code, name, locationId, calendarId, shiftId);
+                COMPANY, code, name, locationId, calendarId, shiftId);
         MvcResult result = create(
                 "/api/v1/attendance-setup/groups",
                 idempotencyKey,
@@ -4325,13 +4325,13 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 idempotencyKey,
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "locationId":"%s",
                   "code":"%s",
                   "name":"%s",
                   "reason":"WAVE-3 季节班次模板"
                 }
-                """.formatted(LEGAL_ENTITY, locationId, code, name))
+                """.formatted(COMPANY, locationId, code, name))
                 .andExpect(status().isCreated())
                 .andReturn();
         return value(result, "$.shiftId");
@@ -4478,7 +4478,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
-                          "legalEntityId":"%s",
+                          "companyId":"%s",
                           "code":"%s",
                           "name":"%s",
                           "locationId":"%s",
@@ -4489,7 +4489,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                           "reason":"%s"
                         }
                         """.formatted(
-                        LEGAL_ENTITY,
+                        COMPANY,
                         groupId.equals(setup.firstGroupId())
                                 ? "GROUP_A" : "GROUP_B",
                         groupId.equals(setup.firstGroupId())
@@ -4525,7 +4525,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {
-                          "legalEntityId":"%s",
+                          "companyId":"%s",
                           "code":"%s",
                           "name":"%s",
                           "locationId":"%s",
@@ -4535,7 +4535,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                           "reason":"%s"
                         }
                         """.formatted(
-                        LEGAL_ENTITY,
+                        COMPANY,
                         code,
                         name,
                         setup.locationId(),
@@ -4549,7 +4549,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
             String code, String name, Setup setup) {
         return """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"%s",
                   "name":"%s",
                   "locationId":"%s",
@@ -4559,7 +4559,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   "reason":"WAVE-3 策略基数失败全回滚"
                 }
                 """.formatted(
-                LEGAL_ENTITY,
+                COMPANY,
                 code,
                 name,
                 setup.locationId(),
@@ -4949,14 +4949,14 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
     private String locationBodyFor(String code, String timeZone, String reason) {
         return """
                {
-                 "legalEntityId":"%s",
+                 "companyId":"%s",
                  "code":"%s",
                  "name":"神州半导体苏州厂区",
                  "timeZone":"%s",
                  "effectiveFrom":"2026-01-01",
                  "reason":"%s"
                }
-               """.formatted(LEGAL_ENTITY, code, timeZone, reason);
+               """.formatted(COMPANY, code, timeZone, reason);
     }
 
     private String calendarDaysJson(
@@ -5019,11 +5019,11 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
         jdbc.update(
                 """
                 INSERT INTO attendance_policy_scope (
-                    scope_id, policy_template_id, legal_entity_id, row_version,
+                    scope_id, policy_template_id, company_id, row_version,
                     created_by, created_at
                 ) VALUES (?, ?, ?, 0, ?, ?)
                 """,
-                scopeId(templateId), templateId, LEGAL_ENTITY,
+                scopeId(templateId), templateId, COMPANY,
                 ADMIN_PRINCIPAL, now);
         jdbc.update(
                 """

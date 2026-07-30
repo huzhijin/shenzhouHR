@@ -34,7 +34,7 @@ public final class PunchImportReadModels {
 
     public record BatchView(
             String batchId,
-            String legalEntityId,
+            String companyId,
             String sourceId,
             String originalFilename,
             String fileSha256,

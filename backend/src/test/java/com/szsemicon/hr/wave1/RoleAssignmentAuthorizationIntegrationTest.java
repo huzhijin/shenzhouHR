@@ -26,9 +26,9 @@ class RoleAssignmentAuthorizationIntegrationTest
             "12000000-0000-0000-0000-000000000002";
     private static final String EMPLOYEE_ROLE =
             "12000000-0000-0000-0000-000000000003";
-    private static final String LEGAL_ENTITY_ONE =
+    private static final String COMPANY_ONE =
             "30000000-0000-0000-0000-000000000001";
-    private static final String LEGAL_ENTITY_TWO =
+    private static final String COMPANY_TWO =
             "30000000-0000-0000-0000-000000000002";
     private static final String MANUFACTURING_ORGANIZATION =
             "40000000-0000-0000-0000-000000000002";
@@ -40,7 +40,31 @@ class RoleAssignmentAuthorizationIntegrationTest
             "90000000-0000-0000-0000-000000000002";
 
     @Test
-    void crossLegalEntityGrantIsUnavailableAndDoesNotMutateTarget() throws Exception {
+    void crossCompanyGrantIsUnavailableAndDoesNotMutateTarget() throws Exception {
+        insertRole(HR_ROLE, "HR_ADMIN", "HR 管理员");
+
+        mockMvc.perform(put(
+                        "/api/v1/access/accounts/{accountId}/role-assignments",
+                        STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(replaceBody(
+                                HR_ROLE,
+                                "COMPANY",
+                                COMPANY_TWO,
+                                Instant.now().plusSeconds(60),
+                                null,
+                                0)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_AVAILABLE"));
+
+        assertTargetUnchanged();
+    }
+
+    @Test
+    void legacyScopeLiteralIsRejectedBeforeAnyAuthorizationMutation()
+            throws Exception {
         insertRole(HR_ROLE, "HR_ADMIN", "HR 管理员");
 
         mockMvc.perform(put(
@@ -52,12 +76,12 @@ class RoleAssignmentAuthorizationIntegrationTest
                         .content(replaceBody(
                                 HR_ROLE,
                                 "LEGAL_ENTITY",
-                                LEGAL_ENTITY_TWO,
-                                Instant.now().plusSeconds(60),
+                                COMPANY_ONE,
+                                Instant.now().minusSeconds(1),
                                 null,
                                 0)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_AVAILABLE"));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
         assertTargetUnchanged();
     }
@@ -72,8 +96,8 @@ class RoleAssignmentAuthorizationIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceBody(
                                 SYSTEM_ADMIN_ROLE,
-                                "LEGAL_ENTITY",
-                                LEGAL_ENTITY_ONE,
+                                "COMPANY",
+                                COMPANY_ONE,
                                 Instant.now().plusSeconds(60),
                                 null,
                                 0)))
@@ -110,8 +134,8 @@ class RoleAssignmentAuthorizationIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceBody(
                                 READER_ROLE,
-                                "LEGAL_ENTITY",
-                                LEGAL_ENTITY_ONE,
+                                "COMPANY",
+                                COMPANY_ONE,
                                 Instant.now().plusSeconds(60),
                                 null,
                                 0)))
@@ -202,8 +226,8 @@ class RoleAssignmentAuthorizationIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceBody(
                                 SYSTEM_ADMIN_ROLE,
-                                "LEGAL_ENTITY",
-                                LEGAL_ENTITY_ONE,
+                                "COMPANY",
+                                COMPANY_ONE,
                                 now.plusSeconds(60),
                                 null,
                                 0)))
@@ -234,8 +258,8 @@ class RoleAssignmentAuthorizationIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceBody(
                                 SYSTEM_ADMIN_ROLE,
-                                "LEGAL_ENTITY",
-                                LEGAL_ENTITY_ONE,
+                                "COMPANY",
+                                COMPANY_ONE,
                                 actorStarts.minusSeconds(1),
                                 now.plus(1, ChronoUnit.DAYS),
                                 0)))
@@ -266,8 +290,8 @@ class RoleAssignmentAuthorizationIntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(replaceBody(
                                 SYSTEM_ADMIN_ROLE,
-                                "LEGAL_ENTITY",
-                                LEGAL_ENTITY_ONE,
+                                "COMPANY",
+                                COMPANY_ONE,
                                 now.minusSeconds(1),
                                 actorEnds.minusSeconds(60),
                                 0)))
@@ -280,7 +304,7 @@ class RoleAssignmentAuthorizationIntegrationTest
     void selfAccountCreationRequiresAndPersistsCoveredEmployeeBinding() throws Exception {
         insertRole(EMPLOYEE_ROLE, "EMPLOYEE_SELF", "员工本人");
         String employeeId = "b1000000-0000-0000-0000-000000000001";
-        insertEmployee(employeeId, LEGAL_ENTITY_ONE);
+        insertEmployee(employeeId, COMPANY_ONE);
         String username = uniqueUsername("covered_self");
 
         mockMvc.perform(post("/api/v1/access/accounts")
@@ -312,7 +336,7 @@ class RoleAssignmentAuthorizationIntegrationTest
     void selfCreationWithoutEmployeeAndNonSelfEmployeeSmugglingAreRejected() throws Exception {
         insertRole(EMPLOYEE_ROLE, "EMPLOYEE_SELF", "员工本人");
         String employeeId = "b1000000-0000-0000-0000-000000000002";
-        insertEmployee(employeeId, LEGAL_ENTITY_ONE);
+        insertEmployee(employeeId, COMPANY_ONE);
 
         mockMvc.perform(post("/api/v1/access/accounts")
                         .with(user(ADMIN_PRINCIPAL))
@@ -336,18 +360,18 @@ class RoleAssignmentAuthorizationIntegrationTest
                                 uniqueUsername("smuggled_employee"),
                                 employeeId,
                                 SYSTEM_ADMIN_ROLE,
-                                "LEGAL_ENTITY",
-                                LEGAL_ENTITY_ONE)))
+                                "COMPANY",
+                                COMPANY_ONE)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code")
                         .value("EMPLOYEE_BINDING_NOT_ALLOWED"));
     }
 
     @Test
-    void selfCreationAcrossLegalEntityRollsBackAccountAndPrincipal() throws Exception {
+    void selfCreationAcrossCompanyRollsBackAccountAndPrincipal() throws Exception {
         insertRole(EMPLOYEE_ROLE, "EMPLOYEE_SELF", "员工本人");
         String employeeId = "b1000000-0000-0000-0000-000000000003";
-        insertEmployee(employeeId, LEGAL_ENTITY_TWO);
+        insertEmployee(employeeId, COMPANY_TWO);
         String username = uniqueUsername("cross_legal_self");
 
         mockMvc.perform(post("/api/v1/access/accounts")
@@ -465,16 +489,16 @@ class RoleAssignmentAuthorizationIntegrationTest
                 roleName);
     }
 
-    private void insertEmployee(String employeeId, String legalEntityId) {
+    private void insertEmployee(String employeeId, String companyId) {
         jdbc.update(
                 """
                 INSERT INTO employee (
-                    employee_id, legal_entity_id, display_name,
+                    employee_id, company_id, display_name,
                     employment_status, employee_number
                 ) VALUES (?, ?, '授权测试员工', 'ACTIVE', ?)
                 """,
                 employeeId,
-                legalEntityId,
+                companyId,
                 "AUTH-" + employeeId);
     }
 

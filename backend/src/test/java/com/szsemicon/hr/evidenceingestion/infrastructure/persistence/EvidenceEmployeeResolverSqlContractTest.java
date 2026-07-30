@@ -17,7 +17,7 @@ class EvidenceEmployeeResolverSqlContractTest {
         String sql = Files.readString(MAPPER);
 
         assertThat(sql)
-                .contains("employee.legal_entity_id = #{legalEntityId}")
+                .contains("employee.company_id = #{companyId}")
                 .contains(
                         "employee_version.employee_number ="
                                 + " #{employeeNumber}")

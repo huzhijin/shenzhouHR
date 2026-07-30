@@ -32,9 +32,9 @@
               )
               AND (
                     (
-                        data_scope.scope_type = 'LEGAL_ENTITY'
-                        AND data_scope.legal_entity_id =
-                            projection.legal_entity_id
+                        data_scope.scope_type = 'COMPANY'
+                        AND data_scope.company_id =
+                            projection.company_id
                     )
                     OR (
                         data_scope.scope_type = 'ORGANIZATION'
@@ -52,8 +52,8 @@
                                  scoped_organization.organization_id
                             WHERE scoped_organization.organization_id =
                                 data_scope.organization_id
-                              AND scoped_organization.legal_entity_id =
-                                projection.legal_entity_id
+                              AND scoped_organization.company_id =
+                                projection.company_id
                               AND scoped_organization.identity_status =
                                   'ACTIVE'
                               AND scoped_version.status = 'ACTIVE'
@@ -74,8 +74,8 @@
                             FROM employee self_employee
                             WHERE self_employee.employee_id =
                                 principal.employee_id
-                              AND self_employee.legal_entity_id =
-                                projection.legal_entity_id
+                              AND self_employee.company_id =
+                                projection.company_id
                         )
                     )
               )
@@ -116,28 +116,28 @@
               )
               AND projection.attendance_report_projection_id =
                   fact.attendance_report_projection_id
-              AND projection.legal_entity_id = fact.legal_entity_id
+              AND projection.company_id = fact.company_id
               AND projection.status = 'PUBLISHED'
               AND EXISTS (
                     SELECT 1
                     FROM organization_identity fact_organization
                     WHERE fact_organization.organization_id =
                         fact.organization_id
-                      AND fact_organization.legal_entity_id =
-                        fact.legal_entity_id
+                      AND fact_organization.company_id =
+                        fact.company_id
               )
               AND EXISTS (
                     SELECT 1
                     FROM employee fact_employee
                     WHERE fact_employee.employee_id = fact.employee_id
-                      AND fact_employee.legal_entity_id =
-                        fact.legal_entity_id
+                      AND fact_employee.company_id =
+                        fact.company_id
               )
               AND (
                     (
-                        data_scope.scope_type = 'LEGAL_ENTITY'
-                        AND data_scope.legal_entity_id =
-                            fact.legal_entity_id
+                        data_scope.scope_type = 'COMPANY'
+                        AND data_scope.company_id =
+                            fact.company_id
                     )
                     OR (
                         data_scope.scope_type = 'ORGANIZATION'
@@ -155,8 +155,8 @@
                                  scoped_organization.organization_id
                             WHERE scoped_organization.organization_id =
                                 data_scope.organization_id
-                              AND scoped_organization.legal_entity_id =
-                                fact.legal_entity_id
+                              AND scoped_organization.company_id =
+                                fact.company_id
                               AND scoped_organization.identity_status =
                                   'ACTIVE'
                               AND scoped_version.status = 'ACTIVE'
@@ -175,8 +175,8 @@
                                 current_assignment_organization
                               ON current_assignment_organization.organization_id =
                                  current_assignment.organization_id
-                             AND current_assignment_organization.legal_entity_id =
-                                 fact.legal_entity_id
+                             AND current_assignment_organization.company_id =
+                                 fact.company_id
                              AND current_assignment_organization.identity_status =
                                  'ACTIVE'
                             JOIN organization_current_projection
@@ -239,26 +239,26 @@
         )
     </sql>
 
-    <select id="listAuthorizedLegalEntities"
-            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$LegalEntityRow">
-        SELECT DISTINCT projection.legal_entity_id,
-               legal_entity.name
+    <select id="listAuthorizedCompanies"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$CompanyRow">
+        SELECT DISTINCT projection.company_id,
+               company.name AS company_name
         FROM attendance_report_projection projection
-        JOIN legal_entity legal_entity
-          ON legal_entity.legal_entity_id = projection.legal_entity_id
-         AND legal_entity.status = 'ACTIVE'
+        JOIN company company
+          ON company.company_id = projection.company_id
+         AND company.status = 'ACTIVE'
         WHERE projection.period_start = #{periodStart}
           AND projection.period_end_exclusive = #{periodEndExclusive}
           AND projection.status = 'PUBLISHED'
           AND projection.published_at &lt;= #{authorizationTime}
           AND <include refid="reportProjectionVisibility"/>
-        ORDER BY legal_entity.name, projection.legal_entity_id
+        ORDER BY company.name, projection.company_id
     </select>
 
     <select id="listLatestAuthorizedProjections"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$ProjectionRow">
         SELECT projection.attendance_report_projection_id AS projection_id,
-               projection.legal_entity_id,
+               projection.company_id,
                projection.projection_version,
                projection.period_state,
                projection.source_versions_json,
@@ -267,8 +267,8 @@
         WHERE projection.period_start = #{periodStart}
           AND projection.period_end_exclusive = #{periodEndExclusive}
           AND (
-                #{legalEntityId} IS NULL
-                OR projection.legal_entity_id = #{legalEntityId}
+                #{companyId} IS NULL
+                OR projection.company_id = #{companyId}
           )
           AND projection.status = 'PUBLISHED'
           AND projection.published_at &lt;= #{authorizationTime}
@@ -276,8 +276,8 @@
           AND NOT EXISTS (
                 SELECT 1
                 FROM attendance_report_projection newer_projection
-                WHERE newer_projection.legal_entity_id =
-                    projection.legal_entity_id
+                WHERE newer_projection.company_id =
+                    projection.company_id
                   AND newer_projection.period_start = #{periodStart}
                   AND newer_projection.period_end_exclusive =
                     #{periodEndExclusive}
@@ -297,7 +297,7 @@
                         )
                   )
           )
-        ORDER BY projection.legal_entity_id,
+        ORDER BY projection.company_id,
                  projection.published_at DESC,
                  projection.attendance_report_projection_id DESC
         LIMIT 2
@@ -307,7 +307,7 @@
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$ScopeRow">
         SELECT DISTINCT data_scope.scope_id,
                data_scope.scope_type,
-               data_scope.legal_entity_id,
+               data_scope.company_id,
                data_scope.organization_id,
                data_scope.include_descendants,
                principal.employee_id AS principal_employee_id
@@ -326,7 +326,7 @@
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
         WHERE projection.attendance_report_projection_id = #{projectionId}
-          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.company_id = #{companyId}
           AND projection.status = 'PUBLISHED'
           AND role_assignment.valid_from &lt;= #{authorizationTime}
           AND (
@@ -340,9 +340,9 @@
           )
           AND (
                 (
-                    data_scope.scope_type = 'LEGAL_ENTITY'
-                    AND data_scope.legal_entity_id =
-                        projection.legal_entity_id
+                    data_scope.scope_type = 'COMPANY'
+                    AND data_scope.company_id =
+                        projection.company_id
                 )
                 OR (
                     data_scope.scope_type = 'ORGANIZATION'
@@ -360,8 +360,8 @@
                              scoped_organization.organization_id
                         WHERE scoped_organization.organization_id =
                             data_scope.organization_id
-                          AND scoped_organization.legal_entity_id =
-                            projection.legal_entity_id
+                          AND scoped_organization.company_id =
+                            projection.company_id
                           AND scoped_organization.identity_status = 'ACTIVE'
                           AND scoped_version.status = 'ACTIVE'
                           AND scoped_version.effective_from
@@ -381,8 +381,8 @@
                         FROM employee self_employee
                         WHERE self_employee.employee_id =
                             principal.employee_id
-                          AND self_employee.legal_entity_id =
-                            projection.legal_entity_id
+                          AND self_employee.company_id =
+                            projection.company_id
                     )
                 )
           )
@@ -392,7 +392,7 @@
     <select id="listAuthorizedDailyFacts"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$DailyRow">
         SELECT fact.attendance_report_daily_fact_id AS fact_id,
-               fact.legal_entity_id,
+               fact.company_id,
                fact.employee_id,
                employee_version.employee_number,
                employee_version.display_name AS employee_name,
@@ -420,7 +420,7 @@
         JOIN attendance_report_projection projection
           ON projection.attendance_report_projection_id =
              fact.attendance_report_projection_id
-         AND projection.legal_entity_id = fact.legal_entity_id
+         AND projection.company_id = fact.company_id
         JOIN employee_version employee_version
           ON employee_version.employee_version_id = fact.employee_version_id
          AND employee_version.employee_id = fact.employee_id
@@ -429,7 +429,7 @@
              fact.organization_version_id
          AND organization_version.organization_id = fact.organization_id
         WHERE fact.attendance_report_projection_id = #{projectionId}
-          AND fact.legal_entity_id = #{legalEntityId}
+          AND fact.company_id = #{companyId}
           AND <include refid="reportFactVisibility"/>
           AND fact.business_date &gt;= #{periodStart}
           AND fact.business_date &lt; #{periodEndExclusive}
@@ -469,7 +469,7 @@
         JOIN attendance_report_projection projection
           ON projection.attendance_report_projection_id =
              fact.attendance_report_projection_id
-         AND projection.legal_entity_id = fact.legal_entity_id
+         AND projection.company_id = fact.company_id
         JOIN employee_version employee_version
           ON employee_version.employee_version_id = fact.employee_version_id
          AND employee_version.employee_id = fact.employee_id
@@ -478,7 +478,7 @@
              fact.organization_version_id
          AND organization_version.organization_id = fact.organization_id
         WHERE fact.attendance_report_projection_id = #{projectionId}
-          AND fact.legal_entity_id = #{legalEntityId}
+          AND fact.company_id = #{companyId}
           AND <include refid="reportFactVisibility"/>
           AND COALESCE(fact.interval_start, fact.point_instant)
               &lt; #{periodEndExclusiveAt}
@@ -518,7 +518,7 @@
         JOIN attendance_report_projection projection
           ON projection.attendance_report_projection_id =
              fact.attendance_report_projection_id
-         AND projection.legal_entity_id = fact.legal_entity_id
+         AND projection.company_id = fact.company_id
         JOIN employee_version employee_version
           ON employee_version.employee_version_id = fact.employee_version_id
          AND employee_version.employee_id = fact.employee_id
@@ -527,7 +527,7 @@
              fact.organization_version_id
          AND organization_version.organization_id = fact.organization_id
         WHERE fact.attendance_report_projection_id = #{projectionId}
-          AND fact.legal_entity_id = #{legalEntityId}
+          AND fact.company_id = #{companyId}
           AND <include refid="reportFactVisibility"/>
           AND fact.business_date &gt;= #{periodStart}
           AND fact.business_date &lt; #{periodEndExclusive}
@@ -567,7 +567,7 @@
         JOIN attendance_report_projection projection
           ON projection.attendance_report_projection_id =
              fact.attendance_report_projection_id
-         AND projection.legal_entity_id = fact.legal_entity_id
+         AND projection.company_id = fact.company_id
         JOIN employee_version employee_version
           ON employee_version.employee_version_id = fact.employee_version_id
          AND employee_version.employee_id = fact.employee_id
@@ -576,7 +576,7 @@
              fact.organization_version_id
          AND organization_version.organization_id = fact.organization_id
         WHERE fact.attendance_report_projection_id = #{projectionId}
-          AND fact.legal_entity_id = #{legalEntityId}
+          AND fact.company_id = #{companyId}
           AND <include refid="reportFactVisibility"/>
           AND (
                 #{organizationId} IS NULL

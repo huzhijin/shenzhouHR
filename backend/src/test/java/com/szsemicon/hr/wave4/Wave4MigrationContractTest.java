@@ -80,11 +80,26 @@ class Wave4MigrationContractTest {
         });
     }
 
+    @Test
+    void mysqlReservedImportRowIdentifierIsQuotedEverywhere() throws Exception {
+        String migration = Files.readString(
+                MIGRATIONS.resolve("V9__attendance_punch_import.sql"));
+
+        assertThat(migration).contains(
+                "    `row_number` INT UNSIGNED NOT NULL,",
+                "(punch_import_batch_id, punch_import_file_id, `row_number`)",
+                "(punch_import_batch_id, `row_number`, punch_import_row_id)",
+                "CHECK (`row_number` BETWEEN 1 AND 50000)");
+        assertThat(migration).doesNotContain(
+                "    row_number INT UNSIGNED NOT NULL,",
+                "CHECK (row_number BETWEEN 1 AND 50000)");
+    }
+
     private static Map<String, java.util.List<String>> tableColumns(String sql) {
         Pattern tablePattern = Pattern.compile(
                 "(?is)CREATE\\s+TABLE\\s+([a-z0-9_]+)\\s*\\((.*?)\\)\\s*ENGINE=");
         Pattern columnPattern = Pattern.compile(
-                "(?m)^\\s{4}([a-z][a-z0-9_]*)\\s+"
+                "(?m)^\\s{4}`?([a-z][a-z0-9_]*)`?\\s+"
                         + "(?:VARCHAR|CHAR|BIGINT|INT|SMALLINT|DATETIME|DATE|JSON)");
         Map<String, java.util.List<String>> result = new LinkedHashMap<>();
         Matcher tableMatcher = tablePattern.matcher(sql);

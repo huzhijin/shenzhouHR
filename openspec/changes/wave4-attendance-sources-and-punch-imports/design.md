@@ -1,6 +1,6 @@
 ## Context
 
-神州 HR 使用 Java 21 / Spring Boot / MyBatis / Flyway 模块化单体与 React 19 / TypeScript / Vite。WAVE-1 提供本地认证、capability、data scope、CSRF、持久幂等和审计；WAVE-2 提供本地权威员工、`[start_date,end_exclusive)` 任职周期与外部人员标识；WAVE-3 提供法人隔离的地点、考勤组、班次、日历和策略解析。
+神州 HR 使用 Java 21 / Spring Boot / MyBatis / Flyway 模块化单体与 React 19 / TypeScript / Vite。WAVE-1 提供本地认证、capability、data scope、CSRF、持久幂等和审计；WAVE-2 提供本地权威员工、`[start_date,end_exclusive)` 任职周期与外部人员标识；WAVE-3 提供公司隔离的地点、考勤组、班次、日历和策略解析。
 
 WAVE-4 的输入是三类来源：
 
@@ -108,7 +108,7 @@ V9 逻辑对象：
 
 ### 3. 来源身份、配置与水位
 
-`attendance_source` 是稳定来源实例，包含 `legal_entity_id`、受控 `source_type`：
+`attendance_source` 是稳定来源实例，包含 `company_id`、受控 `source_type`：
 
 - `DELI_CLOUD`
 - `OA_ATTENDANCE`
@@ -186,7 +186,7 @@ SourceBatch / PunchPublication
 3. OA/得力已确认 external-person binding 可作为显式 mapping；
 4. 姓名、部门只显示核对，绝不自动决定员工。
 
-多人、零人、离职空档、越权法人/地点、任职重叠或 W3 配置不唯一均产生明确 issue/quarantine，不猜测。
+多人、零人、离职空档、越权公司/地点、任职重叠或 W3 配置不唯一均产生明确 issue/quarantine，不猜测。
 
 `effective_attendance_event` 保存不可变 point/interval payload；active 状态由 `effective_event_lifecycle_fact` 的 `ACTIVATED/RETRACTED/SUPERSEDED` 事实派生。`evidence_link` 允许一个 effective event 引用多个跨来源 raw facts。来源撤销追加 reversal raw + lifecycle fact；旧 event/raw/link 不删除。
 
@@ -196,10 +196,10 @@ SourceBatch / PunchPublication
 
 四层键：
 
-1. 文件：`legal entity + source scope + SHA-256(content)`；
+1. 文件：`company + source scope + SHA-256(content)`；
 2. 来源记录：`source instance + source business key + source version`；
-3. 无来源 ID 的稳定指纹：`legal entity + location + device + device person/employee + normalized instant + direction` 的 canonical bytes SHA-256；
-4. effective candidate：`legal entity + employee + exact instant + normalized direction`。
+3. 无来源 ID 的稳定指纹：`company + location + device + device person/employee + normalized instant + direction` 的 canonical bytes SHA-256；
+4. effective candidate：`company + employee + exact instant + normalized direction`。
 
 同一文件换名重传返回原批次或创建指向原文件的重新预检 attempt，但不得重复发布 raw。相同来源记录/version 不新增 raw。不同来源的相同设备流水、或同员工/同精确 instant，保留各自 raw，并原子合并为恰好一个 active effective event。
 
@@ -214,7 +214,7 @@ SourceBatch / PunchPublication
 
 窗口默认 60 秒且版本化。新配置只影响新的 ingestion/precheck attempt，不重写已发布或已裁决组。
 
-在线和批次并发统一锁 `attendance_evidence_subject_lock(legal_entity_id,employee_id)`，多员工按 UUID binary order。批次再按 row number/source key 排序，duplicate group/member 按 binary key 排序；锁内第二次检查 exact/near candidates。选择较粗的 employee lock 是用可预测的串行化换取去重正确性，后续通过 50,000 行和并发测试验证可接受性。
+在线和批次并发统一锁 `attendance_evidence_subject_lock(company_id,employee_id)`，多员工按 UUID binary order。批次再按 row number/source key 排序，duplicate group/member 按 binary key 排序；锁内第二次检查 exact/near candidates。选择较粗的 employee lock 是用可预测的串行化换取去重正确性，后续通过 50,000 行和并发测试验证可接受性。
 
 ### 7. OA 时段切分与证据优先级
 
@@ -258,7 +258,7 @@ W4 只形成 slice 和 winner/conflict 输入，不产生迟到/旷工/加班结
 
 默认最大 20 MiB、50,000 data rows，均由服务端受控参数给出且在 API 暴露实际 limit。前端 `accept` 只作体验，不能替代服务端内容校验。
 
-mapping profile 是 stable identity + immutable version，scope 包含法人、厂商、型号和可选地点。转换只允许登记的列映射、日期格式、source timezone、trim policy 与 enum map；禁止脚本、表达式、任意函数和把姓名作为唯一键。已被批次引用的 version 不可原位修改。
+mapping profile 是 stable identity + immutable version，scope 包含公司、厂商、型号和可选地点。转换只允许登记的列映射、日期格式、source timezone、trim policy 与 enum map；禁止脚本、表达式、任意函数和把姓名作为唯一键。已被批次引用的 version 不可原位修改。
 
 ### 9. 批次状态机、预检 token 与事务
 
@@ -301,7 +301,7 @@ PUBLISHED | PARTIALLY_PUBLISHED
 
 每个 published/reversed/duplicate-resolved/change source version 生成去重的 `attendance_recalculation_intent`：
 
-- legal entity；
+- company；
 - employee ID；
 - candidate business dates；
 - source/evidence IDs；
@@ -335,7 +335,7 @@ W4 验证只断言 intent 精确覆盖受影响员工/日期、无关员工无 i
 - `ATTENDANCE_PUNCH_IMPORT:DUPLICATE_REVIEW`
 - `ATTENDANCE_PUNCH_IMPORT:RECALCULATE`
 
-每个 action 还要命中 legal entity + location/attendance-group/organization data scope。列表查询在 SQL/Mapper 层限定 scope 后再分页，不取全量后过滤。无读取权限按资源暴露策略 404；未认证 401；已认证但 action 禁止 403；版本/状态/期间冲突 409。
+每个 action 还要命中 company + location/attendance-group/organization data scope。列表查询在 SQL/Mapper 层限定 scope 后再分页，不取全量后过滤。无读取权限按资源暴露策略 404；未认证 401；已认证但 action 禁止 403；版本/状态/期间冲突 409。
 
 SYSTEM_ADMIN 不因技术角色自动拥有 raw file、raw row 或业务详情。AUDITOR 是否读取 raw row 由显式 capability 决定且保持只读。下载必须由后端重验权限，使用受控 object reference、`no-store`、安全 Content-Disposition 和下载审计，不暴露本机路径或长期公开 URL。
 

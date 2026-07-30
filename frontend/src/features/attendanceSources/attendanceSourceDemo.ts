@@ -8,7 +8,7 @@ import type {
 export const demoAttendanceSources: AttendanceSourceView[] = [
   {
     sourceId: 'SRC-DELI-HQ-01',
-    legalEntityId: 'LEGAL-JIANGSU',
+    companyId: 'LEGAL-JIANGSU',
     sourceType: 'DELI_CLOUD',
     code: 'DELI_HQ_01',
     displayName: '总部得力考勤设备',
@@ -21,7 +21,7 @@ export const demoAttendanceSources: AttendanceSourceView[] = [
   },
   {
     sourceId: 'SRC-OA-HQ-01',
-    legalEntityId: 'LEGAL-JIANGSU',
+    companyId: 'LEGAL-JIANGSU',
     sourceType: 'OA_ATTENDANCE',
     code: 'OA_HQ_01',
     displayName: '致远办公系统考勤单据',

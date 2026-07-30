@@ -20,11 +20,11 @@ class AttendanceReportOpenApiContractTest {
                 .contains("  /attendance-reports:")
                 .contains("operationId: getAttendanceReport")
                 .contains("x-capability: ATTENDANCE_REPORT:READ")
-                .contains("  /attendance-reports/legal-entities:")
-                .contains("operationId: listAttendanceReportLegalEntities")
+                .contains("  /attendance-reports/companies:")
+                .contains("operationId: listAttendanceReportCompanies")
                 .contains(
                         "$ref: '#/components/schemas/"
-                                + "AttendanceReportLegalEntityDirectory'")
+                                + "AttendanceReportCompanyDirectory'")
                 .contains("  /attendance-reports/exports:")
                 .contains("operationId: createAttendanceReportExport")
                 .contains(
@@ -43,13 +43,13 @@ class AttendanceReportOpenApiContractTest {
     }
 
     @Test
-    void legalEntitySelectionIsBoundAcrossQueryResponseAndExport()
+    void companySelectionIsBoundAcrossQueryResponseAndExport()
             throws Exception {
         String contract = Files.readString(OPEN_API);
         String query = between(
                 contract,
                 "  /attendance-reports:",
-                "  /attendance-reports/legal-entities:");
+                "  /attendance-reports/companies:");
         String filters = between(
                 contract,
                 "    AttendanceReportFilters:",
@@ -64,19 +64,19 @@ class AttendanceReportOpenApiContractTest {
                 "    FieldError:");
 
         assertThat(query)
-                .contains("- name: legalEntityId")
+                .contains("- name: companyId")
                 .contains("maxLength: 36");
         assertThat(filters)
                 .contains(
-                        "required: [period, scopeReference, legalEntityId]")
-                .contains("legalEntityId:")
+                        "required: [period, scopeReference, companyId]")
+                .contains("companyId:")
                 .contains("minLength: 1");
         assertThat(create)
-                .contains("legalEntityId:")
-                .contains("多法人授权必须从授权法人目录显式选择");
+                .contains("companyId:")
+                .contains("多公司授权必须从授权公司目录显式选择");
         assertThat(view)
-                .contains("- legalEntityId")
-                .contains("legalEntityId:")
+                .contains("- companyId")
+                .contains("companyId:")
                 .contains("minLength: 1");
     }
 

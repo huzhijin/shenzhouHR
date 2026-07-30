@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Transactional boundary used by W3 controllers whose legacy application
  * methods pre-date the durable idempotency ledger.
  *
- * <p>Current capability and legal-entity scope are checked before the quick
+ * <p>Current capability and company scope are checked before the quick
  * lookup and again after the stable business resource is locked. The durable
  * lookup that can return a replay therefore always runs under that lock. The
  * supplied mutation joins this transaction, so a failed business write also
@@ -94,18 +94,18 @@ public class AttendanceMutationIdempotencyService {
             String operation, String resourceType, String resourceId) {
         String capability = capability(resourceType);
         capabilityService.require(capability);
-        String legalEntityId = legalEntityId(
+        String companyId = companyId(
                 operation, resourceType, resourceId);
-        if (!peopleRepository.canAccessLegalEntity(
+        if (!peopleRepository.canAccessCompany(
                 principalProvider.currentPrincipalId(),
                 capability,
-                legalEntityId,
+                companyId,
                 clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
     }
 
-    private String legalEntityId(
+    private String companyId(
             String operation, String resourceType, String resourceId) {
         return switch (resourceType) {
             case "ATTENDANCE_LOCATION" -> isCreate(operation)
@@ -113,22 +113,22 @@ public class AttendanceMutationIdempotencyService {
                     : groupRepository.findLocation(resourceId)
                             .orElseThrow(
                                     ResourceNotAvailableAccessDeniedException::new)
-                            .legalEntityId();
+                            .companyId();
             case "ATTENDANCE_GROUP" -> isCreate(operation)
                     ? resourceId
-                    : requireGroup(resourceId).legalEntityId();
+                    : requireGroup(resourceId).companyId();
             case "ATTENDANCE_GROUP_ASSIGNMENT" -> {
                 Assignment assignment = groupRepository.findAssignment(resourceId)
                         .orElseThrow(
                                 ResourceNotAvailableAccessDeniedException::new);
-                yield requireGroup(assignment.groupId()).legalEntityId();
+                yield requireGroup(assignment.groupId()).companyId();
             }
             case "ATTENDANCE_SHIFT_TEMPLATE" -> isCreate(operation)
                     ? resourceId
                     : shiftRepository.findTemplate(resourceId)
                             .orElseThrow(
                                     ResourceNotAvailableAccessDeniedException::new)
-                            .legalEntityId();
+                            .companyId();
             case "ATTENDANCE_SHIFT_VERSION" -> {
                 String shiftId = isCreate(operation)
                         ? resourceId
@@ -139,14 +139,14 @@ public class AttendanceMutationIdempotencyService {
                 yield shiftRepository.findTemplate(shiftId)
                         .orElseThrow(
                                 ResourceNotAvailableAccessDeniedException::new)
-                        .legalEntityId();
+                        .companyId();
             }
             case "ATTENDANCE_WORK_CALENDAR" -> isCreate(operation)
                     ? resourceId
                     : calendarRepository.findCalendar(resourceId)
                             .orElseThrow(
                                     ResourceNotAvailableAccessDeniedException::new)
-                            .legalEntityId();
+                            .companyId();
             case "ATTENDANCE_WORK_CALENDAR_VERSION" -> {
                 String calendarId = isCreate(operation)
                         ? resourceId
@@ -157,7 +157,7 @@ public class AttendanceMutationIdempotencyService {
                 yield calendarRepository.findCalendar(calendarId)
                         .orElseThrow(
                                 ResourceNotAvailableAccessDeniedException::new)
-                        .legalEntityId();
+                        .companyId();
             }
             default -> throw new IllegalArgumentException(
                     "unsupported attendance mutation resource type: "
@@ -173,7 +173,7 @@ public class AttendanceMutationIdempotencyService {
         switch (resourceType) {
             case "ATTENDANCE_LOCATION" -> {
                 if (isCreate(operation)) {
-                    peopleRepository.lockLegalEntity(resourceId);
+                    peopleRepository.lockCompany(resourceId);
                 } else {
                     groupRepository.lockLocation(resourceId);
                     var location = groupRepository.findLocation(resourceId)
@@ -216,7 +216,7 @@ public class AttendanceMutationIdempotencyService {
             }
             case "ATTENDANCE_SHIFT_TEMPLATE" -> {
                 if (isCreate(operation)) {
-                    peopleRepository.lockLegalEntity(resourceId);
+                    peopleRepository.lockCompany(resourceId);
                 } else {
                     shiftRepository.lockTemplate(resourceId);
                 }
@@ -232,7 +232,7 @@ public class AttendanceMutationIdempotencyService {
             }
             case "ATTENDANCE_WORK_CALENDAR" -> {
                 if (isCreate(operation)) {
-                    peopleRepository.lockLegalEntity(resourceId);
+                    peopleRepository.lockCompany(resourceId);
                 } else {
                     calendarRepository.lockCalendar(resourceId);
                 }

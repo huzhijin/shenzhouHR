@@ -50,13 +50,13 @@ public final class AttendancePeriodModels {
 
     public record PeriodIdentity(
             String periodId,
-            String legalEntityId,
+            String companyId,
             LocalDate startDate,
             LocalDate endExclusive) {
 
         public PeriodIdentity {
             periodId = requireText(periodId, "periodId");
-            legalEntityId = requireText(legalEntityId, "legalEntityId");
+            companyId = requireText(companyId, "companyId");
             Objects.requireNonNull(startDate, "startDate");
             Objects.requireNonNull(endExclusive, "endExclusive");
             if (!startDate.isBefore(endExclusive)) {

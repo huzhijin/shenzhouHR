@@ -5,7 +5,7 @@
 <mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupMapper">
 
     <sql id="locationColumns">
-        scoped.location_id, scoped.legal_entity_id, scoped.location_code,
+        scoped.location_id, scoped.company_id, scoped.location_code,
         revision.location_revision_id, revision.revision_number,
         revision.location_name, revision.time_zone, timeline.state AS status,
         revision.effective_from,
@@ -29,7 +29,7 @@
     </sql>
 
     <sql id="locationColumnsAsOf">
-        scoped.location_id, scoped.legal_entity_id, scoped.location_code,
+        scoped.location_id, scoped.company_id, scoped.location_code,
         revision.location_revision_id, revision.revision_number,
         revision.location_name, revision.time_zone, timeline.state AS status,
         revision.effective_from,
@@ -54,7 +54,7 @@
     </sql>
 
     <sql id="locationRevisionHistoryColumns">
-        scoped.location_id, scoped.legal_entity_id, scoped.location_code,
+        scoped.location_id, scoped.company_id, scoped.location_code,
         revision.location_revision_id, revision.revision_number,
         revision.location_name, revision.time_zone, timeline.state AS status,
         revision.effective_from,
@@ -81,7 +81,7 @@
     </sql>
 
     <sql id="groupColumns">
-        scoped.attendance_group_id, scoped.legal_entity_id, scoped.group_code,
+        scoped.attendance_group_id, scoped.company_id, scoped.group_code,
         revision.attendance_group_revision_id, revision.revision_number,
         revision.group_name, location_revision.location_id,
         revision.location_revision_id, revision.work_calendar_id,
@@ -107,7 +107,7 @@
     </sql>
 
     <sql id="groupColumnsAsOf">
-        scoped.attendance_group_id, scoped.legal_entity_id, scoped.group_code,
+        scoped.attendance_group_id, scoped.company_id, scoped.group_code,
         revision.attendance_group_revision_id, revision.revision_number,
         revision.group_name, location_revision.location_id,
         revision.location_revision_id, revision.work_calendar_id,
@@ -134,7 +134,7 @@
     </sql>
 
     <sql id="groupRevisionHistoryColumns">
-        scoped.attendance_group_id, scoped.legal_entity_id, scoped.group_code,
+        scoped.attendance_group_id, scoped.company_id, scoped.group_code,
         revision.attendance_group_revision_id, revision.revision_number,
         revision.group_name, location_revision.location_id,
         revision.location_revision_id, revision.work_calendar_id,
@@ -223,7 +223,7 @@
         latest_timeline.recorded_at AS updated_at
     </sql>
 
-    <sql id="activeLegalEntityScope">
+    <sql id="activeCompanyScope">
         JOIN auth_principal_role_assignment role_assignment
           ON role_assignment.principal_id = #{principalId}
         JOIN auth_role_capability role_capability
@@ -233,8 +233,8 @@
          AND capability.capability_code = #{capability}
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
-         AND data_scope.scope_type = 'LEGAL_ENTITY'
-         AND data_scope.legal_entity_id = scoped.legal_entity_id
+         AND data_scope.scope_type = 'COMPANY'
+         AND data_scope.company_id = scoped.company_id
         WHERE role_assignment.valid_from &lt;= #{at}
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
@@ -315,7 +315,7 @@
              FROM location_timeline origin
              WHERE origin.location_revision_id = revision.location_revision_id
          )
-        <include refid="activeLegalEntityScope"/>
+        <include refid="activeCompanyScope"/>
         ORDER BY revision.location_name, scoped.location_id
         LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -323,7 +323,7 @@
     <select id="countLocations" resultType="long">
         SELECT COUNT(DISTINCT scoped.location_id)
         FROM location scoped
-        <include refid="activeLegalEntityScope"/>
+        <include refid="activeCompanyScope"/>
     </select>
 
     <select id="listLocationRevisions"
@@ -354,10 +354,10 @@
 
     <insert id="insertLocationIdentity">
         INSERT INTO location (
-            location_id, legal_entity_id, location_code, row_version,
+            location_id, company_id, location_code, row_version,
             created_by, created_at
         ) VALUES (
-            #{row.locationId}, #{row.legalEntityId}, #{row.locationCode},
+            #{row.locationId}, #{row.companyId}, #{row.locationCode},
             0, #{row.createdBy}, #{row.createdAt}
         )
     </insert>
@@ -520,7 +520,7 @@
                 timeline.attendance_group_revision_id
         JOIN location_revision
           ON location_revision.location_revision_id = revision.location_revision_id
-        <include refid="activeLegalEntityScope"/>
+        <include refid="activeCompanyScope"/>
         <if test="asOf != null">
             AND timeline.business_effective_from &lt;= #{asOf}
             AND timeline.recorded_at &lt;= #{at}
@@ -557,7 +557,7 @@
         FROM attendance_group scoped
         JOIN attendance_group_timeline timeline
           ON timeline.attendance_group_id = scoped.attendance_group_id
-        <include refid="activeLegalEntityScope"/>
+        <include refid="activeCompanyScope"/>
         <if test="asOf != null">
             AND timeline.business_effective_from &lt;= #{asOf}
             AND timeline.recorded_at &lt;= #{at}
@@ -611,9 +611,9 @@
 
     <insert id="insertGroupIdentity">
         INSERT INTO attendance_group (
-            attendance_group_id, legal_entity_id, group_code, created_by, created_at
+            attendance_group_id, company_id, group_code, created_by, created_at
         ) VALUES (
-            #{row.attendanceGroupId}, #{row.legalEntityId}, #{row.groupCode},
+            #{row.attendanceGroupId}, #{row.companyId}, #{row.groupCode},
             #{row.createdBy}, #{row.createdAt}
         )
     </insert>
@@ -685,6 +685,9 @@
                 assignment.attendance_group_revision_id
         JOIN attendance_group scoped
           ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
         JOIN attendance_assignment_timeline latest_timeline
           ON latest_timeline.attendance_group_assignment_id =
                 assignment.attendance_group_assignment_id
@@ -706,6 +709,9 @@
                 assignment.attendance_group_revision_id
         JOIN attendance_group scoped
           ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
         JOIN attendance_assignment_timeline latest_timeline
           ON latest_timeline.attendance_group_assignment_id =
                 assignment.attendance_group_assignment_id
@@ -727,6 +733,9 @@
                 assignment.attendance_group_revision_id
         JOIN attendance_group scoped
           ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
         JOIN attendance_assignment_timeline latest_timeline
           ON latest_timeline.attendance_group_assignment_id =
                 assignment.attendance_group_assignment_id
@@ -744,6 +753,9 @@
                 assignment.attendance_group_revision_id
         JOIN attendance_group scoped
           ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
         JOIN attendance_assignment_timeline latest_timeline
           ON latest_timeline.attendance_group_assignment_id =
                 assignment.attendance_group_assignment_id
@@ -783,7 +795,12 @@
         JOIN attendance_group_revision group_revision
           ON group_revision.attendance_group_revision_id =
                 assignment.attendance_group_revision_id
-        WHERE group_revision.attendance_group_id = #{groupId}
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
+        WHERE scoped.attendance_group_id = #{groupId}
         <if test="asOf != null">
             AND assignment.effective_from &lt;= #{asOf}
             AND NOT EXISTS (
@@ -813,6 +830,9 @@
                 assignment.attendance_group_revision_id
         JOIN attendance_group scoped
           ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
         JOIN attendance_assignment_timeline latest_timeline
           ON latest_timeline.attendance_group_assignment_id =
                 assignment.attendance_group_assignment_id
@@ -844,10 +864,62 @@
                  assignment.attendance_group_assignment_id
     </select>
 
+    <select id="hasAssignmentCompanyMismatch" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM attendance_group_assignment assignment
+            JOIN attendance_group_revision group_revision
+              ON group_revision.attendance_group_revision_id =
+                    assignment.attendance_group_revision_id
+            JOIN attendance_group scoped
+              ON scoped.attendance_group_id =
+                    group_revision.attendance_group_id
+            JOIN employee assigned_employee
+              ON assigned_employee.employee_id = assignment.employee_id
+            JOIN attendance_assignment_timeline latest_timeline
+              ON latest_timeline.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+            WHERE assignment.employee_id = #{employeeId}
+              AND assigned_employee.company_id &lt;&gt; scoped.company_id
+              AND assignment.effective_from &lt;= #{asOf}
+              AND assignment.created_at &lt;= #{knowledgeAsOf}
+              AND latest_timeline.business_effective_from &lt;= #{asOf}
+              AND latest_timeline.recorded_at &lt;= #{knowledgeAsOf}
+              AND latest_timeline.state = 'ACTIVE'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM attendance_assignment_timeline newer_timeline
+                  WHERE newer_timeline.attendance_group_assignment_id =
+                            assignment.attendance_group_assignment_id
+                    AND newer_timeline.business_effective_from &lt;= #{asOf}
+                    AND newer_timeline.recorded_at &lt;= #{knowledgeAsOf}
+                    AND newer_timeline.event_sequence
+                        &gt; latest_timeline.event_sequence
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM attendance_group_assignment successor
+                  WHERE successor.supersedes_assignment_id =
+                            assignment.attendance_group_assignment_id
+                    AND successor.effective_from &lt;= #{asOf}
+                    AND successor.created_at &lt;= #{knowledgeAsOf}
+              )
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
     <select id="hasAssignmentOverlap" resultType="boolean">
         SELECT CASE WHEN EXISTS (
             SELECT 1
             FROM attendance_group_assignment assignment
+            JOIN attendance_group_revision group_revision
+              ON group_revision.attendance_group_revision_id =
+                    assignment.attendance_group_revision_id
+            JOIN attendance_group scoped
+              ON scoped.attendance_group_id =
+                    group_revision.attendance_group_id
+            JOIN employee assigned_employee
+              ON assigned_employee.employee_id = assignment.employee_id
+             AND assigned_employee.company_id = scoped.company_id
             WHERE assignment.employee_id = #{employeeId}
               AND (
                     #{excludeAssignmentId} IS NULL
@@ -889,6 +961,9 @@
                 assignment.attendance_group_revision_id
         JOIN attendance_group scoped
           ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
         JOIN attendance_assignment_timeline latest_timeline
           ON latest_timeline.attendance_group_assignment_id =
                 assignment.attendance_group_assignment_id
@@ -940,6 +1015,11 @@
             NULL, #{row.snapshotDigest}, #{row.changeReason},
             #{row.createdBy}, #{row.createdAt}
         FROM attendance_group_timeline timeline
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = timeline.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = #{row.employeeId}
+         AND assigned_employee.company_id = scoped.company_id
         WHERE timeline.attendance_group_id = #{row.attendanceGroupId}
           AND timeline.state = 'ACTIVE'
           AND timeline.business_effective_from &lt;= #{row.effectiveFrom}
@@ -983,6 +1063,11 @@
             #{predecessorAssignmentId}, #{row.snapshotDigest},
             #{row.changeReason}, #{row.updatedBy}, #{row.updatedAt}
         FROM attendance_group_timeline timeline
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = timeline.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = #{row.employeeId}
+         AND assigned_employee.company_id = scoped.company_id
         WHERE timeline.attendance_group_id = #{row.attendanceGroupId}
           AND timeline.state = 'ACTIVE'
           AND timeline.business_effective_from &lt;= #{row.effectiveFrom}
@@ -1014,8 +1099,27 @@
             #{row.createdBy},
             #{row.createdAt}
         FROM attendance_group_assignment predecessor
+        JOIN attendance_group_revision predecessor_revision
+          ON predecessor_revision.attendance_group_revision_id =
+                predecessor.attendance_group_revision_id
+        JOIN attendance_group predecessor_group
+          ON predecessor_group.attendance_group_id =
+                predecessor_revision.attendance_group_id
+        JOIN attendance_group_revision successor_revision
+          ON successor_revision.attendance_group_revision_id =
+                #{row.attendanceGroupRevisionId}
+        JOIN attendance_group successor_group
+          ON successor_group.attendance_group_id =
+                successor_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = #{row.employeeId}
+         AND assigned_employee.company_id = successor_group.company_id
         WHERE predecessor.attendance_group_assignment_id =
                 #{predecessorAssignmentId}
+          AND predecessor.employee_id = #{row.employeeId}
+          AND predecessor_group.attendance_group_id =
+                successor_group.attendance_group_id
+          AND predecessor_group.company_id = successor_group.company_id
           AND predecessor.attendance_group_revision_id &lt;&gt;
                 #{row.attendanceGroupRevisionId}
           AND NOT EXISTS (
@@ -1046,12 +1150,23 @@
             attendance_group_assignment_id, employee_id,
             event_sequence, state, business_effective_from,
             predecessor_timeline_id, recorded_at, actor_id, request_id
-        ) VALUES (
+        )
+        SELECT
             #{row.timelineId}, #{row.contentId}, #{row.employeeId},
             #{row.eventSequence}, #{row.state}, #{row.businessEffectiveFrom},
             #{row.predecessorTimelineId}, #{row.recordedAt},
             #{row.actorId}, #{row.requestId}
-        )
+        FROM attendance_group_assignment assignment
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                assignment.attendance_group_revision_id
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
+        WHERE assignment.attendance_group_assignment_id = #{row.contentId}
+          AND assignment.employee_id = #{row.employeeId}
     </insert>
 
     <select id="countEffectiveAssignments" resultType="int">
@@ -1060,7 +1175,12 @@
         JOIN attendance_group_revision group_revision
           ON group_revision.attendance_group_revision_id =
                 assignment.attendance_group_revision_id
-        WHERE group_revision.attendance_group_id = #{groupId}
+        JOIN attendance_group scoped
+          ON scoped.attendance_group_id = group_revision.attendance_group_id
+        JOIN employee assigned_employee
+          ON assigned_employee.employee_id = assignment.employee_id
+         AND assigned_employee.company_id = scoped.company_id
+        WHERE scoped.attendance_group_id = #{groupId}
           AND (
                 #{effectiveTo} IS NULL
                 OR assignment.effective_from &lt; #{effectiveTo}

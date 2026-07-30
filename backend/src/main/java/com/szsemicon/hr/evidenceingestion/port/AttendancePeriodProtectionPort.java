@@ -5,7 +5,7 @@ import java.time.LocalDate;
 public interface AttendancePeriodProtectionPort {
 
     Protection protectionFor(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate);
 

@@ -9,10 +9,10 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 interface PeopleMapper {
 
-    boolean canAccessLegalEntity(
+    boolean canAccessCompany(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("at") Instant at);
 
     boolean canAccessOrganization(
@@ -28,9 +28,9 @@ interface PeopleMapper {
             @Param("asOf") LocalDate asOf,
             @Param("at") Instant at);
 
-    boolean legalEntityExists(@Param("legalEntityId") String legalEntityId);
+    boolean companyExists(@Param("companyId") String companyId);
 
-    String lockLegalEntity(@Param("legalEntityId") String legalEntityId);
+    String lockCompany(@Param("companyId") String companyId);
 
     PeopleRows.IdempotencyRow findIdempotency(
             @Param("actorId") String actorId,
@@ -131,7 +131,7 @@ interface PeopleMapper {
     PeopleRows.PublicationRow findPublicationById(@Param("publicationId") String publicationId);
 
     PeopleRows.PublicationRow findPublicationByFileHash(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("templateType") String templateType,
             @Param("templateVersion") String templateVersion,
             @Param("fileSha256") String fileSha256);
@@ -173,7 +173,7 @@ interface PeopleMapper {
             @Param("asOf") LocalDate asOf);
 
     PeopleRows.OrganizationRow findOrganizationByCode(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("code") String code);
 
     List<PeopleRows.OrganizationRow> listOrganizationVersions(
@@ -184,7 +184,7 @@ interface PeopleMapper {
     long countOrganizationVersions(@Param("organizationId") String organizationId);
 
     boolean organizationCodeExists(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("code") String code,
             @Param("excludeOrganizationId") String excludeOrganizationId);
 
@@ -194,7 +194,7 @@ interface PeopleMapper {
 
     void insertOrganizationIdentity(
             @Param("organizationId") String organizationId,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("status") String status,
             @Param("at") Instant at);
 
@@ -231,11 +231,11 @@ interface PeopleMapper {
             @Param("asOf") LocalDate asOf);
 
     PeopleRows.EmployeeRow findEmployeeByNumber(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeNumber") String employeeNumber);
 
     List<PeopleRows.EmployeeRow> findEmployeesByExternalId(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("externalEmployeeId") String externalEmployeeId);
 
     List<PeopleRows.EmployeeRow> listEmployeeVersions(
@@ -246,13 +246,13 @@ interface PeopleMapper {
     long countEmployeeVersions(@Param("employeeId") String employeeId);
 
     boolean employeeNumberExists(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeNumber") String employeeNumber,
             @Param("excludeEmployeeId") String excludeEmployeeId);
 
     void insertEmployeeIdentity(
             @Param("employeeId") String employeeId,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeNumber") String employeeNumber,
             @Param("displayName") String displayName,
             @Param("status") String status,

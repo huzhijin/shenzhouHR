@@ -8,16 +8,16 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 interface AttendanceReportProjectionWriteMapper {
 
-    String lockLegalEntity(@Param("legalEntityId") String legalEntityId);
+    String lockCompany(@Param("companyId") String companyId);
 
     AttendanceReportProjectionWriteRows.StoredProjectionRow findByDigest(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("periodStart") LocalDate periodStart,
             @Param("projectionDigest") String projectionDigest);
 
     AttendanceReportProjectionWriteRows.StoredProjectionRow
             findLatestPublished(
-                    @Param("legalEntityId") String legalEntityId,
+                    @Param("companyId") String companyId,
                     @Param("periodStart") LocalDate periodStart);
 
     int insertDraft(

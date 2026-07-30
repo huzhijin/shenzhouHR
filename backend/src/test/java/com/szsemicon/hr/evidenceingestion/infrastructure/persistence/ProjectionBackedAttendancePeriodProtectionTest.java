@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 
 class ProjectionBackedAttendancePeriodProtectionTest {
 
-    private static final String LEGAL_ENTITY = "legal-entity-1";
+    private static final String COMPANY = "company-1";
     private static final String EMPLOYEE = "employee-1";
     private static final LocalDate BUSINESS_DATE =
             LocalDate.parse("2026-07-29");
@@ -28,32 +28,32 @@ class ProjectionBackedAttendancePeriodProtectionTest {
     @Test
     void explicitOpenProjectionAllowsMutation() {
         when(mapper.resolveLatestPublished(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE))
+                        COMPANY, EMPLOYEE, BUSINESS_DATE))
                 .thenReturn(List.of(row("OPEN", "a".repeat(64))));
 
         var result = protection.protectionFor(
-                LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE);
+                COMPANY, EMPLOYEE, BUSINESS_DATE);
 
         assertThat(result.status()).isEqualTo(PeriodStatus.OPEN);
         assertThat(result.periodVersion()).isEqualTo("projection-v1");
         assertThat(result.snapshotDigest()).matches("[0-9a-f]{64}");
         assertThat(result.allowsEffectiveMutation()).isTrue();
         verify(mapper).resolveLatestPublished(
-                LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE);
+                COMPANY, EMPLOYEE, BUSINESS_DATE);
     }
 
     @Test
     void frozenAndClosedProjectionsBlockMutation() {
         when(mapper.resolveLatestPublished(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE))
+                        COMPANY, EMPLOYEE, BUSINESS_DATE))
                 .thenReturn(
                         List.of(row("FROZEN", "a".repeat(64))),
                         List.of(row("CLOSED", "b".repeat(64))));
 
         var frozen = protection.protectionFor(
-                LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE);
+                COMPANY, EMPLOYEE, BUSINESS_DATE);
         var closed = protection.protectionFor(
-                LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE);
+                COMPANY, EMPLOYEE, BUSINESS_DATE);
 
         assertThat(frozen.status()).isEqualTo(PeriodStatus.FROZEN);
         assertThat(frozen.allowsEffectiveMutation()).isFalse();
@@ -64,11 +64,11 @@ class ProjectionBackedAttendancePeriodProtectionTest {
     @Test
     void authoritativeReopenedProjectionAllowsRecalculationMutation() {
         when(mapper.resolveLatestPublished(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE))
+                        COMPANY, EMPLOYEE, BUSINESS_DATE))
                 .thenReturn(List.of(row("REOPENED", "a".repeat(64))));
 
         var result = protection.protectionFor(
-                LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE);
+                COMPANY, EMPLOYEE, BUSINESS_DATE);
 
         assertThat(result.status()).isEqualTo(PeriodStatus.REOPENED);
         assertThat(result.allowsEffectiveMutation()).isTrue();
@@ -77,10 +77,10 @@ class ProjectionBackedAttendancePeriodProtectionTest {
     @Test
     void absentAmbiguousOrCrossLegalAuthorityRemainsUnknown() {
         AttendancePeriodProjectionRow crossLegal =
-                withLegalEntity(row("OPEN", "a".repeat(64)),
-                        "legal-entity-2");
+                withCompany(row("OPEN", "a".repeat(64)),
+                        "company-2");
         when(mapper.resolveLatestPublished(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE))
+                        COMPANY, EMPLOYEE, BUSINESS_DATE))
                 .thenReturn(
                         List.of(),
                         List.of(
@@ -89,11 +89,11 @@ class ProjectionBackedAttendancePeriodProtectionTest {
                         List.of(crossLegal));
 
         var absent = protection.protectionFor(
-                LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE);
+                COMPANY, EMPLOYEE, BUSINESS_DATE);
         var ambiguous = protection.protectionFor(
-                LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE);
+                COMPANY, EMPLOYEE, BUSINESS_DATE);
         var crossEntity = protection.protectionFor(
-                LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE);
+                COMPANY, EMPLOYEE, BUSINESS_DATE);
 
         assertThat(absent.status()).isEqualTo(PeriodStatus.UNKNOWN);
         assertThat(ambiguous.status()).isEqualTo(PeriodStatus.UNKNOWN);
@@ -106,16 +106,16 @@ class ProjectionBackedAttendancePeriodProtectionTest {
     @Test
     void periodSummaryChangesWithProjectionSnapshot() {
         when(mapper.resolveLatestPublished(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE))
+                        COMPANY, EMPLOYEE, BUSINESS_DATE))
                 .thenReturn(
                         List.of(row("OPEN", "a".repeat(64))),
                         List.of(row("OPEN", "b".repeat(64))));
 
         String first = protection.protectionFor(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE)
+                        COMPANY, EMPLOYEE, BUSINESS_DATE)
                 .snapshotDigest();
         String second = protection.protectionFor(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE)
+                        COMPANY, EMPLOYEE, BUSINESS_DATE)
                 .snapshotDigest();
 
         assertThat(second).isNotEqualTo(first);
@@ -128,10 +128,10 @@ class ProjectionBackedAttendancePeriodProtectionTest {
                 .isInstanceOf(IllegalArgumentException.class);
 
         when(mapper.resolveLatestPublished(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE))
+                        COMPANY, EMPLOYEE, BUSINESS_DATE))
                 .thenReturn(null);
         assertThatThrownBy(() -> protection.protectionFor(
-                        LEGAL_ENTITY, EMPLOYEE, BUSINESS_DATE))
+                        COMPANY, EMPLOYEE, BUSINESS_DATE))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("returned null");
     }
@@ -140,7 +140,7 @@ class ProjectionBackedAttendancePeriodProtectionTest {
             String state, String projectionDigest) {
         return new AttendancePeriodProjectionRow(
                 "projection-1",
-                LEGAL_ENTITY,
+                COMPANY,
                 LocalDate.parse("2026-07-01"),
                 LocalDate.parse("2026-08-01"),
                 state,
@@ -157,11 +157,11 @@ class ProjectionBackedAttendancePeriodProtectionTest {
                 "organization-1");
     }
 
-    private static AttendancePeriodProjectionRow withLegalEntity(
-            AttendancePeriodProjectionRow row, String legalEntityId) {
+    private static AttendancePeriodProjectionRow withCompany(
+            AttendancePeriodProjectionRow row, String companyId) {
         return new AttendancePeriodProjectionRow(
                 row.projectionId(),
-                legalEntityId,
+                companyId,
                 row.periodStart(),
                 row.periodEndExclusive(),
                 row.periodState(),

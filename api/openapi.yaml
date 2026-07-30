@@ -67,7 +67,7 @@ x-delivery-contract:
     enforcement: SERVER
     default: DENY
     objectScopeRequired: true
-    legalEntityScopeRequired: true
+    companyScopeRequired: true
     notFoundSemantics: REAL_404
   layers:
     direction:
@@ -260,7 +260,7 @@ x-delivery-contract:
         - { method: GET, path: /me/attendance/feedback, responseSchema: AttendanceFeedbackPage, errors: [401, 403] }
         - { method: POST, path: /me/attendance/feedback, requestSchema: AttendanceFeedbackRequest, responseSchema: AttendanceFeedbackView, errors: [400, 401, 403, 409, 422] }
         - { method: GET, path: /team/attendance, responseSchema: TeamAttendancePage, errors: [401, 403] }
-        - { method: GET, path: /attendance-reports/legal-entities, responseSchema: AttendanceReportLegalEntityDirectory, errors: [401, 403] }
+        - { method: GET, path: /attendance-reports/companies, responseSchema: AttendanceReportCompanyDirectory, errors: [401, 403] }
         - { method: GET, path: /attendance-reports, responseSchema: AttendanceReportPage, errors: [401, 403] }
         - { method: POST, path: /attendance-reports/exports, requestSchema: AttendanceReportExportCreateRequest, responseSchema: AttendanceReportExportView, errors: [400, 401, 403, 409] }
         - { method: GET, path: '/attendance-reports/exports/{exportId}', responseSchema: AttendanceReportExportView, errors: [401, 403, 404] }
@@ -1141,7 +1141,7 @@ paths:
       operationId: listPeopleImportTemplateVersions
       summary: 查询组织、员工、任职和累计工龄 Excel 模板版本及字段说明
       x-capability: PEOPLE_IMPORT:TEMPLATE_DOWNLOAD
-      x-data-scope: PEOPLE:LEGAL_ENTITY
+      x-data-scope: PEOPLE:COMPANY
       parameters:
         - name: type
           in: query
@@ -1169,7 +1169,7 @@ paths:
       operationId: downloadPeopleImportTemplate
       summary: 下载指定版本的 Excel 模板
       x-capability: PEOPLE_IMPORT:TEMPLATE_DOWNLOAD
-      x-data-scope: PEOPLE:LEGAL_ENTITY
+      x-data-scope: PEOPLE:COMPANY
       parameters:
         - $ref: '#/components/parameters/TemplateType'
         - $ref: '#/components/parameters/TemplateVersion'
@@ -1200,7 +1200,7 @@ paths:
       operationId: listPeopleImportBatches
       summary: 分页查询授权范围内的期初导入批次
       x-capability: PEOPLE_IMPORT:READ
-      x-data-scope: PEOPLE:LEGAL_ENTITY
+      x-data-scope: PEOPLE:COMPANY
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
@@ -1232,7 +1232,7 @@ paths:
       operationId: createPeopleImportBatch
       summary: 创建不写入正式组织或员工数据的草稿批次
       x-capability: PEOPLE_IMPORT:CREATE
-      x-data-scope: PEOPLE:LEGAL_ENTITY
+      x-data-scope: PEOPLE:COMPANY
       x-audit-event: PEOPLE_IMPORT_DRAFT_CREATED
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -1271,7 +1271,7 @@ paths:
       operationId: getPeopleImportBatch
       summary: 查询批次、处理状态、预检摘要和发布信息
       x-capability: PEOPLE_IMPORT:READ
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       parameters:
         - $ref: '#/components/parameters/BatchId'
       responses:
@@ -1298,7 +1298,7 @@ paths:
       operationId: uploadPeopleImportFile
       summary: 上传不执行宏、公式或外链的 xlsx 源文件
       x-capability: PEOPLE_IMPORT:UPLOAD
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       x-audit-event: PEOPLE_IMPORT_FILE_UPLOADED
       parameters:
         - $ref: '#/components/parameters/BatchId'
@@ -1350,7 +1350,7 @@ paths:
       operationId: replacePeopleImportMapping
       summary: 保存字段映射；修改映射会使旧预检结果失效
       x-capability: PEOPLE_IMPORT:MAP
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       x-audit-event: PEOPLE_IMPORT_MAPPING_CHANGED
       parameters:
         - $ref: '#/components/parameters/BatchId'
@@ -1391,7 +1391,7 @@ paths:
       operationId: precheckPeopleImport
       summary: 解析并预检草稿，不写正式组织、员工或任职数据
       x-capability: PEOPLE_IMPORT:PRECHECK
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       x-audit-event: PEOPLE_IMPORT_PRECHECKED
       parameters:
         - $ref: '#/components/parameters/BatchId'
@@ -1426,7 +1426,7 @@ paths:
       operationId: listPeopleImportDiff
       summary: 分页查询新增、修改、不变、冲突和错误行差异
       x-capability: PEOPLE_IMPORT:READ
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       parameters:
         - $ref: '#/components/parameters/BatchId'
         - $ref: '#/components/parameters/Page'
@@ -1459,7 +1459,7 @@ paths:
       operationId: listPeopleImportErrors
       summary: 分页查询预检错误和冲突行
       x-capability: PEOPLE_IMPORT:READ
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       parameters:
         - $ref: '#/components/parameters/BatchId'
         - $ref: '#/components/parameters/Page'
@@ -1490,7 +1490,7 @@ paths:
       operationId: downloadPeopleImportErrorReport
       summary: 下载包含原始行号和机器错误码的 xlsx 错误报告
       x-capability: PEOPLE_IMPORT:ERROR_REPORT_DOWNLOAD
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       x-audit-event: PEOPLE_IMPORT_ERROR_REPORT_DOWNLOADED
       parameters:
         - $ref: '#/components/parameters/BatchId'
@@ -1523,7 +1523,7 @@ paths:
       operationId: publishPeopleImport
       summary: 原子发布无阻断错误且已完成预检的批次
       x-capability: PEOPLE_IMPORT:PUBLISH
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       x-audit-event: PEOPLE_IMPORT_PUBLISHED
       parameters:
         - $ref: '#/components/parameters/BatchId'
@@ -1564,7 +1564,7 @@ paths:
       operationId: voidPeopleImportDraft
       summary: 作废未发布草稿；不物理删除源文件、行或预检结果
       x-capability: PEOPLE_IMPORT:VOID
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       x-audit-event: PEOPLE_IMPORT_DRAFT_VOIDED
       parameters:
         - $ref: '#/components/parameters/BatchId'
@@ -1608,7 +1608,7 @@ paths:
         原批次、来源文件和发布快照保持不可变。成功时生成恢复上一快照的本地新版本；
         存在下游引用或后续本地版本时返回 409，并要求前向更正。
       x-capability: PEOPLE_IMPORT:ROLLBACK
-      x-data-scope: PEOPLE:BATCH_LEGAL_ENTITY
+      x-data-scope: PEOPLE:BATCH_COMPANY
       x-audit-event: PEOPLE_IMPORT_ROLLBACK_REQUESTED
       parameters:
         - $ref: '#/components/parameters/BatchId'
@@ -1677,7 +1677,7 @@ paths:
       operationId: createLocalOrganization
       summary: 创建本地权威组织及首个不可变版本
       x-capability: ORGANIZATION:CREATE
-      x-data-scope: PEOPLE:LEGAL_ENTITY
+      x-data-scope: PEOPLE:COMPANY
       x-audit-event: ORGANIZATION_VERSION_CREATED
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -2206,10 +2206,10 @@ paths:
     get:
       tags: [AttendanceSetup]
       operationId: listAttendanceLocations
-      summary: 分页查询授权法人范围内的考勤地点
+      summary: 分页查询授权公司范围内的考勤地点
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
@@ -2229,7 +2229,7 @@ paths:
       summary: 幂等创建考勤地点
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_LOCATION_CREATED
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -2260,7 +2260,7 @@ paths:
       operationId: getAttendanceLocation
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/LocationId'
       responses:
@@ -2280,7 +2280,7 @@ paths:
       operationId: updateAttendanceLocation
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_LOCATION_UPDATED
       parameters:
         - $ref: '#/components/parameters/LocationId'
@@ -2315,7 +2315,7 @@ paths:
       summary: 分页返回地点不可变修订历史
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/LocationId'
         - $ref: '#/components/parameters/Page'
@@ -2338,7 +2338,7 @@ paths:
       summary: 启用或停用考勤地点，不物理删除
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_LOCATION_LIFECYCLE_CHANGED
       parameters:
         - $ref: '#/components/parameters/LocationId'
@@ -2372,7 +2372,7 @@ paths:
       operationId: listAttendanceGroups
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
@@ -2394,7 +2394,7 @@ paths:
       operationId: createAttendanceGroup
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_GROUP_CREATED
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -2426,7 +2426,7 @@ paths:
       operationId: getAttendanceGroup
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/GroupId'
       responses:
@@ -2446,7 +2446,7 @@ paths:
       operationId: updateAttendanceGroup
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_GROUP_UPDATED
       parameters:
         - $ref: '#/components/parameters/GroupId'
@@ -2481,7 +2481,7 @@ paths:
       summary: 分页返回考勤组不可变修订历史
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/GroupId'
         - $ref: '#/components/parameters/Page'
@@ -2504,7 +2504,7 @@ paths:
       summary: 启用或停用考勤组，不物理删除
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_GROUP_LIFECYCLE_CHANGED
       parameters:
         - $ref: '#/components/parameters/GroupId'
@@ -2538,7 +2538,7 @@ paths:
       operationId: listAttendanceGroupAssignments
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/GroupId'
         - name: asOf
@@ -2562,7 +2562,7 @@ paths:
       operationId: createAttendanceGroupAssignment
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:ASSIGN
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_GROUP_ASSIGNMENT_CREATED
       parameters:
         - $ref: '#/components/parameters/GroupId'
@@ -2596,7 +2596,7 @@ paths:
       summary: 调整期限或以前向结束日期关闭分配
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:ASSIGN
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_GROUP_ASSIGNMENT_UPDATED
       parameters:
         - $ref: '#/components/parameters/GroupId'
@@ -2631,7 +2631,7 @@ paths:
       operationId: listShiftTemplates
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
@@ -2650,7 +2650,7 @@ paths:
       operationId: createShiftTemplate
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_SHIFT
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: SHIFT_TEMPLATE_CREATED
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -2681,7 +2681,7 @@ paths:
       operationId: updateShiftTemplate
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_SHIFT
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: SHIFT_TEMPLATE_UPDATED
       parameters:
         - $ref: '#/components/parameters/ShiftId'
@@ -2715,7 +2715,7 @@ paths:
       operationId: changeShiftTemplateStatus
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_SHIFT
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: SHIFT_TEMPLATE_STATUS_CHANGED
       parameters:
         - $ref: '#/components/parameters/ShiftId'
@@ -2749,7 +2749,7 @@ paths:
       operationId: listShiftVersions
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/ShiftId'
         - $ref: '#/components/parameters/Page'
@@ -2770,7 +2770,7 @@ paths:
       operationId: createShiftVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_SHIFT
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: SHIFT_VERSION_DRAFTED
       parameters:
         - $ref: '#/components/parameters/ShiftId'
@@ -2803,7 +2803,7 @@ paths:
       operationId: updateShiftVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_SHIFT
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: SHIFT_VERSION_UPDATED
       parameters:
         - $ref: '#/components/parameters/ShiftId'
@@ -2838,7 +2838,7 @@ paths:
       operationId: publishShiftVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_SHIFT
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: SHIFT_VERSION_PUBLISHED
       parameters:
         - $ref: '#/components/parameters/ShiftId'
@@ -2873,7 +2873,7 @@ paths:
       operationId: changeShiftVersionStatus
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_SHIFT
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: SHIFT_VERSION_STATUS_CHANGED
       parameters:
         - $ref: '#/components/parameters/ShiftId'
@@ -2908,7 +2908,7 @@ paths:
       operationId: listWorkCalendars
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - name: year
           in: query
@@ -2930,7 +2930,7 @@ paths:
       operationId: createWorkCalendar
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: WORK_CALENDAR_CREATED
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -2961,7 +2961,7 @@ paths:
       operationId: updateWorkCalendar
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: WORK_CALENDAR_UPDATED
       parameters:
         - $ref: '#/components/parameters/CalendarId'
@@ -2995,7 +2995,7 @@ paths:
       operationId: listWorkCalendarVersions
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CalendarId'
         - $ref: '#/components/parameters/Page'
@@ -3016,7 +3016,7 @@ paths:
       operationId: createWorkCalendarVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CalendarId'
         - $ref: '#/components/parameters/CsrfToken'
@@ -3048,7 +3048,7 @@ paths:
       operationId: updateWorkCalendarVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CalendarId'
         - $ref: '#/components/parameters/VersionId'
@@ -3082,7 +3082,7 @@ paths:
       operationId: publishWorkCalendarVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CalendarId'
         - $ref: '#/components/parameters/VersionId'
@@ -3116,7 +3116,7 @@ paths:
       operationId: deactivateWorkCalendarVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CalendarId'
         - $ref: '#/components/parameters/VersionId'
@@ -3150,7 +3150,7 @@ paths:
       operationId: publishWorkCalendar
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: WORK_CALENDAR_PUBLISHED
       parameters:
         - $ref: '#/components/parameters/CalendarId'
@@ -3184,7 +3184,7 @@ paths:
       operationId: changeWorkCalendarStatus
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: WORK_CALENDAR_STATUS_CHANGED
       parameters:
         - $ref: '#/components/parameters/CalendarId'
@@ -3218,7 +3218,7 @@ paths:
       operationId: listWorkCalendarDays
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CalendarId'
         - name: from
@@ -3247,7 +3247,7 @@ paths:
       operationId: replaceWorkCalendarDays
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: WORK_CALENDAR_DAYS_REPLACED
       parameters:
         - $ref: '#/components/parameters/CalendarId'
@@ -3285,7 +3285,7 @@ paths:
       operationId: listWorkCalendarVersionDays
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CalendarId'
         - $ref: '#/components/parameters/VersionId'
@@ -3315,7 +3315,7 @@ paths:
       operationId: patchWorkCalendarVersionDays
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_CALENDAR
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CalendarId'
         - $ref: '#/components/parameters/VersionId'
@@ -3354,7 +3354,7 @@ paths:
       summary: 返回三类受控考勤基础策略及其固定字段定义
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       responses:
         '200':
           description: 受控考勤基础策略目录
@@ -3375,7 +3375,7 @@ paths:
       operationId: listAttendancePolicyBindings
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - name: groupId
           in: query
@@ -3400,7 +3400,7 @@ paths:
       operationId: createAttendancePolicyBinding
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_POLICY_BINDING_CREATED
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -3433,7 +3433,7 @@ paths:
       summary: 通过追加新绑定版本替换现有有效绑定
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_POLICY_BINDING_UPDATED
       parameters:
         - $ref: '#/components/parameters/BindingId'
@@ -3465,10 +3465,10 @@ paths:
     get:
       tags: [AttendanceSetup]
       operationId: getAttendancePolicyVersionContext
-      summary: 仅凭受控策略版本 ID 解析其模板、法人、类型与版本详情
+      summary: 仅凭受控策略版本 ID 解析其模板、公司、类型与版本详情
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/VersionId'
       responses:
@@ -3489,10 +3489,10 @@ paths:
       operationId: listAttendancePolicyVersions
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/TemplateId'
-        - $ref: '#/components/parameters/AttendanceLegalEntityId'
+        - $ref: '#/components/parameters/AttendanceCompanyId'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
       responses:
@@ -3511,11 +3511,11 @@ paths:
       operationId: createAttendancePolicyDraft
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_POLICY_DRAFT_CREATED
       parameters:
         - $ref: '#/components/parameters/TemplateId'
-        - $ref: '#/components/parameters/AttendanceLegalEntityId'
+        - $ref: '#/components/parameters/AttendanceCompanyId'
         - $ref: '#/components/parameters/CsrfToken'
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ChangeReason'
@@ -3546,11 +3546,11 @@ paths:
       operationId: getAttendancePolicyVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/TemplateId'
         - $ref: '#/components/parameters/VersionId'
-        - $ref: '#/components/parameters/AttendanceLegalEntityId'
+        - $ref: '#/components/parameters/AttendanceCompanyId'
       responses:
         '200':
           description: 受控考勤策略版本
@@ -3568,12 +3568,12 @@ paths:
       operationId: updateAttendancePolicyDraft
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_POLICY_DRAFT_UPDATED
       parameters:
         - $ref: '#/components/parameters/TemplateId'
         - $ref: '#/components/parameters/VersionId'
-        - $ref: '#/components/parameters/AttendanceLegalEntityId'
+        - $ref: '#/components/parameters/AttendanceCompanyId'
         - $ref: '#/components/parameters/CsrfToken'
         - $ref: '#/components/parameters/IfMatch'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -3605,12 +3605,12 @@ paths:
       operationId: validateAttendancePolicyVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_POLICY_VERSION_VALIDATED
       parameters:
         - $ref: '#/components/parameters/TemplateId'
         - $ref: '#/components/parameters/VersionId'
-        - $ref: '#/components/parameters/AttendanceLegalEntityId'
+        - $ref: '#/components/parameters/AttendanceCompanyId'
         - $ref: '#/components/parameters/CsrfToken'
         - $ref: '#/components/parameters/IfMatch'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -3637,12 +3637,12 @@ paths:
       operationId: publishAttendancePolicyVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_POLICY_VERSION_PUBLISHED
       parameters:
         - $ref: '#/components/parameters/TemplateId'
         - $ref: '#/components/parameters/VersionId'
-        - $ref: '#/components/parameters/AttendanceLegalEntityId'
+        - $ref: '#/components/parameters/AttendanceCompanyId'
         - $ref: '#/components/parameters/CsrfToken'
         - $ref: '#/components/parameters/IfMatch'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -3674,12 +3674,12 @@ paths:
       operationId: deactivateAttendancePolicyVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_POLICY_VERSION_DEACTIVATED
       parameters:
         - $ref: '#/components/parameters/TemplateId'
         - $ref: '#/components/parameters/VersionId'
-        - $ref: '#/components/parameters/AttendanceLegalEntityId'
+        - $ref: '#/components/parameters/AttendanceCompanyId'
         - $ref: '#/components/parameters/CsrfToken'
         - $ref: '#/components/parameters/IfMatch'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -3711,12 +3711,12 @@ paths:
       operationId: rollbackAttendancePolicyVersion
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       x-audit-event: ATTENDANCE_POLICY_VERSION_ROLLED_BACK
       parameters:
         - $ref: '#/components/parameters/TemplateId'
         - $ref: '#/components/parameters/VersionId'
-        - $ref: '#/components/parameters/AttendanceLegalEntityId'
+        - $ref: '#/components/parameters/AttendanceCompanyId'
         - $ref: '#/components/parameters/CsrfToken'
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatch'
@@ -3749,7 +3749,7 @@ paths:
       summary: 使用合成输入试算，不写入正式考勤结果
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -3776,7 +3776,7 @@ paths:
       operationId: previewAttendancePolicyImpact
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_POLICY
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -3802,7 +3802,7 @@ paths:
       summary: 按员工和业务日确定性解析考勤配置快照
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
         - name: employeeId
           in: query
@@ -3841,7 +3841,7 @@ paths:
       operationId: registerDeliAttendanceSource
       summary: 注册正式得力 E+ 数据源及外部凭据引用
       x-capability: ATTENDANCE_SOURCE:CONFIGURE
-      x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SOURCE:COMPANY
       description: |
         仅注册 DELI_CLOUD 来源。请求和响应只包含外部凭据引用名，不接受、
         返回或持久化 App-Key、App-Secret。相同凭据引用只能绑定一个启用来源。
@@ -3997,9 +3997,9 @@ paths:
       operationId: startDeliAttendanceSourceJob
       summary: 从已提交水位启动正式得力 E+ 打卡同步
       x-capability: ATTENDANCE_SOURCE:RUN
-      x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SOURCE:COMPANY
       description: |
-        服务端从受权限保护的来源读取法人、凭据引用和已提交水位；请求不能指定
+        服务端从受权限保护的来源读取公司、凭据引用和已提交水位；请求不能指定
         员工。每页证据和水位在独立事务中原子提交，失败页绝不推进水位。
       parameters:
         - { $ref: '#/components/parameters/CsrfToken' }
@@ -4029,10 +4029,10 @@ paths:
       tags: [AttendanceSources]
       operationId: getAttendanceSourceJob
       x-capability: ATTENDANCE_SOURCE:READ
-      x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SOURCE:COMPANY
       responses:
         '200':
-          description: 当前法人权限范围内的同步任务安全状态
+          description: 当前公司权限范围内的同步任务安全状态
           headers:
             Cache-Control: { schema: { type: string, const: no-store } }
             X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
@@ -4049,9 +4049,9 @@ paths:
       tags: [AttendanceSources]
       operationId: retryAttendanceSourceJob
       x-capability: ATTENDANCE_SOURCE:RETRY
-      x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY
+      x-data-scope: ATTENDANCE_SOURCE:COMPANY
       description: |
-        仅允许在当前法人权限范围内对失败、部分隔离或已取消任务创建新任务；
+        仅允许在当前公司权限范围内对失败、部分隔离或已取消任务创建新任务；
         强 ETag 防止重复操作，幂等键重放返回同一新任务。新任务始终从数据源
         最新已提交水位继续，不修改原任务和原始证据。
       parameters:
@@ -4447,7 +4447,7 @@ paths:
       operationId: getAttendanceReport
       x-capability: ATTENDANCE_REPORT:READ
       description: |
-        服务端先按当前主体、有效角色、当前任职及法人/组织/本人数据范围过滤，
+        服务端先按当前主体、有效角色、当前任职及公司/组织/本人数据范围过滤，
         再对已发布的不可变月度投影进行聚合和分页。客户端筛选只能缩小范围。
       parameters:
         - name: reportType
@@ -4461,10 +4461,10 @@ paths:
           schema:
             type: string
             pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
-        - name: legalEntityId
+        - name: companyId
           in: query
           required: false
-          description: 单法人授权可省略；多法人授权必须从授权法人目录显式选择。
+          description: 单公司授权可省略；多公司授权必须从授权公司目录显式选择。
           schema:
             type: string
             maxLength: 36
@@ -4508,14 +4508,14 @@ paths:
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
         '409': { $ref: '#/components/responses/Conflict' }
-  /attendance-reports/legal-entities:
+  /attendance-reports/companies:
     get:
       tags: [AttendanceReports]
-      operationId: listAttendanceReportLegalEntities
+      operationId: listAttendanceReportCompanies
       x-capability: ATTENDANCE_REPORT:READ
       description: |
         只返回当前主体在指定月份具备有效 ATTENDANCE_REPORT:READ 数据范围、
-        且存在已发布正式投影的法人安全名称；不返回未授权或未发布法人。
+        且存在已发布正式投影的公司安全名称；不返回未授权或未发布公司。
       parameters:
         - name: period
           in: query
@@ -4525,14 +4525,14 @@ paths:
             pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
       responses:
         '200':
-          description: 当前月份可选择的授权法人目录
+          description: 当前月份可选择的授权公司目录
           headers:
             Cache-Control: { schema: { type: string, const: no-store } }
             X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AttendanceReportLegalEntityDirectory'
+                $ref: '#/components/schemas/AttendanceReportCompanyDirectory'
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
@@ -4740,8 +4740,8 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/ResourceId' }
-    AttendanceLegalEntityId:
-      name: legalEntityId
+    AttendanceCompanyId:
+      name: companyId
       in: query
       required: true
       schema: { $ref: '#/components/schemas/ResourceId' }
@@ -4861,9 +4861,9 @@ components:
     AttendanceLocationRequest:
       type: object
       additionalProperties: false
-      required: [legalEntityId, code, name, timeZone, effectiveFrom, reason]
+      required: [companyId, code, name, timeZone, effectiveFrom, reason]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         name: { type: string, minLength: 1, maxLength: 100 }
         timeZone: { type: string, minLength: 1, maxLength: 64, examples: [Asia/Shanghai] }
@@ -4875,7 +4875,7 @@ components:
       additionalProperties: false
       required:
         - locationId
-        - legalEntityId
+        - companyId
         - code
         - locationRevisionId
         - revisionNumber
@@ -4890,7 +4890,7 @@ components:
         - updatedAt
       properties:
         locationId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         locationRevisionId: { $ref: '#/components/schemas/ResourceId' }
         revisionNumber: { type: integer, minimum: 1 }
@@ -4917,9 +4917,9 @@ components:
     AttendanceGroupRequest:
       type: object
       additionalProperties: false
-      required: [legalEntityId, code, name, locationId, calendarId, shiftTemplateId, effectiveFrom, reason]
+      required: [companyId, code, name, locationId, calendarId, shiftTemplateId, effectiveFrom, reason]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         name: { type: string, minLength: 1, maxLength: 100 }
         locationId: { $ref: '#/components/schemas/ResourceId' }
@@ -4933,7 +4933,7 @@ components:
       additionalProperties: false
       required:
         - groupId
-        - legalEntityId
+        - companyId
         - code
         - groupRevisionId
         - revisionNumber
@@ -4951,7 +4951,7 @@ components:
         - updatedAt
       properties:
         groupId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         groupRevisionId: { $ref: '#/components/schemas/ResourceId' }
         revisionNumber: { type: integer, minimum: 1 }
@@ -5027,9 +5027,9 @@ components:
     ShiftTemplateRequest:
       type: object
       additionalProperties: false
-      required: [legalEntityId, locationId, code, name, reason]
+      required: [companyId, locationId, code, name, reason]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         locationId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         name: { type: string, minLength: 1, maxLength: 100 }
@@ -5039,7 +5039,7 @@ components:
       additionalProperties: false
       required:
         - shiftId
-        - legalEntityId
+        - companyId
         - locationId
         - code
         - name
@@ -5049,7 +5049,7 @@ components:
         - updatedAt
       properties:
         shiftId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         locationId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         name: { type: string, minLength: 1, maxLength: 100 }
@@ -5166,7 +5166,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        - legalEntityId
+        - companyId
         - locationId
         - code
         - name
@@ -5176,7 +5176,7 @@ components:
         - effectiveTo
         - reason
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         locationId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         name: { type: string, minLength: 1, maxLength: 100 }
@@ -5201,7 +5201,7 @@ components:
       additionalProperties: false
       required:
         - calendarId
-        - legalEntityId
+        - companyId
         - locationId
         - code
         - calendarVersionId
@@ -5218,7 +5218,7 @@ components:
         - updatedAt
       properties:
         calendarId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         locationId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         calendarVersionId: { $ref: '#/components/schemas/ResourceId' }
@@ -5385,7 +5385,7 @@ components:
         - bindingId
         - bindingRevisionId
         - revisionNumber
-        - legalEntityId
+        - companyId
         - policyKind
         - policyVersionId
         - groupId
@@ -5401,7 +5401,7 @@ components:
         bindingId: { $ref: '#/components/schemas/ResourceId' }
         bindingRevisionId: { $ref: '#/components/schemas/ResourceId' }
         revisionNumber: { type: integer, minimum: 1 }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         policyKind: { $ref: '#/components/schemas/AttendancePolicyKind' }
         policyVersionId: { $ref: '#/components/schemas/ResourceId' }
         groupId: { $ref: '#/components/schemas/ResourceId' }
@@ -5458,7 +5458,7 @@ components:
         - scopedVersionId
         - scopeId
         - templateId
-        - legalEntityId
+        - companyId
         - policyKind
         - versionNumber
         - status
@@ -5480,7 +5480,7 @@ components:
         scopedVersionId: { $ref: '#/components/schemas/ResourceId' }
         scopeId: { $ref: '#/components/schemas/ResourceId' }
         templateId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         policyKind: { $ref: '#/components/schemas/AttendancePolicyKind' }
         versionNumber: { type: integer, minimum: 1 }
         status: { type: string, enum: [DRAFT, VALIDATED, PUBLISHED] }
@@ -5921,7 +5921,7 @@ components:
       required: [roleId, scopeType, validFrom]
       properties:
         roleId: { $ref: '#/components/schemas/ResourceId' }
-        scopeType: { type: string, enum: [LEGAL_ENTITY, ORGANIZATION, SELF] }
+        scopeType: { type: string, enum: [COMPANY, ORGANIZATION, SELF] }
         scopeResourceId:
           oneOf:
             - $ref: '#/components/schemas/ResourceId'
@@ -6373,9 +6373,9 @@ components:
     PeopleImportCreateRequest:
       type: object
       additionalProperties: false
-      required: [legalEntityId, templateType, templateVersion, reason]
+      required: [companyId, templateType, templateVersion, reason]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         templateType: { $ref: '#/components/schemas/PeopleImportTemplateType' }
         templateVersion: { type: string }
         reason: { type: string, minLength: 2, maxLength: 500 }
@@ -6394,11 +6394,11 @@ components:
       type: object
       additionalProperties: false
       required:
-        [batchId, legalEntityId, templateType, templateVersion, status,
+        [batchId, companyId, templateType, templateVersion, status,
          precheckVersion, rowVersion, createdBy, createdAt, updatedAt]
       properties:
         batchId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         templateType: { $ref: '#/components/schemas/PeopleImportTemplateType' }
         templateVersion: { type: string }
         status: { $ref: '#/components/schemas/PeopleImportBatchStatus' }
@@ -6648,9 +6648,9 @@ components:
       type: object
       additionalProperties: false
       required:
-        [legalEntityId, code, name, organizationType, effectiveFrom, reason]
+        [companyId, code, name, organizationType, effectiveFrom, reason]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         parentOrganizationId:
           oneOf:
             - $ref: '#/components/schemas/ResourceId'
@@ -6737,9 +6737,9 @@ components:
       type: object
       additionalProperties: false
       required:
-        [legalEntityId, employeeNumber, displayName, effectiveFrom, reason]
+        [companyId, employeeNumber, displayName, effectiveFrom, reason]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         employeeNumber: { type: string, minLength: 1, maxLength: 128 }
         displayName: { type: string, minLength: 1, maxLength: 100 }
         externalEmployeeId:
@@ -7008,9 +7008,9 @@ components:
     AttendanceSourceMutationRequest:
       type: object
       additionalProperties: false
-      required: [legalEntityId, sourceType, code, displayName, secretReference]
+      required: [companyId, sourceType, code, displayName, secretReference]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         sourceType: { $ref: '#/components/schemas/AttendanceSourceType' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         displayName: { type: string, minLength: 1, maxLength: 120 }
@@ -7037,7 +7037,7 @@ components:
         只允许提交外部凭据引用名。App-Key、App-Secret、token、check_data
         以及任何原始生物识别内容都不是合法字段。
       required:
-        - legalEntityId
+        - companyId
         - sourceCode
         - displayName
         - sourceTimeZone
@@ -7047,7 +7047,7 @@ components:
         - secretReferenceName
         - reason
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         sourceCode:
           type: string
           pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$'
@@ -7069,7 +7069,7 @@ components:
       additionalProperties: false
       required:
         - sourceId
-        - legalEntityId
+        - companyId
         - sourceCode
         - displayName
         - sourceType
@@ -7086,7 +7086,7 @@ components:
         - replayed
       properties:
         sourceId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         sourceCode:
           type: string
           pattern: '^[A-Z0-9][A-Z0-9_-]{1,63}$'
@@ -7158,9 +7158,9 @@ components:
     PunchMappingProfileRequest:
       type: object
       additionalProperties: false
-      required: [legalEntityId, name, rules]
+      required: [companyId, name, rules]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         name: { type: string, minLength: 1, maxLength: 120 }
         rules:
           type: array
@@ -7170,9 +7170,9 @@ components:
     PunchImportMetadata:
       type: object
       additionalProperties: false
-      required: [legalEntityId, sourceId]
+      required: [companyId, sourceId]
       properties:
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         sourceId: { $ref: '#/components/schemas/ResourceId' }
         locationId:
           oneOf:
@@ -7228,7 +7228,7 @@ components:
       additionalProperties: false
       required:
         - sourceId
-        - legalEntityId
+        - companyId
         - sourceType
         - code
         - displayName
@@ -7240,7 +7240,7 @@ components:
         - rowVersion
       properties:
         sourceId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         sourceType: { $ref: '#/components/schemas/AttendanceSourceType' }
         code: { type: string, maxLength: 64 }
         displayName: { type: string, maxLength: 100 }
@@ -7345,7 +7345,7 @@ components:
       additionalProperties: false
       required:
         - batchId
-        - legalEntityId
+        - companyId
         - sourceId
         - originalFilename
         - fileSha256
@@ -7364,7 +7364,7 @@ components:
         - rowVersion
       properties:
         batchId: { $ref: '#/components/schemas/ResourceId' }
-        legalEntityId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
         sourceId: { $ref: '#/components/schemas/ResourceId' }
         originalFilename: { type: string, maxLength: 255 }
         fileSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
@@ -7564,36 +7564,36 @@ components:
           items:
             type: string
             enum: [REPORT_DRILL_DOWN, REPORT_EXPORT_CREATE, REPORT_EXPORT_DOWNLOAD]
-    AttendanceReportLegalEntityOption:
+    AttendanceReportCompanyOption:
       type: object
       additionalProperties: false
-      required: [legalEntityId, name]
+      required: [companyId, companyName]
       properties:
-        legalEntityId: { type: string, minLength: 1, maxLength: 36 }
-        name: { type: string, minLength: 1, maxLength: 200 }
-    AttendanceReportLegalEntityDirectory:
+        companyId: { type: string, minLength: 1, maxLength: 36 }
+        companyName: { type: string, minLength: 1, maxLength: 200 }
+    AttendanceReportCompanyDirectory:
       type: object
       additionalProperties: false
-      required: [period, legalEntities]
+      required: [period, companies]
       properties:
         period:
           type: string
           pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
-        legalEntities:
+        companies:
           type: array
           uniqueItems: true
           items:
-            $ref: '#/components/schemas/AttendanceReportLegalEntityOption'
+            $ref: '#/components/schemas/AttendanceReportCompanyOption'
     AttendanceReportFilters:
       type: object
       additionalProperties: false
-      required: [period, scopeReference, legalEntityId]
+      required: [period, scopeReference, companyId]
       properties:
         period:
           type: string
           pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
         scopeReference: { type: string, minLength: 1, maxLength: 128 }
-        legalEntityId: { type: string, minLength: 1, maxLength: 36 }
+        companyId: { type: string, minLength: 1, maxLength: 36 }
         organizationId: { type: [string, 'null'], maxLength: 36 }
         employeeId: { type: [string, 'null'], maxLength: 36 }
         status: { type: [string, 'null'], maxLength: 32 }
@@ -7673,10 +7673,10 @@ components:
         period:
           type: string
           pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
-        legalEntityId:
+        companyId:
           type: [string, 'null']
           maxLength: 36
-          description: 单法人授权可省略；多法人授权必须从授权法人目录显式选择。
+          description: 单公司授权可省略；多公司授权必须从授权公司目录显式选择。
         organizationId: { type: [string, 'null'], maxLength: 36 }
         employeeId: { type: [string, 'null'], maxLength: 36 }
         status: { type: [string, 'null'], maxLength: 32 }
@@ -7703,7 +7703,7 @@ components:
         - exportId
         - reportType
         - period
-        - legalEntityId
+        - companyId
         - deliveryMode
         - status
         - purpose
@@ -7716,7 +7716,7 @@ components:
         period:
           type: string
           pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
-        legalEntityId: { type: string, minLength: 1, maxLength: 36 }
+        companyId: { type: string, minLength: 1, maxLength: 36 }
         deliveryMode:
           type: string
           enum: [SYNC, ASYNC]
@@ -7858,7 +7858,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ApiError' }
     AttendanceSourcePageOk:
-      description: 先按法人作用域过滤、再稳定分页的考勤来源
+      description: 先按公司作用域过滤、再稳定分页的考勤来源
       headers:
         Cache-Control: { schema: { type: string, const: no-store } }
         X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
@@ -7866,7 +7866,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/AttendanceSourcePage' }
     SourceJobPageOk:
-      description: 先按来源法人作用域过滤、再稳定分页的同步作业
+      description: 先按来源公司作用域过滤、再稳定分页的同步作业
       headers:
         Cache-Control: { schema: { type: string, const: no-store } }
         X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
@@ -7882,7 +7882,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/OaAttendanceDocumentPage' }
     PunchImportPageOk:
-      description: 先按法人作用域过滤、再稳定分页的打卡导入批次
+      description: 先按公司作用域过滤、再稳定分页的打卡导入批次
       headers:
         Cache-Control: { schema: { type: string, const: no-store } }
         X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }

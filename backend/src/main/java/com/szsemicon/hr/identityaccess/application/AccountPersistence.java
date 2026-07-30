@@ -18,6 +18,24 @@ public interface AccountPersistence {
             String requiredCapability,
             Instant at);
 
+    /**
+     * Requires one current capability-bearing actor scope to cover every
+     * non-expired role scope on the target account. Account-wide mutations
+     * must use this stronger check instead of relying on visibility through
+     * only one intersecting company.
+     */
+    boolean canAccessAllAccountRoleScopes(
+            String principalId,
+            String accountId,
+            String requiredCapability,
+            Instant at);
+
+    /**
+     * Locks the target account as the serialization root for every
+     * account-wide mutation and role-assignment replacement.
+     */
+    Optional<AccountRecord> lockAccountForScopeAuthorization(String accountId);
+
     String createAccount(
             String username,
             String normalizedUsername,
@@ -53,23 +71,33 @@ public interface AccountPersistence {
     void setAccountLock(String accountId, boolean locked, String actorId, Instant at);
 
     /**
-     * Resolves every requested target to its active legal entity and locks those
-     * legal-entity rows in deterministic order. People and organization
+     * Resolves every requested target to its active company and locks those
+     * company rows in deterministic order. People and organization
      * publication use the same lock, so the authorization snapshot cannot race
      * with an employee move or organization hierarchy publication.
      */
-    void lockRoleGrantTargetLegalEntities(
+    void lockRoleGrantTargetCompanies(
             String targetPrincipalId,
             String targetEmployeeId,
             List<RoleAssignmentInput> assignments,
             Instant at);
 
     /**
-     * Locks the actor's currently effective ROLE:ASSIGN-bearing assignments so
-     * the subsequent scope checks and assignment replacement are one atomic
-     * authorization decision.
+     * Locks the actor's currently effective assignments carrying the required
+     * capability, so a scope decision and mutation share one authorization
+     * snapshot.
      */
-    boolean lockCurrentRoleGrantAuthority(String actorPrincipalId, Instant at);
+    boolean lockCurrentCapabilityAuthority(
+            String actorPrincipalId,
+            String requiredCapability,
+            Instant at);
+
+    /**
+     * Locks every non-expired assignment that a replacement would close. The
+     * caller must then verify {@link #canAccessAllAccountRoleScopes} before
+     * replacing any assignment.
+     */
+    void lockTargetRoleAssignments(String targetPrincipalId, Instant at);
 
     /**
      * Resolves a role id under a lock. An empty result is deliberately treated
@@ -98,7 +126,11 @@ public interface AccountPersistence {
             String reason,
             Instant at);
 
-    List<RoleAssignmentRecord> findRoleAssignments(String principalId, Instant at);
+    List<RoleAssignmentRecord> findVisibleRoleAssignments(
+            String actorPrincipalId,
+            String targetPrincipalId,
+            String requiredCapability,
+            Instant at);
 
     List<SessionRecord> findSessions(String accountId);
 

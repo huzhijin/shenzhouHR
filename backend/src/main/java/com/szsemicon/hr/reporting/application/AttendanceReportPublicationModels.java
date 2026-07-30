@@ -58,7 +58,7 @@ public final class AttendanceReportPublicationModels {
     }
 
     public record VerifiedProjectionMetadata(
-            String legalEntityId,
+            String companyId,
             YearMonth period,
             PeriodState periodState,
             String formulaCatalogVersion,
@@ -68,7 +68,7 @@ public final class AttendanceReportPublicationModels {
             String createdByPrincipalId) {
 
         public VerifiedProjectionMetadata {
-            legalEntityId = databaseId(legalEntityId, "legalEntityId");
+            companyId = databaseId(companyId, "companyId");
             Objects.requireNonNull(period, "period");
             Objects.requireNonNull(periodState, "periodState");
             formulaCatalogVersion = version(
@@ -116,7 +116,7 @@ public final class AttendanceReportPublicationModels {
      * location, or raw form payload.
      */
     public record VerifiedOaDocumentFact(
-            String legalEntityId,
+            String companyId,
             String oaAttendanceDocumentId,
             String employeeId,
             String employeeVersionId,
@@ -134,7 +134,7 @@ public final class AttendanceReportPublicationModels {
             String sourceVersion) {
 
         public VerifiedOaDocumentFact {
-            legalEntityId = databaseId(legalEntityId, "legalEntityId");
+            companyId = databaseId(companyId, "companyId");
             oaAttendanceDocumentId = databaseId(
                     oaAttendanceDocumentId, "oaAttendanceDocumentId");
             employeeId = databaseId(employeeId, "employeeId");
@@ -187,7 +187,7 @@ public final class AttendanceReportPublicationModels {
      * deriving these balance components from its immutable ledger.
      */
     public record VerifiedTimeAccountFact(
-            String legalEntityId,
+            String companyId,
             String accountId,
             String employeeId,
             String employeeVersionId,
@@ -205,7 +205,7 @@ public final class AttendanceReportPublicationModels {
             String ledgerVersion) {
 
         public VerifiedTimeAccountFact {
-            legalEntityId = databaseId(legalEntityId, "legalEntityId");
+            companyId = databaseId(companyId, "companyId");
             accountId = reference(accountId, "accountId", 128);
             employeeId = databaseId(employeeId, "employeeId");
             employeeVersionId = databaseId(
@@ -237,7 +237,7 @@ public final class AttendanceReportPublicationModels {
      * published.
      */
     public record VerifiedCurrentExceptionFact(
-            String legalEntityId,
+            String companyId,
             String employeeVersionId,
             String employmentAssignmentId,
             String organizationVersionId,
@@ -245,7 +245,7 @@ public final class AttendanceReportPublicationModels {
                     .ExceptionFact fact) {
 
         public VerifiedCurrentExceptionFact {
-            legalEntityId = databaseId(legalEntityId, "legalEntityId");
+            companyId = databaseId(companyId, "companyId");
             employeeVersionId = databaseId(
                     employeeVersionId, "employeeVersionId");
             employmentAssignmentId = databaseId(

@@ -54,7 +54,7 @@ class AttendanceMutationIdempotencyServiceTest {
                 NOW);
         AttendanceGroup group = new AttendanceGroup(
                 GROUP_ID,
-                "legal-entity-1",
+                "company-1",
                 "GROUP_A",
                 GROUP_REVISION_ID,
                 1,

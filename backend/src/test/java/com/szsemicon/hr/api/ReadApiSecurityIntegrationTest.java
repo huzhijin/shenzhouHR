@@ -98,6 +98,34 @@ class ReadApiSecurityIntegrationTest {
     }
 
     @Test
+    void rejectsRetiredCompanyQueryParameterAcrossReportAndSetupEndpoints()
+            throws Exception {
+        String companyId = "30000000-0000-0000-0000-000000000001";
+
+        mockMvc.perform(get("/api/v1/attendance-reports")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("companyId", companyId)
+                        .queryParam("legalEntityId", companyId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        mockMvc.perform(get("/api/v1/attendance-reports/companies")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("legalEntityId", companyId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        mockMvc.perform(get(
+                        "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
+                        "25000000-0000-0000-0000-000000000001")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("companyId", companyId)
+                        .queryParam("legalEntityId", companyId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
     void buildsTheVisibleOrganizationHierarchyAtTheEffectiveInstant() throws Exception {
         mockMvc.perform(get("/api/v1/organization-units")
                         .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL))

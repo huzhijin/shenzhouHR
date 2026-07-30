@@ -343,6 +343,7 @@ describe('attendance setup parent-child pagination', () => {
 
     expect((await screen.findAllByRole('button', { name: 'SHIFT-A 班次 A' })).length)
       .toBeGreaterThan(0);
+    await screen.findByRole('navigation', { name: '班次版本分页' });
     goToNextPage(view.container, '班次版本分页');
     await waitFor(() => {
       expect(listVersions).toHaveBeenCalledWith(shiftA.shiftId, 1, 20);

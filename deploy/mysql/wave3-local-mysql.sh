@@ -42,7 +42,10 @@ readonly W3_REGISTRY="${W3_CHANGE_ROOT}/specs/wave3-verification/oracles/w3-reta
 readonly W3_REGISTRY_SHA256="aa82a8d941bdb02b0f206b8715691d5f048fb4cfa34e01fc488e4263241803cb"
 readonly W3_REGISTRY_TABLE_COUNT="22"
 readonly W3_V7_MIGRATION="${MIGRATION_DIR}/V7__attendance_setup_and_base_policies.sql"
-readonly W3_TABLE_NAME_PATTERN="^(location(_.*)?|shift_.*|work_calendar.*|calendar_publication_timeline|attendance_.*)$"
+readonly W3_V11_MIGRATION="${MIGRATION_DIR}/V11__unify_company_dimension.sql"
+readonly W3_TABLE_NAME_PATTERN="^(location|location_revision|location_timeline|shift_template|shift_version|shift_publication_timeline|work_calendar|work_calendar_version|calendar_publication_timeline|work_calendar_day|attendance_group|attendance_group_revision|attendance_group_timeline|attendance_group_assignment|attendance_assignment_timeline|attendance_policy_template|attendance_policy_scope|attendance_policy_scoped_version|attendance_policy_lifecycle_event|attendance_policy_binding_family|attendance_policy_binding_revision|attendance_setup_idempotency)$"
+readonly W3_COMPANY_V10_TABLE_PATTERN="^(legal_entity|employee|organization_identity|auth_data_scope|people_import_batch|people_import_publication|location|shift_template|work_calendar|attendance_group|attendance_policy_scope|attendance_source|source_device|device_person_binding|attendance_evidence_subject_lock|raw_attendance_fact|effective_attendance_event|duplicate_review_group|evidence_interval_slice|attendance_recalculation_intent|punch_mapping_profile|punch_import_batch|punch_import_file|attendance_report_projection|attendance_report_daily_fact|attendance_report_oa_fact|attendance_report_exception_fact|attendance_report_time_account_fact|attendance_report_export_job)$"
+readonly W3_COMPANY_LATEST_TABLE_PATTERN="^(company|employee|organization_identity|auth_data_scope|people_import_batch|people_import_publication|location|shift_template|work_calendar|attendance_group|attendance_policy_scope|attendance_source|source_device|device_person_binding|attendance_evidence_subject_lock|raw_attendance_fact|effective_attendance_event|duplicate_review_group|evidence_interval_slice|attendance_recalculation_intent|punch_mapping_profile|punch_import_batch|punch_import_file|attendance_report_projection|attendance_report_daily_fact|attendance_report_oa_fact|attendance_report_exception_fact|attendance_report_time_account_fact|attendance_report_export_job)$"
 
 ENVIRONMENT_FILE=""
 RUN_ID=""
@@ -66,10 +69,10 @@ Usage:
 Commands:
   plan              Print the exact non-mutating WAVE-3 verification plan.
   verify-static     Verify the fixed registry SHA/content and current V7 shape.
-  upgrade-v6-test   Rebuild only shenzhou_hr_test, run V1-V6 -> target7
-                    snapshot -> latest, and prove a repeat migrate is a no-op.
+  upgrade-v6-test   Rebuild only shenzhou_hr_test, run V1-V6 -> target7 ->
+                    populated V10 preflight -> V11, then prove repeat no-op.
   verify-contract   Read-only verification of dev/test on isolated MySQL 8.4.10.
-  all               Run the V6->target7->latest path, an empty->latest path,
+  all               Run populated and empty V10 preflight -> V11 paths,
                     then the read-only contract/privilege gate.
 
 Options:
@@ -303,8 +306,8 @@ WAVE-3 local MySQL verification plan
   database identity   : mysql8410:<exact @@server_uuid>:${TEST_DATABASE}
   connection          : ${W3_MYSQL_HOST}:${W3_MYSQL_PORT}, isolated absolute client
   existing instance   : /usr/local/mysql 8.0.34 on 3306 is out of scope
-  target migration    : backend/src/main/resources/db/migration/V7__attendance_setup_and_base_policies.sql
-  migration ordering  : V6 -> target7 snapshot -> latest; V8+ is allowed
+  target migrations   : reviewed V7 plus company cutover V11
+  migration ordering  : V6 -> target7 snapshot -> V10 preflight -> V11
   fixed W3 registry   : ${W3_REGISTRY_TABLE_COUNT} tables, SHA256 ${W3_REGISTRY_SHA256}
   Flyway metadata     : flyway_schema_history is external metadata, excluded
   seed oracle         : three fixed scoped policies and PUBLISHED lifecycle facts
@@ -327,6 +330,8 @@ verify_static_contract() {
     || fail "Migration directory must contain exactly the reviewed V7__*.sql file."
   [[ -f "$W3_V7_MIGRATION" && ! -L "$W3_V7_MIGRATION" ]] \
     || fail "The exact V7 migration file is unavailable or indirect."
+  [[ -f "$W3_V11_MIGRATION" && ! -L "$W3_V11_MIGRATION" ]] \
+    || fail "The exact V11 company migration is unavailable or indirect."
   actual_registry_sha="$(hash_file "$W3_REGISTRY")"
   [[ "$actual_registry_sha" == "$W3_REGISTRY_SHA256" ]] \
     || fail "The review-owned W3 registry SHA256 changed."
@@ -569,13 +574,1241 @@ verify_migration_history() {
     WHERE type = 'SQL' AND success = 1
     ORDER BY installed_rank DESC LIMIT 1;
   ")"
-  [[ -n "$latest_version" ]] || fail "Flyway latest version is unavailable."
-  log "W3_MIGRATION_HISTORY=PASS base=1,2,3,4,5,6,7 latest=${latest_version} post_v7=allowed db_identity=${W3_RUNTIME_DB_IDENTITY}"
+  [[ "$latest_version" == "11" ]] \
+    || fail "Flyway latest version must be exactly V11."
+  log "W3_MIGRATION_HISTORY=PASS base=1,2,3,4,5,6,7 latest=11 company_schema=required db_identity=${W3_RUNTIME_DB_IDENTITY}"
+}
+
+company_boundary_orphan_count() {
+  local defaults_file="$1"
+  local database="$2"
+  local schema_mode="$3"
+  local boundary_table
+  local boundary_column
+  local dependent_table
+  local sql_union=""
+  case "$schema_mode" in
+    v10)
+      boundary_table="legal_entity"
+      boundary_column="legal_entity_id"
+      ;;
+    latest)
+      boundary_table="company"
+      boundary_column="company_id"
+      ;;
+    *)
+      fail "Unknown company-boundary orphan schema mode."
+      ;;
+  esac
+  while IFS= read -r dependent_table; do
+    [[ -n "$dependent_table" ]] || continue
+    if [[ -n "$sql_union" ]]; then
+      sql_union+=" UNION ALL "
+    fi
+    sql_union+="
+      SELECT COUNT(*) AS orphan_count
+      FROM \`${dependent_table}\` dependent
+      LEFT JOIN \`${boundary_table}\` boundary
+        ON boundary.\`${boundary_column}\` =
+           dependent.\`${boundary_column}\`
+      WHERE dependent.\`${boundary_column}\` IS NOT NULL
+        AND boundary.\`${boundary_column}\` IS NULL"
+  done <<'TABLES'
+employee
+organization_identity
+auth_data_scope
+people_import_batch
+people_import_publication
+location
+shift_template
+work_calendar
+attendance_group
+attendance_policy_scope
+attendance_source
+source_device
+device_person_binding
+attendance_evidence_subject_lock
+raw_attendance_fact
+effective_attendance_event
+duplicate_review_group
+evidence_interval_slice
+attendance_recalculation_intent
+punch_mapping_profile
+punch_import_batch
+punch_import_file
+attendance_report_projection
+attendance_report_daily_fact
+attendance_report_oa_fact
+attendance_report_exception_fact
+attendance_report_time_account_fact
+attendance_report_export_job
+TABLES
+  mysql_scalar "$defaults_file" "$database" "
+    SELECT COALESCE(SUM(orphan_count), 0)
+    FROM (${sql_union}) company_boundary_orphans;
+  "
+}
+
+capture_company_boundary_snapshot() {
+  local defaults_file="$1"
+  local database="$2"
+  local schema_mode="$3"
+  local output_file="$4"
+  local logical_table
+  local v10_table
+  local latest_table
+  local v10_primary_key
+  local latest_primary_key
+  local table_name
+  local primary_key_columns
+  local boundary_column
+  local row_count
+  local id_rows
+  local id_digest
+  : >"$output_file"
+  while IFS='|' read -r logical_table v10_table latest_table \
+      v10_primary_key latest_primary_key; do
+    case "$schema_mode" in
+      v10)
+        table_name="$v10_table"
+        primary_key_columns="$v10_primary_key"
+        boundary_column="legal_entity_id"
+        ;;
+      latest)
+        table_name="$latest_table"
+        primary_key_columns="$latest_primary_key"
+        boundary_column="company_id"
+        ;;
+      *)
+        fail "Unknown company-boundary snapshot schema mode."
+        ;;
+    esac
+    row_count="$(mysql_scalar "$defaults_file" "$database" "
+      SELECT COUNT(*) FROM \`${table_name}\`;
+    ")"
+    id_rows="$(make_private_temporary_file)"
+    mysql_query "$defaults_file" "$database" "
+      SELECT CONCAT_WS(
+        CHAR(31),
+        ${primary_key_columns},
+        COALESCE(\`${boundary_column}\`, '<NULL>'))
+      FROM \`${table_name}\`
+      ORDER BY ${primary_key_columns};
+    " >"$id_rows"
+    id_digest="$(hash_file "$id_rows")"
+    printf '%s|%s|%s\n' \
+      "$logical_table" "$row_count" "$id_digest" >>"$output_file"
+  done <<'TABLES'
+company|legal_entity|company|legal_entity_id|company_id
+employee|employee|employee|employee_id|employee_id
+organization_identity|organization_identity|organization_identity|organization_id|organization_id
+auth_data_scope|auth_data_scope|auth_data_scope|scope_id|scope_id
+people_import_batch|people_import_batch|people_import_batch|batch_id|batch_id
+people_import_publication|people_import_publication|people_import_publication|publication_id|publication_id
+location|location|location|location_id|location_id
+shift_template|shift_template|shift_template|shift_template_id|shift_template_id
+work_calendar|work_calendar|work_calendar|work_calendar_id|work_calendar_id
+attendance_group|attendance_group|attendance_group|attendance_group_id|attendance_group_id
+attendance_policy_scope|attendance_policy_scope|attendance_policy_scope|scope_id|scope_id
+attendance_source|attendance_source|attendance_source|attendance_source_id|attendance_source_id
+source_device|source_device|source_device|source_device_id|source_device_id
+device_person_binding|device_person_binding|device_person_binding|device_person_binding_id|device_person_binding_id
+attendance_evidence_subject_lock|attendance_evidence_subject_lock|attendance_evidence_subject_lock|legal_entity_id, employee_id|company_id, employee_id
+raw_attendance_fact|raw_attendance_fact|raw_attendance_fact|raw_attendance_fact_id|raw_attendance_fact_id
+effective_attendance_event|effective_attendance_event|effective_attendance_event|effective_attendance_event_id|effective_attendance_event_id
+duplicate_review_group|duplicate_review_group|duplicate_review_group|duplicate_review_group_id|duplicate_review_group_id
+evidence_interval_slice|evidence_interval_slice|evidence_interval_slice|evidence_interval_slice_id|evidence_interval_slice_id
+attendance_recalculation_intent|attendance_recalculation_intent|attendance_recalculation_intent|attendance_recalculation_intent_id|attendance_recalculation_intent_id
+punch_mapping_profile|punch_mapping_profile|punch_mapping_profile|punch_mapping_profile_id|punch_mapping_profile_id
+punch_import_batch|punch_import_batch|punch_import_batch|punch_import_batch_id|punch_import_batch_id
+punch_import_file|punch_import_file|punch_import_file|punch_import_file_id|punch_import_file_id
+attendance_report_projection|attendance_report_projection|attendance_report_projection|attendance_report_projection_id|attendance_report_projection_id
+attendance_report_daily_fact|attendance_report_daily_fact|attendance_report_daily_fact|attendance_report_daily_fact_id|attendance_report_daily_fact_id
+attendance_report_oa_fact|attendance_report_oa_fact|attendance_report_oa_fact|attendance_report_oa_fact_id|attendance_report_oa_fact_id
+attendance_report_exception_fact|attendance_report_exception_fact|attendance_report_exception_fact|attendance_report_exception_fact_id|attendance_report_exception_fact_id
+attendance_report_time_account_fact|attendance_report_time_account_fact|attendance_report_time_account_fact|attendance_report_time_account_fact_id|attendance_report_time_account_fact_id
+attendance_report_export_job|attendance_report_export_job|attendance_report_export_job|attendance_report_export_id|attendance_report_export_id
+TABLES
+  [[ "$(wc -l <"$output_file" | tr -d '[:space:]')" == "29" ]] \
+    || fail "Company-boundary snapshot must contain exactly 29 tables."
+}
+
+auth_scope_check_contract_matches() {
+  local defaults_file="$1"
+  local database="$2"
+  local schema_mode="$3"
+  local constraint_shape
+  local check_clause
+  constraint_shape="$(mysql_scalar "$defaults_file" "" "
+    SELECT CONCAT_WS(
+      '|',
+      COUNT(*),
+      SUM(CASE WHEN tc.ENFORCED = 'YES' THEN 1 ELSE 0 END)
+    )
+    FROM information_schema.TABLE_CONSTRAINTS tc
+    JOIN information_schema.CHECK_CONSTRAINTS cc
+      ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+     AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+    WHERE tc.CONSTRAINT_SCHEMA = '${database}'
+      AND tc.TABLE_NAME = 'auth_data_scope'
+      AND tc.CONSTRAINT_NAME = 'ck_auth_scope_target'
+      AND tc.CONSTRAINT_TYPE = 'CHECK';
+  ")"
+  [[ "$constraint_shape" == "1|1" ]] || return 1
+  check_clause="$(mysql_scalar "$defaults_file" "" "
+    SELECT cc.CHECK_CLAUSE
+    FROM information_schema.TABLE_CONSTRAINTS tc
+    JOIN information_schema.CHECK_CONSTRAINTS cc
+      ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
+     AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+    WHERE tc.CONSTRAINT_SCHEMA = '${database}'
+      AND tc.TABLE_NAME = 'auth_data_scope'
+      AND tc.CONSTRAINT_NAME = 'ck_auth_scope_target'
+      AND tc.CONSTRAINT_TYPE = 'CHECK'
+      AND tc.ENFORCED = 'YES';
+  ")"
+  python3 - "$schema_mode" "$check_clause" <<'PY'
+import re
+import sys
+
+mode, clause = sys.argv[1:]
+expected_by_mode = {
+    "v10": """
+        (scope_type = 'LEGAL_ENTITY'
+          AND legal_entity_id IS NOT NULL
+          AND organization_id IS NULL)
+        OR (scope_type = 'ORGANIZATION'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NOT NULL)
+        OR (scope_type = 'SELF'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NULL)
+    """,
+    "latest": """
+        (scope_type = 'COMPANY'
+          AND company_id IS NOT NULL
+          AND organization_id IS NULL)
+        OR (scope_type = 'ORGANIZATION'
+          AND company_id IS NULL
+          AND organization_id IS NOT NULL)
+        OR (scope_type = 'SELF'
+          AND company_id IS NULL
+          AND organization_id IS NULL)
+    """,
+}
+if mode not in expected_by_mode:
+    raise SystemExit(1)
+
+
+def tokens(value):
+    value = value.replace("\\'", "'")
+    value = value.replace("`", "")
+    value = re.sub(
+        r"(?<![A-Za-z0-9_'])_[A-Za-z0-9]+(?=')",
+        "",
+        value,
+    )
+    pattern = re.compile(
+        r"\s*(?:"
+        r"(?P<left>\()|(?P<right>\))|(?P<equal>=)|"
+        r"(?P<string>'(?:''|[^'])*')|"
+        r"(?P<word>[A-Za-z_][A-Za-z0-9_]*)"
+        r")"
+    )
+    result = []
+    offset = 0
+    while offset < len(value):
+        match = pattern.match(value, offset)
+        if match is None:
+            if value[offset:].strip() == "":
+                break
+            raise ValueError("unsupported CHECK token")
+        result.append(match.group(match.lastgroup))
+        offset = match.end()
+    return result
+
+
+class Parser:
+    def __init__(self, values):
+        self.values = values
+        self.offset = 0
+
+    def peek(self):
+        if self.offset >= len(self.values):
+            return None
+        return self.values[self.offset]
+
+    def take(self, expected=None):
+        value = self.peek()
+        if value is None or (
+            expected is not None and value.upper() != expected
+        ):
+            raise ValueError("unexpected CHECK structure")
+        self.offset += 1
+        return value
+
+    @staticmethod
+    def combine(operator, nodes):
+        flattened = []
+        for node in nodes:
+            if node[0] == operator:
+                flattened.extend(node[1])
+            else:
+                flattened.append(node)
+        if len(flattened) == 1:
+            return flattened[0]
+        return operator, tuple(sorted(flattened, key=repr))
+
+    def parse(self):
+        result = self.parse_or()
+        if self.peek() is not None:
+            raise ValueError("trailing CHECK tokens")
+        return result
+
+    def parse_or(self):
+        nodes = [self.parse_and()]
+        while self.peek() is not None and self.peek().upper() == "OR":
+            self.take("OR")
+            nodes.append(self.parse_and())
+        return self.combine("or", nodes)
+
+    def parse_and(self):
+        nodes = [self.parse_factor()]
+        while self.peek() is not None and self.peek().upper() == "AND":
+            self.take("AND")
+            nodes.append(self.parse_factor())
+        return self.combine("and", nodes)
+
+    def parse_factor(self):
+        if self.peek() == "(":
+            self.take("(")
+            result = self.parse_or()
+            self.take(")")
+            return result
+        return self.parse_atom()
+
+    def parse_atom(self):
+        identifier = self.take().lower()
+        if not re.fullmatch(r"[a-z_][a-z0-9_]*", identifier):
+            raise ValueError("invalid CHECK identifier")
+        operator = self.take()
+        if operator == "=":
+            literal = self.take()
+            if not (literal.startswith("'") and literal.endswith("'")):
+                raise ValueError("CHECK equality requires a string literal")
+            return "eq", identifier, literal[1:-1]
+        if operator.upper() != "IS":
+            raise ValueError("unsupported CHECK operator")
+        negated = False
+        if self.peek() is not None and self.peek().upper() == "NOT":
+            self.take("NOT")
+            negated = True
+        self.take("NULL")
+        return ("not_null" if negated else "null"), identifier
+
+
+try:
+    actual = Parser(tokens(clause)).parse()
+    expected = Parser(tokens(expected_by_mode[mode])).parse()
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if actual == expected else 1)
+PY
+}
+
+company_boundary_auxiliary_check_contract_matches() {
+  local defaults_file="$1"
+  local database="$2"
+  local schema_mode="$3"
+  local table_pattern
+  local check_shape
+  case "$schema_mode" in
+    v10)
+      table_pattern="$W3_COMPANY_V10_TABLE_PATTERN"
+      ;;
+    latest)
+      table_pattern="$W3_COMPANY_LATEST_TABLE_PATTERN"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  check_shape="$(mysql_scalar "$defaults_file" "" "
+    SELECT CONCAT_WS(
+      '|',
+      COUNT(*),
+      SUM(CASE WHEN ENFORCED = 'YES' THEN 1 ELSE 0 END),
+      COUNT(DISTINCT CASE
+        WHEN CONCAT(TABLE_NAME, '.', CONSTRAINT_NAME) IN (
+          'auth_data_scope.ck_auth_scope_period',
+          'people_import_batch.ck_people_import_status',
+          'people_import_batch.ck_people_import_template_type',
+          'attendance_source.ck_att_source_status',
+          'attendance_source.ck_att_source_type',
+          'device_person_binding.ck_device_person_period',
+          'raw_attendance_fact.ck_raw_fact_identity',
+          'raw_attendance_fact.ck_raw_fact_kind',
+          'raw_attendance_fact.ck_raw_fact_temporal',
+          'effective_attendance_event.ck_effective_event_direction',
+          'effective_attendance_event.ck_effective_event_kind',
+          'effective_attendance_event.ck_effective_event_temporal',
+          'duplicate_review_group.ck_duplicate_group_direction',
+          'duplicate_review_group.ck_duplicate_group_status',
+          'duplicate_review_group.ck_duplicate_group_window',
+          'evidence_interval_slice.ck_evidence_slice_period',
+          'evidence_interval_slice.ck_evidence_slice_status',
+          'evidence_interval_slice.ck_evidence_slice_winner',
+          'punch_import_file.ck_punch_file_scan',
+          'punch_import_file.ck_punch_file_size',
+          'attendance_report_projection.ck_att_report_projection_period',
+          'attendance_report_projection.ck_att_report_projection_publish',
+          'attendance_report_projection.ck_att_report_projection_state',
+          'attendance_report_projection.ck_att_report_projection_status',
+          'attendance_report_daily_fact.ck_att_report_daily_actual_work',
+          'attendance_report_daily_fact.ck_att_report_daily_day_type',
+          'attendance_report_daily_fact.ck_att_report_daily_late',
+          'attendance_report_daily_fact.ck_att_report_daily_punch_order',
+          'attendance_report_oa_fact.ck_att_report_oa_status',
+          'attendance_report_oa_fact.ck_att_report_oa_temporal_shape',
+          'attendance_report_oa_fact.ck_att_report_oa_type',
+          'attendance_report_exception_fact.ck_att_report_exception_severity',
+          'attendance_report_exception_fact.ck_att_report_exception_state',
+          'attendance_report_time_account_fact.ck_att_report_account_type',
+          'attendance_report_export_job.ck_att_report_export_delivery',
+          'attendance_report_export_job.ck_att_report_export_digests',
+          'attendance_report_export_job.ck_att_report_export_extension',
+          'attendance_report_export_job.ck_att_report_export_fields',
+          'attendance_report_export_job.ck_att_report_export_period',
+          'attendance_report_export_job.ck_att_report_export_purpose',
+          'attendance_report_export_job.ck_att_report_export_state',
+          'attendance_report_export_job.ck_att_report_export_status',
+          'attendance_report_export_job.ck_att_report_export_time',
+          'attendance_report_export_job.ck_att_report_export_type'
+        )
+        THEN CONCAT(TABLE_NAME, '.', CONSTRAINT_NAME)
+      END)
+    )
+    FROM information_schema.TABLE_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = '${database}'
+      AND CONSTRAINT_TYPE = 'CHECK'
+      AND TABLE_NAME REGEXP '${table_pattern}'
+      AND NOT (
+        TABLE_NAME = 'auth_data_scope'
+        AND CONSTRAINT_NAME = 'ck_auth_scope_target'
+      );
+  ")"
+  [[ "$check_shape" == "44|44|44" ]]
+}
+
+company_boundary_index_contract_matches() {
+  local defaults_file="$1"
+  local database="$2"
+  local schema_mode="$3"
+  local index_shape
+  index_shape="$(mysql_scalar "$defaults_file" "" "
+    SELECT CONCAT_WS(
+      '|',
+      COUNT(DISTINCT CASE
+        WHEN (TABLE_NAME = 'legal_entity'
+                AND INDEX_NAME = 'uq_legal_entity_code')
+          OR (TABLE_NAME = 'employee'
+                AND INDEX_NAME = 'ix_employee_legal_entity_status')
+          OR (TABLE_NAME = 'organization_identity'
+                AND INDEX_NAME = 'ix_organization_identity_legal_entity')
+          OR (TABLE_NAME = 'attendance_policy_scope'
+                AND INDEX_NAME = 'ix_attendance_policy_scope_legal_entity')
+          OR (TABLE_NAME = 'attendance_source'
+                AND INDEX_NAME = 'uq_att_source_id_entity')
+        THEN CONCAT(TABLE_NAME, CHAR(0), INDEX_NAME)
+      END),
+      COUNT(DISTINCT CASE
+        WHEN INDEX_NAME IN (
+          'uq_legal_entity_code',
+          'ix_employee_legal_entity_status',
+          'ix_organization_identity_legal_entity',
+          'ix_attendance_policy_scope_legal_entity',
+          'uq_att_source_id_entity'
+        )
+        THEN CONCAT(TABLE_NAME, CHAR(0), INDEX_NAME)
+      END),
+      COUNT(DISTINCT CASE
+        WHEN (TABLE_NAME = 'company'
+                AND INDEX_NAME = 'uq_company_code')
+          OR (TABLE_NAME = 'employee'
+                AND INDEX_NAME = 'ix_employee_company_status')
+          OR (TABLE_NAME = 'organization_identity'
+                AND INDEX_NAME = 'ix_organization_identity_company')
+          OR (TABLE_NAME = 'attendance_policy_scope'
+                AND INDEX_NAME = 'ix_attendance_policy_scope_company')
+          OR (TABLE_NAME = 'attendance_source'
+                AND INDEX_NAME = 'uq_att_source_id_company')
+        THEN CONCAT(TABLE_NAME, CHAR(0), INDEX_NAME)
+      END),
+      COUNT(DISTINCT CASE
+        WHEN INDEX_NAME IN (
+          'uq_company_code',
+          'ix_employee_company_status',
+          'ix_organization_identity_company',
+          'ix_attendance_policy_scope_company',
+          'uq_att_source_id_company'
+        )
+        THEN CONCAT(TABLE_NAME, CHAR(0), INDEX_NAME)
+      END)
+    )
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = '${database}';
+  ")"
+  case "$schema_mode" in
+    v10)
+      [[ "$index_shape" == "5|5|0|0" ]]
+      ;;
+    latest)
+      [[ "$index_shape" == "0|0|5|5" ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+company_boundary_relationship_contract_matches() {
+  local defaults_file="$1"
+  local database="$2"
+  local schema_mode="$3"
+  local boundary_table
+  local boundary_column
+  local table_pattern
+  local relationship_shape
+  case "$schema_mode" in
+    v10)
+      boundary_table="legal_entity"
+      boundary_column="legal_entity_id"
+      table_pattern="$W3_COMPANY_V10_TABLE_PATTERN"
+      ;;
+    latest)
+      boundary_table="company"
+      boundary_column="company_id"
+      table_pattern="$W3_COMPANY_LATEST_TABLE_PATTERN"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  relationship_shape="$(mysql_scalar "$defaults_file" "" "
+    SELECT CONCAT_WS(
+      '|',
+      COUNT(DISTINCT TABLE_NAME),
+      COUNT(DISTINCT CONCAT(
+        TABLE_NAME, CHAR(0), REFERENCED_TABLE_NAME)),
+      COUNT(DISTINCT CASE
+        WHEN (
+          TABLE_NAME IN (
+            'employee',
+            'organization_identity',
+            'auth_data_scope',
+            'people_import_batch',
+            'people_import_publication',
+            'location',
+            'shift_template',
+            'work_calendar',
+            'attendance_group',
+            'attendance_policy_scope',
+            'attendance_source',
+            'attendance_evidence_subject_lock',
+            'effective_attendance_event',
+            'duplicate_review_group',
+            'evidence_interval_slice',
+            'attendance_recalculation_intent',
+            'punch_mapping_profile',
+            'attendance_report_projection',
+            'attendance_report_export_job'
+          )
+          AND REFERENCED_TABLE_NAME = '${boundary_table}'
+        )
+        OR (
+          TABLE_NAME IN (
+            'source_device',
+            'raw_attendance_fact',
+            'punch_import_batch',
+            'punch_import_file'
+          )
+          AND REFERENCED_TABLE_NAME = 'attendance_source'
+        )
+        OR (
+          TABLE_NAME = 'device_person_binding'
+          AND REFERENCED_TABLE_NAME IN (
+            'source_device',
+            'attendance_source'
+          )
+        )
+        OR (
+          TABLE_NAME IN (
+            'attendance_report_daily_fact',
+            'attendance_report_oa_fact',
+            'attendance_report_exception_fact',
+            'attendance_report_time_account_fact'
+          )
+          AND REFERENCED_TABLE_NAME = 'attendance_report_projection'
+        )
+        THEN CONCAT(TABLE_NAME, CHAR(0), REFERENCED_TABLE_NAME)
+      END),
+      COUNT(DISTINCT CONCAT(
+        TABLE_NAME, CHAR(0), CONSTRAINT_NAME,
+        CHAR(0), REFERENCED_TABLE_NAME))
+    )
+    FROM information_schema.KEY_COLUMN_USAGE
+    WHERE CONSTRAINT_SCHEMA = '${database}'
+      AND TABLE_NAME REGEXP '${table_pattern}'
+      AND TABLE_NAME <> '${boundary_table}'
+      AND COLUMN_NAME = '${boundary_column}'
+      AND REFERENCED_COLUMN_NAME = '${boundary_column}';
+  ")"
+  [[ "$relationship_shape" == "28|29|29|29" ]]
+}
+
+company_dimension_preflight_v10() {
+  local defaults_file="$1"
+  local database="$2"
+  local checkpoint
+  local v11_history
+  local schema_shape
+  local scope_violations
+  local setup_started
+  local ingestion_table_count
+  local ingestion_started=0
+  local orphan_count
+  checkpoint="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COALESCE(MAX(CAST(version AS UNSIGNED)), 0)
+    FROM flyway_schema_history
+    WHERE type = 'SQL' AND success = 1;
+  ")"
+  [[ "$checkpoint" == "10" ]] || {
+    printf 'COMPANY_V11_PREFLIGHT_ERROR exact_v10_required\n' >&2
+    return 1
+  }
+  v11_history="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*)
+    FROM flyway_schema_history
+    WHERE type = 'SQL' AND version = '11';
+  ")"
+  [[ "$v11_history" == "0" ]] || {
+    printf 'COMPANY_V11_PREFLIGHT_ERROR partial_v11_history\n' >&2
+    return 1
+  }
+  schema_shape="$(mysql_scalar "$defaults_file" "" "
+    SELECT CONCAT_WS(
+      '|',
+      (
+        SELECT COUNT(*)
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = '${database}'
+          AND TABLE_TYPE = 'BASE TABLE'
+          AND TABLE_NAME REGEXP '${W3_COMPANY_V10_TABLE_PATTERN}'
+      ),
+      (
+        SELECT COUNT(*)
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = '${database}'
+          AND TABLE_NAME REGEXP '${W3_COMPANY_V10_TABLE_PATTERN}'
+          AND COLUMN_NAME = 'legal_entity_id'
+      ),
+      (
+        SELECT COUNT(*)
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = '${database}'
+          AND TABLE_NAME = 'company'
+      ),
+      (
+        SELECT COUNT(*)
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = '${database}'
+          AND TABLE_NAME REGEXP '${W3_COMPANY_V10_TABLE_PATTERN}'
+          AND COLUMN_NAME = 'company_id'
+      )
+    );
+  ")"
+  [[ "$schema_shape" == "29|29|0|0" ]] || {
+    printf 'COMPANY_V11_PREFLIGHT_ERROR non_exact_v10_shape\n' >&2
+    return 1
+  }
+  if ! company_boundary_relationship_contract_matches \
+      "$defaults_file" "$database" v10; then
+    printf 'COMPANY_V11_PREFLIGHT_ERROR legacy_relationship_shape\n' >&2
+    return 1
+  fi
+  scope_violations="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*)
+    FROM auth_data_scope
+    WHERE scope_type NOT IN ('LEGAL_ENTITY', 'ORGANIZATION', 'SELF')
+       OR NOT (
+            (scope_type = 'LEGAL_ENTITY'
+              AND legal_entity_id IS NOT NULL
+              AND organization_id IS NULL)
+            OR (scope_type = 'ORGANIZATION'
+              AND legal_entity_id IS NULL
+              AND organization_id IS NOT NULL)
+            OR (scope_type = 'SELF'
+              AND legal_entity_id IS NULL
+              AND organization_id IS NULL)
+       );
+  ")"
+  [[ "$scope_violations" == "0" ]] || {
+    printf 'COMPANY_V11_PREFLIGHT_ERROR invalid_scope_shape\n' >&2
+    return 1
+  }
+  if ! auth_scope_check_contract_matches \
+      "$defaults_file" "$database" v10; then
+    printf 'COMPANY_V11_PREFLIGHT_ERROR scope_check_contract\n' >&2
+    return 1
+  fi
+  if ! company_boundary_auxiliary_check_contract_matches \
+      "$defaults_file" "$database" v10; then
+    printf 'COMPANY_V11_PREFLIGHT_ERROR auxiliary_check_contract\n' >&2
+    return 1
+  fi
+  if ! company_boundary_index_contract_matches \
+      "$defaults_file" "$database" v10; then
+    printf 'COMPANY_V11_PREFLIGHT_ERROR boundary_index_contract\n' >&2
+    return 1
+  fi
+  orphan_count="$(
+    company_boundary_orphan_count "$defaults_file" "$database" v10
+  )"
+  [[ "$orphan_count" == "0" ]] || {
+    printf 'COMPANY_V11_PREFLIGHT_ERROR orphan_company_reference\n' >&2
+    return 1
+  }
+  setup_started="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*)
+    FROM attendance_setup_idempotency
+    WHERE state = 'STARTED';
+  ")"
+  [[ "$setup_started" == "0" ]] || {
+    printf 'COMPANY_V11_PREFLIGHT_ERROR setup_started\n' >&2
+    return 1
+  }
+  ingestion_table_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*)
+    FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = '${database}'
+      AND TABLE_NAME = 'attendance_ingestion_idempotency';
+  ")"
+  if ((10#$checkpoint >= 8)); then
+    [[ "$ingestion_table_count" == "1" ]] || {
+      printf 'COMPANY_V11_PREFLIGHT_ERROR ingestion_table_missing\n' >&2
+      return 1
+    }
+    ingestion_started="$(mysql_scalar "$defaults_file" "$database" "
+      SELECT COUNT(*)
+      FROM attendance_ingestion_idempotency
+      WHERE status = 'STARTED';
+    ")"
+    [[ "$ingestion_started" == "0" ]] || {
+      printf 'COMPANY_V11_PREFLIGHT_ERROR ingestion_started\n' >&2
+      return 1
+    }
+  fi
+  log "W3_COMPANY_V11_PREFLIGHT=PASS database=${database} exact_version=10 boundary_tables=29 relationship_tables=28 relationship_edges=29 auxiliary_checks=44 enforced=44 invalid_scopes=0 orphans=0 setup_started=0 ingestion_started=0 db_identity=${W3_RUNTIME_DB_IDENTITY}"
+}
+
+cleanup_company_preflight_negative_probes() {
+  local defaults_file="$1"
+  local database="$2"
+  local scope_check_count
+  local company_index_probe_shape
+  local auxiliary_check_probe_shape
+  mysql_execute_quietly "$defaults_file" "$database" "
+    SET FOREIGN_KEY_CHECKS = 0;
+    DELETE FROM employee
+    WHERE employee_id = 'fd000000-0000-4000-8000-000000000016';
+    SET FOREIGN_KEY_CHECKS = 1;
+    DELETE FROM auth_data_scope
+    WHERE scope_id = 'fd000000-0000-4000-8000-000000000011';
+    DELETE FROM attendance_setup_idempotency
+    WHERE attendance_setup_idempotency_id =
+      'fd000000-0000-4000-8000-000000000012';
+    DELETE FROM attendance_ingestion_idempotency
+    WHERE attendance_ingestion_idempotency_id =
+      'fd000000-0000-4000-8000-000000000014';
+  "
+  scope_check_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*)
+    FROM information_schema.TABLE_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = '${database}'
+      AND TABLE_NAME = 'auth_data_scope'
+      AND CONSTRAINT_NAME = 'ck_auth_scope_target'
+      AND CONSTRAINT_TYPE = 'CHECK';
+  ")"
+  if ! auth_scope_check_contract_matches \
+      "$defaults_file" "$database" v10; then
+    if [[ "$scope_check_count" == "1" ]]; then
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE auth_data_scope DROP CHECK ck_auth_scope_target;
+      "
+    fi
+    mysql_execute_quietly "$defaults_file" "$database" "
+      ALTER TABLE auth_data_scope
+        ADD CONSTRAINT ck_auth_scope_target CHECK (
+          (scope_type = 'LEGAL_ENTITY'
+            AND legal_entity_id IS NOT NULL
+            AND organization_id IS NULL)
+          OR (scope_type = 'ORGANIZATION'
+            AND legal_entity_id IS NULL
+            AND organization_id IS NOT NULL)
+          OR (scope_type = 'SELF'
+            AND legal_entity_id IS NULL
+            AND organization_id IS NULL)
+      );
+    "
+  fi
+  auxiliary_check_probe_shape="$(mysql_scalar "$defaults_file" "" "
+    SELECT CONCAT_WS(
+      '|',
+      SUM(CASE
+        WHEN CONSTRAINT_NAME = 'ck_auth_scope_period'
+        THEN 1 ELSE 0
+      END),
+      SUM(CASE
+        WHEN CONSTRAINT_NAME = 'ck_auth_scope_period'
+          AND ENFORCED = 'YES'
+        THEN 1 ELSE 0
+      END),
+      SUM(CASE
+        WHEN CONSTRAINT_NAME = 'ck_company_cutover_extra_probe'
+        THEN 1 ELSE 0
+      END)
+    )
+    FROM information_schema.TABLE_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = '${database}'
+      AND TABLE_NAME = 'auth_data_scope'
+      AND CONSTRAINT_TYPE = 'CHECK';
+  ")"
+  case "$auxiliary_check_probe_shape" in
+    "1|1|0")
+      ;;
+    "1|0|0")
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE auth_data_scope
+          ALTER CHECK ck_auth_scope_period ENFORCED;
+      "
+      ;;
+    "0|0|0")
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE auth_data_scope
+          ADD CONSTRAINT ck_auth_scope_period CHECK (
+            valid_to IS NULL OR valid_to > valid_from
+          );
+      "
+      ;;
+    "1|1|1")
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE auth_data_scope
+          DROP CHECK ck_company_cutover_extra_probe;
+      "
+      ;;
+    "1|0|1")
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE auth_data_scope
+          DROP CHECK ck_company_cutover_extra_probe,
+          ALTER CHECK ck_auth_scope_period ENFORCED;
+      "
+      ;;
+    "0|0|1")
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE auth_data_scope
+          DROP CHECK ck_company_cutover_extra_probe,
+          ADD CONSTRAINT ck_auth_scope_period CHECK (
+            valid_to IS NULL OR valid_to > valid_from
+          );
+      "
+      ;;
+    *)
+      fail "Company auxiliary CHECK negative-probe cleanup found an unexpected state."
+      ;;
+  esac
+  company_index_probe_shape="$(mysql_scalar "$defaults_file" "" "
+    SELECT CONCAT_WS(
+      '|',
+      COUNT(DISTINCT CASE
+        WHEN TABLE_NAME = 'legal_entity'
+          AND INDEX_NAME = 'uq_legal_entity_code'
+        THEN INDEX_NAME
+      END),
+      COUNT(DISTINCT CASE
+        WHEN TABLE_NAME = 'legal_entity'
+          AND INDEX_NAME = 'uq_legal_entity_code_probe'
+        THEN INDEX_NAME
+      END),
+      COUNT(DISTINCT CASE
+        WHEN TABLE_NAME = 'legal_entity'
+          AND INDEX_NAME = 'uq_company_code'
+        THEN INDEX_NAME
+      END)
+    )
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = '${database}';
+  ")"
+  case "$company_index_probe_shape" in
+    "0|1|0")
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE legal_entity
+          RENAME INDEX uq_legal_entity_code_probe
+          TO uq_legal_entity_code;
+      "
+      ;;
+    "1|0|1")
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE legal_entity DROP INDEX uq_company_code;
+      "
+      ;;
+    "0|1|1")
+      mysql_execute_quietly "$defaults_file" "$database" "
+        ALTER TABLE legal_entity DROP INDEX uq_company_code;
+        ALTER TABLE legal_entity
+          RENAME INDEX uq_legal_entity_code_probe
+          TO uq_legal_entity_code;
+      "
+      ;;
+    "1|0|0")
+      ;;
+    *)
+      fail "Company index negative-probe cleanup found an unexpected state."
+      ;;
+  esac
+}
+
+verify_company_preflight_negative_probes() (
+  local defaults_file="$1"
+  local database="$2"
+  local cleanup_armed="true"
+  trap '
+    if [[ "$cleanup_armed" == "true" ]]; then
+      cleanup_company_preflight_negative_probes \
+        "$defaults_file" "$database" || true
+    fi
+  ' EXIT
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE auth_data_scope DROP CHECK ck_auth_scope_target;
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a missing scope CHECK."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    INSERT INTO auth_data_scope (
+      scope_id, scope_type, legal_entity_id, organization_id,
+      include_descendants, valid_from, valid_to
+    ) VALUES (
+      'fd000000-0000-4000-8000-000000000011',
+      'UNSUPPORTED_SCOPE', NULL, NULL, TRUE,
+      TIMESTAMP '2020-01-01 00:00:00', NULL
+    );
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted an unknown scope shape."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    DELETE FROM auth_data_scope
+    WHERE scope_id = 'fd000000-0000-4000-8000-000000000011';
+    ALTER TABLE auth_data_scope
+      ADD CONSTRAINT ck_auth_scope_target CHECK (
+        (scope_type = 'LEGAL_ENTITY'
+          AND legal_entity_id IS NOT NULL
+          AND organization_id IS NULL)
+        OR (scope_type = 'ORGANIZATION'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NOT NULL)
+        OR (scope_type = 'PERSONAL'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NULL)
+      );
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a mutated scope literal."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE auth_data_scope DROP CHECK ck_auth_scope_target;
+    ALTER TABLE auth_data_scope
+      ADD CONSTRAINT ck_auth_scope_target CHECK (
+        (scope_type = 'LEGAL_ENTITY'
+          AND legal_entity_id IS NOT NULL)
+        OR (scope_type = 'ORGANIZATION'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NOT NULL)
+        OR (scope_type = 'SELF'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NULL)
+      );
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a scope CHECK with a missing term."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE auth_data_scope DROP CHECK ck_auth_scope_target;
+    ALTER TABLE auth_data_scope
+      ADD CONSTRAINT ck_auth_scope_target CHECK (
+        (scope_type = 'LEGAL_ENTITY'
+          AND legal_entity_id IS NOT NULL
+          AND organization_id IS NULL)
+        OR (scope_type = 'ORGANIZATION'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NOT NULL)
+        OR (scope_type = 'SELF'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NULL)
+        OR (scope_type = 'UNSUPPORTED_SCOPE')
+      );
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a scope CHECK with an extra term."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE auth_data_scope DROP CHECK ck_auth_scope_target;
+    ALTER TABLE auth_data_scope
+      ADD CONSTRAINT ck_auth_scope_target CHECK (
+        (scope_type = 'LEGAL_ENTITY'
+          AND legal_entity_id IS NOT NULL
+          AND organization_id IS NULL)
+        OR (scope_type = 'ORGANIZATION'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NOT NULL)
+        OR (scope_type = 'SELF'
+          AND legal_entity_id IS NULL
+          AND organization_id IS NULL)
+      );
+    ALTER TABLE auth_data_scope
+      ALTER CHECK ck_auth_scope_period NOT ENFORCED;
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a non-enforced auxiliary CHECK."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE auth_data_scope
+      ALTER CHECK ck_auth_scope_period ENFORCED;
+    ALTER TABLE auth_data_scope
+      DROP CHECK ck_auth_scope_period;
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a missing auxiliary CHECK."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE auth_data_scope
+      ADD CONSTRAINT ck_auth_scope_period CHECK (
+        valid_to IS NULL OR valid_to > valid_from
+      );
+    ALTER TABLE auth_data_scope
+      ADD CONSTRAINT ck_company_cutover_extra_probe CHECK (
+        include_descendants IN (TRUE, FALSE)
+      );
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted an extra auxiliary CHECK."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE auth_data_scope
+      DROP CHECK ck_company_cutover_extra_probe;
+    ALTER TABLE legal_entity
+      RENAME INDEX uq_legal_entity_code
+      TO uq_legal_entity_code_probe;
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a missing source boundary index."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE legal_entity
+      RENAME INDEX uq_legal_entity_code_probe
+      TO uq_legal_entity_code;
+    CREATE INDEX uq_company_code ON legal_entity (status);
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted an occupied target boundary index."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    ALTER TABLE legal_entity DROP INDEX uq_company_code;
+    SET FOREIGN_KEY_CHECKS = 0;
+    INSERT INTO employee (
+      employee_id, legal_entity_id, employee_number, display_name,
+      employment_status, onboard_date, row_version, created_at, updated_at
+    ) VALUES (
+      'fd000000-0000-4000-8000-000000000016',
+      'fd000000-0000-4000-8000-000000000017',
+      'V10-ORPHAN-PROBE', 'V10 orphan company probe',
+      'ACTIVE', DATE '2020-01-01', 0,
+      TIMESTAMP '2020-01-01 00:00:00',
+      TIMESTAMP '2020-01-01 00:00:00'
+    );
+    SET FOREIGN_KEY_CHECKS = 1;
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted an orphan company reference."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    SET FOREIGN_KEY_CHECKS = 0;
+    DELETE FROM employee
+    WHERE employee_id = 'fd000000-0000-4000-8000-000000000016';
+    SET FOREIGN_KEY_CHECKS = 1;
+    INSERT INTO attendance_setup_idempotency (
+      attendance_setup_idempotency_id, actor_id, operation_code,
+      resource_type, resource_id, idempotency_key, request_digest,
+      state, created_at
+    ) VALUES (
+      'fd000000-0000-4000-8000-000000000012',
+      '20000000-0000-0000-0000-000000000001',
+      'COMPANY_V11_PREFLIGHT', 'COMPANY_MIGRATION',
+      'fd000000-0000-4000-8000-000000000013',
+      'company-v11-setup-started',
+      REPEAT('c', 64), 'STARTED', CURRENT_TIMESTAMP(6)
+    );
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a started setup request."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    DELETE FROM attendance_setup_idempotency
+    WHERE attendance_setup_idempotency_id =
+      'fd000000-0000-4000-8000-000000000012';
+    INSERT INTO attendance_ingestion_idempotency (
+      attendance_ingestion_idempotency_id, actor_id, operation_code,
+      resource_type, resource_id, idempotency_key, request_digest,
+      status, created_at
+    ) VALUES (
+      'fd000000-0000-4000-8000-000000000014',
+      '20000000-0000-0000-0000-000000000001',
+      'COMPANY_V11_PREFLIGHT', 'COMPANY_MIGRATION',
+      'fd000000-0000-4000-8000-000000000015',
+      'company-v11-ingestion-started',
+      REPEAT('d', 64), 'STARTED', CURRENT_TIMESTAMP(6)
+    );
+  "
+  if company_dimension_preflight_v10 \
+      "$defaults_file" "$database" >/dev/null 2>&1; then
+    fail "Company preflight accepted a started ingestion request."
+  fi
+  mysql_execute_quietly "$defaults_file" "$database" "
+    DELETE FROM attendance_ingestion_idempotency
+    WHERE attendance_ingestion_idempotency_id =
+      'fd000000-0000-4000-8000-000000000014';
+  "
+  company_dimension_preflight_v10 "$defaults_file" "$database" \
+    || fail "Company preflight did not recover after negative probes."
+  cleanup_company_preflight_negative_probes "$defaults_file" "$database"
+  cleanup_armed="false"
+  log "W3_COMPANY_V11_PREFLIGHT_NEGATIVE=PASS database=${database} missing_scope_check=REJECTED unknown_scope=REJECTED mutated_literal=REJECTED missing_term=REJECTED extra_term=REJECTED non_enforced_auxiliary_check=REJECTED missing_auxiliary_check=REJECTED extra_auxiliary_check=REJECTED missing_source_index=REJECTED occupied_target_index=REJECTED orphan=REJECTED setup_started=REJECTED ingestion_started=REJECTED restored=true db_identity=${W3_RUNTIME_DB_IDENTITY}"
+)
+
+verify_company_dimension_latest() {
+  local defaults_file="$1"
+  local database="$2"
+  local schema_shape
+  local legacy_relationship_count
+  local scope_violations
+  local legacy_scopes
+  local orphan_count
+  schema_shape="$(mysql_scalar "$defaults_file" "" "
+    SELECT CONCAT_WS(
+      '|',
+      (
+        SELECT COUNT(*)
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = '${database}'
+          AND TABLE_TYPE = 'BASE TABLE'
+          AND TABLE_NAME REGEXP '${W3_COMPANY_LATEST_TABLE_PATTERN}'
+      ),
+      (
+        SELECT COUNT(*)
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = '${database}'
+          AND TABLE_NAME REGEXP '${W3_COMPANY_LATEST_TABLE_PATTERN}'
+          AND COLUMN_NAME = 'company_id'
+      ),
+      (
+        SELECT COUNT(*)
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = '${database}'
+          AND TABLE_NAME = 'legal_entity'
+      ),
+      (
+        SELECT COUNT(*)
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = '${database}'
+          AND TABLE_NAME REGEXP '${W3_COMPANY_LATEST_TABLE_PATTERN}'
+          AND COLUMN_NAME = 'legal_entity_id'
+      )
+    );
+  ")"
+  [[ "$schema_shape" == "29|29|0|0" ]] \
+    || fail "Latest company schema is not the exact 29-table shape."
+  company_boundary_relationship_contract_matches \
+    "$defaults_file" "$database" latest \
+    || fail "Latest company relationship metadata is not the exact 28-table/29-edge contract."
+  legacy_relationship_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*)
+    FROM information_schema.KEY_COLUMN_USAGE
+    WHERE CONSTRAINT_SCHEMA = '${database}'
+      AND (
+        COLUMN_NAME = 'legal_entity_id'
+        OR REFERENCED_COLUMN_NAME = 'legal_entity_id'
+        OR REFERENCED_TABLE_NAME = 'legal_entity'
+      );
+  ")"
+  [[ "$legacy_relationship_count" == "0" ]] \
+    || fail "Latest company relationship metadata retains an old boundary."
+  scope_violations="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*)
+    FROM auth_data_scope
+    WHERE scope_type NOT IN ('COMPANY', 'ORGANIZATION', 'SELF')
+       OR NOT (
+            (scope_type = 'COMPANY'
+              AND company_id IS NOT NULL
+              AND organization_id IS NULL)
+            OR (scope_type = 'ORGANIZATION'
+              AND company_id IS NULL
+              AND organization_id IS NOT NULL)
+            OR (scope_type = 'SELF'
+              AND company_id IS NULL
+              AND organization_id IS NULL)
+       );
+  ")"
+  [[ "$scope_violations" == "0" ]] \
+    || fail "Latest company scope values or shapes are invalid."
+  legacy_scopes="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*) FROM auth_data_scope
+    WHERE scope_type = CONCAT('LEGAL', '_ENTITY');
+  ")"
+  [[ "$legacy_scopes" == "0" ]] \
+    || fail "Latest company schema retains an old top-level scope."
+  orphan_count="$(
+    company_boundary_orphan_count "$defaults_file" "$database" latest
+  )"
+  [[ "$orphan_count" == "0" ]] \
+    || fail "Latest company schema contains an orphan company reference."
+  company_boundary_index_contract_matches \
+    "$defaults_file" "$database" latest \
+    || fail "Latest company boundary index pairs are not exact."
+  auth_scope_check_contract_matches \
+    "$defaults_file" "$database" latest \
+    || fail "Latest company scope CHECK contract is not exact and enforced."
+  company_boundary_auxiliary_check_contract_matches \
+    "$defaults_file" "$database" latest \
+    || fail "Latest company auxiliary CHECK inventory is not exact and enforced."
+  log "W3_COMPANY_V11_LATEST=PASS database=${database} boundary_tables=29 relationship_tables=28 relationship_edges=29 auxiliary_checks=44 enforced=44 company_indexes=5 invalid_scopes=0 legacy_scopes=0 orphans=0 db_identity=${W3_RUNTIME_DB_IDENTITY}"
 }
 
 verify_registry_database_contract() {
   local defaults_file="$1"
   local database="$2"
+  local schema_mode="$3"
   local columns_snapshot
   local primary_snapshot
   local columns_sha
@@ -600,7 +1833,13 @@ verify_registry_database_contract() {
     ORDER BY TABLE_NAME, ORDINAL_POSITION;
   " >"$primary_snapshot"
 
-  if ! python3 - "$W3_REGISTRY" "$columns_snapshot" "$primary_snapshot" <<'PY'
+  case "$schema_mode" in
+    target7 | latest) ;;
+    *) fail "Unknown W3 registry schema mode." ;;
+  esac
+
+  if ! python3 - "$W3_REGISTRY" "$columns_snapshot" "$primary_snapshot" \
+      "$schema_mode" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -608,6 +1847,9 @@ from pathlib import Path
 registry = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 column_lines = Path(sys.argv[2]).read_text(encoding="utf-8").splitlines()
 primary_lines = Path(sys.argv[3]).read_text(encoding="utf-8").splitlines()
+schema_mode = sys.argv[4]
+if schema_mode not in {"target7", "latest"}:
+    raise SystemExit("invalid W3 registry schema mode")
 
 actual = {}
 for line in column_lines:
@@ -673,6 +1915,8 @@ for definition in registry["tables"]:
         raise SystemExit(f"column count mismatch: {table}")
     for expected, value in zip(expected_columns, actual_columns):
         column, logical = expected.split(":", 1)
+        if schema_mode == "latest" and column == "legal_entity_id":
+            column = "company_id"
         nullable = logical.endswith("?")
         logical = logical.removesuffix("?")
         if value["name"] != column or value["nullable"] != nullable:
@@ -682,7 +1926,10 @@ for definition in registry["tables"]:
     if actual_pk != definition["pk"]:
         raise SystemExit(f"primary-key mismatch: {table}")
 
-print("W3_REGISTRY_DB_COMPARE=PASS tables=22 flyway_metadata=excluded")
+print(
+    "W3_REGISTRY_DB_COMPARE=PASS "
+    f"tables=22 schema_mode={schema_mode} flyway_metadata=excluded"
+)
 PY
   then
     fail "Database W3 metadata does not match the fixed registry."
@@ -690,12 +1937,14 @@ PY
 
   columns_sha="$(hash_file "$columns_snapshot")"
   primary_sha="$(hash_file "$primary_snapshot")"
-  log "W3_RETAINED_REGISTRY_DB=PASS database=${database} tables=22 flyway_metadata=excluded columns_sha256=${columns_sha} primary_sha256=${primary_sha} db_identity=${W3_RUNTIME_DB_IDENTITY}"
+  log "W3_RETAINED_REGISTRY_DB=PASS database=${database} tables=22 schema_mode=${schema_mode} flyway_metadata=excluded columns_sha256=${columns_sha} primary_sha256=${primary_sha} db_identity=${W3_RUNTIME_DB_IDENTITY}"
 }
 
 verify_seed_oracle() {
   local defaults_file="$1"
   local database="$2"
+  local schema_mode="$3"
+  local company_column
   local kind
   local template_id
   local scope_id
@@ -703,6 +1952,11 @@ verify_seed_oracle() {
   local snapshot_json
   local digest
   local count
+  case "$schema_mode" in
+    target7) company_column="legal_entity_id" ;;
+    latest) company_column="company_id" ;;
+    *) fail "Unknown W3 seed schema mode." ;;
+  esac
   while IFS='|' read -r kind template_id scope_id scoped_version_id snapshot_json digest; do
     count="$(mysql_scalar "$defaults_file" "$database" "
       SELECT COUNT(*)
@@ -714,7 +1968,7 @@ verify_seed_oracle() {
       WHERE template.policy_template_id = '${template_id}'
         AND template.template_code = '${kind}'
         AND scope.scope_id = '${scope_id}'
-        AND scope.legal_entity_id = '30000000-0000-0000-0000-000000000001'
+        AND scope.${company_column} = '30000000-0000-0000-0000-000000000001'
         AND version.scoped_version_id = '${scoped_version_id}'
         AND version.version_number = 1
         AND version.effective_from = DATE '1970-01-01'
@@ -746,7 +2000,7 @@ MEAL_DEDUCTION|25000000-0000-0000-0000-000000000001|25100000-0000-0000-0000-0000
 LATE_GRACE|25000000-0000-0000-0000-000000000002|25100000-0000-0000-0000-000000000002|25200000-0000-0000-0000-000000000002|{"effectiveFrom":"1970-01-01","effectiveTo":null,"legalEntityId":"30000000-0000-0000-0000-000000000001","parameters":{"enabled":true,"graceMinutes":15},"policyKind":"LATE_GRACE","scopeId":"25100000-0000-0000-0000-000000000002","templateId":"25000000-0000-0000-0000-000000000002","versionNumber":1}|ea11c63a991838a20b61d6d3e9d0281035263b8529b2fb767fa0b2e631306ce9
 MONTHLY_LATE_EXEMPTION|25000000-0000-0000-0000-000000000003|25100000-0000-0000-0000-000000000003|25200000-0000-0000-0000-000000000003|{"effectiveFrom":"1970-01-01","effectiveTo":null,"legalEntityId":"30000000-0000-0000-0000-000000000001","parameters":{"enabled":true,"graceMinutes":15,"monthlyUses":1,"resetOnGroupChange":false},"policyKind":"MONTHLY_LATE_EXEMPTION","scopeId":"25100000-0000-0000-0000-000000000003","templateId":"25000000-0000-0000-0000-000000000003","versionNumber":1}|b0a533500852c464c7065812fd56519f0c571ebbf453834a8b189388e29f1a51
 SEEDS
-  log "W3_SEED_ORACLE=PASS database=${database} templates=3 scopes=3 scoped_versions=3 lifecycle=PUBLISHED db_identity=${W3_RUNTIME_DB_IDENTITY}"
+  log "W3_SEED_ORACLE=PASS database=${database} schema_mode=${schema_mode} templates=3 scopes=3 scoped_versions=3 lifecycle=PUBLISHED db_identity=${W3_RUNTIME_DB_IDENTITY}"
 }
 
 verify_target7_seed_exactness() {
@@ -772,6 +2026,7 @@ verify_target7_seed_exactness() {
 verify_constraint_and_index_names() {
   local defaults_file="$1"
   local database="$2"
+  local schema_mode="$3"
   local foreign_key_snapshot
   local check_snapshot
   local index_snapshot
@@ -804,12 +2059,15 @@ verify_constraint_and_index_names() {
 
   if ! python3 - "$W3_V7_MIGRATION" \
       "$foreign_key_snapshot" "$check_snapshot" "$index_snapshot" \
-      "$W3_RUNTIME_DB_IDENTITY" <<'PY'
+      "$W3_RUNTIME_DB_IDENTITY" "$schema_mode" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 ddl = Path(sys.argv[1]).read_text(encoding="utf-8")
+schema_mode = sys.argv[6]
+if schema_mode not in {"target7", "latest"}:
+    raise SystemExit("invalid W3 constraint schema mode")
 
 def read_tsv(path, width):
     rows = set()
@@ -841,6 +2099,12 @@ for table, block in blocks.items():
     for name in re.findall(
         r"(?im)^\s*(?:UNIQUE\s+)?KEY\s+([a-z0-9_]+)\b", block
     ):
+        if (
+            schema_mode == "latest"
+            and table == "attendance_policy_scope"
+            and name == "ix_attendance_policy_scope_legal_entity"
+        ):
+            name = "ix_attendance_policy_scope_company"
         expected_explicit_indexes.add((table, name))
 
 actual_foreign_keys = read_tsv(sys.argv[2], 2)
@@ -862,7 +2126,8 @@ print(
     "W3_CONSTRAINT_INDEX_NAME_COMPARE=PASS "
     f"foreign_keys={len(actual_foreign_keys)} checks={len(actual_checks)} "
     f"explicit_indexes={len(expected_explicit_indexes)} "
-    f"implicit_fk_indexes={len(extra_indexes)} db_identity={sys.argv[5]}"
+    f"implicit_fk_indexes={len(extra_indexes)} "
+    f"schema_mode={schema_mode} db_identity={sys.argv[5]}"
 )
 PY
   then
@@ -873,6 +2138,7 @@ PY
 verify_constraints_and_capabilities() {
   local defaults_file="$1"
   local database="$2"
+  local schema_mode="$3"
   local non_enforced
   local checks
   local foreign_keys
@@ -881,7 +2147,8 @@ verify_constraints_and_capabilities() {
   local admin_grants
   local auditor_read
   local auditor_manage
-  verify_constraint_and_index_names "$defaults_file" "$database"
+  verify_constraint_and_index_names \
+    "$defaults_file" "$database" "$schema_mode"
   non_enforced="$(mysql_scalar "$defaults_file" "" "
     SELECT COUNT(*)
     FROM information_schema.TABLE_CONSTRAINTS
@@ -1179,11 +2446,406 @@ bootstrap_fixed_legal_entity_at_v6() {
   log "W3_FIXED_TENANT_BOOTSTRAP=PASS database=${database} boundary=V6 legal_entity_id=30000000-0000-0000-0000-000000000001 db_identity=${W3_RUNTIME_DB_IDENTITY}"
 }
 
-registry_fingerprint() {
+verify_fixed_legal_entity_before_v11() {
+  local database="$1"
+  local defaults_file="$2"
+  local exact_row_count
+  exact_row_count="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*)
+    FROM legal_entity
+    WHERE legal_entity_id = '30000000-0000-0000-0000-000000000001'
+      AND code = 'W3_BASELINE_LEGAL_ENTITY'
+      AND name = 'W3 verification baseline legal entity'
+      AND status = 'ACTIVE'
+      AND created_at = TIMESTAMP '2020-01-01 00:00:00';
+  ")"
+  [[ "$exact_row_count" == "1" ]] \
+    || fail "Existing V7-V10 development data lacks the exact fixed company baseline required by retained W3 seeds."
+  log "W3_FIXED_TENANT_EXISTING=PASS database=${database} boundary=V7-V10 exact_baseline=true db_identity=${W3_RUNTIME_DB_IDENTITY}"
+}
+
+bootstrap_populated_company_fixture_at_v10() {
+  local database="$1"
+  local defaults_file="$2"
+  local checkpoint
+  local fixture_counts
+  checkpoint="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COALESCE(MAX(CAST(version AS UNSIGNED)), 0)
+    FROM flyway_schema_history
+    WHERE type = 'SQL' AND success = 1;
+  ")"
+  [[ "$checkpoint" == "10" ]] \
+    || fail "The populated company fixture is authorized only at exact V10."
+  mysql_execute_quietly "$defaults_file" "$database" "
+    INSERT INTO legal_entity (
+      legal_entity_id, code, name, status, created_at
+    ) VALUES (
+      '30000000-0000-0000-0000-000000000002',
+      'W3_SECOND_COMPANY',
+      'W3 verification second company',
+      'ACTIVE', TIMESTAMP '2020-01-01 00:00:00'
+    );
+    INSERT INTO organization_identity (
+      organization_id, legal_entity_id, identity_status, created_at
+    ) VALUES (
+      'fd100000-0000-4000-8000-000000000001',
+      '30000000-0000-0000-0000-000000000001',
+      'ACTIVE', TIMESTAMP '2020-01-01 00:00:00'
+    );
+    INSERT INTO organization_version (
+      organization_version_id, organization_id, parent_organization_id,
+      code, name, org_type, effective_from, effective_to,
+      row_version, status, source_authority, change_reason,
+      created_by, created_at
+    ) VALUES (
+      'fd110000-0000-4000-8000-000000000001',
+      'fd100000-0000-4000-8000-000000000001',
+      NULL, 'V10-COMPANY-ORG', 'V10 retained company organization',
+      'DEPARTMENT', TIMESTAMP '2020-01-01 00:00:00', NULL,
+      0, 'ACTIVE', 'LOCAL', 'V10 company retention fixture',
+      '20000000-0000-0000-0000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO organization_current_projection (
+      organization_id, current_version_id, projection_batch_id, projected_at
+    ) VALUES (
+      'fd100000-0000-4000-8000-000000000001',
+      'fd110000-0000-4000-8000-000000000001',
+      'V10-COMPANY-RETENTION', TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO organization_current_closure (
+      ancestor_organization_id, descendant_organization_id,
+      depth, projection_batch_id
+    ) VALUES (
+      'fd100000-0000-4000-8000-000000000001',
+      'fd100000-0000-4000-8000-000000000001',
+      0, 'V10-COMPANY-RETENTION'
+    );
+    INSERT INTO employee (
+      employee_id, legal_entity_id, employee_number, display_name,
+      employment_status, onboard_date, row_version, created_at, updated_at
+    ) VALUES (
+      'fd200000-0000-4000-8000-000000000001',
+      '30000000-0000-0000-0000-000000000001',
+      'V10-EMPLOYEE-001', 'V10 retained company employee',
+      'ACTIVE', DATE '2020-01-01', 0,
+      TIMESTAMP '2020-01-01 00:00:00',
+      TIMESTAMP '2020-01-01 00:00:00'
+    );
+    INSERT INTO employee (
+      employee_id, legal_entity_id, employee_number, display_name,
+      employment_status, onboard_date, row_version, created_at, updated_at
+    ) VALUES (
+      'fd200000-0000-4000-8000-000000000002',
+      '30000000-0000-0000-0000-000000000002',
+      'V10-EMPLOYEE-002', 'V10 retained second-company employee',
+      'ACTIVE', DATE '2020-01-01', 0,
+      TIMESTAMP '2020-01-01 00:00:00',
+      TIMESTAMP '2020-01-01 00:00:00'
+    );
+    INSERT INTO employee_version (
+      employee_version_id, employee_id, employee_number, display_name,
+      status, external_employee_id, effective_from, effective_to,
+      source_authority, row_version, change_reason, created_by, created_at
+    ) VALUES (
+      'fd210000-0000-4000-8000-000000000001',
+      'fd200000-0000-4000-8000-000000000001',
+      'V10-EMPLOYEE-001', 'V10 retained company employee',
+      'ACTIVE', 'V10-EXTERNAL-001', DATE '2020-01-01', NULL,
+      'LOCAL', 0, 'V10 company retention fixture',
+      '20000000-0000-0000-0000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO employee_version (
+      employee_version_id, employee_id, employee_number, display_name,
+      status, external_employee_id, effective_from, effective_to,
+      source_authority, row_version, change_reason, created_by, created_at
+    ) VALUES (
+      'fd210000-0000-4000-8000-000000000002',
+      'fd200000-0000-4000-8000-000000000002',
+      'V10-EMPLOYEE-002', 'V10 retained second-company employee',
+      'ACTIVE', 'V10-EXTERNAL-002', DATE '2020-01-01', NULL,
+      'LOCAL', 0, 'V10 second-company retention fixture',
+      '20000000-0000-0000-0000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO employee_current_projection (
+      employee_id, current_version_id, projected_at
+    ) VALUES (
+      'fd200000-0000-4000-8000-000000000001',
+      'fd210000-0000-4000-8000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO employee_current_projection (
+      employee_id, current_version_id, projected_at
+    ) VALUES (
+      'fd200000-0000-4000-8000-000000000002',
+      'fd210000-0000-4000-8000-000000000002',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO employment_assignment (
+      assignment_id, employment_period_id, employee_id, organization_id,
+      effective_from, effective_to, row_version, change_reason,
+      created_by, created_at, version_valid_to, record_status
+    ) VALUES (
+      'fd220000-0000-4000-8000-000000000001',
+      'fd220000-0000-4000-8000-000000000001',
+      'fd200000-0000-4000-8000-000000000001',
+      'fd100000-0000-4000-8000-000000000001',
+      TIMESTAMP '2020-01-01 00:00:00', NULL, 0,
+      'V10 company retention fixture',
+      '20000000-0000-0000-0000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00', NULL, 'ACTIVE'
+    );
+    INSERT INTO auth_data_scope (
+      scope_id, scope_type, legal_entity_id, organization_id,
+      include_descendants, valid_from, valid_to
+    ) VALUES
+      (
+        'fd300000-0000-4000-8000-000000000001',
+        'LEGAL_ENTITY',
+        '30000000-0000-0000-0000-000000000001',
+        NULL, TRUE, TIMESTAMP '2020-01-01 00:00:00', NULL
+      ),
+      (
+        'fd300000-0000-4000-8000-000000000002',
+        'LEGAL_ENTITY',
+        '30000000-0000-0000-0000-000000000002',
+        NULL, TRUE, TIMESTAMP '2020-01-01 00:00:00', NULL
+      );
+    INSERT INTO attendance_source (
+      attendance_source_id, legal_entity_id, source_code, source_type,
+      display_name, status, row_version, created_by, created_at
+    ) VALUES (
+      'fd400000-0000-4000-8000-000000000001',
+      '30000000-0000-0000-0000-000000000001',
+      'V10-RETAINED-SOURCE', 'DELI_CLOUD',
+      'V10 retained attendance source', 'ACTIVE', 0,
+      '20000000-0000-0000-0000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO attendance_source_config_revision (
+      source_config_revision_id, attendance_source_id, revision_number,
+      endpoint_kind, source_time_zone, page_size, rate_limit_per_minute,
+      backoff_seconds, secret_reference_name, adapter_settings_json,
+      effective_from, supersedes_config_revision_id, snapshot_digest,
+      change_reason, created_by, created_at
+    ) VALUES (
+      'fd410000-0000-4000-8000-000000000001',
+      'fd400000-0000-4000-8000-000000000001', 1,
+      'DELI_PUNCH_PAGE', 'Asia/Shanghai', 100, 60, 1, NULL,
+      JSON_OBJECT('fixture', 'v10-company-retention'),
+      TIMESTAMP '2020-01-01 00:00:00', NULL, REPEAT('4', 64),
+      'V10 company retention fixture',
+      '20000000-0000-0000-0000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO attendance_evidence_subject_lock (
+      legal_entity_id, employee_id, touched_at
+    ) VALUES (
+      '30000000-0000-0000-0000-000000000001',
+      'fd200000-0000-4000-8000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO raw_attendance_fact (
+      raw_attendance_fact_id, attendance_source_id, legal_entity_id,
+      fact_kind, stable_fingerprint, source_time_text, source_time_zone,
+      source_instant, canonical_payload_digest, request_id,
+      received_at, created_by
+    ) VALUES (
+      'fd420000-0000-4000-8000-000000000001',
+      'fd400000-0000-4000-8000-000000000001',
+      '30000000-0000-0000-0000-000000000001',
+      'PUNCH_POINT', REPEAT('5', 64), '2026-07-28 08:00:00',
+      'Asia/Shanghai', TIMESTAMP '2026-07-28 00:00:00',
+      REPEAT('6', 64), 'v10-company-retention',
+      TIMESTAMP '2026-07-29 00:00:00',
+      '20000000-0000-0000-0000-000000000001'
+    );
+    INSERT INTO attendance_report_projection (
+      attendance_report_projection_id, legal_entity_id,
+      period_start, period_end_exclusive, period_state,
+      projection_version, formula_catalog_version,
+      source_versions_json, source_snapshot_digest, projection_digest,
+      status, data_as_of, published_at, created_by, created_at
+    ) VALUES (
+      'fd500000-0000-4000-8000-000000000001',
+      '30000000-0000-0000-0000-000000000001',
+      DATE '2026-07-01', DATE '2026-08-01', 'OPEN',
+      'V10-RETAINED-PROJECTION', 'V10-RETAINED-FORMULA',
+      JSON_OBJECT('fixture', 'v10-company-retention'),
+      REPEAT('7', 64), REPEAT('8', 64), 'DRAFT',
+      TIMESTAMP '2026-07-29 00:00:00', NULL,
+      '20000000-0000-0000-0000-000000000001',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO attendance_report_daily_fact (
+      attendance_report_daily_fact_id, attendance_report_projection_id,
+      legal_entity_id, employee_id, employee_version_id,
+      employment_period_id, organization_id, organization_version_id,
+      business_date, day_type, shift_label, scheduled_minutes,
+      confirmed_scheduled_work_minutes, recognized_overtime_minutes,
+      leave_or_time_off_minutes, absence_minutes, actual_work_minutes,
+      late_minutes, penalized_late_minutes, early_departure_minutes,
+      missing_punch_count, first_punch_at, last_punch_at,
+      calculation_version_id, result_digest, created_at
+    ) VALUES (
+      'fd510000-0000-4000-8000-000000000001',
+      'fd500000-0000-4000-8000-000000000001',
+      '30000000-0000-0000-0000-000000000001',
+      'fd200000-0000-4000-8000-000000000001',
+      'fd210000-0000-4000-8000-000000000001',
+      'fd220000-0000-4000-8000-000000000001',
+      'fd100000-0000-4000-8000-000000000001',
+      'fd110000-0000-4000-8000-000000000001',
+      DATE '2026-07-28', 'WEEKDAY', 'V10 retained shift',
+      480, 480, 0, 0, 0, 480, 0, 0, 0, 0, NULL, NULL,
+      'V10-RETAINED-CALCULATION', REPEAT('9', 64),
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+    INSERT INTO attendance_report_export_job (
+      attendance_report_export_id, principal_id, report_type,
+      period_start, legal_entity_id, organization_id, employee_id,
+      filter_status, purpose, projection_version,
+      authorization_digest, query_fingerprint, visible_content_digest,
+      formula_version, export_fields_json, row_count,
+      delivery_mode, status, expires_at, created_at
+    ) VALUES (
+      'fd520000-0000-4000-8000-000000000001',
+      '20000000-0000-0000-0000-000000000001',
+      'ATTENDANCE_DETAIL', DATE '2026-07-01',
+      '30000000-0000-0000-0000-000000000001',
+      'fd100000-0000-4000-8000-000000000001',
+      'fd200000-0000-4000-8000-000000000001',
+      NULL, 'V10 company retention export',
+      'V10-RETAINED-PROJECTION',
+      REPEAT('a', 64), REPEAT('b', 64), REPEAT('c', 64),
+      'V10-RETAINED-FORMULA', JSON_ARRAY('employeeNumber'), 1,
+      'ASYNC', 'QUEUED', TIMESTAMP '2026-08-29 00:00:00',
+      TIMESTAMP '2026-07-29 00:00:00'
+    );
+  "
+  fixture_counts="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT CONCAT_WS(
+      '|',
+      (SELECT COUNT(*) FROM legal_entity
+       WHERE legal_entity_id IN (
+         '30000000-0000-0000-0000-000000000001',
+         '30000000-0000-0000-0000-000000000002'
+       )),
+      (SELECT COUNT(*) FROM employee
+       WHERE employee_id IN (
+         'fd200000-0000-4000-8000-000000000001',
+         'fd200000-0000-4000-8000-000000000002'
+       )),
+      (SELECT COUNT(*) FROM organization_identity
+       WHERE organization_id =
+         'fd100000-0000-4000-8000-000000000001'),
+      (SELECT COUNT(*) FROM auth_data_scope
+       WHERE scope_id IN (
+         'fd300000-0000-4000-8000-000000000001',
+         'fd300000-0000-4000-8000-000000000002'
+       )),
+      (SELECT COUNT(*) FROM attendance_policy_scope),
+      (SELECT COUNT(*) FROM attendance_source
+       WHERE attendance_source_id =
+         'fd400000-0000-4000-8000-000000000001'),
+      (SELECT COUNT(*) FROM attendance_source_config_revision
+       WHERE source_config_revision_id =
+         'fd410000-0000-4000-8000-000000000001'),
+      (SELECT COUNT(*) FROM attendance_evidence_subject_lock
+       WHERE employee_id =
+         'fd200000-0000-4000-8000-000000000001'),
+      (SELECT COUNT(*) FROM raw_attendance_fact
+       WHERE raw_attendance_fact_id =
+         'fd420000-0000-4000-8000-000000000001'),
+      (SELECT COUNT(*) FROM attendance_report_projection
+       WHERE attendance_report_projection_id =
+         'fd500000-0000-4000-8000-000000000001'),
+      (SELECT COUNT(*) FROM attendance_report_daily_fact
+       WHERE attendance_report_daily_fact_id =
+         'fd510000-0000-4000-8000-000000000001'),
+      (SELECT COUNT(*) FROM attendance_report_export_job
+       WHERE attendance_report_export_id =
+         'fd520000-0000-4000-8000-000000000001')
+    );
+  ")"
+  [[ "$fixture_counts" == "2|2|1|2|3|1|1|1|1|1|1|1" ]] \
+    || fail "The populated V10 company retention fixture is incomplete."
+  log "W3_COMPANY_V10_POPULATED_FIXTURE=PASS database=${database} companies=2 domains=company,employee,organization,scope,configuration,source,evidence,projection,export nonempty_boundary_tables=11 db_identity=${W3_RUNTIME_DB_IDENTITY}"
+}
+
+upgrade_development_company_dimension() {
+  local defaults_file
+  local history_table_count
+  local failed_history_count
+  local checkpoint
+  defaults_file="$(migrator_defaults_file)"
+  history_table_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*)
+    FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = '${DEV_DATABASE}'
+      AND TABLE_NAME = 'flyway_schema_history'
+      AND TABLE_TYPE = 'BASE TABLE';
+  ")"
+  if [[ "$history_table_count" == "0" ]]; then
+    checkpoint="0"
+  else
+    failed_history_count="$(mysql_scalar "$defaults_file" "$DEV_DATABASE" "
+      SELECT COUNT(*)
+      FROM flyway_schema_history
+      WHERE success = 0;
+    ")"
+    [[ "$failed_history_count" == "0" ]] \
+      || fail "Development Flyway history contains a failed migration."
+    checkpoint="$(mysql_scalar "$defaults_file" "$DEV_DATABASE" "
+      SELECT COALESCE(MAX(CAST(version AS UNSIGNED)), 0)
+      FROM flyway_schema_history
+      WHERE type = 'SQL' AND success = 1;
+    ")"
+  fi
+  [[ "$checkpoint" =~ ^[0-9]+$ ]] \
+    || fail "Development Flyway checkpoint is not numeric."
+  ((10#$checkpoint <= 11)) \
+    || fail "Development schema is newer than the supported company migration."
+
+  if ((10#$checkpoint <= 6)); then
+    run_flyway "$DEV_DATABASE" "-target=6" migrate
+    bootstrap_fixed_legal_entity_at_v6 "$DEV_DATABASE"
+    checkpoint="6"
+  fi
+  if ((10#$checkpoint >= 7 && 10#$checkpoint <= 9)); then
+    verify_fixed_legal_entity_before_v11 \
+      "$DEV_DATABASE" "$defaults_file"
+  fi
+  if ((10#$checkpoint <= 9)); then
+    run_flyway "$DEV_DATABASE" "-target=10" migrate
+    checkpoint="10"
+  fi
+  if [[ "$checkpoint" == "10" ]]; then
+    company_dimension_preflight_v10 \
+      "$defaults_file" "$DEV_DATABASE" \
+      || fail "Development V10 company preflight failed."
+    run_flyway "$DEV_DATABASE" "-target=11" migrate
+    checkpoint="11"
+  fi
+  [[ "$checkpoint" == "11" ]] \
+    || fail "Development company migration did not reach exact V11."
+  run_flyway "$DEV_DATABASE" validate
+  verify_company_dimension_latest "$defaults_file" "$DEV_DATABASE"
+  log "W3_DEV_FORWARD_MIGRATION=PASS database=${DEV_DATABASE} starting_checkpoint=adaptive latest=11 repeat_safe=true db_identity=${W3_RUNTIME_DB_IDENTITY}"
+}
+
+capture_registry_fingerprint_snapshot() {
   local defaults_file="$1"
   local database="$2"
-  local snapshot
-  snapshot="$(make_private_temporary_file)"
+  local schema_mode="$3"
+  local raw_snapshot="$4"
+  local semantic_snapshot="$5"
+  case "$schema_mode" in
+    target7 | latest) ;;
+    *) fail "Unknown W3 registry fingerprint schema mode." ;;
+  esac
   mysql_query "$defaults_file" "" "
     SELECT stable_row
     FROM (
@@ -1196,11 +2858,26 @@ registry_fingerprint() {
         AND TABLE_NAME REGEXP '${W3_TABLE_NAME_PATTERN}'
       UNION ALL
       SELECT CONCAT_WS(
-        '|', 'INDEX', TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX,
-        COLUMN_NAME, COLLATION, COALESCE(SUB_PART, '<NULL>')) AS stable_row
-      FROM information_schema.STATISTICS
-      WHERE TABLE_SCHEMA = '${database}'
-        AND TABLE_NAME REGEXP '${W3_TABLE_NAME_PATTERN}'
+        '|',
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM information_schema.TABLE_CONSTRAINTS constraint_row
+            WHERE constraint_row.CONSTRAINT_SCHEMA = index_row.TABLE_SCHEMA
+              AND constraint_row.TABLE_NAME = index_row.TABLE_NAME
+              AND constraint_row.CONSTRAINT_NAME = index_row.INDEX_NAME
+              AND constraint_row.CONSTRAINT_TYPE = 'FOREIGN KEY'
+          )
+          THEN 'INDEX_IMPLICIT_FK'
+          ELSE 'INDEX_EXPLICIT'
+        END,
+        index_row.TABLE_NAME, index_row.INDEX_NAME,
+        index_row.NON_UNIQUE, index_row.SEQ_IN_INDEX,
+        index_row.COLUMN_NAME, index_row.COLLATION,
+        COALESCE(index_row.SUB_PART, '<NULL>')) AS stable_row
+      FROM information_schema.STATISTICS index_row
+      WHERE index_row.TABLE_SCHEMA = '${database}'
+        AND index_row.TABLE_NAME REGEXP '${W3_TABLE_NAME_PATTERN}'
       UNION ALL
       SELECT CONCAT_WS(
         '|', 'FK', rc.TABLE_NAME, rc.CONSTRAINT_NAME,
@@ -1227,8 +2904,139 @@ registry_fingerprint() {
         AND tc.CONSTRAINT_TYPE = 'CHECK'
     ) rows_to_hash
     ORDER BY stable_row;
-  " >"$snapshot"
-  hash_file "$snapshot"
+  " >"$raw_snapshot"
+  python3 - "$raw_snapshot" "$semantic_snapshot" "$schema_mode" <<'PY'
+import sys
+from pathlib import Path
+
+raw_path = Path(sys.argv[1])
+semantic_path = Path(sys.argv[2])
+schema_mode = sys.argv[3]
+if schema_mode not in {"target7", "latest"}:
+    raise SystemExit("invalid registry fingerprint schema mode")
+
+semantic_rows = []
+explicit_indexes = set()
+implicit_fk_indexes = set()
+for row in raw_path.read_text(encoding="utf-8").splitlines():
+    fields = row.split("|")
+    if not fields or not fields[0]:
+        raise SystemExit("invalid registry fingerprint row")
+    if fields[0] in {"INDEX_EXPLICIT", "INDEX_IMPLICIT_FK"}:
+        if len(fields) != 8:
+            raise SystemExit("invalid registry index fingerprint row")
+        index_key = (fields[1], fields[2])
+        if fields[0] == "INDEX_IMPLICIT_FK":
+            implicit_fk_indexes.add(index_key)
+            continue
+        explicit_indexes.add(index_key)
+        fields[0] = "INDEX"
+        row = "|".join(fields)
+    row = row.replace("legal_entity_id", "company_id")
+    row = row.replace("legal_entity", "company")
+    semantic_rows.append(row)
+
+if len(explicit_indexes) != 84:
+    raise SystemExit(
+        "registry fingerprint requires exactly 84 review-owned explicit indexes"
+    )
+if len(implicit_fk_indexes) != 29:
+    raise SystemExit(
+        "registry fingerprint requires exactly 29 classified implicit FK indexes"
+    )
+semantic_path.write_text(
+    "\n".join(sorted(semantic_rows)) + "\n",
+    encoding="utf-8",
+)
+PY
+}
+
+classify_registry_fingerprint_delta() {
+  local target7_raw="$1"
+  local latest_raw="$2"
+  local target7_semantic="$3"
+  local latest_semantic="$4"
+  python3 - \
+      "$target7_raw" "$latest_raw" \
+      "$target7_semantic" "$latest_semantic" <<'PY'
+import sys
+from pathlib import Path
+
+def normalized_rows(path):
+    rows = set()
+    for row in Path(path).read_text(encoding="utf-8").splitlines():
+        row = row.replace("legal_entity_id", "company_id")
+        row = row.replace("legal_entity", "company")
+        rows.add(row)
+    return rows
+
+def index_inventory(rows, row_kind):
+    return {
+        tuple(row.split("|")[1:3])
+        for row in rows
+        if row.startswith(row_kind + "|")
+    }
+
+def classify_delta(before, after):
+    delta = before.symmetric_difference(after)
+    unexpected = sorted(
+        row for row in delta
+        if not row.startswith("INDEX_IMPLICIT_FK|")
+    )
+    if unexpected:
+        raise ValueError(
+            "non-implicit-index registry metadata changed: "
+            + unexpected[0]
+        )
+    return delta
+
+target7_raw = normalized_rows(sys.argv[1])
+latest_raw = normalized_rows(sys.argv[2])
+target7_semantic = Path(sys.argv[3]).read_bytes()
+latest_semantic = Path(sys.argv[4]).read_bytes()
+
+delta = classify_delta(target7_raw, latest_raw)
+if target7_semantic != latest_semantic:
+    raise SystemExit("semantic registry fingerprints differ")
+for label, rows in (("target7", target7_raw), ("latest", latest_raw)):
+    explicit = index_inventory(rows, "INDEX_EXPLICIT")
+    implicit = index_inventory(rows, "INDEX_IMPLICIT_FK")
+    if len(explicit) != 84 or len(implicit) != 29:
+        raise SystemExit(
+            f"{label} index classification differs: "
+            f"explicit={len(explicit)} implicit={len(implicit)}"
+        )
+
+# Mutation-style negative contract: a non-index metadata delta must fail closed.
+try:
+    classify_delta({"COLUMN|sample|company_id"}, {"COLUMN|sample|other_id"})
+except ValueError:
+    negative_result = "rejected"
+else:
+    raise SystemExit("non-index registry delta negative probe was accepted")
+
+delta_class = "implicit_fk_index_only" if delta else "none"
+print(
+    f"raw_delta_class={delta_class} raw_delta_rows={len(delta)} "
+    "target7_explicit_indexes=84 target7_implicit_fk_indexes=29 "
+    "latest_explicit_indexes=84 latest_implicit_fk_indexes=29 "
+    f"negative_non_index_delta={negative_result}"
+)
+PY
+}
+
+registry_fingerprint() {
+  local defaults_file="$1"
+  local database="$2"
+  local schema_mode="$3"
+  local raw_snapshot
+  local semantic_snapshot
+  raw_snapshot="$(make_private_temporary_file)"
+  semantic_snapshot="$(make_private_temporary_file)"
+  capture_registry_fingerprint_snapshot \
+    "$defaults_file" "$database" "$schema_mode" \
+    "$raw_snapshot" "$semantic_snapshot"
+  hash_file "$semantic_snapshot"
 }
 
 verify_contract_for_database() {
@@ -1238,9 +3046,11 @@ verify_contract_for_database() {
   defaults_file="$(migrator_defaults_file)"
   assert_schema_exists "$database" "$defaults_file"
   verify_migration_history "$defaults_file" "$database"
-  verify_registry_database_contract "$defaults_file" "$database"
-  verify_seed_oracle "$defaults_file" "$database"
-  verify_constraints_and_capabilities "$defaults_file" "$database"
+  verify_company_dimension_latest "$defaults_file" "$database"
+  verify_registry_database_contract "$defaults_file" "$database" latest
+  verify_seed_oracle "$defaults_file" "$database" latest
+  verify_constraints_and_capabilities \
+    "$defaults_file" "$database" latest
   verify_app_privileges "$database"
   log "W3_SCHEMA_CONTRACT=PASS database=${database} registry_tables=22 flyway_metadata=excluded db_identity=${W3_RUNTIME_DB_IDENTITY}"
 }
@@ -1260,6 +3070,19 @@ upgrade_v6_target7_latest_test() {
   local target7_fingerprint
   local latest_fingerprint
   local repeat_fingerprint
+  local target7_registry_raw
+  local target7_registry_semantic
+  local latest_registry_raw
+  local latest_registry_semantic
+  local repeat_registry_raw
+  local repeat_registry_semantic
+  local registry_delta_classification
+  local v10_company_snapshot
+  local latest_company_snapshot
+  local repeat_company_snapshot
+  local v10_company_digest
+  local latest_company_digest
+  local repeat_company_digest
   local history_before_repeat
   local history_after_repeat
   reset_test_tables
@@ -1280,20 +3103,69 @@ upgrade_v6_target7_latest_test() {
     FROM flyway_schema_history WHERE type = 'SQL' AND success = 1;
   ")"
   [[ "$checkpoint" == "7" ]] || fail "Target migration did not stop at V7."
-  verify_registry_database_contract "$defaults_file" "$TEST_DATABASE"
-  verify_seed_oracle "$defaults_file" "$TEST_DATABASE"
+  verify_registry_database_contract \
+    "$defaults_file" "$TEST_DATABASE" target7
+  verify_seed_oracle "$defaults_file" "$TEST_DATABASE" target7
   verify_target7_seed_exactness "$defaults_file" "$TEST_DATABASE"
   capture_semantic_phase "target7" "$defaults_file"
-  target7_fingerprint="$(registry_fingerprint "$defaults_file" "$TEST_DATABASE")"
+  target7_registry_raw="$(make_private_temporary_file)"
+  target7_registry_semantic="$(make_private_temporary_file)"
+  capture_registry_fingerprint_snapshot \
+    "$defaults_file" "$TEST_DATABASE" target7 \
+    "$target7_registry_raw" "$target7_registry_semantic"
+  target7_fingerprint="$(hash_file "$target7_registry_semantic")"
   log "W3_TARGET7_SNAPSHOT_BEFORE_CHILD_LATEST=PASS database=${TEST_DATABASE} registry_sha256=${target7_fingerprint} child_latest_invoked=false db_identity=${W3_RUNTIME_DB_IDENTITY}"
 
-  run_flyway "$TEST_DATABASE" migrate
+  run_flyway "$TEST_DATABASE" "-target=10" migrate
+  checkpoint="$(mysql_scalar "$defaults_file" "$TEST_DATABASE" "
+    SELECT MAX(CAST(version AS UNSIGNED))
+    FROM flyway_schema_history WHERE type = 'SQL' AND success = 1;
+  ")"
+  [[ "$checkpoint" == "10" ]] \
+    || fail "Company upgrade checkpoint did not stop at exact V10."
+  bootstrap_populated_company_fixture_at_v10 \
+    "$TEST_DATABASE" "$defaults_file"
+  company_dimension_preflight_v10 "$defaults_file" "$TEST_DATABASE" \
+    || fail "Company V11 preflight rejected the valid populated V10 fixture."
+  verify_company_preflight_negative_probes \
+    "$defaults_file" "$TEST_DATABASE"
+  v10_company_snapshot="$(make_private_temporary_file)"
+  capture_company_boundary_snapshot \
+    "$defaults_file" "$TEST_DATABASE" v10 "$v10_company_snapshot"
+  v10_company_digest="$(hash_file "$v10_company_snapshot")"
+  log "W3_COMPANY_V10_SNAPSHOT=PASS database=${TEST_DATABASE} tables=29 rows_ids_relationships_sha256=${v10_company_digest} db_identity=${W3_RUNTIME_DB_IDENTITY}"
+
+  run_flyway "$TEST_DATABASE" "-target=11" migrate
   run_flyway "$TEST_DATABASE" validate
+  latest_company_snapshot="$(make_private_temporary_file)"
+  capture_company_boundary_snapshot \
+    "$defaults_file" "$TEST_DATABASE" latest "$latest_company_snapshot"
+  latest_company_digest="$(hash_file "$latest_company_snapshot")"
+  cmp -s "$v10_company_snapshot" "$latest_company_snapshot" \
+    || fail "V11 changed a company-bound row count or stable ID and company relationship digest."
   verify_migration_history "$defaults_file" "$TEST_DATABASE"
-  latest_fingerprint="$(registry_fingerprint "$defaults_file" "$TEST_DATABASE")"
+  verify_company_dimension_latest "$defaults_file" "$TEST_DATABASE"
+  verify_registry_database_contract \
+    "$defaults_file" "$TEST_DATABASE" latest
+  verify_seed_oracle "$defaults_file" "$TEST_DATABASE" latest
+  verify_constraints_and_capabilities \
+    "$defaults_file" "$TEST_DATABASE" latest
+  latest_registry_raw="$(make_private_temporary_file)"
+  latest_registry_semantic="$(make_private_temporary_file)"
+  capture_registry_fingerprint_snapshot \
+    "$defaults_file" "$TEST_DATABASE" latest \
+    "$latest_registry_raw" "$latest_registry_semantic"
+  latest_fingerprint="$(hash_file "$latest_registry_semantic")"
+  registry_delta_classification="$(
+    classify_registry_fingerprint_delta \
+      "$target7_registry_raw" "$latest_registry_raw" \
+      "$target7_registry_semantic" "$latest_registry_semantic"
+  )"
   [[ "$target7_fingerprint" == "$latest_fingerprint" ]] \
     || fail "Latest migration changed the fixed W3 registry contract."
+  log "W3_REGISTRY_FINGERPRINT_DELTA=PASS ${registry_delta_classification} semantic_sha256=${latest_fingerprint} db_identity=${W3_RUNTIME_DB_IDENTITY}"
   capture_semantic_phase "latest-after" "$defaults_file"
+  log "W3_COMPANY_V10_TO_V11=PASS database=${TEST_DATABASE} tables=29 rows_ids_relationships_sha256=${latest_company_digest} stable_ids=preserved relationships=preserved scope=COMPANY db_identity=${W3_RUNTIME_DB_IDENTITY}"
   log "W3_TARGET7_TO_LATEST=PASS database=${TEST_DATABASE} registry_sha256=${latest_fingerprint} post_v7=allowed db_identity=${W3_RUNTIME_DB_IDENTITY}"
 
   history_before_repeat="$(mysql_scalar "$defaults_file" "$TEST_DATABASE" "
@@ -1303,26 +3175,52 @@ upgrade_v6_target7_latest_test() {
   history_after_repeat="$(mysql_scalar "$defaults_file" "$TEST_DATABASE" "
     SELECT COUNT(*) FROM flyway_schema_history;
   ")"
-  repeat_fingerprint="$(registry_fingerprint "$defaults_file" "$TEST_DATABASE")"
+  repeat_registry_raw="$(make_private_temporary_file)"
+  repeat_registry_semantic="$(make_private_temporary_file)"
+  capture_registry_fingerprint_snapshot \
+    "$defaults_file" "$TEST_DATABASE" latest \
+    "$repeat_registry_raw" "$repeat_registry_semantic"
+  repeat_fingerprint="$(hash_file "$repeat_registry_semantic")"
+  repeat_company_snapshot="$(make_private_temporary_file)"
+  capture_company_boundary_snapshot \
+    "$defaults_file" "$TEST_DATABASE" latest "$repeat_company_snapshot"
+  repeat_company_digest="$(hash_file "$repeat_company_snapshot")"
   [[ "$history_before_repeat" == "$history_after_repeat" ]] \
     || fail "Repeat migrate changed Flyway history."
   [[ "$latest_fingerprint" == "$repeat_fingerprint" ]] \
     || fail "Repeat migrate changed the fixed W3 registry contract."
+  cmp -s "$latest_company_snapshot" "$repeat_company_snapshot" \
+    || fail "Repeat migrate changed a company-bound row count, stable ID, or company relationship."
   capture_semantic_phase "repeat-after" "$defaults_file"
-  log "W3_V6_TARGET7_LATEST=PASS database=${TEST_DATABASE} repeat_noop=PASS registry_sha256=${repeat_fingerprint} db_identity=${W3_RUNTIME_DB_IDENTITY}"
+  log "W3_V6_TARGET7_LATEST=PASS database=${TEST_DATABASE} repeat_noop=PASS registry_sha256=${repeat_fingerprint} company_rows_ids_relationships_sha256=${repeat_company_digest} db_identity=${W3_RUNTIME_DB_IDENTITY}"
 }
 
 empty_to_latest_test() {
   local defaults_file
+  local v10_company_snapshot
+  local latest_company_snapshot
   reset_test_tables
   run_flyway "$TEST_DATABASE" "-target=6" migrate
   bootstrap_fixed_legal_entity_at_v6 "$TEST_DATABASE"
-  run_flyway "$TEST_DATABASE" migrate
-  run_flyway "$TEST_DATABASE" validate
+  run_flyway "$TEST_DATABASE" "-target=10" migrate
   defaults_file="$(migrator_defaults_file)"
+  company_dimension_preflight_v10 "$defaults_file" "$TEST_DATABASE" \
+    || fail "Empty-path V10 company preflight failed."
+  v10_company_snapshot="$(make_private_temporary_file)"
+  capture_company_boundary_snapshot \
+    "$defaults_file" "$TEST_DATABASE" v10 "$v10_company_snapshot"
+  run_flyway "$TEST_DATABASE" "-target=11" migrate
+  run_flyway "$TEST_DATABASE" validate
+  latest_company_snapshot="$(make_private_temporary_file)"
+  capture_company_boundary_snapshot \
+    "$defaults_file" "$TEST_DATABASE" latest "$latest_company_snapshot"
+  cmp -s "$v10_company_snapshot" "$latest_company_snapshot" \
+    || fail "Empty-path V11 changed company-bound rows, stable IDs, or company relationships."
   verify_migration_history "$defaults_file" "$TEST_DATABASE"
-  verify_registry_database_contract "$defaults_file" "$TEST_DATABASE"
-  verify_seed_oracle "$defaults_file" "$TEST_DATABASE"
+  verify_company_dimension_latest "$defaults_file" "$TEST_DATABASE"
+  verify_registry_database_contract \
+    "$defaults_file" "$TEST_DATABASE" latest
+  verify_seed_oracle "$defaults_file" "$TEST_DATABASE" latest
   capture_semantic_phase "empty-latest" "$defaults_file"
   log "W3_EMPTY_TO_LATEST=PASS database=${TEST_DATABASE} registry_tables=22 post_v7=allowed db_identity=${W3_RUNTIME_DB_IDENTITY}"
 }
@@ -1333,11 +3231,7 @@ run_all() {
   load_runtime
   upgrade_v6_target7_latest_test
   empty_to_latest_test
-  run_flyway "$DEV_DATABASE" "-target=6" migrate
-  bootstrap_fixed_legal_entity_at_v6 "$DEV_DATABASE"
-  run_flyway "$DEV_DATABASE" migrate
-  run_flyway "$DEV_DATABASE" validate
-  log "W3_DEV_FORWARD_MIGRATION=PASS database=${DEV_DATABASE} db_identity=${W3_RUNTIME_DB_IDENTITY}"
+  upgrade_development_company_dimension
   verify_contract
   log "WAVE3_LOCAL_MYSQL_VERIFICATION=PASS run_id=${RUN_ID} version=${W3_MYSQL_VERSION} port=${W3_MYSQL_PORT} registry_tables=22 flyway_metadata=excluded db_identity=${W3_RUNTIME_DB_IDENTITY}"
 }

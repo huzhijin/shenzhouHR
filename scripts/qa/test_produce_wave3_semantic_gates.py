@@ -347,7 +347,7 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
                         for value in operation["parameters"]
                         if not (
                             value["in"] == "query"
-                            and value["name"] == "legalEntityId"
+                            and value["name"] == "companyId"
                         )
                         and not (
                             value["in"] == "header"
@@ -383,6 +383,14 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
         )
 
     def test_review_owned_api_oracle_rejects_linked_mutants(self) -> None:
+        self.assertEqual(
+            producer.sha256_file(producer.API_SEMANTIC_ORACLE_V1),
+            producer.API_SEMANTIC_ORACLE_V1_SHA256,
+        )
+        self.assertEqual(
+            producer.load_review_owned_api_oracle()["version"],
+            2,
+        )
         self.assertEqual(
             producer.compare_review_owned_api_oracle(
                 self.openapi, self.controllers
@@ -455,7 +463,7 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
                 operation["parameters"] = [
                     parameter
                     for parameter in operation["parameters"]
-                    if parameter["name"] != "legalEntityId"
+                    if parameter["name"] != "companyId"
                 ]
         for path, item in no_lifecycle_binding_document["paths"].items():
             if "/policy-lifecycle/" not in path or "{templateId}" not in path:
@@ -469,7 +477,7 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
                     if producer.resolve_parameter(
                         no_lifecycle_binding_document, parameter
                     ).get("name")
-                    != "legalEntityId"
+                    != "companyId"
                 ]
         self.assertEqual(
             producer.compare_review_owned_api_oracle(

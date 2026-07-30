@@ -83,7 +83,7 @@ final class AttendanceReportVisibilityDigest {
     private static void appendFilter(
             DigestWriter digest, ReportFilter filter) {
         digest.add(filter.period());
-        digest.add(filter.legalEntityId());
+        digest.add(filter.companyId());
         digest.add(filter.organizationId());
         digest.add(filter.employeeId());
         digest.add(filter.status());
@@ -244,7 +244,7 @@ final class AttendanceReportVisibilityDigest {
         for (DailyFact fact : facts) {
             digest.add("DAILY");
             digest.add(fact.factId());
-            digest.add(fact.legalEntityId());
+            digest.add(fact.companyId());
             digest.add(fact.employeeId());
             digest.add(fact.employeeNumber());
             digest.add(fact.employeeName());

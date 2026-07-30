@@ -109,7 +109,7 @@ public class AttendanceReportExportService {
     public ExportView create(
             ReportType reportType,
             YearMonth period,
-            String legalEntityId,
+            String companyId,
             String organizationId,
             String employeeId,
             String status,
@@ -125,7 +125,7 @@ public class AttendanceReportExportService {
         }
         ReportFilter filter = new ReportFilter(
                 period,
-                legalEntityId,
+                companyId,
                 organizationId,
                 employeeId,
                 status);
@@ -516,7 +516,7 @@ public class AttendanceReportExportService {
             String exportId,
             ReportType reportType,
             YearMonth period,
-            String legalEntityId,
+            String companyId,
             String deliveryMode,
             String status,
             String purpose,
@@ -529,7 +529,7 @@ public class AttendanceReportExportService {
                     job.exportId(),
                     job.reportType(),
                     job.filter().period(),
-                    job.filter().legalEntityId(),
+                    job.filter().companyId(),
                     job.deliveryMode().name(),
                     job.expiresAt().isAfter(now)
                             ? job.status().name()

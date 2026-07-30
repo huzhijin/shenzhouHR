@@ -7,7 +7,7 @@ import java.util.Set;
 
 public interface AttendanceConfigurationResolverPort {
 
-    Resolution resolve(String legalEntityId, String employeeId, Instant instant);
+    Resolution resolve(String companyId, String employeeId, Instant instant);
 
     record Resolution(
             String locationId,

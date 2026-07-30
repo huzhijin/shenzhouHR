@@ -5,7 +5,7 @@
 <mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.CalendarMapper">
 
     <sql id="calendarColumns">
-        scoped.work_calendar_id, scoped.legal_entity_id, scoped.location_id,
+        scoped.work_calendar_id, scoped.company_id, scoped.location_id,
         scoped.calendar_code, version.work_calendar_version_id,
         version.version_number, version.calendar_name, version.calendar_year,
         version.time_zone_snapshot,
@@ -66,7 +66,7 @@
     </sql>
 
     <sql id="calendarColumnsAsOf">
-        scoped.work_calendar_id, scoped.legal_entity_id, scoped.location_id,
+        scoped.work_calendar_id, scoped.company_id, scoped.location_id,
         scoped.calendar_code, version.work_calendar_version_id,
         version.version_number, version.calendar_name, version.calendar_year,
         version.time_zone_snapshot,
@@ -246,8 +246,8 @@
          AND capability.capability_code = #{capability}
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
-         AND data_scope.scope_type = 'LEGAL_ENTITY'
-         AND data_scope.legal_entity_id = scoped.legal_entity_id
+         AND data_scope.scope_type = 'COMPANY'
+         AND data_scope.company_id = scoped.company_id
         WHERE role_assignment.valid_from &lt;= #{at}
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
@@ -279,8 +279,8 @@
          AND capability.capability_code = #{capability}
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
-         AND data_scope.scope_type = 'LEGAL_ENTITY'
-         AND data_scope.legal_entity_id = scoped.legal_entity_id
+         AND data_scope.scope_type = 'COMPANY'
+         AND data_scope.company_id = scoped.company_id
         WHERE role_assignment.valid_from &lt;= #{at}
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
@@ -292,10 +292,10 @@
 
     <insert id="insertCalendarIdentity">
         INSERT INTO work_calendar (
-            work_calendar_id, legal_entity_id, location_id,
+            work_calendar_id, company_id, location_id,
             calendar_code, created_by, created_at
         ) VALUES (
-            #{row.workCalendarId}, #{row.legalEntityId}, #{row.locationId},
+            #{row.workCalendarId}, #{row.companyId}, #{row.locationId},
             #{row.calendarCode}, #{row.createdBy}, #{row.createdAt}
         )
     </insert>

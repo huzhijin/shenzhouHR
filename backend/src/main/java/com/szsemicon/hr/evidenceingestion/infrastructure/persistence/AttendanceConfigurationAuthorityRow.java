@@ -4,7 +4,7 @@ import java.time.LocalDate;
 
 record AttendanceConfigurationAuthorityRow(
         LocalDate businessDate,
-        String legalEntityId,
+        String companyId,
         String employeeId,
         String employeeVersionId,
         long employeeVersion,

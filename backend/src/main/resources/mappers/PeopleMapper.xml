@@ -19,12 +19,12 @@
           AND (scope.valid_to IS NULL OR scope.valid_to &gt; #{at})
     </sql>
 
-    <select id="canAccessLegalEntity" resultType="boolean">
+    <select id="canAccessCompany" resultType="boolean">
         SELECT CASE WHEN EXISTS (
             SELECT 1
             <include refid="activeCapabilityScope"/>
-              AND scope.scope_type = 'LEGAL_ENTITY'
-              AND scope.legal_entity_id = #{legalEntityId}
+              AND scope.scope_type = 'COMPANY'
+              AND scope.company_id = #{companyId}
         ) THEN TRUE ELSE FALSE END
     </select>
 
@@ -33,12 +33,43 @@
             SELECT 1
             <include refid="activeCapabilityScope"/>
               AND (
-                scope.scope_type = 'LEGAL_ENTITY'
-                AND scope.legal_entity_id = (
-                    SELECT legal_entity_id FROM organization_identity
+                scope.scope_type = 'COMPANY'
+                AND scope.company_id = (
+                    SELECT company_id FROM organization_identity
                     WHERE organization_id = #{organizationId}
                 )
                 OR scope.scope_type = 'ORGANIZATION'
+                AND EXISTS (
+                    SELECT 1
+                    FROM organization_identity scoped_organization
+                    JOIN organization_current_projection scoped_projection
+                      ON scoped_projection.organization_id =
+                            scoped_organization.organization_id
+                    JOIN organization_version scoped_version
+                      ON scoped_version.organization_version_id =
+                            scoped_projection.current_version_id
+                     AND scoped_version.organization_id =
+                            scoped_organization.organization_id
+                     AND scoped_version.status = 'ACTIVE'
+                    JOIN organization_identity target_organization
+                      ON target_organization.organization_id =
+                            #{organizationId}
+                     AND target_organization.company_id =
+                            scoped_organization.company_id
+                     AND target_organization.identity_status = 'ACTIVE'
+                    JOIN organization_current_projection target_projection
+                      ON target_projection.organization_id =
+                            target_organization.organization_id
+                    JOIN organization_version target_version
+                      ON target_version.organization_version_id =
+                            target_projection.current_version_id
+                     AND target_version.organization_id =
+                            target_organization.organization_id
+                     AND target_version.status = 'ACTIVE'
+                    WHERE scoped_organization.organization_id =
+                            scope.organization_id
+                      AND scoped_organization.identity_status = 'ACTIVE'
+                )
                 AND (
                     scope.organization_id = #{organizationId}
                     OR scope.include_descendants = TRUE AND EXISTS (
@@ -56,9 +87,9 @@
             SELECT 1
             <include refid="activeCapabilityScope"/>
               AND (
-                scope.scope_type = 'LEGAL_ENTITY'
-                AND scope.legal_entity_id = (
-                    SELECT legal_entity_id FROM employee WHERE employee_id = #{employeeId}
+                scope.scope_type = 'COMPANY'
+                AND scope.company_id = (
+                    SELECT company_id FROM employee WHERE employee_id = #{employeeId}
                 )
                 OR scope.scope_type = 'SELF'
                 AND EXISTS (
@@ -70,6 +101,39 @@
                 AND EXISTS (
                     SELECT 1
                     FROM employment_assignment employment
+                    JOIN employee subject_employee
+                      ON subject_employee.employee_id =
+                            employment.employee_id
+                    JOIN organization_identity assigned_organization
+                      ON assigned_organization.organization_id =
+                            employment.organization_id
+                     AND assigned_organization.company_id =
+                            subject_employee.company_id
+                     AND assigned_organization.identity_status = 'ACTIVE'
+                    JOIN organization_current_projection assigned_projection
+                      ON assigned_projection.organization_id =
+                            assigned_organization.organization_id
+                    JOIN organization_version assigned_version
+                      ON assigned_version.organization_version_id =
+                            assigned_projection.current_version_id
+                     AND assigned_version.organization_id =
+                            assigned_organization.organization_id
+                     AND assigned_version.status = 'ACTIVE'
+                    JOIN organization_identity scoped_organization
+                      ON scoped_organization.organization_id =
+                            scope.organization_id
+                     AND scoped_organization.company_id =
+                            subject_employee.company_id
+                     AND scoped_organization.identity_status = 'ACTIVE'
+                    JOIN organization_current_projection scoped_projection
+                      ON scoped_projection.organization_id =
+                            scoped_organization.organization_id
+                    JOIN organization_version scoped_version
+                      ON scoped_version.organization_version_id =
+                            scoped_projection.current_version_id
+                     AND scoped_version.organization_id =
+                            scoped_organization.organization_id
+                     AND scoped_version.status = 'ACTIVE'
                     WHERE employment.employee_id = #{employeeId}
                       AND employment.version_valid_to IS NULL
                       AND employment.record_status = 'ACTIVE'
@@ -90,16 +154,16 @@
         ) THEN TRUE ELSE FALSE END
     </select>
 
-    <select id="legalEntityExists" resultType="boolean">
+    <select id="companyExists" resultType="boolean">
         SELECT CASE WHEN EXISTS (
-            SELECT 1 FROM legal_entity WHERE legal_entity_id = #{legalEntityId}
+            SELECT 1 FROM company WHERE company_id = #{companyId}
         ) THEN TRUE ELSE FALSE END
     </select>
 
-    <select id="lockLegalEntity" resultType="string">
-        SELECT legal_entity_id
-        FROM legal_entity
-        WHERE legal_entity_id = #{legalEntityId}
+    <select id="lockCompany" resultType="string">
+        SELECT company_id
+        FROM company
+        WHERE company_id = #{companyId}
         FOR UPDATE
     </select>
 
@@ -124,13 +188,13 @@
 
     <insert id="insertBatch">
         INSERT INTO people_import_batch (
-            batch_id, legal_entity_id, template_type, template_version, status,
+            batch_id, company_id, template_type, template_version, status,
             reason, file_sha256, mapping_json, added_count, updated_count,
             unchanged_count, conflict_count, error_count, blocking_issue_count,
             precheck_version, row_version, created_by, created_at, updated_by,
             updated_at, published_at, voided_at, duplicate_of_publication_id
         ) VALUES (
-            #{batchId}, #{legalEntityId}, #{templateType}, #{templateVersion}, #{status},
+            #{batchId}, #{companyId}, #{templateType}, #{templateVersion}, #{status},
             #{reason}, #{fileSha256}, #{mappingJson}, #{addedCount}, #{updatedCount},
             #{unchangedCount}, #{conflictCount}, #{errorCount}, #{blockingIssueCount},
             #{precheckVersion}, #{rowVersion}, #{createdBy}, #{createdAt}, #{updatedBy},
@@ -139,7 +203,7 @@
     </insert>
 
     <sql id="batchColumns">
-        SELECT batch.batch_id, batch.legal_entity_id, batch.template_type,
+        SELECT batch.batch_id, batch.company_id, batch.template_type,
                batch.template_version, batch.status, batch.reason, batch.file_sha256,
                batch.mapping_json, batch.added_count, batch.updated_count,
                batch.unchanged_count, batch.conflict_count, batch.error_count,
@@ -154,7 +218,7 @@
     </sql>
 
     <sql id="batchSummaryColumns">
-        SELECT batch.batch_id, batch.legal_entity_id, batch.template_type,
+        SELECT batch.batch_id, batch.company_id, batch.template_type,
                batch.template_version, batch.status, batch.reason, batch.file_sha256,
                batch.mapping_json, batch.added_count, batch.updated_count,
                batch.unchanged_count, batch.conflict_count, batch.error_count,
@@ -189,8 +253,8 @@
               AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
               AND scope.valid_from &lt;= #{at}
               AND (scope.valid_to IS NULL OR scope.valid_to &gt; #{at})
-              AND scope.scope_type = 'LEGAL_ENTITY'
-              AND scope.legal_entity_id = batch.legal_entity_id
+              AND scope.scope_type = 'COMPANY'
+              AND scope.company_id = batch.company_id
         )
     </sql>
 
@@ -338,7 +402,7 @@
     </select>
 
     <sql id="publicationColumns">
-        SELECT publication_id, batch_id, legal_entity_id, template_type,
+        SELECT publication_id, batch_id, company_id, template_type,
                template_version, file_sha256, snapshot_digest,
                snapshot_json, local_version_ids_json, published_by, published_at
         FROM people_import_publication
@@ -359,7 +423,7 @@
     <select id="findPublicationByFileHash"
             resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PublicationRow">
         <include refid="publicationColumns"/>
-        WHERE legal_entity_id = #{legalEntityId}
+        WHERE company_id = #{companyId}
           AND template_type = #{templateType}
           AND template_version = #{templateVersion}
           AND file_sha256 = #{fileSha256}
@@ -367,12 +431,12 @@
 
     <insert id="insertPublication">
         INSERT INTO people_import_publication (
-            publication_id, batch_id, legal_entity_id, template_type,
+            publication_id, batch_id, company_id, template_type,
             template_version, file_sha256, idempotency_key,
             snapshot_digest, snapshot_json, local_version_ids_json,
             published_by, published_at
         ) VALUES (
-            #{row.publicationId}, #{row.batchId}, #{row.legalEntityId},
+            #{row.publicationId}, #{row.batchId}, #{row.companyId},
             #{row.templateType}, #{row.templateVersion}, #{row.fileSha256},
             #{idempotencyKey}, #{row.snapshotDigest}, #{row.snapshotJson},
             #{row.localVersionIdsJson}, #{row.publishedBy}, #{row.publishedAt}
@@ -504,7 +568,7 @@
 
     <sql id="organizationColumns">
         SELECT version.organization_version_id, version.organization_id,
-               identity.legal_entity_id, version.parent_organization_id,
+               identity.company_id, version.parent_organization_id,
                version.code, version.name, version.org_type AS organization_type,
                version.status, DATE(version.effective_from) AS effective_from,
                DATE(version.effective_to) AS effective_to, version.source_authority,
@@ -553,7 +617,7 @@
         JOIN organization_current_projection projection
           ON projection.organization_id = version.organization_id
          AND projection.current_version_id = version.organization_version_id
-        WHERE identity.legal_entity_id = #{legalEntityId}
+        WHERE identity.company_id = #{companyId}
           AND version.code = #{code}
     </select>
 
@@ -578,7 +642,7 @@
             JOIN organization_current_projection projection
               ON projection.organization_id = version.organization_id
              AND projection.current_version_id = version.organization_version_id
-            WHERE identity.legal_entity_id = #{legalEntityId}
+            WHERE identity.company_id = #{companyId}
               AND version.code = #{code}
               AND (#{excludeOrganizationId} IS NULL
                    OR version.organization_id &lt;&gt; #{excludeOrganizationId})
@@ -598,8 +662,8 @@
 
     <insert id="insertOrganizationIdentity">
         INSERT INTO organization_identity (
-            organization_id, legal_entity_id, identity_status, created_at
-        ) VALUES (#{organizationId}, #{legalEntityId}, #{status}, #{at})
+            organization_id, company_id, identity_status, created_at
+        ) VALUES (#{organizationId}, #{companyId}, #{status}, #{at})
     </insert>
 
     <insert id="insertOrganizationVersion">
@@ -679,7 +743,7 @@
 
     <sql id="currentEmployeeColumns">
         SELECT version.employee_version_id, version.employee_id,
-               employee.legal_entity_id, version.employee_number,
+               employee.company_id, version.employee_number,
                version.display_name, version.status, version.external_employee_id,
                version.effective_from, version.effective_to,
                version.source_authority, version.source_import_batch_id,
@@ -691,7 +755,7 @@
 
     <sql id="historicalEmployeeColumns">
         SELECT version.employee_version_id, version.employee_id,
-               employee.legal_entity_id, version.employee_number,
+               employee.company_id, version.employee_number,
                version.display_name, version.status, version.external_employee_id,
                version.effective_from, version.effective_to,
                version.source_authority, version.source_import_batch_id,
@@ -736,7 +800,7 @@
         JOIN employee_current_projection projection
           ON projection.employee_id = version.employee_id
          AND projection.current_version_id = version.employee_version_id
-        WHERE employee.legal_entity_id = #{legalEntityId}
+        WHERE employee.company_id = #{companyId}
           AND version.employee_number = #{employeeNumber}
     </select>
 
@@ -746,7 +810,7 @@
         JOIN employee_current_projection projection
           ON projection.employee_id = version.employee_id
          AND projection.current_version_id = version.employee_version_id
-        WHERE employee.legal_entity_id = #{legalEntityId}
+        WHERE employee.company_id = #{companyId}
           AND version.external_employee_id = #{externalEmployeeId}
         ORDER BY version.employee_id
     </select>
@@ -766,7 +830,7 @@
     <select id="employeeNumberExists" resultType="boolean">
         SELECT CASE WHEN EXISTS (
             SELECT 1 FROM employee
-            WHERE legal_entity_id = #{legalEntityId}
+            WHERE company_id = #{companyId}
               AND employee_number = #{employeeNumber}
               AND (#{excludeEmployeeId} IS NULL OR employee_id &lt;&gt; #{excludeEmployeeId})
         ) THEN TRUE ELSE FALSE END
@@ -774,10 +838,10 @@
 
     <insert id="insertEmployeeIdentity">
         INSERT INTO employee (
-            employee_id, legal_entity_id, employee_number, display_name,
+            employee_id, company_id, employee_number, display_name,
             employment_status, onboard_date, row_version, created_at, updated_at
         ) VALUES (
-            #{employeeId}, #{legalEntityId}, #{employeeNumber}, #{displayName},
+            #{employeeId}, #{companyId}, #{employeeNumber}, #{displayName},
             #{status}, #{onboardDate}, 0, #{at}, #{at}
         )
     </insert>
@@ -868,15 +932,62 @@
     <sql id="accessibleEmploymentScope">
         AND EXISTS (
             SELECT 1
+            FROM employee subject_employee
+            JOIN organization_identity assigned_organization
+              ON assigned_organization.organization_id =
+                    employment.organization_id
+             AND assigned_organization.company_id =
+                    subject_employee.company_id
+            WHERE subject_employee.employee_id = employment.employee_id
+        )
+        AND EXISTS (
+            SELECT 1
             <include refid="activeCapabilityScope"/>
               AND (
-                scope.scope_type = 'LEGAL_ENTITY'
-                AND scope.legal_entity_id = (
-                    SELECT identity.legal_entity_id
-                    FROM organization_identity identity
-                    WHERE identity.organization_id = employment.organization_id
+                scope.scope_type = 'COMPANY'
+                AND scope.company_id = (
+                    SELECT subject_employee.company_id
+                    FROM employee subject_employee
+                    WHERE subject_employee.employee_id =
+                            employment.employee_id
                 )
                 OR scope.scope_type = 'ORGANIZATION'
+                AND EXISTS (
+                    SELECT 1
+                    FROM organization_identity scoped_organization
+                    JOIN organization_identity assigned_organization
+                      ON assigned_organization.organization_id =
+                            employment.organization_id
+                     AND assigned_organization.company_id =
+                            scoped_organization.company_id
+                     AND assigned_organization.identity_status = 'ACTIVE'
+                    JOIN organization_current_projection assigned_projection
+                      ON assigned_projection.organization_id =
+                            assigned_organization.organization_id
+                    JOIN organization_version assigned_version
+                      ON assigned_version.organization_version_id =
+                            assigned_projection.current_version_id
+                     AND assigned_version.organization_id =
+                            assigned_organization.organization_id
+                     AND assigned_version.status = 'ACTIVE'
+                    JOIN organization_current_projection scoped_projection
+                      ON scoped_projection.organization_id =
+                            scoped_organization.organization_id
+                    JOIN organization_version scoped_version
+                      ON scoped_version.organization_version_id =
+                            scoped_projection.current_version_id
+                     AND scoped_version.organization_id =
+                            scoped_organization.organization_id
+                     AND scoped_version.status = 'ACTIVE'
+                    JOIN employee subject_employee
+                      ON subject_employee.employee_id =
+                            employment.employee_id
+                     AND subject_employee.company_id =
+                            assigned_organization.company_id
+                    WHERE scoped_organization.organization_id =
+                            scope.organization_id
+                      AND scoped_organization.identity_status = 'ACTIVE'
+                )
                 AND (
                     scope.organization_id = employment.organization_id
                     OR scope.include_descendants = TRUE AND EXISTS (

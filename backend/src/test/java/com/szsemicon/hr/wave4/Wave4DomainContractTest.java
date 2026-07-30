@@ -116,7 +116,7 @@ class Wave4DomainContractTest {
         EmployeeEmploymentResolverPort resolver = new EmployeeEmploymentResolverPort() {
             @Override
             public List<Resolution> resolveByEmployeeNumber(
-                    String legalEntityId,
+                    String companyId,
                     String employeeNumber,
                     Instant at) {
                 return switch (employeeNumber) {
@@ -130,7 +130,7 @@ class Wave4DomainContractTest {
 
             @Override
             public List<Resolution> resolveByConfirmedBinding(
-                    String legalEntityId,
+                    String companyId,
                     String locationId,
                     String deviceId,
                     ConfirmedBindingKind bindingKind,

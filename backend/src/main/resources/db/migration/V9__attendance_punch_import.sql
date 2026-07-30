@@ -119,7 +119,7 @@ CREATE TABLE punch_import_row (
     punch_import_row_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     punch_import_batch_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     punch_import_file_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    row_number INT UNSIGNED NOT NULL,
+    `row_number` INT UNSIGNED NOT NULL,
     raw_values_json JSON NOT NULL,
     stable_fingerprint CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
     employee_match_decision_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
@@ -130,9 +130,9 @@ CREATE TABLE punch_import_row (
     created_at DATETIME(6) NOT NULL,
     PRIMARY KEY (punch_import_row_id),
     UNIQUE KEY uq_punch_import_row_number
-        (punch_import_batch_id, punch_import_file_id, row_number),
+        (punch_import_batch_id, punch_import_file_id, `row_number`),
     KEY ix_punch_import_row_batch
-        (punch_import_batch_id, row_number, punch_import_row_id),
+        (punch_import_batch_id, `row_number`, punch_import_row_id),
     KEY ix_punch_import_row_fingerprint
         (stable_fingerprint, punch_import_row_id),
     CONSTRAINT fk_punch_import_row_batch
@@ -150,7 +150,7 @@ CREATE TABLE punch_import_row (
     CONSTRAINT fk_punch_import_row_event
         FOREIGN KEY (effective_attendance_event_id)
         REFERENCES effective_attendance_event (effective_attendance_event_id),
-    CONSTRAINT ck_punch_import_row_number CHECK (row_number BETWEEN 1 AND 50000)
+    CONSTRAINT ck_punch_import_row_number CHECK (`row_number` BETWEEN 1 AND 50000)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE punch_import_normalization_attempt (

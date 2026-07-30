@@ -1,5 +1,7 @@
 export type Wave7PeriodState = 'OPEN' | 'FROZEN' | 'CLOSED' | 'REOPENED';
 export type Wave7ScopeType = 'COMPANY' | 'ORGANIZATION' | 'ATTENDANCE_GROUP' | 'SELF';
+export type AttendanceReportScopeType =
+  Extract<Wave7ScopeType, 'COMPANY' | 'ORGANIZATION' | 'SELF'>;
 export type Wave7AllowedAction =
   | 'DASHBOARD_DRILL_DOWN'
   | 'FEEDBACK_CREATE'
@@ -203,7 +205,7 @@ export interface ReportRowProjection {
 export interface ReportFilterProjection {
   period: string;
   scopeReference: string;
-  legalEntityId?: string | null;
+  companyId?: string | null;
   organizationId?: string | null;
   employeeId?: string | null;
   status?: string | null;
@@ -211,7 +213,11 @@ export interface ReportFilterProjection {
 
 export interface ReportProjection {
   kind: 'REPORT';
-  metadata: Wave7ProjectionMetadata;
+  metadata: Omit<Wave7ProjectionMetadata, 'scope'> & {
+    scope: Omit<Wave7Scope, 'type'> & {
+      type: AttendanceReportScopeType;
+    };
+  };
   reportTitle: string;
   queryFingerprint: string;
   filters: ReportFilterProjection;
@@ -232,17 +238,17 @@ export interface AttendanceReportPageMetadata {
 export type LiveReportProjection = ReportProjection
   & AttendanceReportPageMetadata
   & {
-    filters: ReportFilterProjection & { legalEntityId: string };
+    filters: ReportFilterProjection & { companyId: string };
   };
 
-export interface AttendanceReportLegalEntityOption {
-  legalEntityId: string;
-  name: string;
+export interface AttendanceReportCompanyOption {
+  companyId: string;
+  companyName: string;
 }
 
-export interface AttendanceReportLegalEntityDirectory {
+export interface AttendanceReportCompanyDirectory {
   period: string;
-  legalEntities: AttendanceReportLegalEntityOption[];
+  companies: AttendanceReportCompanyOption[];
 }
 
 export const attendanceReportExportDeliveryModes = [
@@ -268,7 +274,7 @@ export interface AttendanceReportExportView {
   exportId: string;
   reportType: AttendanceReportType;
   period: string;
-  legalEntityId: string;
+  companyId: string;
   deliveryMode: AttendanceReportExportDeliveryMode;
   status: AttendanceReportExportStatus;
   purpose: string;
@@ -322,6 +328,11 @@ export type Wave7Projection =
 
 const periodStates: readonly Wave7PeriodState[] = ['OPEN', 'FROZEN', 'CLOSED', 'REOPENED'];
 const scopeTypes: readonly Wave7ScopeType[] = ['COMPANY', 'ORGANIZATION', 'ATTENDANCE_GROUP', 'SELF'];
+const attendanceReportScopeTypes: readonly AttendanceReportScopeType[] = [
+  'COMPANY',
+  'ORGANIZATION',
+  'SELF',
+];
 const allowedActions: readonly Wave7AllowedAction[] = [
   'DASHBOARD_DRILL_DOWN',
   'FEEDBACK_CREATE',
@@ -335,6 +346,21 @@ export function assertWave7Projection(value: unknown): asserts value is Wave7Pro
   assertString(candidate.kind, 'projection.kind');
   assertProjectionMetadata(candidate.metadata);
   if (candidate.kind === 'TODAY') {
+    assertOnlyKeys(
+      candidate,
+      [
+        'kind',
+        'metadata',
+        'businessDate',
+        'shiftLabel',
+        'firstEffectivePunch',
+        'lastEffectivePunch',
+        'attendanceStatus',
+        'confirmedMinutes',
+        'issueLabels',
+      ],
+      'today projection',
+    );
     assertString(candidate.businessDate, 'today.businessDate');
     assertString(candidate.attendanceStatus, 'today.attendanceStatus');
     assertNumber(candidate.confirmedMinutes, 'today.confirmedMinutes');
@@ -342,19 +368,39 @@ export function assertWave7Projection(value: unknown): asserts value is Wave7Pro
     return;
   }
   if (candidate.kind === 'RECORDS') {
+    assertOnlyKeys(
+      candidate,
+      ['kind', 'metadata', 'summary', 'records'],
+      'records projection',
+    );
     asRecord(candidate.summary, 'records.summary');
     assertArray(candidate.records, 'records.records');
     return;
   }
   if (candidate.kind === 'LEAVE') {
+    assertOnlyKeys(
+      candidate,
+      ['kind', 'metadata', 'accounts'],
+      'leave projection',
+    );
     assertArray(candidate.accounts, 'leave.accounts');
     return;
   }
   if (candidate.kind === 'FEEDBACK') {
+    assertOnlyKeys(
+      candidate,
+      ['kind', 'metadata', 'items'],
+      'feedback projection',
+    );
     assertArray(candidate.items, 'feedback.items');
     return;
   }
   if (candidate.kind === 'DASHBOARD') {
+    assertOnlyKeys(
+      candidate,
+      ['kind', 'metadata', 'title', 'metrics'],
+      'dashboard projection',
+    );
     assertString(candidate.title, 'dashboard.title');
     assertArray(candidate.metrics, 'dashboard.metrics');
     return;
@@ -374,14 +420,23 @@ export function assertLiveReportProjection(
   if (candidate.kind !== 'REPORT') {
     throw new TypeError('attendance report response kind must be REPORT');
   }
+  const metadata = asRecord(candidate.metadata, 'report.metadata');
+  const scope = asRecord(metadata.scope, 'report.metadata.scope');
+  if (
+    !attendanceReportScopeTypes.includes(
+      scope.type as AttendanceReportScopeType,
+    )
+  ) {
+    throw new TypeError('report.metadata.scope.type is invalid');
+  }
   if (!attendanceReportTypes.includes(candidate.reportType as AttendanceReportType)) {
     throw new TypeError('report.reportType is invalid');
   }
   assertString(candidate.formulaVersion, 'report.formulaVersion');
   const filters = asRecord(candidate.filters, 'report.filters');
   assertBoundedString(
-    filters.legalEntityId,
-    'report.filters.legalEntityId',
+    filters.companyId,
+    'report.filters.companyId',
     36,
   );
   assertNonNegativeInteger(candidate.page, 'report.page');
@@ -399,40 +454,50 @@ export function hasLiveReportMetadata(
     && 'totalPages' in projection;
 }
 
-export function assertAttendanceReportLegalEntityDirectory(
+export function assertAttendanceReportCompanyDirectory(
   value: unknown,
-): asserts value is AttendanceReportLegalEntityDirectory {
-  const candidate = asRecord(value, 'attendance report legal entity directory');
+): asserts value is AttendanceReportCompanyDirectory {
+  const candidate = asRecord(value, 'attendance report company directory');
+  assertOnlyKeys(
+    candidate,
+    ['period', 'companies'],
+    'attendance report company directory',
+  );
   assertYearMonth(
     candidate.period,
-    'attendance report legal entity directory period',
+    'attendance report company directory period',
   );
   assertArray(
-    candidate.legalEntities,
-    'attendance report legal entity directory legalEntities',
+    candidate.companies,
+    'attendance report company directory companies',
   );
   const identifiers = new Set<string>();
-  for (const [index, value] of candidate.legalEntities.entries()) {
+  for (const [index, value] of candidate.companies.entries()) {
     const option = asRecord(
       value,
-      `attendance report legal entity directory legalEntities[${index}]`,
+      `attendance report company directory companies[${index}]`,
+    );
+    assertOnlyKeys(
+      option,
+      ['companyId', 'companyName'],
+      `attendance report company directory companies[${index}]`,
     );
     assertBoundedString(
-      option.legalEntityId,
-      `attendance report legal entity directory legalEntities[${index}].legalEntityId`,
+      option.companyId,
+      `attendance report company directory companies[${index}].companyId`,
       36,
     );
     assertBoundedString(
-      option.name,
-      `attendance report legal entity directory legalEntities[${index}].name`,
+      option.companyName,
+      `attendance report company directory companies[${index}].companyName`,
       200,
     );
-    if (identifiers.has(option.legalEntityId as string)) {
+    if (identifiers.has(option.companyId as string)) {
       throw new TypeError(
-        'attendance report legal entity directory contains duplicate ids',
+        'attendance report company directory contains duplicate ids',
       );
     }
-    identifiers.add(option.legalEntityId as string);
+    identifiers.add(option.companyId as string);
   }
 }
 
@@ -440,6 +505,22 @@ export function assertAttendanceReportExportView(
   value: unknown,
 ): asserts value is AttendanceReportExportView {
   const candidate = asRecord(value, 'attendance report export');
+  assertOnlyKeys(
+    candidate,
+    [
+      'exportId',
+      'reportType',
+      'period',
+      'companyId',
+      'deliveryMode',
+      'status',
+      'purpose',
+      'rowCount',
+      'expiresAt',
+      'completedAt',
+    ],
+    'attendance report export',
+  );
   if (
     typeof candidate.exportId !== 'string'
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
@@ -453,8 +534,8 @@ export function assertAttendanceReportExportView(
   }
   assertYearMonth(candidate.period, 'attendance report export period');
   assertBoundedString(
-    candidate.legalEntityId,
-    'attendance report export legalEntityId',
+    candidate.companyId,
+    'attendance report export companyId',
     36,
   );
   if (
@@ -537,12 +618,44 @@ function hasUnsafeTextControl(value: string): boolean {
 }
 
 function assertReportProjection(candidate: Record<string, unknown>): void {
+  assertOnlyKeys(
+    candidate,
+    [
+      'kind',
+      'metadata',
+      'reportTitle',
+      'queryFingerprint',
+      'filters',
+      'columns',
+      'exportFieldAllowlist',
+      'rowCount',
+      'rows',
+      'reportType',
+      'formulaVersion',
+      'page',
+      'size',
+      'totalPages',
+    ],
+    'report projection',
+  );
   assertString(candidate.reportTitle, 'report.reportTitle');
   assertString(candidate.queryFingerprint, 'report.queryFingerprint');
   const filters = asRecord(candidate.filters, 'report.filters');
+  assertOnlyKeys(
+    filters,
+    [
+      'period',
+      'scopeReference',
+      'companyId',
+      'organizationId',
+      'employeeId',
+      'status',
+    ],
+    'report.filters',
+  );
   assertYearMonth(filters.period, 'report.filters.period');
   assertString(filters.scopeReference, 'report.filters.scopeReference');
-  assertNullableString(filters.legalEntityId, 'report.filters.legalEntityId');
+  assertNullableString(filters.companyId, 'report.filters.companyId');
   assertNullableString(filters.organizationId, 'report.filters.organizationId');
   assertNullableString(filters.employeeId, 'report.filters.employeeId');
   assertNullableString(filters.status, 'report.filters.status');
@@ -551,6 +664,11 @@ function assertReportProjection(candidate: Record<string, unknown>): void {
   const visibleColumns = new Set<ReportColumnKey>();
   for (const [index, value] of candidate.columns.entries()) {
     const column = asRecord(value, `report.columns[${index}]`);
+    assertOnlyKeys(
+      column,
+      ['key', 'label'],
+      `report.columns[${index}]`,
+    );
     assertReportColumnKey(column.key, `report.columns[${index}].key`);
     assertString(column.label, `report.columns[${index}].label`);
     if (visibleColumns.has(column.key as ReportColumnKey)) {
@@ -571,6 +689,11 @@ function assertReportProjection(candidate: Record<string, unknown>): void {
   assertArray(candidate.rows, 'report.rows');
   for (const [index, value] of candidate.rows.entries()) {
     const row = asRecord(value, `report.rows[${index}]`);
+    assertOnlyKeys(
+      row,
+      ['rowReference', 'values', 'drillDownReference'],
+      `report.rows[${index}]`,
+    );
     assertString(row.rowReference, `report.rows[${index}].rowReference`);
     const values = asRecord(row.values, `report.rows[${index}].values`);
     for (const [key, cell] of Object.entries(values)) {
@@ -596,6 +719,20 @@ function assertReportProjection(candidate: Record<string, unknown>): void {
 
 function assertProjectionMetadata(value: unknown): asserts value is Wave7ProjectionMetadata {
   const metadata = asRecord(value, 'projection.metadata');
+  assertOnlyKeys(
+    metadata,
+    [
+      'projectionVersion',
+      'sourceVersions',
+      'dataAsOf',
+      'timeZone',
+      'periodLabel',
+      'periodState',
+      'scope',
+      'allowedActions',
+    ],
+    'projection.metadata',
+  );
   assertString(metadata.projectionVersion, 'metadata.projectionVersion');
   assertStringArray(metadata.sourceVersions, 'metadata.sourceVersions');
   assertString(metadata.dataAsOf, 'metadata.dataAsOf');
@@ -607,6 +744,11 @@ function assertProjectionMetadata(value: unknown): asserts value is Wave7Project
     throw new TypeError('metadata.periodState is invalid');
   }
   const scope = asRecord(metadata.scope, 'metadata.scope');
+  assertOnlyKeys(
+    scope,
+    ['type', 'reference', 'label'],
+    'metadata.scope',
+  );
   if (!scopeTypes.includes(scope.type as Wave7ScopeType)) {
     throw new TypeError('metadata.scope.type is invalid');
   }
@@ -623,6 +765,17 @@ function asRecord(value: unknown, label: string): Record<string, unknown> {
     throw new TypeError(`${label} must be an object`);
   }
   return value as Record<string, unknown>;
+}
+
+function assertOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  label: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  if (Object.keys(value).some((key) => !allowed.has(key))) {
+    throw new TypeError(`${label} contains an unsupported property`);
+  }
 }
 
 function assertString(value: unknown, label: string): asserts value is string {

@@ -4,17 +4,17 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportProjectionWriteMapper">
 
-    <select id="lockLegalEntity" resultType="string">
-        SELECT legal_entity.legal_entity_id
-        FROM legal_entity legal_entity
-        WHERE legal_entity.legal_entity_id = #{legalEntityId}
+    <select id="lockCompany" resultType="string">
+        SELECT company.company_id
+        FROM company company
+        WHERE company.company_id = #{companyId}
         FOR UPDATE
     </select>
 
     <select id="findLatestPublished"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportProjectionWriteRows$StoredProjectionRow">
         SELECT projection.attendance_report_projection_id AS projection_id,
-               projection.legal_entity_id,
+               projection.company_id,
                projection.period_start,
                projection.period_end_exclusive,
                projection.period_state,
@@ -27,7 +27,7 @@
                projection.data_as_of,
                projection.published_at
         FROM attendance_report_projection projection
-        WHERE projection.legal_entity_id = #{legalEntityId}
+        WHERE projection.company_id = #{companyId}
           AND projection.period_start = #{periodStart}
           AND projection.status = 'PUBLISHED'
         ORDER BY projection.published_at DESC,
@@ -39,7 +39,7 @@
     <select id="findByDigest"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportProjectionWriteRows$StoredProjectionRow">
         SELECT projection.attendance_report_projection_id AS projection_id,
-               projection.legal_entity_id,
+               projection.company_id,
                projection.period_start,
                projection.period_end_exclusive,
                projection.period_state,
@@ -52,7 +52,7 @@
                projection.data_as_of,
                projection.published_at
         FROM attendance_report_projection projection
-        WHERE projection.legal_entity_id = #{legalEntityId}
+        WHERE projection.company_id = #{companyId}
           AND projection.period_start = #{periodStart}
           AND projection.projection_digest = #{projectionDigest}
         FOR UPDATE
@@ -61,7 +61,7 @@
     <insert id="insertDraft">
         INSERT INTO attendance_report_projection (
             attendance_report_projection_id,
-            legal_entity_id,
+            company_id,
             period_start,
             period_end_exclusive,
             period_state,
@@ -77,7 +77,7 @@
             created_at
         )
         SELECT #{projectionId},
-               legal_entity.legal_entity_id,
+               company.company_id,
                #{periodStart},
                #{periodEndExclusive},
                #{periodState},
@@ -91,18 +91,18 @@
                NULL,
                principal.principal_id,
                #{createdAt}
-        FROM legal_entity legal_entity
+        FROM company company
         JOIN auth_principal principal
           ON principal.principal_id = #{createdBy}
          AND principal.status = 'ACTIVE'
-        WHERE legal_entity.legal_entity_id = #{legalEntityId}
+        WHERE company.company_id = #{companyId}
     </insert>
 
     <insert id="insertDailyFact">
         INSERT INTO attendance_report_daily_fact (
             attendance_report_daily_fact_id,
             attendance_report_projection_id,
-            legal_entity_id,
+            company_id,
             employee_id,
             employee_version_id,
             employment_period_id,
@@ -129,7 +129,7 @@
         )
         SELECT #{rowId},
                projection.attendance_report_projection_id,
-               projection.legal_entity_id,
+               projection.company_id,
                employee.employee_id,
                employee_version.employee_version_id,
                employment.assignment_id,
@@ -156,7 +156,7 @@
         FROM attendance_report_projection projection
         JOIN employee employee
           ON employee.employee_id = #{employeeId}
-         AND employee.legal_entity_id = projection.legal_entity_id
+         AND employee.company_id = projection.company_id
         JOIN employee_version employee_version
           ON employee_version.employee_version_id = #{employeeVersionId}
          AND employee_version.employee_id = employee.employee_id
@@ -176,7 +176,7 @@
         JOIN organization_identity organization
           ON organization.organization_id = #{organizationId}
          AND organization.organization_id = employment.organization_id
-         AND organization.legal_entity_id = projection.legal_entity_id
+         AND organization.company_id = projection.company_id
         JOIN organization_version organization_version
           ON organization_version.organization_version_id =
              #{organizationVersionId}
@@ -190,7 +190,7 @@
                    &gt; #{businessDate}
          )
         WHERE projection.attendance_report_projection_id = #{projectionId}
-          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.company_id = #{companyId}
           AND projection.status = 'DRAFT'
     </insert>
 
@@ -198,7 +198,7 @@
         INSERT INTO attendance_report_exception_fact (
             attendance_report_exception_fact_id,
             attendance_report_projection_id,
-            legal_entity_id,
+            company_id,
             exception_case_id,
             employee_id,
             employee_version_id,
@@ -215,7 +215,7 @@
         )
         SELECT #{rowId},
                projection.attendance_report_projection_id,
-               projection.legal_entity_id,
+               projection.company_id,
                #{exceptionCaseId},
                employee.employee_id,
                employee_version.employee_version_id,
@@ -232,7 +232,7 @@
         FROM attendance_report_projection projection
         JOIN employee employee
           ON employee.employee_id = #{employeeId}
-         AND employee.legal_entity_id = projection.legal_entity_id
+         AND employee.company_id = projection.company_id
         JOIN employee_version employee_version
           ON employee_version.employee_version_id = #{employeeVersionId}
          AND employee_version.employee_id = employee.employee_id
@@ -252,7 +252,7 @@
         JOIN organization_identity organization
           ON organization.organization_id = #{organizationId}
          AND organization.organization_id = employment.organization_id
-         AND organization.legal_entity_id = projection.legal_entity_id
+         AND organization.company_id = projection.company_id
         JOIN organization_version organization_version
           ON organization_version.organization_version_id =
              #{organizationVersionId}
@@ -266,7 +266,7 @@
                    &gt; #{businessDate}
          )
         WHERE projection.attendance_report_projection_id = #{projectionId}
-          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.company_id = #{companyId}
           AND projection.status = 'DRAFT'
     </insert>
 
@@ -283,7 +283,7 @@
         INSERT INTO attendance_report_oa_fact (
             attendance_report_oa_fact_id,
             attendance_report_projection_id,
-            legal_entity_id,
+            company_id,
             oa_attendance_document_id,
             employee_id,
             employee_version_id,
@@ -303,7 +303,7 @@
         )
         SELECT #{rowId},
                projection.attendance_report_projection_id,
-               projection.legal_entity_id,
+               projection.company_id,
                document.oa_attendance_document_id,
                employee.employee_id,
                employee_version.employee_version_id,
@@ -338,7 +338,7 @@
         JOIN raw_attendance_fact raw_fact
           ON raw_fact.raw_attendance_fact_id =
              normalized.raw_attendance_fact_id
-         AND raw_fact.legal_entity_id = projection.legal_entity_id
+         AND raw_fact.company_id = projection.company_id
          AND raw_fact.fact_kind = 'OA_DOCUMENT'
         JOIN employee_match_decision match_decision
           ON match_decision.normalized_attendance_record_id =
@@ -349,7 +349,7 @@
              #{employmentAssignmentId}
         JOIN employee employee
           ON employee.employee_id = match_decision.employee_id
-         AND employee.legal_entity_id = projection.legal_entity_id
+         AND employee.company_id = projection.company_id
         JOIN employee_version employee_version
           ON employee_version.employee_version_id = #{employeeVersionId}
          AND employee_version.employee_id = employee.employee_id
@@ -360,14 +360,14 @@
          AND employment.organization_id = #{organizationId}
         JOIN organization_identity organization
           ON organization.organization_id = employment.organization_id
-         AND organization.legal_entity_id = projection.legal_entity_id
+         AND organization.company_id = projection.company_id
         JOIN organization_version organization_version
           ON organization_version.organization_version_id =
              #{organizationVersionId}
          AND organization_version.organization_id =
              organization.organization_id
         WHERE projection.attendance_report_projection_id = #{projectionId}
-          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.company_id = #{companyId}
           AND projection.status = 'DRAFT'
     </insert>
 
@@ -382,7 +382,7 @@
         INSERT INTO attendance_report_time_account_fact (
             attendance_report_time_account_fact_id,
             attendance_report_projection_id,
-            legal_entity_id,
+            company_id,
             account_id,
             employee_id,
             employee_version_id,
@@ -402,7 +402,7 @@
         )
         SELECT #{rowId},
                projection.attendance_report_projection_id,
-               projection.legal_entity_id,
+               projection.company_id,
                #{accountId},
                employee.employee_id,
                employee_version.employee_version_id,
@@ -422,20 +422,20 @@
         FROM attendance_report_projection projection
         JOIN employee employee
           ON employee.employee_id = #{employeeId}
-         AND employee.legal_entity_id = projection.legal_entity_id
+         AND employee.company_id = projection.company_id
         JOIN employee_version employee_version
           ON employee_version.employee_version_id = #{employeeVersionId}
          AND employee_version.employee_id = employee.employee_id
         JOIN organization_identity organization
           ON organization.organization_id = #{organizationId}
-         AND organization.legal_entity_id = projection.legal_entity_id
+         AND organization.company_id = projection.company_id
         JOIN organization_version organization_version
           ON organization_version.organization_version_id =
              #{organizationVersionId}
          AND organization_version.organization_id =
              organization.organization_id
         WHERE projection.attendance_report_projection_id = #{projectionId}
-          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.company_id = #{companyId}
           AND projection.status = 'DRAFT'
     </insert>
 

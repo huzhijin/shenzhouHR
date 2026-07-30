@@ -803,7 +803,7 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
         open={locationOpen}
         processing={processing}
         initialValues={editingLocation ? {
-          legalEntityId: editingLocation.legalEntityId,
+          companyId: editingLocation.companyId,
           code: editingLocation.code,
           name: editingLocation.name,
           timeZone: editingLocation.timeZone,
@@ -819,7 +819,7 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
         open={groupOpen}
         processing={processing}
         initialValues={editingGroup ? {
-          legalEntityId: editingGroup.legalEntityId,
+          companyId: editingGroup.companyId,
           code: editingGroup.code,
           name: editingGroup.name,
           locationId: editingGroup.locationId,

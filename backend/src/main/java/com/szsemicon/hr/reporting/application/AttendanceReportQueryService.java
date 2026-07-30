@@ -60,13 +60,13 @@ public class AttendanceReportQueryService {
     }
 
     @Transactional(readOnly = true)
-    public List<AttendanceReportSourceRepository.LegalEntityOption>
-            legalEntities(YearMonth period) {
+    public List<AttendanceReportSourceRepository.CompanyOption>
+            companies(YearMonth period) {
         if (period == null) {
             throw new IllegalArgumentException("period is required");
         }
         capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_READ);
-        return repository.listAuthorizedLegalEntities(
+        return repository.listAuthorizedCompanies(
                 principalProvider.currentPrincipalId(),
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 period,
@@ -77,7 +77,7 @@ public class AttendanceReportQueryService {
     public AttendanceReportPage query(
             ReportType reportType,
             YearMonth period,
-            String legalEntityId,
+            String companyId,
             String organizationId,
             String employeeId,
             String status,
@@ -95,7 +95,7 @@ public class AttendanceReportQueryService {
         ReportFilter filter =
                 new ReportFilter(
                         period,
-                        legalEntityId,
+                        companyId,
                         organizationId,
                         employeeId,
                         status);
@@ -169,7 +169,7 @@ public class AttendanceReportQueryService {
                     "\n",
                     type.name(),
                     filter.period().toString(),
-                    value(filter.legalEntityId()),
+                    value(filter.companyId()),
                     value(filter.organizationId()),
                     value(filter.employeeId()),
                     value(filter.status()),

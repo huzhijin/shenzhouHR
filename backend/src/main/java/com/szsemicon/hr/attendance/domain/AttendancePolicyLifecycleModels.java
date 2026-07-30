@@ -35,7 +35,7 @@ public final class AttendancePolicyLifecycleModels {
             String scopedVersionId,
             String scopeId,
             String templateId,
-            String legalEntityId,
+            String companyId,
             AttendancePolicyModels.PolicyKind policyKind,
             int versionNumber,
             ScopedVersionStatus status,

@@ -90,7 +90,7 @@ class AttendanceResultDifferenceEngineTest {
         return new CalculationVersion(
                 versionId,
                 new RecalculationTarget(
-                        "synthetic-legal-entity",
+                        "synthetic-company",
                         "synthetic-employee-001",
                         SyntheticAttendanceFixtures.BUSINESS_DATE),
                 inputDigest,

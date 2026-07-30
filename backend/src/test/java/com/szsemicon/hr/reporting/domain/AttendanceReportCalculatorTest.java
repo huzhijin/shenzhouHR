@@ -172,7 +172,7 @@ class AttendanceReportCalculatorTest {
         var original = base.dailyFacts().getFirst();
         var moved = new DailyFact(
                 "day-a-after-transfer",
-                original.legalEntityId(),
+                original.companyId(),
                 original.employeeId(),
                 original.employeeNumber(),
                 original.employeeName(),
@@ -223,8 +223,8 @@ class AttendanceReportCalculatorTest {
             String organizationId, String employeeId) {
         return new ReportSourceSnapshot(
                 new AuthorizedScope(
-                        ScopeType.LEGAL_ENTITY,
-                        "scope:legal-entity-a",
+                        ScopeType.COMPANY,
+                        "scope:company-a",
                         "神州公司",
                         "scope-digest"),
                 new ReportFilter(

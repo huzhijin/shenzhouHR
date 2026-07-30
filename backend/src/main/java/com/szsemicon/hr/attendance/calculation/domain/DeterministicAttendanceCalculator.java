@@ -848,7 +848,7 @@ public final class DeterministicAttendanceCalculator {
             String type,
             List<String> references) {
         List<String> parts = new ArrayList<>(List.of(
-                snapshot.legalEntityId(),
+                snapshot.companyId(),
                 snapshot.employeeId(),
                 snapshot.businessDate().toString(),
                 segmentId,

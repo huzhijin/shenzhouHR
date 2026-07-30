@@ -10,7 +10,7 @@ final class AttendanceGroupRows {
 
     record LocationRow(
             String locationId,
-            String legalEntityId,
+            String companyId,
             String locationCode,
             String locationRevisionId,
             int revisionNumber,
@@ -30,7 +30,7 @@ final class AttendanceGroupRows {
 
     record GroupRow(
             String attendanceGroupId,
-            String legalEntityId,
+            String companyId,
             String groupCode,
             String attendanceGroupRevisionId,
             int revisionNumber,

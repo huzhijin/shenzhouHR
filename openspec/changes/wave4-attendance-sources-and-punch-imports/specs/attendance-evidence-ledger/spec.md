@@ -68,7 +68,7 @@ The system SHALL use source instance + business key + source version when a sour
 - **THEN** only one raw fact exists for that version and each retry returns the same ingestion outcome
 
 #### Scenario: Fingerprint blocks a byte-equivalent record
-- **WHEN** a record without source ID repeats with the same legal entity, location, device, person/employee, normalized instant and direction
+- **WHEN** a record without source ID repeats with the same company, location, device, person/employee, normalized instant and direction
 - **THEN** it is recognized as an exact duplicate and creates no additional raw punch
 
 #### Scenario: Legitimate second punch remains
@@ -159,7 +159,7 @@ An authorized evidence query SHALL return the source label, raw-reference metada
 - **THEN** the server returns the permitted explanation with those fields absent or redacted and records no false raw-access audit
 
 #### Scenario: Cross-scope event is hidden
-- **WHEN** a caller requests an event outside legal-entity/location/organization scope
+- **WHEN** a caller requests an event outside company/location/organization scope
 - **THEN** the server returns the configured non-disclosing 404 path before selecting sensitive rows
 
 ### Requirement: Period protection blocks effective publication but not raw staging

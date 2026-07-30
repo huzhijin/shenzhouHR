@@ -119,14 +119,27 @@ SEED_ORACLE = (
 SEED_ORACLE_SHA256 = (
     "2f74955cf1bf8ac83a743f63666187a03e549e0fba5ebb120d61c1067dacea6d"
 )
-API_SEMANTIC_ORACLE = (
+API_SEMANTIC_ORACLE_V1 = (
     REPOSITORY_ROOT
     / "openspec/changes/wave3-attendance-setup-and-policies/specs/"
     "wave3-verification/oracles/w3-api-semantic-oracle-v1.json"
 )
-API_SEMANTIC_ORACLE_SHA256 = (
+API_SEMANTIC_ORACLE_V1_SHA256 = (
     "b0f04f6abd556ca81478b93a37ce5464396e6d37335b330552c9f43313da40e4"
 )
+API_SEMANTIC_ORACLE = (
+    REPOSITORY_ROOT
+    / "openspec/changes/wave3-attendance-setup-and-policies/specs/"
+    "wave3-verification/oracles/w3-api-semantic-oracle-v2.json"
+)
+API_SEMANTIC_ORACLE_SHA256 = (
+    "a46bfd9444a1b42a7668fb138f85c4afc97b481237bccc79160ccb1c6c7481cc"
+)
+API_SEMANTIC_REVIEWED_CHANGES = [
+    "54 operations use ATTENDANCE_SETUP:COMPANY as the reviewed top-level data scope",
+    "11 company-bound request/view schemas and 11 linked Java records use companyId",
+    "AttendancePolicyMatchedMealWindowView is included in the reviewed 54-schema closure",
+]
 OPENAPI = REPOSITORY_ROOT / "api/openapi.yaml"
 MYSQL_ISOLATION = REPOSITORY_ROOT / "deploy/mysql/mysql8410-isolated.sh"
 MYSQL_WAVE3 = REPOSITORY_ROOT / "deploy/mysql/wave3-local-mysql.sh"
@@ -1414,9 +1427,9 @@ def build_review_owned_api_snapshot(
         key=lambda item: (item[1], item[0]),
     )
     return {
-        "version": 1,
+        "version": 2,
         "authority": (
-            "Wave-3 review-owned attendance setup API semantics; "
+            "Wave-3 review-owned attendance setup company-current API semantics; "
             "independent of Controller/OpenAPI/Java runtime derivation"
         ),
         "operationCount": len(keys),
@@ -1447,12 +1460,18 @@ def build_review_owned_api_snapshot(
             }
             for method, path in keys
         ],
+        "reviewedChanges": list(API_SEMANTIC_REVIEWED_CHANGES),
         "schemas": review_schema_export(document, openapi),
         "javaRecords": review_java_record_export(),
     }
 
 
 def load_review_owned_api_oracle() -> dict[str, Any]:
+    if (
+        sha256_file(API_SEMANTIC_ORACLE_V1)
+        != API_SEMANTIC_ORACLE_V1_SHA256
+    ):
+        fail("frozen v1 API semantic oracle SHA256 drifted")
     if sha256_file(API_SEMANTIC_ORACLE) != API_SEMANTIC_ORACLE_SHA256:
         fail("review-owned API semantic oracle SHA256 drifted")
     value = load_json(API_SEMANTIC_ORACLE, "review-owned API semantic oracle")
@@ -1464,17 +1483,19 @@ def load_review_owned_api_oracle() -> dict[str, Any]:
         "operationCount",
         "errorResponseContracts",
         "operations",
+        "reviewedChanges",
         "schemas",
         "javaRecords",
     }
     if (
         set(value) != expected_keys
-        or value.get("version") != 1
+        or value.get("version") != 2
         or value.get("operationCount") != 54
         or not isinstance(value.get("operations"), list)
         or len(value["operations"]) != 54
         or not isinstance(value.get("errorResponseContracts"), list)
         or len(value["errorResponseContracts"]) != 1
+        or value.get("reviewedChanges") != API_SEMANTIC_REVIEWED_CHANGES
         or not isinstance(value.get("schemas"), list)
         or not isinstance(value.get("javaRecords"), list)
     ):
@@ -1874,7 +1895,7 @@ def compare_operation_closure(
             or operation["capability"] != expected_capability(*key)
         ):
             differences.append(f"{label}: capability")
-        if operation["dataScope"] != "ATTENDANCE_SETUP:LEGAL_ENTITY":
+        if operation["dataScope"] != "ATTENDANCE_SETUP:COMPANY":
             differences.append(f"{label}: dataScope")
         controller_parameters = {
             (value["in"], value["name"]): value
@@ -1975,14 +1996,14 @@ def compare_operation_closure(
             key[1].startswith("/attendance-setup/policy-lifecycle/")
             and "{templateId}" in key[1]
         ):
-            lifecycle_parameter = ("query", "legalEntityId")
+            lifecycle_parameter = ("query", "companyId")
             if lifecycle_parameter not in controller_parameters:
                 differences.append(
-                    f"{label}: controller missing lifecycle legalEntityId"
+                    f"{label}: controller missing lifecycle companyId"
                 )
             if lifecycle_parameter not in openapi_parameters:
                 differences.append(
-                    f"{label}: OpenAPI missing lifecycle legalEntityId"
+                    f"{label}: OpenAPI missing lifecycle companyId"
                 )
         controller_body = controller["requestBody"]
         operation_body = operation["requestSchema"]
@@ -5707,7 +5728,7 @@ def self_test() -> None:
                 for value in operation["parameters"]
                 if not (
                     value["in"] == "query"
-                    and value["name"] == "legalEntityId"
+                    and value["name"] == "companyId"
                 )
                 and not (
                     value["in"] == "header"

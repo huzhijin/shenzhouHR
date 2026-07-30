@@ -16,7 +16,7 @@ import type {
 } from './peopleImportTypes';
 
 const syntheticActor = 'synthetic-people-admin';
-const syntheticLegalEntity = 'synthetic-legal-entity-jiangsu';
+const syntheticCompany = 'synthetic-company-jiangsu';
 const now = '2026-07-25T03:20:00Z';
 const digest = 'a'.repeat(64);
 
@@ -101,7 +101,7 @@ export function createDemoBatch(input: PeopleImportCreateRequest): PeopleImportB
   const batchId = demoPeopleImportStore.nextBatchId();
   return demoPeopleImportStore.replaceBatch({
     batchId,
-    legalEntityId: input.legalEntityId || syntheticLegalEntity,
+    companyId: input.companyId || syntheticCompany,
     templateType: input.templateType,
     templateVersion: input.templateVersion,
     status: 'DRAFT',

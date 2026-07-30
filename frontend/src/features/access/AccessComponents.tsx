@@ -191,7 +191,7 @@ const capabilityActionLabels: Readonly<Record<string, string>> = {
 };
 
 const roleScopeLabels: Readonly<Record<string, string>> = {
-  LEGAL_ENTITY: '公司范围',
+  COMPANY: '公司范围',
   ORGANIZATION: '组织范围',
   SELF: '仅本人',
 };

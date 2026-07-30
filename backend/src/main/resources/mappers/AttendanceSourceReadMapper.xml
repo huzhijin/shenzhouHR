@@ -20,16 +20,18 @@
               AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
               AND data_scope.valid_from &lt;= #{at}
               AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
-              AND data_scope.scope_type = 'LEGAL_ENTITY'
-              AND data_scope.legal_entity_id = source.legal_entity_id
+              AND data_scope.scope_type = 'COMPANY'
+              AND data_scope.company_id = source.company_id
         )
     </sql>
 
     <!--
       OA document rows are employee facts, not source-administration metadata.
-      Authorization is therefore evaluated against the matched employee and the
-      employment assignment captured for that fact.  Keep this fragment shared by
-      count and data queries so pagination cannot disclose out-of-scope counts.
+      The matched employment remains immutable fact context. Organization
+      authorization is evaluated independently against the employee's current
+      effective employment at the authorization instant, so a former department
+      cannot retain access after a transfer. Keep this fragment shared by count
+      and data queries so pagination cannot disclose out-of-scope counts.
       Unmatched/quarantined rows deliberately do not satisfy this predicate.
     -->
     <sql id="oaDocumentVisibility">
@@ -56,34 +58,107 @@
               AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
               AND (
                     (
-                        data_scope.scope_type = 'LEGAL_ENTITY'
-                        AND data_scope.legal_entity_id = source.legal_entity_id
-                        AND employee.legal_entity_id = source.legal_entity_id
+                        data_scope.scope_type = 'COMPANY'
+                        AND data_scope.company_id = source.company_id
+                        AND employee.company_id = source.company_id
                     )
                     OR (
                         data_scope.scope_type = 'ORGANIZATION'
-                        AND (
-                            (
-                                data_scope.include_descendants = FALSE
-                                AND data_scope.organization_id =
-                                    employment.organization_id
-                            )
-                            OR (
-                                data_scope.include_descendants = TRUE
-                                AND EXISTS (
-                                    SELECT 1
-                                    FROM organization_current_closure closure
-                                    WHERE closure.ancestor_organization_id =
-                                            data_scope.organization_id
-                                      AND closure.descendant_organization_id =
-                                            employment.organization_id
+                        AND employee.company_id = source.company_id
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employment_assignment current_employment
+                            JOIN organization_identity
+                                    assigned_organization
+                              ON assigned_organization.organization_id =
+                                    current_employment.organization_id
+                             AND assigned_organization.company_id =
+                                    employee.company_id
+                             AND assigned_organization.identity_status =
+                                    'ACTIVE'
+                            JOIN organization_current_projection
+                                    assigned_projection
+                              ON assigned_projection.organization_id =
+                                    assigned_organization.organization_id
+                            JOIN organization_version assigned_version
+                              ON assigned_version.organization_version_id =
+                                    assigned_projection.current_version_id
+                             AND assigned_version.organization_id =
+                                    assigned_organization.organization_id
+                             AND assigned_version.status = 'ACTIVE'
+                             AND assigned_version.effective_from &lt;= #{at}
+                             AND (
+                                    assigned_version.effective_to IS NULL
+                                    OR assigned_version.effective_to &gt; #{at}
+                             )
+                            JOIN organization_identity
+                                    scoped_organization
+                              ON scoped_organization.organization_id =
+                                    data_scope.organization_id
+                             AND scoped_organization.company_id =
+                                    assigned_organization.company_id
+                             AND scoped_organization.identity_status = 'ACTIVE'
+                            JOIN organization_current_projection
+                                    scoped_projection
+                              ON scoped_projection.organization_id =
+                                    scoped_organization.organization_id
+                            JOIN organization_version scoped_version
+                              ON scoped_version.organization_version_id =
+                                    scoped_projection.current_version_id
+                             AND scoped_version.organization_id =
+                                    scoped_organization.organization_id
+                             AND scoped_version.status = 'ACTIVE'
+                             AND scoped_version.effective_from &lt;= #{at}
+                             AND (
+                                    scoped_version.effective_to IS NULL
+                                    OR scoped_version.effective_to &gt; #{at}
+                             )
+                            WHERE scoped_organization.organization_id =
+                                    data_scope.organization_id
+                              AND scoped_organization.company_id =
+                                    source.company_id
+                              AND current_employment.employee_id =
+                                    match_decision.employee_id
+                              AND current_employment.version_valid_to IS NULL
+                              AND current_employment.record_status = 'ACTIVE'
+                              AND current_employment.effective_from &lt;= #{at}
+                              AND (
+                                    current_employment.effective_to IS NULL
+                                    OR current_employment.effective_to &gt; #{at}
+                              )
+                              AND (
+                                    (
+                                        data_scope.include_descendants = FALSE
+                                        AND data_scope.organization_id =
+                                            current_employment.organization_id
+                                    )
+                                    OR (
+                                        data_scope.include_descendants = TRUE
+                                        AND EXISTS (
+                                            SELECT 1
+                                            FROM organization_current_closure closure
+                                            WHERE closure.ancestor_organization_id =
+                                                    data_scope.organization_id
+                                              AND closure.descendant_organization_id =
+                                                    current_employment.organization_id
+                                        )
+                                    )
                                 )
-                            )
                         )
                     )
                     OR (
                         data_scope.scope_type = 'SELF'
                         AND principal.employee_id = match_decision.employee_id
+                        AND employee.company_id = source.company_id
+                        AND EXISTS (
+                            SELECT 1
+                            FROM organization_identity
+                                    assigned_organization
+                            WHERE assigned_organization.organization_id =
+                                    employment.organization_id
+                              AND assigned_organization.company_id =
+                                    source.company_id
+                        )
                     )
               )
         )
@@ -98,7 +173,7 @@
     <select id="listSources"
             resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$SourceView">
         SELECT source.attendance_source_id AS source_id,
-               source.legal_entity_id,
+               source.company_id,
                source.source_type,
                source.source_code AS code,
                source.display_name,

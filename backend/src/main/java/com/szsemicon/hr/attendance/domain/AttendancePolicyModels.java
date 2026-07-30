@@ -35,7 +35,7 @@ public final class AttendancePolicyModels {
             String bindingId,
             String bindingRevisionId,
             int revisionNumber,
-            String legalEntityId,
+            String companyId,
             PolicyKind policyKind,
             String policyVersionId,
             String groupId,

@@ -94,7 +94,7 @@ class Wave3OpenApiContractTest {
                     .isIn(WAVE3_CAPABILITIES);
             assertThat(value.get("x-data-scope"))
                     .as(operation.label() + " data scope")
-                    .isEqualTo("ATTENDANCE_SETUP:LEGAL_ENTITY");
+                    .isEqualTo("ATTENDANCE_SETUP:COMPANY");
 
             Map<String, Object> responses = map(value.get("responses"));
             assertThat(responses)
@@ -249,7 +249,7 @@ class Wave3OpenApiContractTest {
                 "endDayOffset", 1);
         Map<String, Object> fixtures = object(
                 "AttendanceLocationView", object(
-                        "locationId", "loc-1", "legalEntityId", "le-1",
+                        "locationId", "loc-1", "companyId", "le-1",
                         "code", "SHANGHAI",
                         "locationRevisionId", "location-revision-1",
                         "revisionNumber", 1, "name", "上海园区",
@@ -259,7 +259,7 @@ class Wave3OpenApiContractTest {
                         "rowVersion", 2L, "changeReason", "启用地点",
                         "updatedAt", "2026-07-26T10:00:00Z"),
                 "AttendanceGroupView", object(
-                        "groupId", "group-1", "legalEntityId", "le-1",
+                        "groupId", "group-1", "companyId", "le-1",
                         "code", "DEFAULT", "name", "默认考勤组",
                         "groupRevisionId", "group-revision-1", "revisionNumber", 2,
                         "locationId", "loc-1", "locationRevisionId", "location-revision-1",
@@ -277,7 +277,7 @@ class Wave3OpenApiContractTest {
                         "changeReason", "分配默认考勤组",
                         "updatedAt", "2026-07-26T10:00:00Z"),
                 "ShiftTemplateView", object(
-                        "shiftId", "shift-1", "legalEntityId", "le-1",
+                        "shiftId", "shift-1", "companyId", "le-1",
                         "locationId", "loc-1", "code", "NIGHT",
                         "name", "夜班", "status", "ACTIVE",
                         "rowVersion", 1L, "changeReason", "启用夜班",
@@ -293,7 +293,7 @@ class Wave3OpenApiContractTest {
                         "publishedAt", "2026-07-26T10:00:00Z",
                         "updatedAt", "2026-07-26T10:00:00Z"),
                 "WorkCalendarView", object(
-                        "calendarId", "calendar-1", "legalEntityId", "le-1",
+                        "calendarId", "calendar-1", "companyId", "le-1",
                         "locationId", "loc-1", "code", "CN_2026",
                         "calendarVersionId", "calendar-version-1",
                         "versionNumber", 1, "name", "2026 工作日历",
@@ -314,7 +314,7 @@ class Wave3OpenApiContractTest {
                 "AttendancePolicyBindingView", object(
                         "bindingId", "binding-1",
                         "bindingRevisionId", "binding-revision-1",
-                        "revisionNumber", 1, "legalEntityId", "le-1",
+                        "revisionNumber", 1, "companyId", "le-1",
                         "policyKind", "LATE_GRACE",
                         "policyVersionId", "policy-version-1", "groupId", "group-1",
                         "groupRevisionId", "group-revision-1",
@@ -362,7 +362,7 @@ class Wave3OpenApiContractTest {
                 "scopedVersionId", "policy-version-1",
                 "scopeId", "scope-1",
                 "templateId", "template-1",
-                "legalEntityId", "legal-entity-1",
+                "companyId", "company-1",
                 "policyKind", "MEAL_DEDUCTION",
                 "versionNumber", 2,
                 "status", "VALIDATED",
@@ -536,7 +536,7 @@ class Wave3OpenApiContractTest {
                 .containsEntry("x-capability", "ATTENDANCE_SETUP:READ")
                 .containsEntry(
                         "x-data-scope",
-                        "ATTENDANCE_SETUP:LEGAL_ENTITY");
+                        "ATTENDANCE_SETUP:COMPANY");
         Map<String, Object> success = map(
                 map(operation.value().get("responses")).get("200"));
         Map<String, Object> schema = map(map(

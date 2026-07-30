@@ -12,6 +12,9 @@ class AttendanceReportProjectionPublicationSqlContractTest {
     private static final Path MIGRATION = Path.of(
             "src/main/resources/db/migration/"
                     + "V10__formal_attendance_reporting.sql");
+    private static final Path COMPANY_MIGRATION = Path.of(
+            "src/main/resources/db/migration/"
+                    + "V11__unify_company_dimension.sql");
     private static final Path MAPPER = Path.of(
             "src/main/resources/mappers/"
                     + "AttendanceReportProjectionWriteMapper.xml");
@@ -20,6 +23,7 @@ class AttendanceReportProjectionPublicationSqlContractTest {
     void projectionSchemaMakesContentIdempotentAndDraftPublishExplicit()
             throws Exception {
         String sql = normalize(Files.readString(MIGRATION));
+        String companySql = normalize(Files.readString(COMPANY_MIGRATION));
 
         assertThat(sql)
                 .contains("UNIQUE KEY uq_att_report_projection_content "
@@ -29,6 +33,10 @@ class AttendanceReportProjectionPublicationSqlContractTest {
                 .contains("(status = 'DRAFT' AND published_at IS NULL)")
                 .contains("(status = 'PUBLISHED' "
                         + "AND published_at IS NOT NULL)");
+        assertThat(companySql).contains(
+                "ALTER TABLE attendance_report_projection "
+                        + "RENAME COLUMN legal_entity_id TO company_id, "
+                        + "ALGORITHM = INPLACE;");
     }
 
     @Test

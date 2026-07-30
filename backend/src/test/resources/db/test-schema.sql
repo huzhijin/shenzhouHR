@@ -1,5 +1,5 @@
-CREATE TABLE legal_entity (
-    legal_entity_id VARCHAR(36) PRIMARY KEY,
+CREATE TABLE company (
+    company_id VARCHAR(36) PRIMARY KEY,
     code VARCHAR(64) NOT NULL UNIQUE,
     name VARCHAR(200) NOT NULL,
     status VARCHAR(32) NOT NULL,
@@ -34,16 +34,26 @@ CREATE TABLE auth_capability (
 CREATE TABLE auth_data_scope (
     scope_id VARCHAR(36) PRIMARY KEY,
     scope_type VARCHAR(32) NOT NULL,
-    legal_entity_id VARCHAR(36),
+    company_id VARCHAR(36),
     organization_id VARCHAR(36),
     include_descendants BOOLEAN NOT NULL,
     valid_from TIMESTAMP NOT NULL,
-    valid_to TIMESTAMP
+    valid_to TIMESTAMP,
+    CONSTRAINT fk_test_auth_scope_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT ck_test_auth_scope_target CHECK (
+        (scope_type = 'COMPANY' AND company_id IS NOT NULL
+            AND organization_id IS NULL)
+        OR (scope_type = 'ORGANIZATION' AND company_id IS NULL
+            AND organization_id IS NOT NULL)
+        OR (scope_type = 'SELF' AND company_id IS NULL
+            AND organization_id IS NULL)
+    )
 );
 
 CREATE TABLE organization_identity (
     organization_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     identity_status VARCHAR(32) NOT NULL
 );
 ALTER TABLE organization_identity ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL;
@@ -85,7 +95,7 @@ CREATE TABLE organization_source_binding (
 
 CREATE TABLE employee (
     employee_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     display_name VARCHAR(100) NOT NULL,
     employment_status VARCHAR(32) NOT NULL
 );
@@ -380,7 +390,7 @@ ALTER TABLE employment_assignment ADD COLUMN record_status VARCHAR(32) DEFAULT '
 
 CREATE TABLE people_import_batch (
     batch_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     template_type VARCHAR(32) NOT NULL,
     template_version VARCHAR(32) NOT NULL,
     status VARCHAR(32) NOT NULL,
@@ -442,7 +452,7 @@ CREATE TABLE people_import_issue (
 CREATE TABLE people_import_publication (
     publication_id VARCHAR(36) PRIMARY KEY,
     batch_id VARCHAR(36) NOT NULL UNIQUE,
-    legal_entity_id VARCHAR(36),
+    company_id VARCHAR(36),
     template_type VARCHAR(32),
     template_version VARCHAR(32),
     file_sha256 CHAR(64) NOT NULL,
@@ -453,7 +463,7 @@ CREATE TABLE people_import_publication (
     published_by VARCHAR(36) NOT NULL,
     published_at TIMESTAMP NOT NULL,
     UNIQUE (published_by, idempotency_key),
-    UNIQUE (legal_entity_id, template_type, template_version, file_sha256)
+    UNIQUE (company_id, template_type, template_version, file_sha256)
 );
 
 CREATE TABLE people_import_rollback (
@@ -524,14 +534,14 @@ CREATE TABLE prior_service_record (
 
 CREATE TABLE location (
     location_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_code VARCHAR(64) NOT NULL,
     row_version BIGINT DEFAULT 0 NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, location_code),
-    CONSTRAINT fk_test_location_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, location_code),
+    CONSTRAINT fk_test_location_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_location_created_by
         FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
 );
@@ -563,14 +573,14 @@ CREATE TABLE location_revision (
 
 CREATE TABLE shift_template (
     shift_template_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_id VARCHAR(36) NOT NULL,
     template_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, template_code),
-    CONSTRAINT fk_test_shift_template_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, template_code),
+    CONSTRAINT fk_test_shift_template_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_shift_template_location
         FOREIGN KEY (location_id) REFERENCES location (location_id),
     CONSTRAINT fk_test_shift_template_created_by
@@ -603,14 +613,14 @@ CREATE TABLE shift_version (
 
 CREATE TABLE work_calendar (
     work_calendar_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_id VARCHAR(36) NOT NULL,
     calendar_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, calendar_code),
-    CONSTRAINT fk_test_work_calendar_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, calendar_code),
+    CONSTRAINT fk_test_work_calendar_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_work_calendar_location
         FOREIGN KEY (location_id) REFERENCES location (location_id),
     CONSTRAINT fk_test_work_calendar_created_by
@@ -670,13 +680,13 @@ CREATE TABLE work_calendar_day (
 
 CREATE TABLE attendance_group (
     attendance_group_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     group_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, group_code),
-    CONSTRAINT fk_test_attendance_group_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, group_code),
+    CONSTRAINT fk_test_attendance_group_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_attendance_group_created_by
         FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
 );
@@ -911,16 +921,16 @@ CREATE TABLE attendance_policy_template (
 CREATE TABLE attendance_policy_scope (
     scope_id VARCHAR(36) PRIMARY KEY,
     policy_template_id VARCHAR(36) NOT NULL,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     row_version BIGINT DEFAULT 0 NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (policy_template_id, legal_entity_id),
+    UNIQUE (policy_template_id, company_id),
     CONSTRAINT fk_test_attendance_policy_scope_template
         FOREIGN KEY (policy_template_id)
         REFERENCES attendance_policy_template (policy_template_id),
-    CONSTRAINT fk_test_attendance_policy_scope_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id)
+    CONSTRAINT fk_test_attendance_policy_scope_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id)
 );
 
 CREATE TABLE attendance_policy_scoped_version (

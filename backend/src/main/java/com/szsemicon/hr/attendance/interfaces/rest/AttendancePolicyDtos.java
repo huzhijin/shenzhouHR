@@ -49,7 +49,7 @@ final class AttendancePolicyDtos {
             String bindingId,
             String bindingRevisionId,
             int revisionNumber,
-            String legalEntityId,
+            String companyId,
             String policyKind,
             String policyVersionId,
             String groupId,
@@ -145,7 +145,7 @@ final class AttendancePolicyDtos {
     static BindingView binding(PolicyBinding value) {
         return new BindingView(
                 value.bindingId(), value.bindingRevisionId(),
-                value.revisionNumber(), value.legalEntityId(),
+                value.revisionNumber(), value.companyId(),
                 value.policyKind().name(),
                 value.policyVersionId(), value.groupId(),
                 value.groupRevisionId(),

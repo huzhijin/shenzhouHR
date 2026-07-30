@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Location and group history uses immutable revisions and timelines
-The system SHALL manage stable location and attendance-group identities, immutable business-content revisions and append-only effective timeline facts within legal-entity/data scope. Historical rows SHALL NOT be deleted or have business `effective_to/status/timezone/references` updated in place.
+The system SHALL manage stable location and attendance-group identities, immutable business-content revisions and append-only effective timeline facts within company/data scope. Historical rows SHALL NOT be deleted or have business `effective_to/status/timezone/references` updated in place.
 
 #### Scenario: Create a group with immutable content
 - **WHEN** an authorized actor creates a valid future group
@@ -23,7 +23,7 @@ The system SHALL manage stable location and attendance-group identities, immutab
 Each group revision SHALL reference an immutable location revision plus stable shift and calendar families. It SHALL NOT permanently reference concrete shift/calendar versions. Resolver SHALL derive exactly one business-date-effective PUBLISHED version for each family.
 
 #### Scenario: Different groups resolve different configuration
-- **WHEN** two groups share legal entity/location/timezone/date but reference different shift or calendar families
+- **WHEN** two groups share company/location/timezone/date but reference different shift or calendar families
 - **THEN** each resolves its own immutable versions and distinct correct full-configuration digest
 
 #### Scenario: Preserve old digest after future rollover
@@ -84,7 +84,7 @@ The system SHALL assign an existing W2 employee using immutable assignment conte
 - **THEN** stable 409 is returned and no assignment/success audit commits
 
 #### Scenario: Reject inactive or cross-entity group
-- **WHEN** assignment targets an inactive revision or another legal entity
+- **WHEN** assignment targets an inactive revision or another company
 - **THEN** the safe 404/409 contract is returned with no assignment
 
 #### Scenario: Validate actual effective configuration
@@ -124,14 +124,14 @@ Create/rollover/deactivate/assignment operations SHALL bind actor, operation, re
 - **THEN** one at most succeeds; the loser has stable failure audit and no success audit
 
 ### Requirement: Attendance group operations enforce capability, scope and safe disclosure
-Every service operation SHALL enforce capability and legal-entity/object scope. HR_ADMIN/SYSTEM_ADMIN may manage authorized data; AUDITOR is read-only; cross-scope and unknown identities use the same safe response.
+Every service operation SHALL enforce capability and company/object scope. HR_ADMIN/SYSTEM_ADMIN may manage authorized data; AUDITOR is read-only; cross-scope and unknown identities use the same safe response.
 
 #### Scenario: Auditor cannot mutate
 - **WHEN** AUDITOR reads an authorized group then attempts a write
 - **THEN** read succeeds, write returns 403, business state and success audit remain unchanged
 
 #### Scenario: Cross-scope identity is indistinguishable
-- **WHEN** a principal requests another legal entity’s group
+- **WHEN** a principal requests another company’s group
 - **THEN** response matches unknown-group 404 and reveals no metadata
 
 ### Requirement: Group/location/revision/assignment lists are stably paginated

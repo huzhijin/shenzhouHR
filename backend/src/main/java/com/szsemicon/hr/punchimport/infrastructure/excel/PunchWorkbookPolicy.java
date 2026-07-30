@@ -34,7 +34,7 @@ public final class PunchWorkbookPolicy {
             "note");
 
     public static final List<String> DEVICE_MAPPING_FIELDS = List.of(
-            "legalEntityCode",
+            "companyCode",
             "locationCode",
             "deviceRef",
             "deviceName",

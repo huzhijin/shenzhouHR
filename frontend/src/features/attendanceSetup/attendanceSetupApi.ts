@@ -1044,7 +1044,7 @@ export function updatePolicyBinding(
 
 export function listAttendancePolicyVersions(
   templateId: string,
-  legalEntityId: string,
+  companyId: string,
   page = 0,
   size = 20,
 ): Promise<Page<AttendancePolicyVersionSummary>> {
@@ -1056,7 +1056,7 @@ export function listAttendancePolicyVersions(
     ));
   }
   const params = new URLSearchParams({
-    legalEntityId,
+    companyId,
     page: String(page),
     size: String(size),
   });
@@ -1067,13 +1067,13 @@ export function listAttendancePolicyVersions(
 
 export function getAttendancePolicyVersion(
   templateId: string,
-  legalEntityId: string,
+  companyId: string,
   versionId: string,
 ): Promise<AttendancePolicyVersionView> {
   if (isDemoMode()) {
     const version = demoPolicyVersions.find(
       (candidate) => candidate.templateId === templateId
-        && candidate.legalEntityId === legalEntityId
+        && candidate.companyId === companyId
         && candidate.scopedVersionId === versionId,
     );
     return version
@@ -1083,7 +1083,7 @@ export function getAttendancePolicyVersion(
         retryable: false,
       }));
   }
-  const params = new URLSearchParams({ legalEntityId });
+  const params = new URLSearchParams({ companyId });
   return requestJson<AttendancePolicyVersionView>(
     `${basePath}/policy-lifecycle/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}?${params}`,
   );
@@ -1110,7 +1110,7 @@ export function getAttendancePolicyVersionContext(
 
 export function createAttendancePolicyDraft(
   templateId: string,
-  legalEntityId: string,
+  companyId: string,
   input: AttendancePolicyDraftInput,
 ): Promise<AttendancePolicyVersionView> {
   if (isDemoMode()) {
@@ -1119,7 +1119,7 @@ export function createAttendancePolicyDraft(
     return Promise.resolve({
       ...base,
       scopedVersionId: 'demo-policy-draft',
-      legalEntityId,
+      companyId,
       versionNumber: base.versionNumber + 1,
       status: 'DRAFT',
       effectiveFrom: input.effectiveFrom,
@@ -1131,7 +1131,7 @@ export function createAttendancePolicyDraft(
       validation: { valid: false, issues: [], validatedAt: null },
     });
   }
-  const params = new URLSearchParams({ legalEntityId });
+  const params = new URLSearchParams({ companyId });
   return requestJson<AttendancePolicyVersionView>(
     `${basePath}/policy-lifecycle/${encodeURIComponent(templateId)}/versions?${params}`,
     {
@@ -1157,7 +1157,7 @@ export function updateAttendancePolicyDraft(
       validation: { valid: false, issues: [], validatedAt: null },
     });
   }
-  const params = new URLSearchParams({ legalEntityId: version.legalEntityId });
+  const params = new URLSearchParams({ companyId: version.companyId });
   return requestJson<AttendancePolicyVersionView>(
     `${basePath}/policy-lifecycle/${encodeURIComponent(version.templateId)}/versions/${encodeURIComponent(version.scopedVersionId)}?${params}`,
     {
@@ -1185,7 +1185,7 @@ export function validateAttendancePolicyVersion(
       validatedAt: '2026-07-26T08:00:00Z',
     });
   }
-  const params = new URLSearchParams({ legalEntityId: version.legalEntityId });
+  const params = new URLSearchParams({ companyId: version.companyId });
   return requestJson<PolicyValidationResult>(
     `${basePath}/policy-lifecycle/${encodeURIComponent(version.templateId)}/versions/${encodeURIComponent(version.scopedVersionId)}/validate?${params}`,
     {
@@ -1236,7 +1236,7 @@ export function rollbackAttendancePolicyVersion(
       changeReason: reason,
     });
   }
-  const params = new URLSearchParams({ legalEntityId: version.legalEntityId });
+  const params = new URLSearchParams({ companyId: version.companyId });
   return requestJson<AttendancePolicyVersionView>(
     `${basePath}/policy-lifecycle/${encodeURIComponent(version.templateId)}/versions/${encodeURIComponent(version.scopedVersionId)}/rollback?${params}`,
     {
@@ -1349,7 +1349,7 @@ function changePolicyVersionLifecycle(
         : version.deactivationEffectiveFrom,
     });
   }
-  const params = new URLSearchParams({ legalEntityId: version.legalEntityId });
+  const params = new URLSearchParams({ companyId: version.companyId });
   return requestJson<AttendancePolicyVersionView>(
     `${basePath}/policy-lifecycle/${encodeURIComponent(version.templateId)}/versions/${encodeURIComponent(version.scopedVersionId)}/${action}?${params}`,
     {

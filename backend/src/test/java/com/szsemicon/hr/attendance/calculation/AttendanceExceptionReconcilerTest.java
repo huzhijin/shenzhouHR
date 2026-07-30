@@ -57,7 +57,7 @@ class AttendanceExceptionReconcilerTest {
     private ExceptionFinding finding(String calculationVersionId) {
         return new ExceptionFinding(
                 "synthetic-missing-punch-fingerprint",
-                "synthetic-legal-entity",
+                "synthetic-company",
                 "synthetic-employee-001",
                 SyntheticAttendanceFixtures.BUSINESS_DATE,
                 "synthetic-segment-am",

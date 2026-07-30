@@ -21,7 +21,7 @@ class DeliAttendanceSourceOpenApiContractTest {
                 .contains("x-capability: ATTENDANCE_SOURCE:RUN")
                 .contains("x-capability: ATTENDANCE_SOURCE:READ")
                 .contains("x-capability: ATTENDANCE_SOURCE:RETRY")
-                .contains("x-data-scope: ATTENDANCE_SOURCE:LEGAL_ENTITY")
+                .contains("x-data-scope: ATTENDANCE_SOURCE:COMPANY")
                 .contains(
                         "$ref: '#/components/schemas/"
                                 + "DeliSourceRegistrationRequest'")

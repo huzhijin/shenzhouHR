@@ -26,7 +26,7 @@ class AttendanceReportMapperXmlTest {
 
         assertThat(configuration.getMappedStatementNames())
                 .contains(
-                        NAMESPACE + "listAuthorizedLegalEntities",
+                        NAMESPACE + "listAuthorizedCompanies",
                         NAMESPACE + "listLatestAuthorizedProjections",
                         NAMESPACE + "listAuthorizedScopes",
                         NAMESPACE + "listAuthorizedDailyFacts",
@@ -43,7 +43,7 @@ class AttendanceReportMapperXmlTest {
                 "capabilityCode", "ATTENDANCE_REPORT:READ",
                 "periodStart", LocalDate.of(2026, 7, 1),
                 "periodEndExclusive", LocalDate.of(2026, 8, 1),
-                "legalEntityId", "company-a",
+                "companyId", "company-a",
                 "authorizationTime",
                         Instant.parse("2026-07-29T00:00:00Z"));
         String sql = configuration()
@@ -80,7 +80,7 @@ class AttendanceReportMapperXmlTest {
         """
         CREATE TABLE attendance_report_projection (
             attendance_report_projection_id VARCHAR(36),
-            legal_entity_id VARCHAR(36),
+            company_id VARCHAR(36),
             period_start DATE,
             period_end_exclusive DATE,
             projection_version VARCHAR(128),
@@ -123,7 +123,7 @@ class AttendanceReportMapperXmlTest {
         CREATE TABLE auth_data_scope (
             scope_id VARCHAR(36),
             scope_type VARCHAR(32),
-            legal_entity_id VARCHAR(36),
+            company_id VARCHAR(36),
             organization_id VARCHAR(36),
             valid_from TIMESTAMP,
             valid_to TIMESTAMP
@@ -132,7 +132,7 @@ class AttendanceReportMapperXmlTest {
         """
         CREATE TABLE organization_identity (
             organization_id VARCHAR(36),
-            legal_entity_id VARCHAR(36),
+            company_id VARCHAR(36),
             identity_status VARCHAR(32)
         )
         """,
@@ -154,7 +154,7 @@ class AttendanceReportMapperXmlTest {
         """
         CREATE TABLE employee (
             employee_id VARCHAR(36),
-            legal_entity_id VARCHAR(36)
+            company_id VARCHAR(36)
         )
         """
     };

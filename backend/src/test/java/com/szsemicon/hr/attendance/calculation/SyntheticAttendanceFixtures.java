@@ -80,7 +80,7 @@ final class SyntheticAttendanceFixtures {
             CalculationPolicy policy,
             Instant knowledgeCutoff) {
         return new CalculationInputSnapshot(
-                "synthetic-legal-entity",
+                "synthetic-company",
                 "synthetic-employee-001",
                 "synthetic-employment-period",
                 BUSINESS_DATE,

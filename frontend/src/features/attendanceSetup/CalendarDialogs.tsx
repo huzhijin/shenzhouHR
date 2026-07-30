@@ -56,7 +56,7 @@ export function CalendarDialog({
         }}
         onFinish={onSubmit}
       >
-        <Form.Item label={t('attendanceSetup.legalEntityId')} name="legalEntityId" rules={[required()]}>
+        <Form.Item label={t('attendanceSetup.companyId')} name="companyId" rules={[required()]}>
           <Input autoComplete="off" disabled={intent !== 'create-family'} />
         </Form.Item>
         <Form.Item label={t('attendanceSetup.locationId')} name="locationId" rules={[required()]}>

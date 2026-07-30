@@ -17,10 +17,27 @@ class OaDocumentDataScopeSqlContractTest {
 
         assertThat(xml)
                 .contains("<sql id=\"oaDocumentVisibility\">")
-                .contains("data_scope.scope_type = 'LEGAL_ENTITY'")
+                .contains("data_scope.scope_type = 'COMPANY'")
                 .contains("data_scope.scope_type = 'ORGANIZATION'")
                 .contains("data_scope.scope_type = 'SELF'")
                 .contains("organization_current_closure closure")
+                .contains("employment_assignment current_employment")
+                .contains("current_employment.employee_id =")
+                .contains("match_decision.employee_id")
+                .contains("current_employment.version_valid_to IS NULL")
+                .contains("current_employment.record_status = 'ACTIVE'")
+                .contains("current_employment.effective_from &lt;= #{at}")
+                .contains("current_employment.effective_to &gt; #{at}")
+                .contains("assigned_organization.company_id =")
+                .contains("employee.company_id")
+                .contains("assigned_organization.identity_status =")
+                .contains("assigned_projection.current_version_id")
+                .contains("assigned_version.status = 'ACTIVE'")
+                .contains("scoped_organization.company_id =")
+                .contains("source.company_id")
+                .contains("scoped_organization.identity_status = 'ACTIVE'")
+                .contains("scoped_projection.current_version_id")
+                .contains("scoped_version.status = 'ACTIVE'")
                 .contains("data_scope.include_descendants = FALSE")
                 .contains("data_scope.include_descendants = TRUE")
                 .contains("principal.employee_id = match_decision.employee_id")
@@ -53,6 +70,24 @@ class OaDocumentDataScopeSqlContractTest {
                 .contains("JOIN employee_match_decision match_decision")
                 .contains("match_decision.match_status = 'MATCHED'")
                 .contains("<include refid=\"oaDocumentVisibility\"/>");
+    }
+
+    @Test
+    void historicalMatchedEmploymentIsFactOnlyAndCannotAuthorizeFormerDepartment()
+            throws Exception {
+        String visibility = between(
+                Files.readString(MAPPER),
+                "<sql id=\"oaDocumentVisibility\">",
+                "</sql>");
+
+        assertThat(visibility)
+                .contains("employment_assignment current_employment")
+                .contains("current_employment.organization_id")
+                .doesNotContain(
+                        "data_scope.organization_id =\n"
+                                + "                                    employment.organization_id",
+                        "closure.descendant_organization_id =\n"
+                                + "                                            employment.organization_id");
     }
 
     private static int count(String value, String token) {

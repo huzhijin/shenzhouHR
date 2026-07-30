@@ -129,7 +129,7 @@ export interface PriorServiceRecordPage {
 }
 
 export interface EmployeeCreateRequest {
-  legalEntityId: string;
+  companyId: string;
   employeeNumber: string;
   displayName: string;
   externalEmployeeId?: string | null;

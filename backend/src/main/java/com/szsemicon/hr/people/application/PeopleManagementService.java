@@ -71,7 +71,7 @@ public class PeopleManagementService {
                 command.code(), command.name(), command.organizationType(),
                 "ACTIVE", command.effectiveFrom(), null, command.reason());
         requireIdempotencyKey(idempotencyKey);
-        requireLegalEntity(CapabilityCodes.ORGANIZATION_CREATE, command.legalEntityId());
+        requireCompany(CapabilityCodes.ORGANIZATION_CREATE, command.companyId());
         String actor = principalProvider.currentPrincipalId();
         String requestDigest = digest(command);
         IdempotencyRecord existing = existing(
@@ -80,26 +80,26 @@ public class PeopleManagementService {
             return repository.findCurrentOrganization(existing.resourceId())
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         }
-        repository.lockLegalEntity(command.legalEntityId());
+        repository.lockCompany(command.companyId());
         if (command.parentOrganizationId() != null) {
             OrganizationVersion parent = requireOrganization(
                     command.parentOrganizationId(), CapabilityCodes.ORGANIZATION_CREATE, null);
-            if (!parent.legalEntityId().equals(command.legalEntityId())) {
+            if (!parent.companyId().equals(command.companyId())) {
                 throw new ResourceNotAvailableAccessDeniedException();
             }
         }
         if (repository.organizationCodeExists(
-                command.legalEntityId(), command.code().trim(), null)) {
+                command.companyId(), command.code().trim(), null)) {
             throw conflict("ORGANIZATION_CODE_CONFLICT", "组织编码已经存在");
         }
         Instant now = clock.instant();
         String organizationId = UUID.randomUUID().toString();
         repository.createOrganizationIdentity(
-                organizationId, command.legalEntityId(), "ACTIVE", now);
+                organizationId, command.companyId(), "ACTIVE", now);
         OrganizationVersion version = new OrganizationVersion(
                 UUID.randomUUID().toString(),
                 organizationId,
-                command.legalEntityId(),
+                command.companyId(),
                 command.parentOrganizationId(),
                 command.code().trim(),
                 command.name().trim(),
@@ -147,7 +147,7 @@ public class PeopleManagementService {
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         }
         requireExpected(current.rowVersion(), expectedVersion);
-        repository.lockLegalEntity(current.legalEntityId());
+        repository.lockCompany(current.companyId());
         current = repository.findCurrentOrganization(organizationId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         requireExpected(current.rowVersion(), expectedVersion);
@@ -156,7 +156,7 @@ public class PeopleManagementService {
         if (command.parentOrganizationId() != null) {
             OrganizationVersion parent = requireOrganization(
                     command.parentOrganizationId(), CapabilityCodes.ORGANIZATION_EDIT, null);
-            if (!parent.legalEntityId().equals(current.legalEntityId())) {
+            if (!parent.companyId().equals(current.companyId())) {
                 throw new ResourceNotAvailableAccessDeniedException();
             }
         }
@@ -165,7 +165,7 @@ public class PeopleManagementService {
             throw conflict("ORGANIZATION_PARENT_CYCLE", "上级组织会形成环");
         }
         if (repository.organizationCodeExists(
-                current.legalEntityId(), command.code().trim(), organizationId)) {
+                current.companyId(), command.code().trim(), organizationId)) {
             throw conflict("ORGANIZATION_CODE_CONFLICT", "组织编码已经存在");
         }
         Instant now = clock.instant();
@@ -176,7 +176,7 @@ public class PeopleManagementService {
         OrganizationVersion version = new OrganizationVersion(
                 UUID.randomUUID().toString(),
                 organizationId,
-                current.legalEntityId(),
+                current.companyId(),
                 command.parentOrganizationId(),
                 command.code().trim(),
                 command.name().trim(),
@@ -229,7 +229,7 @@ public class PeopleManagementService {
                 command.employeeNumber(), command.displayName(), "ACTIVE",
                 command.effectiveFrom(), null, command.reason());
         requireIdempotencyKey(idempotencyKey);
-        requireLegalEntity(CapabilityCodes.EMPLOYEE_CREATE, command.legalEntityId());
+        requireCompany(CapabilityCodes.EMPLOYEE_CREATE, command.companyId());
         String actor = principalProvider.currentPrincipalId();
         String requestDigest = digest(command);
         IdempotencyRecord existing = existing(
@@ -241,9 +241,9 @@ public class PeopleManagementService {
                     null,
                     CapabilityCodes.EMPLOYEE_CREATE);
         }
-        repository.lockLegalEntity(command.legalEntityId());
+        repository.lockCompany(command.companyId());
         if (repository.employeeNumberExists(
-                command.legalEntityId(), command.employeeNumber().trim(), null)) {
+                command.companyId(), command.employeeNumber().trim(), null)) {
             throw conflict("EMPLOYEE_NUMBER_CONFLICT", "员工编号已经存在");
         }
         if (command.externalEmployeeId() != null) {
@@ -253,7 +253,7 @@ public class PeopleManagementService {
         String employeeId = UUID.randomUUID().toString();
         repository.createEmployeeIdentity(
                 employeeId,
-                command.legalEntityId(),
+                command.companyId(),
                 command.employeeNumber().trim(),
                 command.displayName().trim(),
                 "ACTIVE",
@@ -262,7 +262,7 @@ public class PeopleManagementService {
         EmployeeVersion version = new EmployeeVersion(
                 UUID.randomUUID().toString(),
                 employeeId,
-                command.legalEntityId(),
+                command.companyId(),
                 command.employeeNumber().trim(),
                 command.displayName().trim(),
                 "ACTIVE",
@@ -309,7 +309,7 @@ public class PeopleManagementService {
                     CapabilityCodes.EMPLOYEE_EDIT);
         }
         requireExpected(current.rowVersion(), expectedVersion);
-        repository.lockLegalEntity(current.legalEntityId());
+        repository.lockCompany(current.companyId());
         repository.lockEmployee(employeeId);
         current = repository.findCurrentEmployee(employeeId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
@@ -317,7 +317,7 @@ public class PeopleManagementService {
         requireNextVersionDate(
                 current.effectiveFrom(), current.effectiveTo(), command.effectiveFrom());
         if (repository.employeeNumberExists(
-                current.legalEntityId(), command.employeeNumber().trim(), employeeId)) {
+                current.companyId(), command.employeeNumber().trim(), employeeId)) {
             throw conflict("EMPLOYEE_NUMBER_CONFLICT", "员工编号已经存在");
         }
         Instant now = clock.instant();
@@ -333,7 +333,7 @@ public class PeopleManagementService {
         EmployeeVersion version = new EmployeeVersion(
                 UUID.randomUUID().toString(),
                 employeeId,
-                current.legalEntityId(),
+                current.companyId(),
                 command.employeeNumber().trim(),
                 command.displayName().trim(),
                 command.status(),
@@ -415,7 +415,7 @@ public class PeopleManagementService {
                 employeeId, CapabilityCodes.EMPLOYMENT_CREATE);
         OrganizationVersion organization = requireOrganization(
                 command.organizationId(), CapabilityCodes.EMPLOYMENT_CREATE, null);
-        if (!organization.legalEntityId().equals(employee.legalEntityId())) {
+        if (!organization.companyId().equals(employee.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         String actor = principalProvider.currentPrincipalId();
@@ -431,10 +431,10 @@ public class PeopleManagementService {
         }
         requireExpected(employee.rowVersion(), expectedVersion);
         Instant now = clock.instant();
-        repository.lockLegalEntity(employee.legalEntityId());
+        repository.lockCompany(employee.companyId());
         repository.lockEmployee(employeeId);
-        assertActiveOrganizationInLegalEntity(
-                command.organizationId(), employee.legalEntityId());
+        assertActiveOrganizationInCompany(
+                command.organizationId(), employee.companyId());
         LocalDate endExclusive = command.terminationDate() == null
                 ? null
                 : command.terminationDate().plusDays(1);
@@ -483,7 +483,7 @@ public class PeopleManagementService {
                 requireEmployeeForHistory(employeeId, CapabilityCodes.EMPLOYMENT_EDIT);
         OrganizationVersion organization =
                 requireOrganization(command.organizationId(), CapabilityCodes.EMPLOYMENT_EDIT, null);
-        if (!organization.legalEntityId().equals(employee.legalEntityId())) {
+        if (!organization.companyId().equals(employee.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         EmploymentPeriod current = repository.findCurrentEmploymentPeriodVersion(
@@ -508,10 +508,10 @@ public class PeopleManagementService {
         LocalDate endExclusive = command.terminationDate() == null
                 ? null
                 : command.terminationDate().plusDays(1);
-        repository.lockLegalEntity(employee.legalEntityId());
+        repository.lockCompany(employee.companyId());
         repository.lockEmployee(employeeId);
-        assertActiveOrganizationInLegalEntity(
-                command.organizationId(), employee.legalEntityId());
+        assertActiveOrganizationInCompany(
+                command.organizationId(), employee.companyId());
         if (repository.hasEmploymentOverlap(
                 employeeId, command.startDate(), endExclusive, employmentPeriodId)) {
             throw conflict("EMPLOYMENT_PERIOD_OVERLAP", "任职周期与现有周期重叠");
@@ -680,11 +680,11 @@ public class PeopleManagementService {
         return organization;
     }
 
-    private void assertActiveOrganizationInLegalEntity(
-            String organizationId, String legalEntityId) {
+    private void assertActiveOrganizationInCompany(
+            String organizationId, String companyId) {
         OrganizationVersion current = repository.findCurrentOrganization(organizationId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        if (!current.legalEntityId().equals(legalEntityId)
+        if (!current.companyId().equals(companyId)
                 || !"ACTIVE".equals(current.status())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -697,10 +697,9 @@ public class PeopleManagementService {
                 ? repository.findCurrentEmployee(employeeId)
                 : repository.findEmployeeAsOf(employeeId, asOf))
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        LocalDate scopeDate = asOf == null ? LocalDate.now(clock) : asOf;
         if (!repository.canAccessEmployee(
                 principalProvider.currentPrincipalId(), capability, employeeId,
-                scopeDate, clock.instant())) {
+                LocalDate.now(clock), clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         return employee;
@@ -711,9 +710,9 @@ public class PeopleManagementService {
         capabilityService.require(capability);
         EmployeeVersion employee = repository.findCurrentEmployee(employeeId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        if (!repository.canAccessLegalEntity(
+        if (!repository.canAccessCompany(
                 principalProvider.currentPrincipalId(), capability,
-                employee.legalEntityId(), clock.instant())
+                employee.companyId(), clock.instant())
                 && !repository.canAccessEmployee(
                         principalProvider.currentPrincipalId(), capability, employeeId,
                         LocalDate.now(clock), clock.instant())) {
@@ -722,12 +721,12 @@ public class PeopleManagementService {
         return employee;
     }
 
-    private void requireLegalEntity(String capability, String legalEntityId) {
+    private void requireCompany(String capability, String companyId) {
         capabilityService.require(capability);
-        if (!repository.legalEntityExists(legalEntityId)
-                || !repository.canAccessLegalEntity(
+        if (!repository.companyExists(companyId)
+                || !repository.canAccessCompany(
                         principalProvider.currentPrincipalId(), capability,
-                        legalEntityId, clock.instant())) {
+                        companyId, clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
     }

@@ -6,7 +6,7 @@ import {
 } from '../../shared/api/apiClient';
 import type {
   AttendanceReportExportView,
-  AttendanceReportLegalEntityDirectory,
+  AttendanceReportCompanyDirectory,
   AttendanceReportType,
   AttendanceRecordsProjection,
   DashboardProjection,
@@ -17,7 +17,7 @@ import type {
 } from './wave7Contracts';
 import {
   assertAttendanceReportExportView,
-  assertAttendanceReportLegalEntityDirectory,
+  assertAttendanceReportCompanyDirectory,
   assertLiveReportProjection,
   attendanceReportTypes,
   normalizeReportExportPurpose,
@@ -26,7 +26,7 @@ import {
 export interface ReportQuery {
   reportType: AttendanceReportType;
   period: string;
-  legalEntityId?: string;
+  companyId?: string;
   status?: ReportExceptionState;
   page?: number;
   size?: number;
@@ -35,7 +35,7 @@ export interface ReportQuery {
 export interface ReportExportCreateRequest {
   reportType: AttendanceReportType;
   period: string;
-  legalEntityId?: string | null;
+  companyId?: string | null;
   status?: ReportExceptionState | null;
   purpose: string;
   currentPassword: string;
@@ -53,9 +53,9 @@ export interface Wave7ProjectionGateway {
   loadLeave(): Promise<LeaveProjection>;
   loadFeedback(): Promise<FeedbackProjection>;
   loadDashboard(): Promise<DashboardProjection>;
-  loadReportLegalEntities(
+  loadReportCompanies(
     period: string,
-  ): Promise<AttendanceReportLegalEntityDirectory>;
+  ): Promise<AttendanceReportCompanyDirectory>;
   loadReport(query?: ReportQuery): Promise<ReportProjection>;
   createReportExport?(
     request: ReportExportCreateRequest,
@@ -85,17 +85,17 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
   loadLeave: upstreamPending,
   loadFeedback: upstreamPending,
   loadDashboard: upstreamPending,
-  loadReportLegalEntities: async (period) => {
+  loadReportCompanies: async (period) => {
     if (!isYearMonth(period)) {
       throw invalidReportQuery();
     }
     const response = await requestJson<unknown>(
-      `/api/v1/attendance-reports/legal-entities?period=${
+      `/api/v1/attendance-reports/companies?period=${
         encodeURIComponent(period)
       }`,
     );
     try {
-      assertAttendanceReportLegalEntityDirectory(response);
+      assertAttendanceReportCompanyDirectory(response);
     } catch (error: unknown) {
       void error;
       throw invalidReportResponse();
@@ -110,8 +110,8 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     const parameters = new URLSearchParams();
     parameters.set('reportType', normalized.reportType);
     parameters.set('period', normalized.period);
-    if (normalized.legalEntityId !== undefined) {
-      parameters.set('legalEntityId', normalized.legalEntityId);
+    if (normalized.companyId !== undefined) {
+      parameters.set('companyId', normalized.companyId);
     }
     if (normalized.status !== undefined) {
       parameters.set('status', normalized.status);
@@ -132,8 +132,8 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
       response.reportType !== normalized.reportType
       || response.filters.period !== normalized.period
       || (
-        normalized.legalEntityId !== undefined
-        && response.filters.legalEntityId !== normalized.legalEntityId
+        normalized.companyId !== undefined
+        && response.filters.companyId !== normalized.companyId
       )
       || response.page !== normalized.page
       || response.size !== normalized.size
@@ -163,8 +163,8 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
       response.reportType !== normalized.reportType
       || response.period !== normalized.period
       || (
-        normalized.legalEntityId !== undefined
-        && response.legalEntityId !== normalized.legalEntityId
+        normalized.companyId !== undefined
+        && response.companyId !== normalized.companyId
       )
       || response.purpose !== normalized.purpose
     ) {
@@ -227,7 +227,7 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
 interface NormalizedReportQuery {
   reportType: AttendanceReportType;
   period: string;
-  legalEntityId?: string;
+  companyId?: string;
   status?: ReportExceptionState;
   page: number;
   size: number;
@@ -236,6 +236,17 @@ interface NormalizedReportQuery {
 function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {
   if (
     query === undefined
+    || !hasOnlyKeys(
+      query,
+      [
+        'reportType',
+        'period',
+        'companyId',
+        'status',
+        'page',
+        'size',
+      ],
+    )
     || !attendanceReportTypes.includes(query.reportType)
     || !isYearMonth(query.period)
   ) {
@@ -263,14 +274,14 @@ function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {
     }
     normalizedStatus = candidate;
   }
-  const legalEntityId = normalizeOptionalQueryFilter(
-    query.legalEntityId,
+  const companyId = normalizeOptionalQueryFilter(
+    query.companyId,
     36,
   );
   return {
     reportType: query.reportType,
     period: query.period,
-    legalEntityId,
+    companyId,
     status: normalizedStatus || undefined,
     page,
     size,
@@ -298,19 +309,30 @@ function normalizeReportExportCreateRequest(
 ): ReportExportCreateRequest {
   if (
     request === undefined
+    || !hasOnlyKeys(
+      request,
+      [
+        'reportType',
+        'period',
+        'companyId',
+        'status',
+        'purpose',
+        'currentPassword',
+      ],
+    )
     || !attendanceReportTypes.includes(request.reportType)
     || !isYearMonth(request.period)
   ) {
     throw invalidReportExportRequest();
   }
   const normalizedStatus = normalizeOptionalFilter(request.status, 32);
-  const legalEntityId = normalizeOptionalFilter(
-    request.legalEntityId,
+  const companyId = normalizeOptionalFilter(
+    request.companyId,
     36,
   );
   if (
-    typeof legalEntityId === 'string'
-    && legalEntityId !== legalEntityId.trim()
+    typeof companyId === 'string'
+    && companyId !== companyId.trim()
   ) {
     throw invalidReportExportRequest();
   }
@@ -339,7 +361,7 @@ function normalizeReportExportCreateRequest(
   return {
     reportType: request.reportType,
     period: request.period,
-    legalEntityId,
+    companyId,
     status,
     purpose,
     currentPassword: request.currentPassword,
@@ -361,6 +383,21 @@ function normalizeOptionalQueryFilter(
     throw invalidReportQuery();
   }
   return value;
+}
+
+function hasOnlyKeys(
+  value: unknown,
+  allowedKeys: readonly string[],
+): value is Record<string, unknown> {
+  if (
+    typeof value !== 'object'
+    || value === null
+    || Array.isArray(value)
+  ) {
+    return false;
+  }
+  const allowed = new Set(allowedKeys);
+  return Object.keys(value).every((key) => allowed.has(key));
 }
 
 function isYearMonth(value: unknown): value is string {

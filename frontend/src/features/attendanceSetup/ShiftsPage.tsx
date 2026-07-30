@@ -521,7 +521,7 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
         open={templateOpen}
         processing={processing}
         initialValues={editingShift ? {
-          legalEntityId: editingShift.legalEntityId,
+          companyId: editingShift.companyId,
           locationId: editingShift.locationId,
           code: editingShift.code,
           name: editingShift.name,

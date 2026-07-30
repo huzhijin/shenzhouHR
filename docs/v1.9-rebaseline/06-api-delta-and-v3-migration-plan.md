@@ -116,21 +116,24 @@
 
 ## 5. V3+ 迁移序列
 
-实际版本号在每波授权时顺延，以下为逻辑顺序，不一次性创建：
+实际迁移注册表是版本号的唯一权威；以下表格已按当前仓库
+`backend/src/main/resources/db/migration` 校正。已发布版本不可复用或改写，
+未来版本只有在对应实现获授权并实际需要物理变更时才创建。
 
 | 逻辑迁移 | 内容 | 依赖/回滚点 |
 |---|---|---|
 | V3 identity | account、credential、login failure、session、reset grant、权限域 | 回滚到 V2 应用版本；不删除新表数据 |
 | V4 policy foundation | policy template/version/scope/assignment/snapshot/audit ref | 波次 1 验收后 |
 | V5 people import | import template/batch/row/issue、employment period、prior service | 期初发布前可停止；已发布后只前向修复 |
-| V6 attendance setup | group、assignment、shift version、calendar、location | 规则底座 |
-| V7 evidence ingestion | source batch、raw fact、normalized、match、effective event、evidence link | 所有来源共享 |
-| V8 punch Excel | mapping profile、punch batch/row、fingerprint、error report ref | V7 |
-| V9 calculation | scheduled segment、calculation version、daily result、exception、adjustment | V6/V7 |
-| V10 period close | period、freeze、close snapshot、reopen、difference | V9 |
-| V11 leave/time account | leave policy/version、annual leave qualification/tier/grant、account/ledger/opening import/expiry/reversal | V4/V5/V10 |
-| V12 self-service/reporting | feedback/progress、report projection、export job/access audit、authorized dashboard aggregate | V9/V10/V11 |
-| V13 payroll reserve | 独立 PAYROLL 权限与冻结快照引用 | 单独授权；不得阻塞 P0-A |
+| V6 people read prerequisite | 系统管理员最小人员读取前置能力 | V5 |
+| V7 attendance setup | group、assignment、shift version、calendar、location、考勤专用策略 | 规则底座 |
+| V8 evidence ingestion | source、raw fact、normalized、match、effective event、evidence link | 所有来源共享 |
+| V9 punch Excel | mapping profile、punch batch/row、fingerprint、error report ref | V8 |
+| V10 formal attendance reporting | 月度不可变报表投影、事实与导出存储 | V8/V9；不等同于自动月结编排完成 |
+| V11 company boundary | 顶层公司表、所有当前公司外键列与 `COMPANY` scope 的一对一前向改名 | V1～V10；稳定 ID 和业务行不变 |
+| V12 leave/time account | leave policy/version、annual leave qualification/tier/grant、account/ledger/opening import/expiry/reversal | 计划；以实际迁移注册表为准 |
+| V13 self-service/reporting | feedback/progress、剩余自助/看板/报表能力 | 计划；以实际迁移注册表为准 |
+| PAYROLL future | 独立 PAYROLL 权限与冻结快照引用 | 不预留版本号；单独授权且不得阻塞 P0-A |
 
 ## 6. V1/V2 兼容与退役
 

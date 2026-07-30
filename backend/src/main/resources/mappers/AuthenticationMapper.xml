@@ -8,7 +8,7 @@
                account.normalized_username, account.display_name, account.status,
                account.first_password_change_required, account.locked_until,
                account.last_login_at, account.session_epoch, account.row_version,
-               employee.legal_entity_id
+               employee.company_id
         FROM local_account account
         JOIN auth_principal principal ON principal.principal_id = account.principal_id
         LEFT JOIN employee ON employee.employee_id = principal.employee_id

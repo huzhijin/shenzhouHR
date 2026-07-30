@@ -15,7 +15,7 @@ import type {
   WorkCalendarView,
 } from './attendanceSetupTypes';
 
-const legalEntityId = '9700000000000000001';
+const companyId = '9700000000000000001';
 
 export function requiredDemoItem<T>(items: readonly T[], index = 0): T {
   const item = items[index];
@@ -27,7 +27,7 @@ export function requiredDemoItem<T>(items: readonly T[], index = 0): T {
 
 export const demoLocations: readonly LocationView[] = [{
   locationId: '9703000000000000001',
-  legalEntityId,
+  companyId,
   code: 'SZ-FAB-01',
   locationRevisionId: '9703100000000000001',
   revisionNumber: 1,
@@ -42,7 +42,7 @@ export const demoLocations: readonly LocationView[] = [{
   updatedAt: '2026-07-25T02:16:00Z',
 }, {
   locationId: '9703000000000000002',
-  legalEntityId,
+  companyId,
   code: 'NT-PKG-01',
   locationRevisionId: '9703100000000000002',
   revisionNumber: 1,
@@ -59,7 +59,7 @@ export const demoLocations: readonly LocationView[] = [{
 
 export const demoGroups: readonly AttendanceGroupView[] = [{
   groupId: '9704000000000000001',
-  legalEntityId,
+  companyId,
   code: 'FAB-A-4D2N',
   groupRevisionId: '9704100000000000001',
   revisionNumber: 1,
@@ -101,7 +101,7 @@ export const demoAssignments: readonly AssignmentView[] = [{
 
 export const demoShifts: readonly ShiftTemplateView[] = [{
   shiftId: '9705000000000000001',
-  legalEntityId,
+  companyId,
   locationId: requiredDemoItem(demoLocations).locationId,
   code: 'FAB-A-DAY',
   name: '一号厂 A 班白班',
@@ -151,7 +151,7 @@ export const demoShiftVersions: readonly ShiftVersionView[] = [{
 
 export const demoCalendars: readonly WorkCalendarView[] = [{
   calendarId: '9706000000000000001',
-  legalEntityId,
+  companyId,
   locationId: requiredDemoItem(demoLocations).locationId,
   code: 'CN-SZ-2026',
   calendarVersionId: '9706050000000000001',
@@ -168,7 +168,7 @@ export const demoCalendars: readonly WorkCalendarView[] = [{
   updatedAt: '2026-07-24T10:15:00Z',
 }, {
   calendarId: '9706000000000000002',
-  legalEntityId,
+  companyId,
   locationId: requiredDemoItem(demoLocations).locationId,
   code: 'CN-SZ-2027',
   calendarVersionId: '9706050000000000002',
@@ -385,7 +385,7 @@ export const demoBindings: readonly PolicyBindingView[] = [{
   bindingId: '9708000000000000003',
   bindingRevisionId: '9708100000000000003',
   revisionNumber: 1,
-  legalEntityId,
+  companyId,
   policyKind: 'MEAL_DEDUCTION',
   policyVersionId: '25200000-0000-0000-0000-000000000001',
   groupId: requiredDemoItem(demoGroups).groupId,
@@ -401,7 +401,7 @@ export const demoBindings: readonly PolicyBindingView[] = [{
   bindingId: '9708000000000000002',
   bindingRevisionId: '9708100000000000002',
   revisionNumber: 1,
-  legalEntityId,
+  companyId,
   policyKind: 'LATE_GRACE',
   policyVersionId: '25200000-0000-0000-0000-000000000002',
   groupId: requiredDemoItem(demoGroups).groupId,
@@ -417,7 +417,7 @@ export const demoBindings: readonly PolicyBindingView[] = [{
   bindingId: '9708000000000000001',
   bindingRevisionId: '9708100000000000001',
   revisionNumber: 1,
-  legalEntityId,
+  companyId,
   policyKind: 'MONTHLY_LATE_EXEMPTION',
   policyVersionId: '25200000-0000-0000-0000-000000000003',
   groupId: requiredDemoItem(demoGroups).groupId,
@@ -496,7 +496,7 @@ export const demoPolicyVersions: readonly AttendancePolicyVersionView[] = [
     scopedVersionId: '25200000-0000-0000-0000-000000000001',
     scopeId: '25100000-0000-0000-0000-000000000001',
     templateId: '25000000-0000-0000-0000-000000000001',
-    legalEntityId,
+    companyId,
     policyKind: 'MEAL_DEDUCTION',
     versionNumber: 1,
     status: 'PUBLISHED',
@@ -526,7 +526,7 @@ export const demoPolicyVersions: readonly AttendancePolicyVersionView[] = [
     scopedVersionId: '25200000-0000-0000-0000-000000000002',
     scopeId: '25100000-0000-0000-0000-000000000002',
     templateId: '25000000-0000-0000-0000-000000000002',
-    legalEntityId,
+    companyId,
     policyKind: 'LATE_GRACE',
     versionNumber: 1,
     status: 'PUBLISHED',
@@ -552,7 +552,7 @@ export const demoPolicyVersions: readonly AttendancePolicyVersionView[] = [
     scopedVersionId: '25200000-0000-0000-0000-000000000003',
     scopeId: '25100000-0000-0000-0000-000000000003',
     templateId: '25000000-0000-0000-0000-000000000003',
-    legalEntityId,
+    companyId,
     policyKind: 'MONTHLY_LATE_EXEMPTION',
     versionNumber: 1,
     status: 'PUBLISHED',

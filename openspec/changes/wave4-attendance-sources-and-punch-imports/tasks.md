@@ -10,7 +10,7 @@
 ## 2. V8 source and shared evidence persistence
 
 - [x] 2.1 Add `V8__attendance_source_and_evidence.sql` with stable source identities, immutable configuration revisions, jobs/pages, committed watermarks and required named constraints/indexes.
-- [ ] 2.2 Add V8 device identities/revisions and effective-dated device-person/external-person bindings with overlap, legal-entity and location integrity tests.
+- [ ] 2.2 Add V8 device identities/revisions and effective-dated device-person/external-person bindings with overlap, company and location integrity tests.
 - [x] 2.3 Add append-only raw fact, immutable normalization revision and employee-match-decision tables with exact string external IDs, canonical digests and query indexes.
 - [x] 2.4 Add immutable effective event, append-only lifecycle, evidence link, OA document and source reversal tables with cardinality/integrity constraints.
 - [ ] 2.5 Add duplicate review group/member/resolution tables that can prove pending=0 active, same=1 active and distinct=N active without deleting raw facts.
@@ -52,7 +52,7 @@
 - [x] 5.2 Produce the versioned six-sheet template with 14 punch fields, 9 device-mapping fields, synthetic examples, machine-readable template version and canonical field-contract digest.
 - [ ] 5.3 Implement `.xlsx` file policy and streaming parser for extension/MIME/content parity, OOXML allowlist, 20 MiB/50,000-row limits, ZIP bounds and formula/macro/external/OLE/DDE rejection.
 - [ ] 5.4 Implement immutable mapping profile versions with only registered column/date/timezone/trim/enum transforms and no script, formula, arbitrary expression or name-only identity rule.
-- [ ] 5.5 Implement upload/DRAFT creation, opaque stored-object metadata, legal-entity/source/location scope and filename-independent SHA-256 identity.
+- [ ] 5.5 Implement upload/DRAFT creation, opaque stored-object metadata, company/source/location scope and filename-independent SHA-256 identity.
 - [ ] 5.6 Implement immutable normalization attempts and row staging for all rows, including rows outside workbook style/table ranges.
 - [ ] 5.7 Implement precheck matching, issues, exact/near duplicate preview, period/config checks, counts, affected employee/date preview and downloadable error-report generation.
 - [ ] 5.8 Implement precheck token digest binding batch/file/mapping/window/resolver/period/row-result versions, and invalidate it on any relevant change.
@@ -67,7 +67,7 @@
 ## 6. Authorization, audit, storage and API closure
 
 - [x] 6.1 Add the exact `ATTENDANCE_SOURCE:*` and `ATTENDANCE_PUNCH_IMPORT:*` capability catalog without granting raw attendance access through SYSTEM_ADMIN or another technical role by default.
-- [ ] 6.2 Implement SQL-level legal-entity/location/attendance-group/organization scope in every W4 list, detail, download and mutation before pagination/count/data selection.
+- [ ] 6.2 Implement SQL-level company/location/attendance-group/organization scope in every W4 list, detail, download and mutation before pagination/count/data selection.
 - [ ] 6.3 Implement source/config/device/device-person-binding/document/quarantine/source-job endpoints with strict DTOs, state, ETag, idempotency, stable pagination and safe failure responses.
 - [ ] 6.4 Implement mapping/template/import batch/mapping/precheck/preview/error/error-report/file/row/publish/void/recalculation-intent endpoints and exact multipart/status/header behavior.
 - [ ] 6.5 Implement event-evidence and duplicate-review list/detail/resolve endpoints with field-level raw/location authorization.

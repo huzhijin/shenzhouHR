@@ -28,20 +28,20 @@ public class MyBatisAttendanceReportProjectionWriter
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public boolean lockLegalEntity(String legalEntityId) {
-        return legalEntityId != null
-                && legalEntityId.equals(
-                        mapper.lockLegalEntity(legalEntityId));
+    public boolean lockCompany(String companyId) {
+        return companyId != null
+                && companyId.equals(
+                        mapper.lockCompany(companyId));
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<StoredProjection> findByDigest(
-            String legalEntityId,
+            String companyId,
             LocalDate periodStart,
             String projectionDigest) {
         return Optional.ofNullable(mapper.findByDigest(
-                        legalEntityId, periodStart, projectionDigest))
+                        companyId, periodStart, projectionDigest))
                 .map(row -> row.toStoredProjection(
                         sourceVersions(row.sourceVersionsJson())));
     }
@@ -49,10 +49,10 @@ public class MyBatisAttendanceReportProjectionWriter
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<StoredProjection> findLatestPublished(
-            String legalEntityId, LocalDate periodStart) {
+            String companyId, LocalDate periodStart) {
         return Optional.ofNullable(
                         mapper.findLatestPublished(
-                                legalEntityId, periodStart))
+                                companyId, periodStart))
                 .map(row -> row.toStoredProjection(
                         sourceVersions(row.sourceVersionsJson())));
     }

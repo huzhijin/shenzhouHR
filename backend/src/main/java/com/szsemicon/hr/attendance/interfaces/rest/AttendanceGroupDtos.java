@@ -17,7 +17,7 @@ final class AttendanceGroupDtos {
     }
 
     record LocationRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotBlank @Size(max = 64) String code,
             @NotBlank @Size(max = 100) String name,
             @NotBlank @Size(max = 64) String timeZone,
@@ -28,7 +28,7 @@ final class AttendanceGroupDtos {
 
     record LocationView(
             String locationId,
-            String legalEntityId,
+            String companyId,
             String code,
             String locationRevisionId,
             int revisionNumber,
@@ -47,7 +47,7 @@ final class AttendanceGroupDtos {
     }
 
     record GroupRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotBlank @Size(max = 64) String code,
             @NotBlank @Size(max = 100) String name,
             @NotBlank String locationId,
@@ -60,7 +60,7 @@ final class AttendanceGroupDtos {
 
     record GroupView(
             String groupId,
-            String legalEntityId,
+            String companyId,
             String code,
             String groupRevisionId,
             int revisionNumber,
@@ -112,7 +112,7 @@ final class AttendanceGroupDtos {
 
     static LocationView location(Location value) {
         return new LocationView(
-                value.locationId(), value.legalEntityId(), value.code(),
+                value.locationId(), value.companyId(), value.code(),
                 value.locationRevisionId(), value.revisionNumber(), value.name(),
                 value.timeZone(), value.status().name(), value.effectiveFrom(),
                 value.effectiveTo(), value.snapshotDigest(), value.rowVersion(),
@@ -127,7 +127,7 @@ final class AttendanceGroupDtos {
 
     static GroupView group(AttendanceGroup value) {
         return new GroupView(
-                value.groupId(), value.legalEntityId(), value.code(),
+                value.groupId(), value.companyId(), value.code(),
                 value.groupRevisionId(), value.revisionNumber(), value.name(),
                 value.locationId(), value.locationRevisionId(),
                 value.calendarId(), value.shiftTemplateId(),

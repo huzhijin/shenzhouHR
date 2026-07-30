@@ -415,19 +415,19 @@ class AttendanceReportProjectionPublisherTest {
         private boolean failOa;
 
         @Override
-        public boolean lockLegalEntity(String legalEntityId) {
+        public boolean lockCompany(String companyId) {
             calls.add("LOCK");
-            return "legal-a".equals(legalEntityId);
+            return "legal-a".equals(companyId);
         }
 
         @Override
         public Optional<StoredProjection> findByDigest(
-                String legalEntityId,
+                String companyId,
                 LocalDate periodStart,
                 String projectionDigest) {
             calls.add("FIND");
             return stored.stream()
-                    .filter(value -> value.legalEntityId().equals(legalEntityId)
+                    .filter(value -> value.companyId().equals(companyId)
                             && value.periodStart().equals(periodStart)
                             && value.projectionDigest().equals(
                                     projectionDigest))
@@ -436,10 +436,10 @@ class AttendanceReportProjectionPublisherTest {
 
         @Override
         public Optional<StoredProjection> findLatestPublished(
-                String legalEntityId, LocalDate periodStart) {
+                String companyId, LocalDate periodStart) {
             calls.add("LATEST");
             return stored.stream()
-                    .filter(value -> value.legalEntityId().equals(legalEntityId)
+                    .filter(value -> value.companyId().equals(companyId)
                             && value.periodStart().equals(periodStart)
                             && "PUBLISHED".equals(value.status()))
                     .max(java.util.Comparator
@@ -493,7 +493,7 @@ class AttendanceReportProjectionPublisherTest {
                     .orElseThrow();
             stored.add(new StoredProjection(
                     draft.projectionId(),
-                    draft.legalEntityId(),
+                    draft.companyId(),
                     draft.periodStart(),
                     draft.periodEndExclusive(),
                     draft.periodState(),

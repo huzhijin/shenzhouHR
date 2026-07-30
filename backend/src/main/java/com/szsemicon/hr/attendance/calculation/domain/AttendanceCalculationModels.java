@@ -285,7 +285,7 @@ public final class AttendanceCalculationModels {
     }
 
     public record CalculationInputSnapshot(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             String employmentPeriodId,
             LocalDate businessDate,
@@ -310,7 +310,7 @@ public final class AttendanceCalculationModels {
             String correlationId) {
 
         public CalculationInputSnapshot {
-            legalEntityId = requireText(legalEntityId, "legalEntityId");
+            companyId = requireText(companyId, "companyId");
             employeeId = requireText(employeeId, "employeeId");
             employmentPeriodId = requireText(
                     employmentPeriodId, "employmentPeriodId");

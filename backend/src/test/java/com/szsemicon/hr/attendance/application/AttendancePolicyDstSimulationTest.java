@@ -609,7 +609,7 @@ class AttendancePolicyDstSimulationTest {
                 "binding-" + kind,
                 "revision-" + kind,
                 1,
-                "legal-entity",
+                "company",
                 kind,
                 versionId,
                 "group",

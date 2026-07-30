@@ -6,9 +6,9 @@
 
     <insert id="insertSubjectLock">
         INSERT INTO attendance_evidence_subject_lock (
-            legal_entity_id, employee_id, touched_at
+            company_id, employee_id, touched_at
         ) VALUES (
-            #{legalEntityId}, #{employeeId}, #{touchedAt}
+            #{companyId}, #{employeeId}, #{touchedAt}
         )
         ON DUPLICATE KEY UPDATE touched_at = VALUES(touched_at)
     </insert>
@@ -16,14 +16,14 @@
     <select id="lockSubject" resultType="string">
         SELECT employee_id
         FROM attendance_evidence_subject_lock
-        WHERE legal_entity_id = #{legalEntityId}
+        WHERE company_id = #{companyId}
           AND employee_id = #{employeeId}
         FOR UPDATE
     </select>
 
     <select id="findRawBySourceIdentity"
             resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$RawFactRow">
-        SELECT raw_attendance_fact_id, attendance_source_id, legal_entity_id,
+        SELECT raw_attendance_fact_id, attendance_source_id, company_id,
                fact_kind, source_business_key, source_version,
                stable_fingerprint, source_time_text, source_time_zone,
                source_instant, interval_start, interval_end,
@@ -37,7 +37,7 @@
 
     <select id="findRawByFingerprint"
             resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$RawFactRow">
-        SELECT raw_attendance_fact_id, attendance_source_id, legal_entity_id,
+        SELECT raw_attendance_fact_id, attendance_source_id, company_id,
                fact_kind, source_business_key, source_version,
                stable_fingerprint, source_time_text, source_time_zone,
                source_instant, interval_start, interval_end,
@@ -50,14 +50,14 @@
 
     <insert id="insertRawFact">
         INSERT INTO raw_attendance_fact (
-            raw_attendance_fact_id, attendance_source_id, legal_entity_id,
+            raw_attendance_fact_id, attendance_source_id, company_id,
             fact_kind, source_business_key, source_version,
             stable_fingerprint, source_time_text, source_time_zone,
             source_instant, interval_start, interval_end,
             canonical_payload_digest, raw_object_ref, request_id,
             received_at, created_by
         ) VALUES (
-            #{rawAttendanceFactId}, #{attendanceSourceId}, #{legalEntityId},
+            #{rawAttendanceFactId}, #{attendanceSourceId}, #{companyId},
             #{factKind}, #{sourceBusinessKey}, #{sourceVersion},
             #{stableFingerprint}, #{sourceTimeText}, #{sourceTimeZone},
             #{sourceInstant}, #{intervalStart}, #{intervalEnd},
@@ -98,12 +98,12 @@
     <select id="findExactEvents"
             resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$EffectiveEventRow">
         SELECT event.effective_attendance_event_id,
-               event.legal_entity_id, event.employee_id, event.event_kind,
+               event.company_id, event.employee_id, event.event_kind,
                event.normalized_direction, event.point_instant,
                event.interval_start, event.interval_end,
                event.canonical_digest, event.created_at
         FROM effective_attendance_event event
-        WHERE event.legal_entity_id = #{legalEntityId}
+        WHERE event.company_id = #{companyId}
           AND event.employee_id = #{employeeId}
           AND event.point_instant = #{pointInstant}
           AND event.normalized_direction = #{normalizedDirection}
@@ -122,12 +122,12 @@
     <select id="findNearEvents"
             resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$EffectiveEventRow">
         SELECT event.effective_attendance_event_id,
-               event.legal_entity_id, event.employee_id, event.event_kind,
+               event.company_id, event.employee_id, event.event_kind,
                event.normalized_direction, event.point_instant,
                event.interval_start, event.interval_end,
                event.canonical_digest, event.created_at
         FROM effective_attendance_event event
-        WHERE event.legal_entity_id = #{legalEntityId}
+        WHERE event.company_id = #{companyId}
           AND event.employee_id = #{employeeId}
           AND event.point_instant BETWEEN #{windowStart} AND #{windowEnd}
           AND event.normalized_direction = #{normalizedDirection}
@@ -136,11 +136,11 @@
 
     <insert id="insertEffectiveEvent">
         INSERT INTO effective_attendance_event (
-            effective_attendance_event_id, legal_entity_id, employee_id,
+            effective_attendance_event_id, company_id, employee_id,
             event_kind, normalized_direction, point_instant,
             interval_start, interval_end, canonical_digest, created_at
         ) VALUES (
-            #{effectiveAttendanceEventId}, #{legalEntityId}, #{employeeId},
+            #{effectiveAttendanceEventId}, #{companyId}, #{employeeId},
             #{eventKind}, #{normalizedDirection}, #{pointInstant},
             #{intervalStart}, #{intervalEnd}, #{canonicalDigest}, #{createdAt}
         )
@@ -173,12 +173,12 @@
 
     <insert id="insertRecalculationIntent">
         INSERT INTO attendance_recalculation_intent (
-            attendance_recalculation_intent_id, legal_entity_id, employee_id,
+            attendance_recalculation_intent_id, company_id, employee_id,
             business_date, reason_code, effective_attendance_event_id,
             resolver_snapshot_digest, period_version, request_id,
             intent_digest, created_at
         ) VALUES (
-            #{attendanceRecalculationIntentId}, #{legalEntityId}, #{employeeId},
+            #{attendanceRecalculationIntentId}, #{companyId}, #{employeeId},
             #{businessDate}, #{reasonCode}, #{effectiveAttendanceEventId},
             #{resolverSnapshotDigest}, #{periodVersion}, #{requestId},
             #{intentDigest}, #{createdAt}
@@ -212,7 +212,7 @@
         JOIN employee_match_decision matched
           ON matched.employee_match_decision_id =
              link.employee_match_decision_id
-        WHERE event.legal_entity_id = #{legalEntityId}
+        WHERE event.company_id = #{companyId}
           AND event.effective_attendance_event_id = #{eventId}
         ORDER BY lifecycle.knowledge_at,
                  lifecycle.effective_event_lifecycle_fact_id,

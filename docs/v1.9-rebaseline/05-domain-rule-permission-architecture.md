@@ -15,7 +15,7 @@
 | 上下文 | 责任 | 关键对象 | 不负责 |
 |---|---|---|---|
 | IdentityAccess | 本地账号、密码、session、角色、能力和范围 | Account、Credential、PasswordPolicy、Session、RoleAssignment、Capability | 组织业务规则、考勤计算 |
-| PeopleOrganization | 法人、组织、岗位、员工、任职周期和工龄 | OrganizationVersion、Employee、EmploymentPeriod、PriorService | OA 持续组织同步 |
+| PeopleOrganization | 公司、组织、岗位、员工、任职周期和工龄 | Company、OrganizationVersion、Employee、EmploymentPeriod、PriorService | OA 持续组织同步 |
 | ImportManagement | 模板、上传、预检、差异、发布、作废/冲正 | ImportTemplate、ImportBatch、ImportRow、ValidationIssue | 直接覆盖业务结果 |
 | PolicyManagement | 类型化规则、版本、作用范围、试算和发布 | PolicyTemplate、PolicyVersion、PolicyScope、PolicyAssignment、Snapshot | 执行任意脚本 |
 | AttendanceSetup | 考勤组、班次版本、日历、地点和策略关联 | AttendanceGroup、ShiftVersion、WorkCalendar、Location | 日结果计算 |

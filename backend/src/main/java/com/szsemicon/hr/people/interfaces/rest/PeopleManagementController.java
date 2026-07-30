@@ -60,7 +60,7 @@ public class PeopleManagementController {
             @RequestHeader("Idempotency-Key") String idempotencyKey) {
         OrganizationVersion version = service.createOrganization(
                 new CreateOrganization(
-                        request.legalEntityId(), request.parentOrganizationId(),
+                        request.companyId(), request.parentOrganizationId(),
                         request.code(), request.name(), request.organizationType(),
                         request.effectiveFrom(), request.reason()),
                 IfMatchVersion.parse(ifMatch),
@@ -119,7 +119,7 @@ public class PeopleManagementController {
             @RequestHeader("Idempotency-Key") String idempotencyKey) {
         var detail = service.createEmployee(
                 new CreateEmployee(
-                        request.legalEntityId(), request.employeeNumber(),
+                        request.companyId(), request.employeeNumber(),
                         request.displayName(), request.externalEmployeeId(),
                         request.effectiveFrom(), request.reason()),
                 IfMatchVersion.parse(ifMatch),

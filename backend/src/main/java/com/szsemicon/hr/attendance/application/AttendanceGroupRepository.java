@@ -89,6 +89,9 @@ public interface AttendanceGroupRepository {
     List<Assignment> resolveAssignments(
             String employeeId, LocalDate asOf, Instant knowledgeAsOf);
 
+    boolean hasAssignmentCompanyMismatch(
+            String employeeId, LocalDate asOf, Instant knowledgeAsOf);
+
     boolean hasAssignmentOverlap(
             String employeeId,
             LocalDate effectiveFrom,

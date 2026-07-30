@@ -47,7 +47,7 @@ type EmployeeState =
   | { status: 'error'; error: ApiRequestError };
 
 type CreateEmployeeValues = {
-  legalEntityId: string;
+  companyId: string;
   employeeNumber: string;
   displayName: string;
   externalEmployeeId?: string;
@@ -227,7 +227,7 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
       >
         {writeError ? <ApiErrorState error={writeError} /> : null}
         <Form form={form} layout="vertical">
-          <Form.Item name="legalEntityId" label={t('people.legalEntity')} rules={[{ required: true }]}>
+          <Form.Item name="companyId" label={t('people.company')} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <div className="form-grid">
@@ -257,7 +257,7 @@ export default EmployeesPage;
 
 function toCreateRequest(values: CreateEmployeeValues): EmployeeCreateRequest {
   return {
-    legalEntityId: values.legalEntityId.trim(),
+    companyId: values.companyId.trim(),
     employeeNumber: values.employeeNumber.trim(),
     displayName: values.displayName.trim(),
     externalEmployeeId: values.externalEmployeeId?.trim() || null,

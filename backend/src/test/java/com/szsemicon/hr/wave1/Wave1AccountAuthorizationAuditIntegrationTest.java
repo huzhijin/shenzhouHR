@@ -40,7 +40,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                                    "temporaryPassword":"%s",
                                    "roleAssignments":[{
                                      "roleId":"%s",
-                                     "scopeType":"LEGAL_ENTITY",
+                                     "scopeType":"COMPANY",
                                      "scopeResourceId":"30000000-0000-0000-0000-000000000001",
                                      "validFrom":"2026-07-20T00:00:00Z",
                                      "validTo":null
@@ -196,7 +196,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                                  {
                                    "assignments":[{
                                      "roleId":"%s",
-                                     "scopeType":"LEGAL_ENTITY",
+                                     "scopeType":"COMPANY",
                                      "scopeResourceId":"30000000-0000-0000-0000-000000000001",
                                      "validFrom":"2026-08-01T00:00:00Z",
                                      "validTo":"2026-12-31T16:00:00Z"

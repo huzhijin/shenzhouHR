@@ -24,7 +24,7 @@ public final class ShiftModels {
 
     public record ShiftTemplate(
             String shiftId,
-            String legalEntityId,
+            String companyId,
             String locationId,
             String code,
             String name,

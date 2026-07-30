@@ -14,11 +14,11 @@ export const demoWave7ProjectionGateway: Wave7ProjectionGateway = {
   loadLeave: () => Promise.resolve(createDemoLeaveProjection()),
   loadFeedback: () => Promise.resolve(createDemoFeedbackProjection()),
   loadDashboard: () => Promise.resolve(createDemoDashboardProjection()),
-  loadReportLegalEntities: (period) => Promise.resolve({
+  loadReportCompanies: (period) => Promise.resolve({
     period,
-    legalEntities: [{
-      legalEntityId: '30000000-0000-0000-0000-000000000001',
-      name: '神州半导体',
+    companies: [{
+      companyId: '30000000-0000-0000-0000-000000000001',
+      companyName: '神州半导体',
     }],
   }),
   loadReport: () => Promise.resolve(createDemoReportProjection()),

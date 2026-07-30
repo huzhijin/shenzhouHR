@@ -54,7 +54,7 @@ class Wave2ApiBehaviorContractIntegrationTest extends Wave1IntegrationTestSuppor
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "legalEntityId":"30000000-0000-0000-0000-000000000001",
+                                  "companyId":"30000000-0000-0000-0000-000000000001",
                                   "employeeNumber":"W2-LOCAL-DETAIL-001",
                                   "displayName":"WAVE-2 合成员工详情",
                                   "externalEmployeeId":"W2-LOCAL-EXT-001",
@@ -67,6 +67,180 @@ class Wave2ApiBehaviorContractIntegrationTest extends Wave1IntegrationTestSuppor
                 .andExpect(jsonPath("$.employmentPeriods").isArray())
                 .andExpect(jsonPath("$.priorService.totalDays").value(0))
                 .andExpect(jsonPath("$.auditResourceId").isString());
+    }
+
+    @Test
+    void legacyCompanyRequestFieldIsRejectedWithoutCreatingAnEmployee()
+            throws Exception {
+        String employeeNumber = "W2-LEGACY-COMPANY-FIELD";
+
+        mockMvc.perform(post("/api/v1/employees")
+                        .with(user(ADMIN_PRINCIPAL).authorities(
+                                authority("EMPLOYEE:CREATE")))
+                        .with(csrf())
+                        .header(
+                                "Idempotency-Key",
+                                "wave2-reject-legacy-company-field")
+                        .header("If-Match", "\"0\"")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "legalEntityId":"30000000-0000-0000-0000-000000000001",
+                                  "employeeNumber":"%s",
+                                  "displayName":"旧字段必须拒绝",
+                                  "externalEmployeeId":"W2-LEGACY-COMPANY-EXT",
+                                  "effectiveFrom":"2026-07-25",
+                                  "reason":"旧字段失败关闭验证"
+                                }
+                                """.formatted(employeeNumber)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM employee WHERE employee_number = ?",
+                Long.class,
+                employeeNumber)).isZero();
+    }
+
+    @Test
+    void corruptedCrossCompanyEmploymentCannotLeakListCountOrDetail()
+            throws Exception {
+        String organizationPrincipal =
+                "80000000-0000-0000-0000-000000000003";
+        String organizationRole =
+                "10000000-0000-0000-0000-000000000003";
+        String outsideEmployee =
+                "b0000000-0000-0000-0000-000000000004";
+        jdbc.update(
+                """
+                UPDATE employment_assignment
+                SET organization_id =
+                    '40000000-0000-0000-0000-000000000003'
+                WHERE employee_id = ?
+                """,
+                outsideEmployee);
+        jdbc.update(
+                """
+                INSERT INTO auth_role_capability (role_id, capability_id)
+                VALUES
+                    (?, '23000000-0000-0000-0000-000000000014'),
+                    (?, '23000000-0000-0000-0000-000000000017')
+                """,
+                organizationRole,
+                organizationRole);
+
+        mockMvc.perform(get("/api/v1/employees")
+                        .queryParam("query", "Mallory")
+                        .with(user(organizationPrincipal).authorities(
+                                authority("MASTER_DATA:READ"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.total").value(0));
+
+        mockMvc.perform(get("/api/v1/employees/{employeeId}", outsideEmployee)
+                        .with(user(organizationPrincipal).authorities(
+                                authority("EMPLOYEE:READ"))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+
+        mockMvc.perform(get(
+                        "/api/v1/employees/{employeeId}/employment-periods",
+                        outsideEmployee)
+                        .with(user(organizationPrincipal).authorities(
+                                authority("EMPLOYMENT:READ"))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+    }
+
+    @Test
+    void historicalAsOfCannotRestoreFormerDepartmentAccessAfterTransfer()
+            throws Exception {
+        String employeeId =
+                "b0000000-0000-0000-0000-000000000002";
+        String formerDepartmentPrincipal =
+                "80000000-0000-0000-0000-000000000003";
+        String currentDepartmentPrincipal =
+                "80000000-0000-0000-0000-000000000099";
+        String departmentRole =
+                "10000000-0000-0000-0000-000000000003";
+        String currentDepartmentScope =
+                "90000000-0000-0000-0000-000000000099";
+
+        jdbc.update(
+                """
+                INSERT INTO auth_role_capability (role_id, capability_id)
+                VALUES (?, '23000000-0000-0000-0000-000000000014')
+                """,
+                departmentRole);
+        jdbc.update(
+                """
+                UPDATE employment_assignment
+                SET effective_to = TIMESTAMP '2026-07-01 00:00:00'
+                WHERE assignment_id =
+                    'c0000000-0000-0000-0000-000000000002'
+                """);
+        jdbc.update(
+                """
+                INSERT INTO employment_assignment (
+                    assignment_id, employment_period_id, employee_id,
+                    organization_id, effective_from, change_reason
+                ) VALUES (
+                    'c0000000-0000-0000-0000-000000000099',
+                    'c0000000-0000-0000-0000-000000000099',
+                    ?, '40000000-0000-0000-0000-000000000001',
+                    TIMESTAMP '2026-07-01 00:00:00',
+                    'WAVE-2 transfer authorization test'
+                )
+                """,
+                employeeId);
+        jdbc.update(
+                """
+                INSERT INTO auth_principal (
+                    principal_id, status, created_at, row_version
+                ) VALUES (?, 'ACTIVE', CURRENT_TIMESTAMP, 0)
+                """,
+                currentDepartmentPrincipal);
+        jdbc.update(
+                """
+                INSERT INTO auth_data_scope (
+                    scope_id, scope_type, company_id, organization_id,
+                    include_descendants, valid_from, valid_to
+                ) VALUES (
+                    ?, 'ORGANIZATION', NULL,
+                    '40000000-0000-0000-0000-000000000001',
+                    TRUE, TIMESTAMP '2020-01-01 00:00:00', NULL
+                )
+                """,
+                currentDepartmentScope);
+        jdbc.update(
+                """
+                INSERT INTO auth_principal_role_assignment (
+                    assignment_id, principal_id, role_id, data_scope_id,
+                    valid_from, valid_to
+                ) VALUES (
+                    'a0000000-0000-0000-0000-000000000099',
+                    ?, ?, ?, TIMESTAMP '2020-01-01 00:00:00', NULL
+                )
+                """,
+                currentDepartmentPrincipal,
+                departmentRole,
+                currentDepartmentScope);
+
+        mockMvc.perform(get("/api/v1/employees/{employeeId}", employeeId)
+                        .queryParam("asOf", "2026-06-01")
+                        .with(user(formerDepartmentPrincipal).authorities(
+                                authority("EMPLOYEE:READ"))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+
+        mockMvc.perform(get("/api/v1/employees/{employeeId}", employeeId)
+                        .queryParam("asOf", "2026-06-01")
+                        .with(user(currentDepartmentPrincipal).authorities(
+                                authority("EMPLOYEE:READ"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.employeeId").value(employeeId));
     }
 
     @Test
@@ -143,7 +317,7 @@ class Wave2ApiBehaviorContractIntegrationTest extends Wave1IntegrationTestSuppor
         jdbc.update(
                 """
                 INSERT INTO people_import_publication (
-                    publication_id, batch_id, legal_entity_id, template_type,
+                    publication_id, batch_id, company_id, template_type,
                     template_version, file_sha256, idempotency_key, snapshot_digest,
                     snapshot_json, local_version_ids_json, published_by, published_at
                 ) VALUES (?, ?, ?, 'EMPLOYEE', '1.0', ?, ?, ?, '{}', '[]', ?,

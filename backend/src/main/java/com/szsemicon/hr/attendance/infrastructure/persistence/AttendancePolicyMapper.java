@@ -15,7 +15,7 @@ interface AttendancePolicyMapper {
             @Param("bindingRevisionId") String bindingRevisionId);
 
     List<String> findPublishedVersionIdsByKind(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("policyKind") String policyKind,
             @Param("effectiveFrom") LocalDate effectiveFrom,
             @Param("effectiveTo") LocalDate effectiveTo);
@@ -51,7 +51,7 @@ interface AttendancePolicyMapper {
             @Param("expectedVersion") long expectedVersion);
 
     boolean publishedVersionMatchesKind(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("policyVersionId") String policyVersionId,
             @Param("policyKind") String policyKind,
             @Param("effectiveFrom") LocalDate effectiveFrom,

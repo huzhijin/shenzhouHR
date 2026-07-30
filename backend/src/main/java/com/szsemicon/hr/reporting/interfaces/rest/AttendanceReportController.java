@@ -3,15 +3,18 @@ package com.szsemicon.hr.reporting.interfaces.rest;
 import com.szsemicon.hr.reporting.application.AttendanceReportPage;
 import com.szsemicon.hr.reporting.application.AttendanceReportQueryService;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
-import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
+import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -22,6 +25,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class AttendanceReportController {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Set<String> COMPANY_DIRECTORY_PARAMETERS =
+            Set.of("period");
+    private static final Set<String> REPORT_PARAMETERS = Set.of(
+            "reportType",
+            "period",
+            "companyId",
+            "organizationId",
+            "employeeId",
+            "status",
+            "page",
+            "size");
 
     private final AttendanceReportQueryService queryService;
     private final Clock clock;
@@ -32,23 +46,26 @@ public class AttendanceReportController {
         this.clock = clock;
     }
 
-    @GetMapping("/legal-entities")
+    @GetMapping("/companies")
     @PreAuthorize("hasAuthority('ATTENDANCE_REPORT:READ')")
-    ResponseEntity<LegalEntityDirectoryResponse> legalEntities(
-            @RequestParam(required = false) YearMonth period) {
+    ResponseEntity<CompanyDirectoryResponse> companies(
+            @RequestParam(required = false) YearMonth period,
+            @RequestParam MultiValueMap<String, String> requestParameters) {
+        rejectUnknownParameters(
+                requestParameters, COMPANY_DIRECTORY_PARAMETERS);
         YearMonth resolvedPeriod = period == null
                 ? YearMonth.from(clock.instant().atZone(BUSINESS_ZONE))
                 : period;
-        List<LegalEntityDirectoryResponse.Item> items =
-                queryService.legalEntities(resolvedPeriod).stream()
+        List<CompanyDirectoryResponse.Item> items =
+                queryService.companies(resolvedPeriod).stream()
                         .map(option ->
-                                new LegalEntityDirectoryResponse.Item(
-                                        option.legalEntityId(),
-                                        option.name()))
+                                new CompanyDirectoryResponse.Item(
+                                        option.companyId(),
+                                        option.companyName()))
                         .toList();
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(new LegalEntityDirectoryResponse(
+                .body(new CompanyDirectoryResponse(
                         resolvedPeriod.toString(), items));
     }
 
@@ -58,19 +75,21 @@ public class AttendanceReportController {
             @RequestParam(defaultValue = "ATTENDANCE_DETAIL")
                     ReportType reportType,
             @RequestParam(required = false) YearMonth period,
-            @RequestParam(required = false) String legalEntityId,
+            @RequestParam(required = false) String companyId,
             @RequestParam(required = false) String organizationId,
             @RequestParam(required = false) String employeeId,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam MultiValueMap<String, String> requestParameters) {
+        rejectUnknownParameters(requestParameters, REPORT_PARAMETERS);
         YearMonth resolvedPeriod = period == null
                 ? YearMonth.from(clock.instant().atZone(BUSINESS_ZONE))
                 : period;
         AttendanceReportPage result = queryService.query(
                 reportType,
                 resolvedPeriod,
-                legalEntityId,
+                companyId,
                 organizationId,
                 employeeId,
                 status,
@@ -90,14 +109,14 @@ public class AttendanceReportController {
                 page.filters().period().toString(),
                 page.periodState(),
                 new AttendanceReportResponse.ProjectionScope(
-                        wireScope(page.scope().type()),
+                        page.scope().type().name(),
                         page.scope().reference(),
                         page.scope().label()),
                 page.allowedActions());
         var filters = new AttendanceReportResponse.ReportFilters(
                 page.filters().period().toString(),
                 page.scope().reference(),
-                page.filters().legalEntityId(),
+                page.filters().companyId(),
                 page.filters().organizationId(),
                 page.filters().employeeId(),
                 page.filters().status());
@@ -136,14 +155,25 @@ public class AttendanceReportController {
                 page.totalPages());
     }
 
-    private String wireScope(ScopeType type) {
-        return type == ScopeType.LEGAL_ENTITY ? "COMPANY" : type.name();
+    private static void rejectUnknownParameters(
+            MultiValueMap<String, String> requestParameters,
+            Set<String> allowedParameters) {
+        if (requestParameters == null || requestParameters.entrySet().stream()
+                .allMatch(entry -> allowedParameters.contains(entry.getKey())
+                        && entry.getValue() != null
+                        && entry.getValue().size() == 1)) {
+            return;
+        }
+        throw new ApiProblemException(
+                HttpStatus.BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "请求包含不支持的查询参数");
     }
 
-    record LegalEntityDirectoryResponse(
-            String period, List<Item> legalEntities) {
+    record CompanyDirectoryResponse(
+            String period, List<Item> companies) {
 
-        record Item(String legalEntityId, String name) {
+        record Item(String companyId, String companyName) {
         }
     }
 }

@@ -26,7 +26,7 @@ final class ShiftCalendarDtos {
     }
 
     record ShiftTemplateRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotBlank String locationId,
             @NotBlank @Size(max = 64) String code,
             @NotBlank @Size(max = 100) String name,
@@ -35,7 +35,7 @@ final class ShiftCalendarDtos {
 
     record ShiftTemplateView(
             String shiftId,
-            String legalEntityId,
+            String companyId,
             String locationId,
             String code,
             String name,
@@ -91,7 +91,7 @@ final class ShiftCalendarDtos {
     }
 
     record CalendarRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotBlank String locationId,
             @NotBlank @Size(max = 64) String code,
             @NotBlank @Size(max = 100) String name,
@@ -113,7 +113,7 @@ final class ShiftCalendarDtos {
 
     record CalendarView(
             String calendarId,
-            String legalEntityId,
+            String companyId,
             String locationId,
             String code,
             String calendarVersionId,
@@ -192,7 +192,7 @@ final class ShiftCalendarDtos {
 
     static ShiftTemplateView template(ShiftTemplate value) {
         return new ShiftTemplateView(
-                value.shiftId(), value.legalEntityId(), value.locationId(),
+                value.shiftId(), value.companyId(), value.locationId(),
                 value.code(), value.name(), value.status().name(), value.rowVersion(),
                 value.changeReason(), value.updatedAt());
     }
@@ -228,7 +228,7 @@ final class ShiftCalendarDtos {
 
     static CalendarView calendar(WorkCalendar value) {
         return new CalendarView(
-                value.calendarId(), value.legalEntityId(), value.locationId(),
+                value.calendarId(), value.companyId(), value.locationId(),
                 value.code(), value.calendarVersionId(), value.versionNumber(),
                 value.name(), value.calendarYear(), value.timeZone(),
                 value.status().name(), value.effectiveFrom(), value.effectiveTo(),

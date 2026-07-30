@@ -35,7 +35,7 @@
          )
         JOIN organization_identity organization
           ON organization.organization_id = employment.organization_id
-         AND organization.legal_entity_id = employee.legal_entity_id
+         AND organization.company_id = employee.company_id
          AND organization.identity_status = 'ACTIVE'
     </sql>
 
@@ -46,7 +46,7 @@
             NULL AS binding_id
         FROM employee employee
         <include refid="activeEmployeeAndEmployment"/>
-        WHERE employee.legal_entity_id = #{legalEntityId}
+        WHERE employee.company_id = #{companyId}
           AND employee_version.employee_number = #{employeeNumber}
         ORDER BY employee.employee_id, employment.employment_period_id,
                  employment.assignment_id
@@ -62,7 +62,7 @@
         JOIN employee employee
           ON employee.employee_id = binding.employee_id
         <include refid="activeEmployeeAndEmployment"/>
-        WHERE employee.legal_entity_id = #{legalEntityId}
+        WHERE employee.company_id = #{companyId}
           AND binding.binding_status = 'CONFIRMED'
           AND binding.confirmation_ref IS NOT NULL
           AND binding.effective_from &lt;= #{sourceLocalTime}

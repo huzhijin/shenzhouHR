@@ -100,7 +100,7 @@ class CalculationVersionSelectorTest {
             List<RecalculationTarget> targets) {
         return new RecalculationBatchRequest(
                 "synthetic-batch",
-                "synthetic-legal-entity",
+                "synthetic-company",
                 "synthetic-period",
                 1,
                 "synthetic-open-token-v1",
@@ -137,7 +137,7 @@ class CalculationVersionSelectorTest {
     private RecalculationTarget target(
             String employeeId, String date) {
         return new RecalculationTarget(
-                "synthetic-legal-entity",
+                "synthetic-company",
                 employeeId,
                 LocalDate.parse(date));
     }

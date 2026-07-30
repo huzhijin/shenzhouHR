@@ -28,7 +28,7 @@ public final class EvidenceResolutionPolicy {
 
     public static MatchDecision resolve(
             EmployeeEmploymentResolverPort resolver,
-            String legalEntityId,
+            String companyId,
             String employeeNumber,
             String locationId,
             String deviceId,
@@ -41,7 +41,7 @@ public final class EvidenceResolutionPolicy {
                 normalized(employeeNumber == null || employeeNumber.isBlank()
                         ? List.of()
                         : resolver.resolveByEmployeeNumber(
-                                legalEntityId, employeeNumber, at));
+                                companyId, employeeNumber, at));
         if (byNumber.size() == 1) {
             return matched("EMPLOYEE_NUMBER", byNumber.getFirst());
         }
@@ -53,7 +53,7 @@ public final class EvidenceResolutionPolicy {
                 normalized(externalPersonRef == null || externalPersonRef.isBlank()
                         ? List.of()
                         : resolver.resolveByConfirmedBinding(
-                                legalEntityId,
+                                companyId,
                                 locationId,
                                 deviceId,
                                 bindingKind,

@@ -13,7 +13,7 @@ class AttendanceSourceSyncSqlContractTest {
             "src/main/resources/mappers/AttendanceSourceSyncMapper.xml");
 
     @Test
-    void runAndReadAreCapabilityAndLegalEntityScopedWithPageLocks()
+    void runAndReadAreCapabilityAndCompanyScopedWithPageLocks()
             throws Exception {
         String sql = Files.readString(MAPPER);
         String upper = sql.toUpperCase(Locale.ROOT);
@@ -23,10 +23,10 @@ class AttendanceSourceSyncSqlContractTest {
                 .contains(
                         "granted_capability.capability_code ="
                                 + " #{capability}")
-                .contains("data_scope.scope_type = 'LEGAL_ENTITY'")
+                .contains("data_scope.scope_type = 'COMPANY'")
                 .contains(
-                        "data_scope.legal_entity_id ="
-                                + " source.legal_entity_id")
+                        "data_scope.company_id ="
+                                + " source.company_id")
                 .contains("source.source_type = 'DELI_CLOUD'")
                 .contains("source.status = 'ACTIVE'")
                 .contains("job.status = 'RUNNING'")
@@ -63,7 +63,7 @@ class AttendanceSourceSyncSqlContractTest {
                 .contains("'DELI_SYNC_LEASE_EXPIRED'")
                 .contains("SELECT MAX(page.committed_at)")
                 .contains("<select id=\"lockAuthorizedDeliRetryCandidate\"")
-                .contains("data_scope.scope_type = 'LEGAL_ENTITY'")
+                .contains("data_scope.scope_type = 'COMPANY'")
                 .contains("<select id=\"findRetryIdempotency\"")
                 .contains("'DELI_SOURCE_RETRY'")
                 .contains("<insert id=\"insertRetryIdempotency\">")
@@ -81,7 +81,7 @@ class AttendanceSourceSyncSqlContractTest {
         String sql = Files.readString(MAPPER);
 
         assertThat(sql)
-                .contains("<select id=\"lockAuthorizedLegalEntity\"")
+                .contains("<select id=\"lockAuthorizedCompany\"")
                 .contains("entity.status = 'ACTIVE'")
                 .contains("'ATTENDANCE_SOURCE'")
                 .contains("'DELI_SOURCE_REGISTER'")

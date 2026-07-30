@@ -25,7 +25,7 @@ class MyBatisDeliSourceRegistrationRepositoryTest {
     @Test
     void createsSourceConfigurationWatermarkAndCompletedIdempotencyAtomically() {
         var command = command();
-        when(mapper.lockAuthorizedLegalEntity(
+        when(mapper.lockAuthorizedCompany(
                         "legal-1", "principal-1", "ATTENDANCE_SOURCE:CONFIGURE", NOW))
                 .thenReturn("legal-1");
         when(mapper.findDeliSourceByCode("legal-1", "DELI_MAIN"))
@@ -71,7 +71,7 @@ class MyBatisDeliSourceRegistrationRepositoryTest {
 
     @Test
     void exactCompletedIdempotencyReplaysWithoutAnyInsert() {
-        when(mapper.lockAuthorizedLegalEntity(
+        when(mapper.lockAuthorizedCompany(
                         "legal-1", "principal-1", "ATTENDANCE_SOURCE:CONFIGURE", NOW))
                 .thenReturn("legal-1");
         when(mapper.findRegistrationIdempotency(

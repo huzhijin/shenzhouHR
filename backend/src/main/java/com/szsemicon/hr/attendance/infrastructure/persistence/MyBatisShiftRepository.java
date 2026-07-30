@@ -278,7 +278,7 @@ class MyBatisShiftRepository implements ShiftRepository {
 
     private ShiftTemplate template(ShiftRows.TemplateRow row) {
         return new ShiftTemplate(
-                row.shiftTemplateId(), row.legalEntityId(), row.locationId(),
+                row.shiftTemplateId(), row.companyId(), row.locationId(),
                 row.templateCode(), row.templateName(), LifecycleStatus.valueOf(row.status()),
                 row.rowVersion(), row.changeReason(), row.createdBy(), row.createdAt(),
                 row.updatedBy(), row.updatedAt());
@@ -297,7 +297,7 @@ class MyBatisShiftRepository implements ShiftRepository {
 
     private ShiftRows.TemplateRow row(ShiftTemplate value) {
         return new ShiftRows.TemplateRow(
-                value.shiftId(), value.legalEntityId(), value.locationId(), value.code(),
+                value.shiftId(), value.companyId(), value.locationId(), value.code(),
                 value.name(), value.status().name(), value.rowVersion(), value.changeReason(),
                 value.createdBy(), value.createdAt(), value.updatedBy(), value.updatedAt());
     }

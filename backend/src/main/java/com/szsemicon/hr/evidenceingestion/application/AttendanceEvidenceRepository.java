@@ -6,7 +6,7 @@ import java.util.List;
 
 public interface AttendanceEvidenceRepository {
 
-    void lockSubject(String legalEntityId, String employeeId, Instant touchedAt);
+    void lockSubject(String companyId, String employeeId, Instant touchedAt);
 
     EvidenceRows.RawFactRow findRawBySourceIdentity(
             String sourceId,
@@ -24,13 +24,13 @@ public interface AttendanceEvidenceRepository {
     void insertMatchDecision(EvidenceRows.MatchDecisionRow row);
 
     List<EvidenceRows.EffectiveEventRow> findExactEvents(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             Instant pointInstant,
             String normalizedDirection);
 
     List<EvidenceRows.EffectiveEventRow> findNearEvents(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             Instant windowStart,
             Instant windowEnd,
@@ -45,11 +45,11 @@ public interface AttendanceEvidenceRepository {
     void insertRecalculationIntent(EvidenceRows.RecalculationIntentRow row);
 
     List<EvidenceRows.EvidenceTraceRow> evidenceTrace(
-            String legalEntityId,
+            String companyId,
             String eventId);
 
     record AffectedDate(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate) {
     }

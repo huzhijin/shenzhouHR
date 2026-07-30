@@ -17,9 +17,9 @@ public class MyBatisAttendanceEvidenceRepository
     }
 
     @Override
-    public void lockSubject(String legalEntityId, String employeeId, Instant touchedAt) {
-        mapper.insertSubjectLock(legalEntityId, employeeId, touchedAt);
-        mapper.lockSubject(legalEntityId, employeeId);
+    public void lockSubject(String companyId, String employeeId, Instant touchedAt) {
+        mapper.insertSubjectLock(companyId, employeeId, touchedAt);
+        mapper.lockSubject(companyId, employeeId);
     }
 
     @Override
@@ -55,23 +55,23 @@ public class MyBatisAttendanceEvidenceRepository
 
     @Override
     public List<EvidenceRows.EffectiveEventRow> findExactEvents(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             Instant pointInstant,
             String normalizedDirection) {
         return mapper.findExactEvents(
-                legalEntityId, employeeId, pointInstant, normalizedDirection);
+                companyId, employeeId, pointInstant, normalizedDirection);
     }
 
     @Override
     public List<EvidenceRows.EffectiveEventRow> findNearEvents(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             Instant windowStart,
             Instant windowEnd,
             String normalizedDirection) {
         return mapper.findNearEvents(
-                legalEntityId,
+                companyId,
                 employeeId,
                 windowStart,
                 windowEnd,
@@ -100,8 +100,8 @@ public class MyBatisAttendanceEvidenceRepository
 
     @Override
     public List<EvidenceRows.EvidenceTraceRow> evidenceTrace(
-            String legalEntityId,
+            String companyId,
             String eventId) {
-        return List.copyOf(mapper.evidenceTrace(legalEntityId, eventId));
+        return List.copyOf(mapper.evidenceTrace(companyId, eventId));
     }
 }

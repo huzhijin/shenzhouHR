@@ -2,6 +2,12 @@
 
 当前正式需求基线为 V1.9 `docs_confirm`。仓库包含按波次交付的访问控制、人员、规则与考勤能力；任何发布结论必须以最终 integrated commit 的门禁证据为准。
 
+## 公司数据边界
+
+公司是员工、组织、考勤配置、外部来源、计算、报表和权限的唯一顶层业务维度。当前公开契约和运行时统一使用 `companyId`、`Company`、`COMPANY` 和“公司”；组织范围必须先证明属于一个明确公司，员工本人范围只从服务端会话解析。公司 HR、高管、部门负责人、制造中心主管和员工本人仍需同时满足各自 capability 与明确的 `COMPANY`、`ORGANIZATION` 或 `SELF` 范围，角色名称和前端隐藏都不能扩大权限。
+
+单个授权公司可以安全自动选中；存在多个授权公司时必须显式选择，系统不猜测第一家公司。V1～V8、V10 及冻结验证证据保留原始字节与历史术语；V9 仅对 MySQL 8.4 保留字 `row_number` 做了有记录的标识符引用修正，已有 V9 Flyway history 的数据库不得静默 `repair`。V11 是一次性前向迁移桥，最新数据库、后端、OpenAPI、前端和当前交付文档只使用公司语义。
+
 ## W9 发布加固与验收
 
 W9 提供考勤 P0-A 的离线安全检查、50 并发/36 个月容量合同、原生 Nginx/systemd 预检、MySQL 备份恢复安全脚本、浏览器验收矩阵和严格 release evidence contract。当前状态是 **harness ready，release `NOT_VERIFIED`**：
@@ -72,10 +78,11 @@ bash deploy/mysql/wave1-local-mysql.sh \
 
 ## 后端运行
 
-仓库中的 [`.env.example`](.env.example) 只声明变量名和无密码模板。通过终端、IDE 或本机进程管理器注入应用与 Flyway 环境变量，且不得回显值：
+仓库中的 [`.env.example`](.env.example) 只声明变量名和无密码模板。数据库迁移必须先通过上一节的公司维度预检脚本完成；应用内 Flyway 默认关闭，禁止用后端启动绕过 V10→V11 门禁。通过终端、IDE 或本机进程管理器注入应用环境变量，且不得回显值：
 
-- Flyway 使用 `shenzhou_hr_local_migrator`
+- 迁移脚本使用 `shenzhou_hr_local_migrator`
 - Spring Boot 使用 `shenzhou_hr_dev_app`
+- Spring Boot 保持 `SHENZHOUHR_FLYWAY_ENABLED=false`
 - Spring Boot 日常运行禁止使用 `root`
 - 数据库会话时区为 UTC，业务时区为 `Asia/Shanghai`
 
@@ -111,6 +118,8 @@ npm run demo
 ## 质量门
 
 ```bash
+python3 scripts/qa/verify_company_vocabulary.py --explain-allowlist
+
 cd backend
 ./mvnw test
 

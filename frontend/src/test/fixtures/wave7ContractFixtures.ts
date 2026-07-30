@@ -152,6 +152,10 @@ export const reportFixture: ReportProjection = {
   metadata: {
     ...dashboardFixture.metadata,
     projectionVersion: 'REPORT-2026-07-V3',
+    scope: {
+      ...dashboardFixture.metadata.scope,
+      type: 'ORGANIZATION',
+    },
     allowedActions: ['REPORT_DRILL_DOWN', 'REPORT_EXPORT_CREATE', 'REPORT_EXPORT_DOWNLOAD'],
   },
   reportTitle: '部门月度考勤汇总',
@@ -159,7 +163,7 @@ export const reportFixture: ReportProjection = {
   filters: {
     period: '2026-07',
     scopeReference: 'scope:organization:synthetic',
-    legalEntityId: '30000000-0000-0000-0000-000000000001',
+    companyId: '30000000-0000-0000-0000-000000000001',
     status: '全部',
   },
   columns: [
@@ -229,11 +233,11 @@ export const wave7FixtureGateway: Wave7ProjectionGateway = {
   loadLeave: async () => leaveFixture,
   loadFeedback: async () => feedbackFixture,
   loadDashboard: async () => dashboardFixture,
-  loadReportLegalEntities: async (period) => ({
+  loadReportCompanies: async (period) => ({
     period,
-    legalEntities: [{
-      legalEntityId: '30000000-0000-0000-0000-000000000001',
-      name: '神州半导体',
+    companies: [{
+      companyId: '30000000-0000-0000-0000-000000000001',
+      companyName: '神州半导体',
     }],
   }),
   loadReport: async () => reportFixture,

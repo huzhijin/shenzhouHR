@@ -10,12 +10,12 @@ import org.apache.ibatis.annotations.Param;
 interface EvidenceEmployeeResolverMapper {
 
     List<EvidenceEmployeeResolverRow> resolveByEmployeeNumber(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeNumber") String employeeNumber,
             @Param("businessDate") LocalDate businessDate);
 
     List<EvidenceEmployeeResolverRow> resolveByConfirmedDeliBinding(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("bindingKind") String bindingKind,
             @Param("externalPersonRef") String externalPersonRef,
             @Param("sourceLocalTime") LocalDateTime sourceLocalTime,

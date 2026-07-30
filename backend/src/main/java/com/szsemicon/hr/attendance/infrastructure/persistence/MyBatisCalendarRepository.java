@@ -130,7 +130,7 @@ class MyBatisCalendarRepository implements CalendarRepository {
         String successorVersionId = UUID.randomUUID().toString();
         WorkCalendar successor = withCanonicalDigest(new WorkCalendar(
                 current.calendarId(),
-                current.legalEntityId(),
+                current.companyId(),
                 current.locationId(),
                 current.code(),
                 successorVersionId,
@@ -303,7 +303,7 @@ class MyBatisCalendarRepository implements CalendarRepository {
         String successorVersionId = UUID.randomUUID().toString();
         WorkCalendar successor = withCanonicalDigest(new WorkCalendar(
                 current.calendarId(),
-                current.legalEntityId(),
+                current.companyId(),
                 current.locationId(),
                 current.code(),
                 successorVersionId,
@@ -380,7 +380,7 @@ class MyBatisCalendarRepository implements CalendarRepository {
 
     private WorkCalendar calendar(CalendarRows.CalendarRow row) {
         return new WorkCalendar(
-                row.workCalendarId(), row.legalEntityId(), row.locationId(),
+                row.workCalendarId(), row.companyId(), row.locationId(),
                 row.calendarCode(), row.workCalendarVersionId(), row.versionNumber(),
                 row.calendarName(), row.calendarYear(), row.timeZoneSnapshot(),
                 CalendarStatus.valueOf(row.status()), row.effectiveFrom(),
@@ -403,7 +403,7 @@ class MyBatisCalendarRepository implements CalendarRepository {
                 ? CalendarSnapshotDigest.digest(value, List.of())
                 : value.snapshotDigest();
         return new CalendarRows.CalendarRow(
-                value.calendarId(), value.legalEntityId(), value.locationId(),
+                value.calendarId(), value.companyId(), value.locationId(),
                 value.code(), value.calendarVersionId(), value.versionNumber(),
                 value.name(), value.calendarYear(), value.timeZone(),
                 value.status().name(), value.effectiveFrom(), value.effectiveTo(),
@@ -450,7 +450,7 @@ class MyBatisCalendarRepository implements CalendarRepository {
                 CalendarSnapshotDigest.digest(calendar, canonicalDays);
         return new WorkCalendar(
                 calendar.calendarId(),
-                calendar.legalEntityId(),
+                calendar.companyId(),
                 calendar.locationId(),
                 calendar.code(),
                 calendar.calendarVersionId(),

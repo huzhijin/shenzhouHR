@@ -98,7 +98,7 @@ After W5 physical persistence is authorized, a frozen-source gate SHALL run on t
 - **THEN** W5 database acceptance remains incomplete
 
 ### Requirement: Authorization and privacy gates cover every W5 action
-Real W5 verification SHALL test capability-present/absent pairs, legal-entity/location/group/organization scope, field redaction, protected period and stale token for every read/mutation, asserting both response and database delta.
+Real W5 verification SHALL test capability-present/absent pairs, company/location/group/organization scope, field redaction, protected period and stale token for every read/mutation, asserting both response and database delta.
 
 #### Scenario: Technical admin lacks attendance detail
 - **WHEN** SYSTEM_ADMIN lacks explicit W5 read/adjust/close capabilities

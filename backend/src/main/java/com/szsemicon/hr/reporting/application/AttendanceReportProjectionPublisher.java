@@ -71,19 +71,19 @@ public class AttendanceReportProjectionPublisher
             throw new IllegalArgumentException(
                     "report projection dataAsOf cannot be in the future");
         }
-        if (!writer.lockLegalEntity(metadata.legalEntityId())) {
+        if (!writer.lockCompany(metadata.companyId())) {
             throw new IllegalArgumentException(
-                    "report projection legal entity does not exist");
+                    "report projection company does not exist");
         }
         var existing = writer.findByDigest(
-                metadata.legalEntityId(),
+                metadata.companyId(),
                 metadata.period().atDay(1),
                 publication.projectionDigest());
         if (existing.isPresent()) {
             return idempotent(existing.orElseThrow(), publication);
         }
         var latest = writer.findLatestPublished(
-                        metadata.legalEntityId(),
+                        metadata.companyId(),
                         metadata.period().atDay(1));
         latest.ifPresent(value -> validateSuccessor(value, metadata));
         Instant now = monotonicPublicationTime(
@@ -93,7 +93,7 @@ public class AttendanceReportProjectionPublisher
         String projectionId = UUID.randomUUID().toString();
         writer.createDraft(new ProjectionDraft(
                 projectionId,
-                metadata.legalEntityId(),
+                metadata.companyId(),
                 metadata.period().atDay(1),
                 metadata.period().plusMonths(1).atDay(1),
                 metadata.periodState(),
@@ -121,7 +121,7 @@ public class AttendanceReportProjectionPublisher
                 writer.appendExceptionFact(new ExceptionFactWrite(
                         UUID.randomUUID().toString(),
                         projectionId,
-                        daily.legalEntityId(),
+                        daily.companyId(),
                         calculated.employeeVersionId(),
                         calculated.employmentAssignmentId(),
                         daily.organizationVersionId(),
@@ -134,7 +134,7 @@ public class AttendanceReportProjectionPublisher
             writer.appendExceptionFact(new ExceptionFactWrite(
                     UUID.randomUUID().toString(),
                     projectionId,
-                    current.legalEntityId(),
+                    current.companyId(),
                     current.employeeVersionId(),
                     current.employmentAssignmentId(),
                     current.organizationVersionId(),
@@ -145,7 +145,7 @@ public class AttendanceReportProjectionPublisher
             writer.appendOaDocumentFact(new OaDocumentFactWrite(
                     UUID.randomUUID().toString(),
                     projectionId,
-                    oa.legalEntityId(),
+                    oa.companyId(),
                     oa.oaAttendanceDocumentId(),
                     oa.employeeId(),
                     oa.employeeVersionId(),
@@ -168,7 +168,7 @@ public class AttendanceReportProjectionPublisher
             writer.appendTimeAccountFact(new TimeAccountFactWrite(
                     UUID.randomUUID().toString(),
                     projectionId,
-                    account.legalEntityId(),
+                    account.companyId(),
                     account.accountId(),
                     account.employeeId(),
                     account.employeeVersionId(),
@@ -211,7 +211,7 @@ public class AttendanceReportProjectionPublisher
             StoredProjection stored, CanonicalPublication publication) {
         VerifiedProjectionMetadata metadata = publication.metadata();
         boolean sameMetadata =
-                stored.legalEntityId().equals(metadata.legalEntityId())
+                stored.companyId().equals(metadata.companyId())
                         && stored.periodStart().equals(
                                 metadata.period().atDay(1))
                         && stored.periodEndExclusive().equals(
@@ -248,8 +248,8 @@ public class AttendanceReportProjectionPublisher
             StoredProjection latest,
             VerifiedProjectionMetadata incoming) {
         if (!"PUBLISHED".equals(latest.status())
-                || !latest.legalEntityId().equals(
-                        incoming.legalEntityId())
+                || !latest.companyId().equals(
+                        incoming.companyId())
                 || !latest.periodStart().equals(
                         incoming.period().atDay(1))
                 || latest.publishedAt() == null) {
@@ -311,7 +311,7 @@ public class AttendanceReportProjectionPublisher
 
         CanonicalDigest digest = new CanonicalDigest();
         digest.add(DIGEST_FORMAT);
-        digest.add(metadata.legalEntityId());
+        digest.add(metadata.companyId());
         digest.add(metadata.period().toString());
         digest.add(metadata.periodState().name());
         digest.add(metadata.formulaCatalogVersion());
@@ -376,7 +376,7 @@ public class AttendanceReportProjectionPublisher
             Set<String> caseIds) {
         for (VerifiedCurrentExceptionFact verified : facts) {
             ExceptionFact fact = verified.fact();
-            if (!metadata.legalEntityId().equals(verified.legalEntityId())
+            if (!metadata.companyId().equals(verified.companyId())
                     || !metadata.period().equals(
                             java.time.YearMonth.from(fact.businessDate()))
                     || !caseIds.add(fact.caseId())) {
@@ -399,7 +399,7 @@ public class AttendanceReportProjectionPublisher
 
     private void validateDaily(
             VerifiedProjectionMetadata metadata, DailyFact fact) {
-        if (!metadata.legalEntityId().equals(fact.legalEntityId())
+        if (!metadata.companyId().equals(fact.companyId())
                 || !metadata.period().equals(
                         java.time.YearMonth.from(fact.businessDate()))) {
             throw new IllegalArgumentException(
@@ -508,7 +508,7 @@ public class AttendanceReportProjectionPublisher
                 .atStartOfDay(BUSINESS_ZONE)
                 .toInstant();
         for (VerifiedOaDocumentFact fact : facts) {
-            if (!metadata.legalEntityId().equals(fact.legalEntityId())
+            if (!metadata.companyId().equals(fact.companyId())
                     || !documentIds.add(fact.oaAttendanceDocumentId())) {
                 throw new IllegalArgumentException(
                         "OA fact is outside scope or duplicated");
@@ -532,7 +532,7 @@ public class AttendanceReportProjectionPublisher
             List<VerifiedTimeAccountFact> facts) {
         Set<String> accountIds = new HashSet<>();
         for (VerifiedTimeAccountFact fact : facts) {
-            if (!metadata.legalEntityId().equals(fact.legalEntityId())
+            if (!metadata.companyId().equals(fact.companyId())
                     || !accountIds.add(fact.accountId())) {
                 throw new IllegalArgumentException(
                         "time-account fact is outside scope or duplicated");
@@ -545,7 +545,7 @@ public class AttendanceReportProjectionPublisher
         DailyFact fact = value.facts().dailyFact();
         digest.add(value.employeeVersionId());
         digest.add(value.employmentAssignmentId());
-        digest.add(fact.legalEntityId());
+        digest.add(fact.companyId());
         digest.add(fact.employeeId());
         digest.add(fact.organizationId());
         digest.add(fact.organizationVersionId());
@@ -583,7 +583,7 @@ public class AttendanceReportProjectionPublisher
 
     private static void appendOa(
             CanonicalDigest digest, VerifiedOaDocumentFact fact) {
-        digest.add(fact.legalEntityId());
+        digest.add(fact.companyId());
         digest.add(fact.oaAttendanceDocumentId());
         digest.add(fact.employeeId());
         digest.add(fact.employeeVersionId());
@@ -604,7 +604,7 @@ public class AttendanceReportProjectionPublisher
     private static void appendCurrentException(
             CanonicalDigest digest, VerifiedCurrentExceptionFact value) {
         ExceptionFact fact = value.fact();
-        digest.add(value.legalEntityId());
+        digest.add(value.companyId());
         digest.add(value.employeeVersionId());
         digest.add(value.employmentAssignmentId());
         digest.add(value.organizationVersionId());
@@ -622,7 +622,7 @@ public class AttendanceReportProjectionPublisher
 
     private static void appendAccount(
             CanonicalDigest digest, VerifiedTimeAccountFact fact) {
-        digest.add(fact.legalEntityId());
+        digest.add(fact.companyId());
         digest.add(fact.accountId());
         digest.add(fact.employeeId());
         digest.add(fact.employeeVersionId());

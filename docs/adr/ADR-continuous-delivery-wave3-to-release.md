@@ -40,7 +40,7 @@
 - 前置阶段真实验收为 PASS；
 - request/response schema 已加入 `components`，且前后端生成类型或显式 DTO 一致；
 - Controller operation 与 OpenAPI operation 精确闭包，无缺失、无多余路由；
-- 服务端 capability、法人/组织/对象 scope 负向测试通过；
+- 服务端 capability、公司/组织/对象 scope 负向测试通过；
 - 状态变更的 CSRF、`Idempotency-Key`、`If-Match`/`ETag`、审计和 period status 测试通过；
 - 401、403、404、409、412、422 等约定错误使用统一 `ApiError` envelope，并返回 `X-Correlation-ID`。
 
@@ -119,12 +119,12 @@ full release acceptance
 | V7 | WAVE-3 | 考勤配置与四类基础策略存储 |
 | V8 | WAVE-4 | 来源连接/映射版本、凭据引用、同步批次/水位、raw/normalized evidence、EmployeeSourceBinding |
 | V9 | WAVE-4 | 离线打卡模板、导入批次/行、预检错误、发布/冲正审计 |
-| V10 | 考勤计算 | effective event、规则/组织快照、日/月结果、异常、调整、重算和差异 |
-| V11 | 月结 | period 状态、close/reopen operation 与不可变 close snapshot |
-| V12 | 假期与时间账户 | 假别版本、申请/对账、账户、占用/释放/扣减/发放/失效/冲正流水 |
-| V13 | 自助/报表/大屏 | feedback、导出任务/下载审计、大屏发布审计 |
+| V10 | 正式考勤报表 | 月度不可变投影、报表事实与导出存储；不代表自动月结编排完成 |
+| V11 | 公司边界统一 | 最新物理结构与 scope 一次性前向改为公司语义，稳定 ID 和业务行不变 |
+| V12 | 假期与时间账户（计划） | 假别版本、申请/对账、账户、占用/释放/扣减/发放/失效/冲正流水 |
+| V13 | 自助/报表/大屏（计划） | feedback、剩余报表/看板与大屏发布审计 |
 
-禁止空迁移、复用版本或改写已落库迁移。若某阶段不需要物理变更，不创建迁移。PAYROLL 不预留迁移号；其未来版本只能在单独授权时确定。
+实际迁移注册表优先于规划文档。禁止空迁移、复用版本或改写已落库迁移。若某阶段不需要物理变更，不创建迁移。PAYROLL 不预留迁移号；其未来版本只能在单独授权时确定。
 
 ### 6. WAVE-3 策略种类冲突的裁决
 
@@ -160,13 +160,13 @@ full release acceptance
 ### 8. 安全默认值
 
 - 认证使用服务端 session cookie；生产/HTTPS 必须 `Secure`、`HttpOnly`、host-only、`SameSite=Lax`。CSRF token 不进入持久浏览器存储。
-- 授权默认拒绝。每个对象读取/写入都校验 capability、法人、组织、地点、人员和历史快照 scope，防止 IDOR/BOLA。
+- 授权默认拒绝。每个对象读取/写入都校验 capability、公司、组织、地点、人员和历史快照 scope，防止 IDOR/BOLA。
 - 创建和动作接口要求 `Idempotency-Key`；可变资源要求 `If-Match`/`ETag`；冲突返回 409 或 412，不做最后写入覆盖。
 - 状态变更写包含 actor、request/correlation ID、原因、before/after digest 和结果的审计。失败审计不能被业务事务回滚吞掉。
 - 得力/OA 连接只保存仓库外 secret reference；日志、报告、截图、命令参数和数据库不得出现明文凭据。OA 只读语句使用解析后的 allowlist，禁止 DDL/DML、多语句和危险函数。
 - raw payload、原始文件和哈希不可变；撤销/补录/作废只追加新事实或冲正。
 - Excel 上传在读取前验证扩展名、MIME/signature、20MB/50,000 行限制、宏、外链、公式和压缩炸弹；错误报告与原文件分别鉴权和审计。
-- 月结 provider 未实现时 fail-closed：当前或过去生效的策略发布拒绝，只允许安全的未来版本。V11 provider 上线后仍以 period 状态作为服务端硬门禁。
+- 月结 provider 未实现时 fail-closed：当前或过去生效的策略发布拒绝，只允许安全的未来版本。provider 上线后仍以 period 状态作为服务端硬门禁，不再把该能力绑定到已被公司迁移占用的版本号。
 - demo 模式不得访问 API 或改变 MySQL；普通模式不得读取 demo 数据。
 - 没有真实外部租户、凭据、MySQL 8.4 或生产恢复环境时，对应外部项只能标记 `NOT_VERIFIED`，其余本地契约、合成服务器、适配器、MySQL/API/浏览器和安全测试继续执行。
 

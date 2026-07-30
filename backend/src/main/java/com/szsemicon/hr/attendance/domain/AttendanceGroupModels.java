@@ -16,7 +16,7 @@ public final class AttendanceGroupModels {
 
     public record Location(
             String locationId,
-            String legalEntityId,
+            String companyId,
             String code,
             String locationRevisionId,
             int revisionNumber,
@@ -36,7 +36,7 @@ public final class AttendanceGroupModels {
 
     public record AttendanceGroup(
             String groupId,
-            String legalEntityId,
+            String companyId,
             String code,
             String groupRevisionId,
             int revisionNumber,

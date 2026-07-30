@@ -31,7 +31,7 @@
 
 - [ ] 4.1 Read the synchronized highest Flyway version and select the next available W6 migration number without modifying or renaming any existing migration/checksum.
 - [ ] 4.2 Add an independent W6 schema registry and RED migration tests for empty→latest, synchronized-upstream→W6, validate, existing checksum immutability and second migrate no-op.
-- [ ] 4.3 Add leave type/revision/policy snapshot and annual qualification/tier/grant logical objects with legal-entity, scope, policy/employment and immutable snapshot constraints.
+- [ ] 4.3 Add leave type/revision/policy snapshot and annual qualification/tier/grant logical objects with company, scope, policy/employment and immutable snapshot constraints.
 - [ ] 4.4 Add time account and append-only ledger objects with exact decimal hours, unique sequence/business idempotency, reversal FK/cardinality, source/version/request provenance and bounded query indexes.
 - [ ] 4.5 Add opening-import batch/file/row/issue/precheck/publication/state/error-report logical objects and exact idempotency/digest constraints.
 - [ ] 4.6 Add versioned balance/expiry/report projection and access-audit objects that reference the W5 close/reopen contract without duplicating W5 authority.

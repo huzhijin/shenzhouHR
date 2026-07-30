@@ -78,7 +78,7 @@ class MyBatisAttendanceReportSourceRepositoryTest {
     }
 
     @Test
-    void authorizedLegalEntityDirectoryReturnsOnlyMapperAuthorizedRows() {
+    void authorizedCompanyDirectoryReturnsOnlyMapperAuthorizedRows() {
         AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
         var repository = new MyBatisAttendanceReportSourceRepository(
                 mapper,
@@ -86,29 +86,29 @@ class MyBatisAttendanceReportSourceRepositoryTest {
         var period = YearMonth.of(2026, 7);
         var authorizationTime =
                 Instant.parse("2026-07-29T00:00:00Z");
-        when(mapper.listAuthorizedLegalEntities(
+        when(mapper.listAuthorizedCompanies(
                         "principal-1",
                         "ATTENDANCE_REPORT:READ",
                         period.atDay(1),
                         period.plusMonths(1).atDay(1),
                         authorizationTime))
                 .thenReturn(List.of(
-                        new ReportRows.LegalEntityRow(
+                        new ReportRows.CompanyRow(
                                 "company-a", "神州半导体"),
-                        new ReportRows.LegalEntityRow(
+                        new ReportRows.CompanyRow(
                                 "company-b", "神州科技")));
 
-        assertThat(repository.listAuthorizedLegalEntities(
+        assertThat(repository.listAuthorizedCompanies(
                         "principal-1",
                         "ATTENDANCE_REPORT:READ",
                         period,
                         authorizationTime))
-                .extracting(option -> option.legalEntityId())
+                .extracting(option -> option.companyId())
                 .containsExactly("company-a", "company-b");
     }
 
     @Test
-    void multipleAuthorizedLegalEntitiesFailClosedUntilApiSelectsOne() {
+    void multipleAuthorizedCompaniesFailClosedUntilApiSelectsOne() {
         AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
         var repository = new MyBatisAttendanceReportSourceRepository(
                 mapper,
@@ -150,7 +150,7 @@ class MyBatisAttendanceReportSourceRepositoryTest {
     }
 
     @Test
-    void oneAuthorizedLegalEntityRemainsBackwardCompatibleAndIsResolved() {
+    void oneAuthorizedCompanyRemainsBackwardCompatibleAndIsResolved() {
         AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
         var repository = new MyBatisAttendanceReportSourceRepository(
                 mapper,
@@ -180,7 +180,7 @@ class MyBatisAttendanceReportSourceRepositoryTest {
                         authorizationTime))
                 .thenReturn(List.of(new ReportRows.ScopeRow(
                         "scope-company-a",
-                        "LEGAL_ENTITY",
+                        "COMPANY",
                         "company-a",
                         null,
                         true,
@@ -193,12 +193,12 @@ class MyBatisAttendanceReportSourceRepositoryTest {
                 authorizationTime);
 
         assertThat(result).isPresent();
-        assertThat(result.orElseThrow().filter().legalEntityId())
+        assertThat(result.orElseThrow().filter().companyId())
                 .isEqualTo("company-a");
     }
 
     @Test
-    void explicitLegalEntitySelectionNarrowsAuthorizedProjection() {
+    void explicitCompanySelectionNarrowsAuthorizedProjection() {
         AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
         var repository = new MyBatisAttendanceReportSourceRepository(
                 mapper,
@@ -230,7 +230,7 @@ class MyBatisAttendanceReportSourceRepositoryTest {
                         authorizationTime))
                 .thenReturn(List.of(new ReportRows.ScopeRow(
                         "scope-company-b",
-                        "LEGAL_ENTITY",
+                        "COMPANY",
                         "company-b",
                         null,
                         true,
@@ -243,7 +243,7 @@ class MyBatisAttendanceReportSourceRepositoryTest {
                 authorizationTime);
 
         assertThat(result).isPresent();
-        assertThat(result.orElseThrow().filter().legalEntityId())
+        assertThat(result.orElseThrow().filter().companyId())
                 .isEqualTo("company-b");
         verify(mapper).listLatestAuthorizedProjections(
                 "principal-1",
@@ -255,7 +255,7 @@ class MyBatisAttendanceReportSourceRepositoryTest {
     }
 
     @Test
-    void mismatchedProjectionCannotEscapeExplicitLegalEntitySelection() {
+    void mismatchedProjectionCannotEscapeExplicitCompanySelection() {
         AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
         var repository = new MyBatisAttendanceReportSourceRepository(
                 mapper,

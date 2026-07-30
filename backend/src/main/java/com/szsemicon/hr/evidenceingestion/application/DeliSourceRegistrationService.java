@@ -51,7 +51,7 @@ public class DeliSourceRegistrationService {
         String requestDigest = requestDigest(command);
         String snapshotDigest = AttendanceEvidenceDigests.sha256(
                 "DELI_SOURCE_CONFIG_V1",
-                command.legalEntityId(),
+                command.companyId(),
                 command.sourceCode(),
                 command.displayName(),
                 command.sourceTimeZone(),
@@ -122,7 +122,7 @@ public class DeliSourceRegistrationService {
                     "幂等键已用于不同的数据源配置");
             case SOURCE_CODE_CONFLICT -> throw conflict(
                     "ATTENDANCE_SOURCE_CODE_CONFLICT",
-                    "当前法人下已存在相同的数据源编码");
+                    "当前公司下已存在相同的数据源编码");
             case CREDENTIAL_REFERENCE_CONFLICT -> throw conflict(
                     "DELI_CREDENTIAL_REFERENCE_CONFLICT",
                     "该得力凭据引用已绑定到其他启用的数据源");
@@ -133,7 +133,7 @@ public class DeliSourceRegistrationService {
             DeliSourceRegistrationModels.Command command) {
         return AttendanceEvidenceDigests.sha256(
                 "DELI_SOURCE_REGISTER_V1",
-                command.legalEntityId(),
+                command.companyId(),
                 command.sourceCode(),
                 command.displayName(),
                 command.sourceTimeZone(),
@@ -148,7 +148,7 @@ public class DeliSourceRegistrationService {
             DeliSourceRegistrationModels.Command command,
             String idempotencyKey) {
         Objects.requireNonNull(command, "command");
-        requireReference(command.legalEntityId(), 36);
+        requireReference(command.companyId(), 36);
         if (!SOURCE_CODE.matcher(command.sourceCode()).matches()) {
             throw new IllegalArgumentException("invalid source code");
         }

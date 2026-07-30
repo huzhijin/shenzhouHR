@@ -23,26 +23,610 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class AccountPersistenceAdapter implements AccountPersistence {
+
+    private static final String ACCOUNT_FROM = """
+            FROM local_account account
+            JOIN auth_principal principal
+              ON principal.principal_id = account.principal_id
+            LEFT JOIN employee
+              ON employee.employee_id = principal.employee_id
+            """;
 
     private static final String ACCOUNT_SELECT = """
             SELECT account.account_id, account.principal_id, account.username,
                    account.normalized_username, account.display_name, account.status,
                    account.first_password_change_required, account.locked_until,
                    account.last_login_at, account.session_epoch, account.row_version,
-                   employee.legal_entity_id
-            FROM local_account account
-            JOIN auth_principal principal ON principal.principal_id = account.principal_id
-            LEFT JOIN employee ON employee.employee_id = principal.employee_id
+                   employee.company_id
+            """ + ACCOUNT_FROM;
+
+    private static final String ACCOUNT_VISIBILITY_PREDICATE = """
+            EXISTS (
+              SELECT 1
+              FROM auth_principal actor
+              JOIN auth_principal_role_assignment assignment
+                ON assignment.principal_id = actor.principal_id
+              JOIN auth_role_capability role_capability
+                ON role_capability.role_id = assignment.role_id
+              JOIN auth_capability capability
+                ON capability.capability_id =
+                   role_capability.capability_id
+               AND capability.capability_code = :requiredCapability
+              JOIN auth_data_scope scope
+                ON scope.scope_id = assignment.data_scope_id
+              WHERE actor.principal_id = :principalId
+                AND actor.status = 'ACTIVE'
+                AND assignment.valid_from <= :authorizationTime
+                AND (
+                  assignment.valid_to IS NULL
+                  OR assignment.valid_to > :authorizationTime
+                )
+                AND scope.valid_from <= :authorizationTime
+                AND (
+                  scope.valid_to IS NULL
+                  OR scope.valid_to > :authorizationTime
+                )
+                AND (
+                  (
+                    scope.scope_type = 'SELF'
+                    AND account.principal_id = :principalId
+                  )
+                  OR (
+                    scope.scope_type = 'COMPANY'
+                    AND EXISTS (
+                      SELECT 1
+                      FROM company scoped_company
+                      WHERE scoped_company.company_id = scope.company_id
+                        AND scoped_company.status = 'ACTIVE'
+                    )
+                    AND (
+                      scope.company_id = employee.company_id
+                      OR EXISTS (
+                        SELECT 1
+                        FROM auth_principal_role_assignment target_role
+                        JOIN auth_data_scope target_scope
+                          ON target_scope.scope_id =
+                             target_role.data_scope_id
+                        WHERE target_role.principal_id =
+                              account.principal_id
+                          AND target_role.valid_from <=
+                              :authorizationTime
+                          AND (
+                            target_role.valid_to IS NULL
+                            OR target_role.valid_to >
+                               :authorizationTime
+                          )
+                          AND target_scope.valid_from <=
+                              :authorizationTime
+                          AND (
+                            target_scope.valid_to IS NULL
+                            OR target_scope.valid_to >
+                               :authorizationTime
+                          )
+                          AND target_scope.scope_type = 'COMPANY'
+                          AND target_scope.company_id =
+                              scope.company_id
+                      )
+                    )
+                  )
+                  OR (
+                    scope.scope_type = 'ORGANIZATION'
+                    AND EXISTS (
+                      SELECT 1
+                      FROM organization_identity scoped_organization
+                      JOIN company scoped_company
+                        ON scoped_company.company_id =
+                           scoped_organization.company_id
+                       AND scoped_company.status = 'ACTIVE'
+                      JOIN organization_current_projection
+                          scoped_projection
+                        ON scoped_projection.organization_id =
+                           scoped_organization.organization_id
+                      JOIN organization_version scoped_version
+                        ON scoped_version.organization_version_id =
+                           scoped_projection.current_version_id
+                       AND scoped_version.organization_id =
+                           scoped_organization.organization_id
+                       AND scoped_version.status = 'ACTIVE'
+                      JOIN employment_assignment target_assignment
+                        ON target_assignment.employee_id =
+                           employee.employee_id
+                       AND target_assignment.record_status = 'ACTIVE'
+                       AND target_assignment.version_valid_to IS NULL
+                      JOIN organization_identity target_organization
+                        ON target_organization.organization_id =
+                           target_assignment.organization_id
+                       AND target_organization.identity_status = 'ACTIVE'
+                       AND target_organization.company_id =
+                           scoped_organization.company_id
+                       AND target_organization.company_id =
+                           employee.company_id
+                      JOIN organization_current_projection
+                          target_projection
+                        ON target_projection.organization_id =
+                           target_organization.organization_id
+                      JOIN organization_version target_version
+                        ON target_version.organization_version_id =
+                           target_projection.current_version_id
+                       AND target_version.organization_id =
+                           target_organization.organization_id
+                       AND target_version.status = 'ACTIVE'
+                      WHERE scoped_organization.organization_id =
+                            scope.organization_id
+                        AND scoped_organization.identity_status = 'ACTIVE'
+                        AND scoped_version.effective_from <=
+                            :authorizationTime
+                        AND (
+                          scoped_version.effective_to IS NULL
+                          OR scoped_version.effective_to >
+                             :authorizationTime
+                        )
+                        AND target_assignment.effective_from <=
+                            :authorizationTime
+                        AND (
+                          target_assignment.effective_to IS NULL
+                          OR target_assignment.effective_to >
+                             :authorizationTime
+                        )
+                        AND target_version.effective_from <=
+                            :authorizationTime
+                        AND (
+                          target_version.effective_to IS NULL
+                          OR target_version.effective_to >
+                             :authorizationTime
+                        )
+                        AND (
+                          (
+                            scope.include_descendants = FALSE
+                            AND scope.organization_id =
+                                target_assignment.organization_id
+                          )
+                          OR (
+                            scope.include_descendants = TRUE
+                            AND EXISTS (
+                              SELECT 1
+                              FROM organization_current_closure closure
+                              WHERE closure.ancestor_organization_id =
+                                    scope.organization_id
+                                AND closure.descendant_organization_id =
+                                    target_assignment.organization_id
+                            )
+                          )
+                        )
+                    )
+                  )
+                )
+            )
+            """;
+
+    private static final String ACCOUNT_EMPLOYEE_BOUNDARY_PREDICATE = """
+            EXISTS (
+              SELECT 1
+              FROM auth_principal employee_scope_actor
+              JOIN auth_principal_role_assignment employee_scope_assignment
+                ON employee_scope_assignment.principal_id =
+                   employee_scope_actor.principal_id
+              JOIN auth_role_capability employee_scope_role_capability
+                ON employee_scope_role_capability.role_id =
+                   employee_scope_assignment.role_id
+              JOIN auth_capability employee_scope_capability
+                ON employee_scope_capability.capability_id =
+                   employee_scope_role_capability.capability_id
+               AND employee_scope_capability.capability_code =
+                   :requiredCapability
+              JOIN auth_data_scope employee_actor_scope
+                ON employee_actor_scope.scope_id =
+                   employee_scope_assignment.data_scope_id
+              WHERE employee_scope_actor.principal_id = :principalId
+                AND employee_scope_actor.status = 'ACTIVE'
+                AND employee_scope_assignment.valid_from <=
+                    :authorizationTime
+                AND (
+                  employee_scope_assignment.valid_to IS NULL
+                  OR employee_scope_assignment.valid_to >
+                     :authorizationTime
+                )
+                AND employee_actor_scope.valid_from <=
+                    :authorizationTime
+                AND (
+                  employee_actor_scope.valid_to IS NULL
+                  OR employee_actor_scope.valid_to >
+                     :authorizationTime
+                )
+                AND (
+                  (
+                    employee_actor_scope.scope_type = 'SELF'
+                    AND account.principal_id = :principalId
+                  )
+                  OR (
+                    employee_actor_scope.scope_type = 'COMPANY'
+                    AND employee_actor_scope.company_id =
+                        employee.company_id
+                    AND EXISTS (
+                      SELECT 1
+                      FROM company employee_company
+                      WHERE employee_company.company_id =
+                            employee.company_id
+                        AND employee_company.status = 'ACTIVE'
+                    )
+                  )
+                  OR (
+                    employee_actor_scope.scope_type = 'ORGANIZATION'
+                    AND EXISTS (
+                      SELECT 1
+                      FROM organization_identity employee_scoped_organization
+                      JOIN company employee_company
+                        ON employee_company.company_id =
+                           employee_scoped_organization.company_id
+                       AND employee_company.status = 'ACTIVE'
+                      JOIN organization_current_projection
+                          employee_scoped_projection
+                        ON employee_scoped_projection.organization_id =
+                           employee_scoped_organization.organization_id
+                      JOIN organization_version employee_scoped_version
+                        ON employee_scoped_version.organization_version_id =
+                           employee_scoped_projection.current_version_id
+                       AND employee_scoped_version.organization_id =
+                           employee_scoped_organization.organization_id
+                       AND employee_scoped_version.status = 'ACTIVE'
+                      JOIN employment_assignment employee_target_assignment
+                        ON employee_target_assignment.employee_id =
+                           employee.employee_id
+                       AND employee_target_assignment.record_status = 'ACTIVE'
+                       AND employee_target_assignment.version_valid_to IS NULL
+                      JOIN organization_identity employee_target_organization
+                        ON employee_target_organization.organization_id =
+                           employee_target_assignment.organization_id
+                       AND employee_target_organization.identity_status =
+                           'ACTIVE'
+                       AND employee_target_organization.company_id =
+                           employee_scoped_organization.company_id
+                       AND employee_target_organization.company_id =
+                           employee.company_id
+                      JOIN organization_current_projection
+                          employee_target_projection
+                        ON employee_target_projection.organization_id =
+                           employee_target_organization.organization_id
+                      JOIN organization_version employee_target_version
+                        ON employee_target_version.organization_version_id =
+                           employee_target_projection.current_version_id
+                       AND employee_target_version.organization_id =
+                           employee_target_organization.organization_id
+                       AND employee_target_version.status = 'ACTIVE'
+                      WHERE employee_scoped_organization.organization_id =
+                            employee_actor_scope.organization_id
+                        AND employee_scoped_organization.identity_status =
+                            'ACTIVE'
+                        AND employee_scoped_version.effective_from <=
+                            :authorizationTime
+                        AND (
+                          employee_scoped_version.effective_to IS NULL
+                          OR employee_scoped_version.effective_to >
+                             :authorizationTime
+                        )
+                        AND employee_target_assignment.effective_from <=
+                            :authorizationTime
+                        AND (
+                          employee_target_assignment.effective_to IS NULL
+                          OR employee_target_assignment.effective_to >
+                             :authorizationTime
+                        )
+                        AND employee_target_version.effective_from <=
+                            :authorizationTime
+                        AND (
+                          employee_target_version.effective_to IS NULL
+                          OR employee_target_version.effective_to >
+                             :authorizationTime
+                        )
+                        AND (
+                          employee_actor_scope.organization_id =
+                              employee_target_assignment.organization_id
+                          OR (
+                            employee_actor_scope.include_descendants = TRUE
+                            AND EXISTS (
+                              SELECT 1
+                              FROM organization_current_closure closure
+                              WHERE closure.ancestor_organization_id =
+                                    employee_actor_scope.organization_id
+                                AND closure.descendant_organization_id =
+                                    employee_target_assignment.organization_id
+                            )
+                          )
+                        )
+                    )
+                  )
+                )
+            )
+            """;
+
+    private static final String TARGET_ROLE_RESOURCE_PREDICATE = """
+            (
+              (
+                target_scope.scope_type = 'COMPANY'
+                AND EXISTS (
+                  SELECT 1
+                  FROM company target_company
+                  WHERE target_company.company_id =
+                        target_scope.company_id
+                    AND target_company.status = 'ACTIVE'
+                )
+              )
+              OR (
+                target_scope.scope_type = 'ORGANIZATION'
+                AND target_scope_organization.identity_status = 'ACTIVE'
+                AND EXISTS (
+                  SELECT 1
+                  FROM company target_company
+                  JOIN organization_current_projection target_projection
+                    ON target_projection.organization_id =
+                       target_scope_organization.organization_id
+                  JOIN organization_version target_version
+                    ON target_version.organization_version_id =
+                       target_projection.current_version_id
+                   AND target_version.organization_id =
+                       target_scope_organization.organization_id
+                  WHERE target_company.company_id =
+                        target_scope_organization.company_id
+                    AND target_company.status = 'ACTIVE'
+                    AND target_version.status = 'ACTIVE'
+                    AND target_version.effective_from <=
+                        :authorizationTime
+                    AND (
+                      target_version.effective_to IS NULL
+                      OR target_version.effective_to >
+                         :authorizationTime
+                    )
+                )
+              )
+              OR (
+                target_scope.scope_type = 'SELF'
+                AND target_employee.employment_status = 'ACTIVE'
+                AND EXISTS (
+                  SELECT 1
+                  FROM company target_company
+                  WHERE target_company.company_id =
+                        target_employee.company_id
+                    AND target_company.status = 'ACTIVE'
+                )
+              )
+            )
+            """;
+
+    private static final String TARGET_ROLE_SCOPE_COVERAGE_PREDICATE = """
+            (
+            """ + TARGET_ROLE_RESOURCE_PREDICATE + """
+              AND EXISTS (
+                SELECT 1
+                FROM auth_principal scope_actor
+                JOIN auth_principal_role_assignment scope_assignment
+                  ON scope_assignment.principal_id =
+                     scope_actor.principal_id
+                JOIN auth_role_capability scope_role_capability
+                  ON scope_role_capability.role_id =
+                     scope_assignment.role_id
+                JOIN auth_capability scope_capability
+                  ON scope_capability.capability_id =
+                     scope_role_capability.capability_id
+                 AND scope_capability.capability_code =
+                     :requiredCapability
+                JOIN auth_data_scope actor_scope
+                  ON actor_scope.scope_id =
+                     scope_assignment.data_scope_id
+                WHERE scope_actor.principal_id = :principalId
+                  AND scope_actor.status = 'ACTIVE'
+                  AND scope_assignment.valid_from <=
+                      :authorizationTime
+                  AND (
+                    scope_assignment.valid_to IS NULL
+                    OR scope_assignment.valid_to >
+                       :authorizationTime
+                  )
+                  AND actor_scope.valid_from <=
+                      :authorizationTime
+                  AND (
+                    actor_scope.valid_to IS NULL
+                    OR actor_scope.valid_to >
+                       :authorizationTime
+                  )
+                  AND (
+                    (
+                      actor_scope.scope_type = 'COMPANY'
+                      AND actor_scope.company_id =
+                          CASE target_scope.scope_type
+                            WHEN 'COMPANY' THEN target_scope.company_id
+                            WHEN 'ORGANIZATION'
+                              THEN target_scope_organization.company_id
+                            WHEN 'SELF' THEN target_employee.company_id
+                            ELSE NULL
+                          END
+                    )
+                    OR (
+                      actor_scope.scope_type = 'ORGANIZATION'
+                      AND target_scope.scope_type = 'ORGANIZATION'
+                      AND EXISTS (
+                        SELECT 1
+                        FROM organization_identity actor_organization
+                        JOIN organization_current_projection actor_projection
+                          ON actor_projection.organization_id =
+                             actor_organization.organization_id
+                        JOIN organization_version actor_version
+                          ON actor_version.organization_version_id =
+                             actor_projection.current_version_id
+                         AND actor_version.organization_id =
+                             actor_organization.organization_id
+                        WHERE actor_organization.organization_id =
+                              actor_scope.organization_id
+                          AND actor_organization.identity_status = 'ACTIVE'
+                          AND actor_organization.company_id =
+                              target_scope_organization.company_id
+                          AND actor_version.status = 'ACTIVE'
+                          AND actor_version.effective_from <=
+                              :authorizationTime
+                          AND (
+                            actor_version.effective_to IS NULL
+                            OR actor_version.effective_to >
+                               :authorizationTime
+                          )
+                          AND (
+                            actor_scope.organization_id =
+                                target_scope.organization_id
+                            OR (
+                              actor_scope.include_descendants = TRUE
+                              AND EXISTS (
+                                SELECT 1
+                                FROM organization_current_closure closure
+                                WHERE closure.ancestor_organization_id =
+                                      actor_scope.organization_id
+                                  AND closure.descendant_organization_id =
+                                      target_scope.organization_id
+                              )
+                            )
+                          )
+                      )
+                    )
+                    OR (
+                      actor_scope.scope_type = 'ORGANIZATION'
+                      AND target_scope.scope_type = 'SELF'
+                      AND EXISTS (
+                        SELECT 1
+                        FROM organization_identity actor_organization
+                        JOIN organization_current_projection actor_projection
+                          ON actor_projection.organization_id =
+                             actor_organization.organization_id
+                        JOIN organization_version actor_version
+                          ON actor_version.organization_version_id =
+                             actor_projection.current_version_id
+                         AND actor_version.organization_id =
+                             actor_organization.organization_id
+                        JOIN employment_assignment target_employment
+                          ON target_employment.employee_id =
+                             target_employee.employee_id
+                         AND target_employment.record_status = 'ACTIVE'
+                         AND target_employment.version_valid_to IS NULL
+                        JOIN organization_identity
+                            target_employment_organization
+                          ON target_employment_organization.organization_id =
+                             target_employment.organization_id
+                         AND target_employment_organization.identity_status =
+                             'ACTIVE'
+                         AND target_employment_organization.company_id =
+                             actor_organization.company_id
+                         AND target_employment_organization.company_id =
+                             target_employee.company_id
+                        JOIN organization_current_projection
+                            target_employment_projection
+                          ON target_employment_projection.organization_id =
+                             target_employment_organization.organization_id
+                        JOIN organization_version target_employment_version
+                          ON target_employment_version.organization_version_id =
+                             target_employment_projection.current_version_id
+                         AND target_employment_version.organization_id =
+                             target_employment_organization.organization_id
+                        WHERE actor_organization.organization_id =
+                              actor_scope.organization_id
+                          AND actor_organization.identity_status = 'ACTIVE'
+                          AND actor_version.status = 'ACTIVE'
+                          AND actor_version.effective_from <=
+                              :authorizationTime
+                          AND (
+                            actor_version.effective_to IS NULL
+                            OR actor_version.effective_to >
+                               :authorizationTime
+                          )
+                          AND target_employment.effective_from <=
+                              :authorizationTime
+                          AND (
+                            target_employment.effective_to IS NULL
+                            OR target_employment.effective_to >
+                               :authorizationTime
+                          )
+                          AND target_employment_version.status = 'ACTIVE'
+                          AND target_employment_version.effective_from <=
+                              :authorizationTime
+                          AND (
+                            target_employment_version.effective_to IS NULL
+                            OR target_employment_version.effective_to >
+                               :authorizationTime
+                          )
+                          AND (
+                            actor_scope.organization_id =
+                                target_employment.organization_id
+                            OR (
+                              actor_scope.include_descendants = TRUE
+                              AND EXISTS (
+                                SELECT 1
+                                FROM organization_current_closure closure
+                                WHERE closure.ancestor_organization_id =
+                                      actor_scope.organization_id
+                                  AND closure.descendant_organization_id =
+                                      target_employment.organization_id
+                              )
+                            )
+                          )
+                      )
+                    )
+                    OR (
+                      actor_scope.scope_type = 'SELF'
+                      AND target_scope.scope_type = 'SELF'
+                      AND scope_actor.principal_id =
+                          target_principal.principal_id
+                    )
+                  )
+              )
+            )
+            """;
+
+    private static final String ACCOUNT_FULL_VISIBILITY_PREDICATE = """
+            (
+            """ + ACCOUNT_VISIBILITY_PREDICATE + """
+              AND (
+                employee.employee_id IS NULL
+                OR
+            """ + ACCOUNT_EMPLOYEE_BOUNDARY_PREDICATE + """
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM auth_principal_role_assignment target_assignment
+                JOIN auth_principal target_principal
+                  ON target_principal.principal_id =
+                     target_assignment.principal_id
+                LEFT JOIN auth_data_scope target_scope
+                  ON target_scope.scope_id =
+                     target_assignment.data_scope_id
+                LEFT JOIN organization_identity target_scope_organization
+                  ON target_scope_organization.organization_id =
+                     target_scope.organization_id
+                LEFT JOIN employee target_employee
+                  ON target_employee.employee_id =
+                     target_principal.employee_id
+                WHERE target_principal.principal_id =
+                      account.principal_id
+                  AND (
+                    target_assignment.valid_to IS NULL
+                    OR target_assignment.valid_to >
+                       :authorizationTime
+                  )
+                  AND NOT (
+                    target_scope.scope_id IS NOT NULL
+                    AND
+            """ + TARGET_ROLE_SCOPE_COVERAGE_PREDICATE + """
+                  )
+              )
+            )
             """;
 
     private final JdbcTemplate jdbc;
+    private final NamedParameterJdbcTemplate namedJdbc;
 
     public AccountPersistenceAdapter(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+        this.namedJdbc = new NamedParameterJdbcTemplate(jdbc);
     }
 
     @Override
@@ -51,173 +635,43 @@ public class AccountPersistenceAdapter implements AccountPersistence {
             String accountId,
             String requiredCapability,
             Instant at) {
-        Timestamp authorizationTime = Timestamp.from(at);
-        Long count = jdbc.queryForObject(
-                """
-                SELECT COUNT(*)
-                FROM local_account target_account
-                JOIN auth_principal target_principal
-                  ON target_principal.principal_id = target_account.principal_id
-                LEFT JOIN employee target_employee
-                  ON target_employee.employee_id = target_principal.employee_id
-                WHERE target_account.account_id = ?
-                  AND EXISTS (
-                    SELECT 1
-                    FROM auth_principal actor
-                    JOIN auth_principal_role_assignment assignment
-                      ON assignment.principal_id = actor.principal_id
-                    JOIN auth_role_capability role_capability
-                      ON role_capability.role_id = assignment.role_id
-                    JOIN auth_capability capability
-                      ON capability.capability_id =
-                         role_capability.capability_id
-                     AND capability.capability_code = ?
-                    JOIN auth_data_scope scope
-                      ON scope.scope_id = assignment.data_scope_id
-                    WHERE actor.principal_id = ?
-                      AND actor.status = 'ACTIVE'
-                      AND assignment.valid_from <= ?
-                      AND (assignment.valid_to IS NULL OR assignment.valid_to > ?)
-                      AND scope.valid_from <= ?
-                      AND (scope.valid_to IS NULL OR scope.valid_to > ?)
-                      AND (
-                        (
-                          scope.scope_type = 'SELF'
-                          AND target_account.principal_id = ?
-                        )
-                        OR (
-                          scope.scope_type = 'LEGAL_ENTITY'
-                          AND EXISTS (
-                            SELECT 1
-                            FROM legal_entity scoped_legal_entity
-                            WHERE scoped_legal_entity.legal_entity_id =
-                                  scope.legal_entity_id
-                              AND scoped_legal_entity.status = 'ACTIVE'
-                          )
-                           AND (
-                             scope.legal_entity_id = target_employee.legal_entity_id
-                             OR EXISTS (
-                               SELECT 1
-                               FROM auth_principal_role_assignment target_role
-                               JOIN auth_data_scope target_scope
-                                 ON target_scope.scope_id = target_role.data_scope_id
-                               WHERE target_role.principal_id = target_account.principal_id
-                                 AND target_role.valid_from <= ?
-                                 AND (
-                                   target_role.valid_to IS NULL
-                                   OR target_role.valid_to > ?
-                                 )
-                                 AND target_scope.valid_from <= ?
-                                 AND (
-                                   target_scope.valid_to IS NULL
-                                   OR target_scope.valid_to > ?
-                                 )
-                                 AND target_scope.scope_type = 'LEGAL_ENTITY'
-                                 AND target_scope.legal_entity_id = scope.legal_entity_id
-                             )
-                           )
-                        )
-                        OR (
-                          scope.scope_type = 'ORGANIZATION'
-                          AND EXISTS (
-                            SELECT 1
-                            FROM organization_identity scoped_organization
-                            JOIN legal_entity scoped_legal_entity
-                              ON scoped_legal_entity.legal_entity_id =
-                                 scoped_organization.legal_entity_id
-                             AND scoped_legal_entity.status = 'ACTIVE'
-                            JOIN organization_current_projection
-                                scoped_projection
-                              ON scoped_projection.organization_id =
-                                 scoped_organization.organization_id
-                            JOIN organization_version scoped_version
-                              ON scoped_version.organization_version_id =
-                                 scoped_projection.current_version_id
-                             AND scoped_version.organization_id =
-                                 scoped_organization.organization_id
-                             AND scoped_version.status = 'ACTIVE'
-                            JOIN employment_assignment target_assignment
-                              ON target_assignment.employee_id =
-                                 target_employee.employee_id
-                             AND target_assignment.record_status = 'ACTIVE'
-                             AND target_assignment.version_valid_to IS NULL
-                            JOIN organization_identity target_organization
-                              ON target_organization.organization_id =
-                                 target_assignment.organization_id
-                             AND target_organization.identity_status = 'ACTIVE'
-                             AND target_organization.legal_entity_id =
-                                 scoped_organization.legal_entity_id
-                            JOIN organization_current_projection
-                                target_projection
-                              ON target_projection.organization_id =
-                                 target_organization.organization_id
-                            JOIN organization_version target_version
-                              ON target_version.organization_version_id =
-                                 target_projection.current_version_id
-                             AND target_version.organization_id =
-                                 target_organization.organization_id
-                             AND target_version.status = 'ACTIVE'
-                            WHERE scoped_organization.organization_id =
-                                  scope.organization_id
-                              AND scoped_organization.identity_status = 'ACTIVE'
-                              AND scoped_version.effective_from <= ?
-                              AND (
-                                scoped_version.effective_to IS NULL
-                                OR scoped_version.effective_to > ?
-                              )
-                              AND target_assignment.effective_from <= ?
-                              AND (
-                                target_assignment.effective_to IS NULL
-                                OR target_assignment.effective_to > ?
-                              )
-                              AND target_version.effective_from <= ?
-                              AND (
-                                target_version.effective_to IS NULL
-                                OR target_version.effective_to > ?
-                              )
-                              AND (
-                                (
-                                  scope.include_descendants = FALSE
-                                  AND scope.organization_id =
-                                      target_assignment.organization_id
-                                )
-                                OR (
-                                  scope.include_descendants = TRUE
-                                  AND EXISTS (
-                                    SELECT 1
-                                    FROM organization_current_closure closure
-                                    WHERE closure.ancestor_organization_id =
-                                          scope.organization_id
-                                      AND closure.descendant_organization_id =
-                                          target_assignment.organization_id
-                                  )
-                                )
-                              )
-                          )
-                        )
-                      )
-                  )
-                """,
-                Long.class,
-                accountId,
-                requiredCapability,
-                principalId,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                principalId,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime,
-                authorizationTime);
+        return canAccessAllAccountRoleScopes(
+                principalId, accountId, requiredCapability, at);
+    }
+
+    @Override
+    public boolean canAccessAllAccountRoleScopes(
+            String principalId,
+            String accountId,
+            String requiredCapability,
+            Instant at) {
+        var parameters = visibilityParameters(
+                principalId, requiredCapability, at)
+                .addValue("accountId", accountId);
+        Long count = namedJdbc.queryForObject(
+                "SELECT COUNT(*) "
+                        + ACCOUNT_FROM
+                        + " WHERE account.account_id = :accountId AND "
+                        + ACCOUNT_FULL_VISIBILITY_PREDICATE,
+                parameters,
+                Long.class);
         return count != null && count > 0;
+    }
+
+    @Override
+    public Optional<AccountRecord> lockAccountForScopeAuthorization(
+            String accountId) {
+        List<AccountRecord> accounts = jdbc.query(
+                ACCOUNT_SELECT
+                        + """
+                         WHERE account.account_id = ?
+                         FOR UPDATE
+                         """,
+                AccountPersistenceAdapter::mapAccount,
+                accountId);
+        return accounts.size() == 1
+                ? Optional.of(accounts.getFirst())
+                : Optional.empty();
     }
 
     @Override
@@ -295,28 +749,34 @@ public class AccountPersistenceAdapter implements AccountPersistence {
             Instant at) {
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase();
         String normalizedStatus = status == null ? "" : status.trim().toUpperCase();
-        List<AccountRecord> all = jdbc.query(
+        var parameters = visibilityParameters(
+                principalId, requiredCapability, at)
+                .addValue("normalizedQuery", normalizedQuery)
+                .addValue("queryPattern", "%" + normalizedQuery + "%")
+                .addValue("normalizedStatus", normalizedStatus)
+                .addValue("limit", limit)
+                .addValue("offset", offset);
+        return namedJdbc.query(
                 ACCOUNT_SELECT
                         + """
-                         WHERE (? = '' OR LOWER(account.username) LIKE ? OR LOWER(account.display_name) LIKE ?)
-                           AND (? = '' OR account.status = ?)
+                         WHERE (
+                           :normalizedQuery = ''
+                           OR LOWER(account.username) LIKE :queryPattern
+                           OR LOWER(account.display_name) LIKE :queryPattern
+                         )
+                           AND (
+                             :normalizedStatus = ''
+                             OR account.status = :normalizedStatus
+                           )
+                           AND
+                         """
+                        + ACCOUNT_FULL_VISIBILITY_PREDICATE
+                        + """
                          ORDER BY account.normalized_username
+                         LIMIT :limit OFFSET :offset
                          """,
-                AccountPersistenceAdapter::mapAccount,
-                normalizedQuery,
-                "%" + normalizedQuery + "%",
-                "%" + normalizedQuery + "%",
-                normalizedStatus,
-                normalizedStatus);
-        return all.stream()
-                .filter(account -> canAccessAccount(
-                        principalId,
-                        account.accountId(),
-                        requiredCapability,
-                        at))
-                .skip(offset)
-                .limit(limit)
-                .toList();
+                parameters,
+                AccountPersistenceAdapter::mapAccount);
     }
 
     @Override
@@ -326,14 +786,36 @@ public class AccountPersistenceAdapter implements AccountPersistence {
             String query,
             String status,
             Instant at) {
-        return listAccounts(
-                principalId,
-                requiredCapability,
-                query,
-                status,
-                Integer.MAX_VALUE,
-                0,
-                at).size();
+        String normalizedQuery = query == null
+                ? ""
+                : query.trim().toLowerCase();
+        String normalizedStatus = status == null
+                ? ""
+                : status.trim().toUpperCase();
+        var parameters = visibilityParameters(
+                principalId, requiredCapability, at)
+                .addValue("normalizedQuery", normalizedQuery)
+                .addValue("queryPattern", "%" + normalizedQuery + "%")
+                .addValue("normalizedStatus", normalizedStatus);
+        Long count = namedJdbc.queryForObject(
+                "SELECT COUNT(*) "
+                        + ACCOUNT_FROM
+                        + """
+                         WHERE (
+                           :normalizedQuery = ''
+                           OR LOWER(account.username) LIKE :queryPattern
+                           OR LOWER(account.display_name) LIKE :queryPattern
+                         )
+                           AND (
+                             :normalizedStatus = ''
+                             OR account.status = :normalizedStatus
+                           )
+                           AND
+                         """
+                        + ACCOUNT_FULL_VISIBILITY_PREDICATE,
+                parameters,
+                Long.class);
+        return count == null ? 0 : count;
     }
 
     @Override
@@ -387,30 +869,34 @@ public class AccountPersistenceAdapter implements AccountPersistence {
     }
 
     @Override
-    public void lockRoleGrantTargetLegalEntities(
+    public void lockRoleGrantTargetCompanies(
             String targetPrincipalId,
             String targetEmployeeId,
             List<RoleAssignmentInput> assignments,
             Instant at) {
-        SortedSet<String> targetLegalEntityIds = new TreeSet<>();
+        SortedSet<String> targetCompanyIds = new TreeSet<>();
+        if (targetPrincipalId != null) {
+            targetCompanyIds.addAll(findExistingRoleTargetCompanyIds(
+                    targetPrincipalId, at));
+        }
         for (RoleAssignmentInput assignment : assignments) {
-            targetLegalEntityIds.add(resolveGrantTargetLegalEntityId(
+            targetCompanyIds.add(resolveGrantTargetCompanyId(
                     targetPrincipalId,
                     targetEmployeeId,
                     assignment,
                     at));
         }
-        for (String legalEntityId : targetLegalEntityIds) {
+        for (String companyId : targetCompanyIds) {
             List<String> locked = jdbc.queryForList(
                     """
-                    SELECT legal_entity_id
-                    FROM legal_entity
-                    WHERE legal_entity_id = ?
+                    SELECT company_id
+                    FROM company
+                    WHERE company_id = ?
                       AND status = 'ACTIVE'
                     FOR UPDATE
                     """,
                     String.class,
-                    legalEntityId);
+                    companyId);
             if (locked.size() != 1) {
                 throw new ResourceNotAvailableAccessDeniedException();
             }
@@ -418,8 +904,27 @@ public class AccountPersistenceAdapter implements AccountPersistence {
     }
 
     @Override
-    public boolean lockCurrentRoleGrantAuthority(
+    public void lockTargetRoleAssignments(
+            String targetPrincipalId,
+            Instant at) {
+        jdbc.queryForList(
+                """
+                SELECT assignment_id
+                FROM auth_principal_role_assignment
+                WHERE principal_id = ?
+                  AND (valid_to IS NULL OR valid_to > ?)
+                ORDER BY assignment_id
+                FOR UPDATE
+                """,
+                String.class,
+                targetPrincipalId,
+                Timestamp.from(at));
+    }
+
+    @Override
+    public boolean lockCurrentCapabilityAuthority(
             String actorPrincipalId,
+            String requiredCapability,
             Instant at) {
         List<String> assignmentIds = jdbc.queryForList(
                 """
@@ -431,7 +936,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                   ON role_capability.role_id = assignment.role_id
                 JOIN auth_capability capability
                   ON capability.capability_id = role_capability.capability_id
-                 AND capability.capability_code = 'ROLE:ASSIGN'
+                 AND capability.capability_code = ?
                 JOIN auth_data_scope scope
                   ON scope.scope_id = assignment.data_scope_id
                 WHERE principal.principal_id = ?
@@ -444,6 +949,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 FOR UPDATE
                 """,
                 String.class,
+                requiredCapability,
                 actorPrincipalId,
                 Timestamp.from(at),
                 Timestamp.from(at),
@@ -478,7 +984,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
         List<ResolvedRoleAssignmentInput> resolved = new ArrayList<>();
         for (RoleAssignmentInput assignment : assignments) {
             boolean covered = switch (assignment.scopeType()) {
-                case "LEGAL_ENTITY" -> canGrantLegalEntity(
+                case "COMPANY" -> canGrantCompany(
                         actorPrincipalId, assignment, at);
                 case "ORGANIZATION" -> canGrantOrganization(
                         actorPrincipalId, assignment, at);
@@ -562,24 +1068,49 @@ public class AccountPersistenceAdapter implements AccountPersistence {
     }
 
     @Override
-    public List<RoleAssignmentRecord> findRoleAssignments(String principalId, Instant at) {
-        return jdbc.query(
+    public List<RoleAssignmentRecord> findVisibleRoleAssignments(
+            String actorPrincipalId,
+            String targetPrincipalId,
+            String requiredCapability,
+            Instant at) {
+        var parameters = visibilityParameters(
+                actorPrincipalId, requiredCapability, at)
+                .addValue("targetPrincipalId", targetPrincipalId);
+        return namedJdbc.query(
                 """
                 SELECT assignment.assignment_id, role.role_id, role.role_code, role.role_name,
-                       scope.scope_type,
+                       target_scope.scope_type,
                        CASE
-                         WHEN scope.scope_type = 'LEGAL_ENTITY' THEN scope.legal_entity_id
-                         WHEN scope.scope_type = 'ORGANIZATION' THEN scope.organization_id
+                         WHEN target_scope.scope_type = 'COMPANY'
+                           THEN target_scope.company_id
+                         WHEN target_scope.scope_type = 'ORGANIZATION'
+                           THEN target_scope.organization_id
                          ELSE NULL
                        END AS scope_resource_id,
                        assignment.valid_from, assignment.valid_to
                 FROM auth_principal_role_assignment assignment
+                JOIN auth_principal target_principal
+                  ON target_principal.principal_id =
+                     assignment.principal_id
                 JOIN auth_role role ON role.role_id = assignment.role_id
-                LEFT JOIN auth_data_scope scope ON scope.scope_id = assignment.data_scope_id
-                WHERE assignment.principal_id = ?
-                  AND (assignment.valid_to IS NULL OR assignment.valid_to > ?)
-                ORDER BY role.role_code
+                JOIN auth_data_scope target_scope
+                  ON target_scope.scope_id = assignment.data_scope_id
+                LEFT JOIN organization_identity target_scope_organization
+                  ON target_scope_organization.organization_id =
+                     target_scope.organization_id
+                LEFT JOIN employee target_employee
+                  ON target_employee.employee_id =
+                     target_principal.employee_id
+                WHERE assignment.principal_id = :targetPrincipalId
+                  AND (
+                    assignment.valid_to IS NULL
+                    OR assignment.valid_to > :authorizationTime
+                  )
+                  AND
+                """ + TARGET_ROLE_SCOPE_COVERAGE_PREDICATE + """
+                ORDER BY role.role_code, assignment.assignment_id
                 """,
+                parameters,
                 (result, row) -> new RoleAssignmentRecord(
                         result.getString("assignment_id"),
                         result.getString("role_id"),
@@ -588,9 +1119,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                         result.getString("scope_type"),
                         result.getString("scope_resource_id"),
                         instant(result, "valid_from"),
-                        instant(result, "valid_to")),
-                principalId,
-                Timestamp.from(at));
+                        instant(result, "valid_to")));
     }
 
     @Override
@@ -676,29 +1205,93 @@ public class AccountPersistenceAdapter implements AccountPersistence {
         }
     }
 
-    private String resolveGrantTargetLegalEntityId(
+    private List<String> findExistingRoleTargetCompanyIds(
+            String targetPrincipalId,
+            Instant at) {
+        return jdbc.queryForList(
+                """
+                SELECT DISTINCT target_company_id
+                FROM (
+                  SELECT target_scope.company_id AS target_company_id
+                  FROM auth_principal_role_assignment target_assignment
+                  JOIN auth_data_scope target_scope
+                    ON target_scope.scope_id =
+                       target_assignment.data_scope_id
+                  WHERE target_assignment.principal_id = ?
+                    AND (
+                      target_assignment.valid_to IS NULL
+                      OR target_assignment.valid_to > ?
+                    )
+                    AND target_scope.scope_type = 'COMPANY'
+                    AND target_scope.company_id IS NOT NULL
+                  UNION
+                  SELECT target_organization.company_id AS target_company_id
+                  FROM auth_principal_role_assignment target_assignment
+                  JOIN auth_data_scope target_scope
+                    ON target_scope.scope_id =
+                       target_assignment.data_scope_id
+                  JOIN organization_identity target_organization
+                    ON target_organization.organization_id =
+                       target_scope.organization_id
+                  WHERE target_assignment.principal_id = ?
+                    AND (
+                      target_assignment.valid_to IS NULL
+                      OR target_assignment.valid_to > ?
+                    )
+                    AND target_scope.scope_type = 'ORGANIZATION'
+                  UNION
+                  SELECT target_employee.company_id AS target_company_id
+                  FROM auth_principal_role_assignment target_assignment
+                  JOIN auth_data_scope target_scope
+                    ON target_scope.scope_id =
+                       target_assignment.data_scope_id
+                  JOIN auth_principal target_principal
+                    ON target_principal.principal_id =
+                       target_assignment.principal_id
+                  JOIN employee target_employee
+                    ON target_employee.employee_id =
+                       target_principal.employee_id
+                  WHERE target_assignment.principal_id = ?
+                    AND (
+                      target_assignment.valid_to IS NULL
+                      OR target_assignment.valid_to > ?
+                    )
+                    AND target_scope.scope_type = 'SELF'
+                ) existing_target_companies
+                ORDER BY target_company_id
+                """,
+                String.class,
+                targetPrincipalId,
+                Timestamp.from(at),
+                targetPrincipalId,
+                Timestamp.from(at),
+                targetPrincipalId,
+                Timestamp.from(at));
+    }
+
+    private String resolveGrantTargetCompanyId(
             String targetPrincipalId,
             String targetEmployeeId,
             RoleAssignmentInput requested,
             Instant at) {
-        List<String> legalEntityIds = switch (requested.scopeType()) {
-            case "LEGAL_ENTITY" -> jdbc.queryForList(
+        List<String> companyIds = switch (requested.scopeType()) {
+            case "COMPANY" -> jdbc.queryForList(
                     """
-                    SELECT legal_entity_id
-                    FROM legal_entity
-                    WHERE legal_entity_id = ?
+                    SELECT company_id
+                    FROM company
+                    WHERE company_id = ?
                       AND status = 'ACTIVE'
                     """,
                     String.class,
                     requested.scopeResourceId());
             case "ORGANIZATION" -> jdbc.queryForList(
                     """
-                    SELECT organization.legal_entity_id
+                    SELECT organization.company_id
                     FROM organization_identity organization
-                    JOIN legal_entity legal_entity
-                      ON legal_entity.legal_entity_id =
-                         organization.legal_entity_id
-                     AND legal_entity.status = 'ACTIVE'
+                    JOIN company company
+                      ON company.company_id =
+                         organization.company_id
+                     AND company.status = 'ACTIVE'
                     JOIN organization_current_projection projection
                       ON projection.organization_id =
                          organization.organization_id
@@ -720,31 +1313,31 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                     requested.scopeResourceId(),
                     Timestamp.from(at),
                     Timestamp.from(at));
-            case "SELF" -> resolveSelfTargetLegalEntityId(
+            case "SELF" -> resolveSelfTargetCompanyId(
                     targetPrincipalId, targetEmployeeId);
             default -> List.of();
         };
-        if (legalEntityIds.size() != 1) {
+        if (companyIds.size() != 1) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
-        return legalEntityIds.getFirst();
+        return companyIds.getFirst();
     }
 
-    private List<String> resolveSelfTargetLegalEntityId(
+    private List<String> resolveSelfTargetCompanyId(
             String targetPrincipalId,
             String targetEmployeeId) {
         if (targetPrincipalId != null) {
             return jdbc.queryForList(
                     """
-                    SELECT employee.legal_entity_id
+                    SELECT employee.company_id
                     FROM auth_principal principal
                     JOIN employee employee
                       ON employee.employee_id = principal.employee_id
                      AND employee.employment_status = 'ACTIVE'
-                    JOIN legal_entity legal_entity
-                      ON legal_entity.legal_entity_id =
-                         employee.legal_entity_id
-                     AND legal_entity.status = 'ACTIVE'
+                    JOIN company company
+                      ON company.company_id =
+                         employee.company_id
+                     AND company.status = 'ACTIVE'
                     WHERE principal.principal_id = ?
                       AND principal.status = 'ACTIVE'
                     """,
@@ -754,12 +1347,12 @@ public class AccountPersistenceAdapter implements AccountPersistence {
         if (targetEmployeeId != null) {
             return jdbc.queryForList(
                     """
-                    SELECT employee.legal_entity_id
+                    SELECT employee.company_id
                     FROM employee employee
-                    JOIN legal_entity legal_entity
-                      ON legal_entity.legal_entity_id =
-                         employee.legal_entity_id
-                     AND legal_entity.status = 'ACTIVE'
+                    JOIN company company
+                      ON company.company_id =
+                         employee.company_id
+                     AND company.status = 'ACTIVE'
                     WHERE employee.employee_id = ?
                       AND employee.employment_status = 'ACTIVE'
                     """,
@@ -769,7 +1362,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
         return List.of();
     }
 
-    private boolean canGrantLegalEntity(
+    private boolean canGrantCompany(
             String actorPrincipalId,
             RoleAssignmentInput requested,
             Instant at) {
@@ -778,9 +1371,9 @@ public class AccountPersistenceAdapter implements AccountPersistence {
         Long count = jdbc.queryForObject(
                 """
                 SELECT COUNT(*)
-                FROM legal_entity target_legal_entity
-                WHERE target_legal_entity.legal_entity_id = ?
-                  AND target_legal_entity.status = 'ACTIVE'
+                FROM company target_company
+                WHERE target_company.company_id = ?
+                  AND target_company.status = 'ACTIVE'
                   AND EXISTS (
                     SELECT 1
                     FROM auth_principal actor
@@ -809,9 +1402,9 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                         scope.valid_to IS NULL
                         OR (? IS NOT NULL AND scope.valid_to >= ?)
                       )
-                      AND scope.scope_type = 'LEGAL_ENTITY'
-                      AND scope.legal_entity_id =
-                          target_legal_entity.legal_entity_id
+                      AND scope.scope_type = 'COMPANY'
+                      AND scope.company_id =
+                          target_company.company_id
                   )
                 """,
                 Long.class,
@@ -841,10 +1434,10 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 """
                 SELECT COUNT(*)
                 FROM organization_identity target_organization
-                JOIN legal_entity target_legal_entity
-                  ON target_legal_entity.legal_entity_id =
-                     target_organization.legal_entity_id
-                 AND target_legal_entity.status = 'ACTIVE'
+                JOIN company target_company
+                  ON target_company.company_id =
+                     target_organization.company_id
+                 AND target_company.status = 'ACTIVE'
                 JOIN organization_current_projection target_projection
                   ON target_projection.organization_id =
                      target_organization.organization_id
@@ -902,15 +1495,15 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                       )
                       AND (
                         (
-                          scope.scope_type = 'LEGAL_ENTITY'
-                          AND scope.legal_entity_id =
-                              target_organization.legal_entity_id
+                          scope.scope_type = 'COMPANY'
+                          AND scope.company_id =
+                              target_organization.company_id
                         )
                         OR (
                           scope.scope_type = 'ORGANIZATION'
                           AND actor_organization.identity_status = 'ACTIVE'
-                          AND actor_organization.legal_entity_id =
-                              target_organization.legal_entity_id
+                          AND actor_organization.company_id =
+                              target_organization.company_id
                           AND actor_version.status = 'ACTIVE'
                           AND actor_version.effective_from <= ?
                           AND (
@@ -971,10 +1564,10 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 FROM employee target_employee
                 LEFT JOIN auth_principal target_principal
                   ON target_principal.employee_id = target_employee.employee_id
-                JOIN legal_entity target_legal_entity
-                  ON target_legal_entity.legal_entity_id =
-                     target_employee.legal_entity_id
-                 AND target_legal_entity.status = 'ACTIVE'
+                JOIN company target_company
+                  ON target_company.company_id =
+                     target_employee.company_id
+                 AND target_company.status = 'ACTIVE'
                 WHERE target_employee.employment_status = 'ACTIVE'
                   AND (
                     (
@@ -1028,15 +1621,15 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                       )
                       AND (
                         (
-                          scope.scope_type = 'LEGAL_ENTITY'
-                          AND scope.legal_entity_id =
-                              target_employee.legal_entity_id
+                          scope.scope_type = 'COMPANY'
+                          AND scope.company_id =
+                              target_employee.company_id
                         )
                         OR (
                           scope.scope_type = 'ORGANIZATION'
                           AND actor_organization.identity_status = 'ACTIVE'
-                          AND actor_organization.legal_entity_id =
-                              target_employee.legal_entity_id
+                          AND actor_organization.company_id =
+                              target_employee.company_id
                           AND actor_version.status = 'ACTIVE'
                           AND actor_version.effective_from <= ?
                           AND (
@@ -1067,8 +1660,8 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                                 target_assignment.effective_to IS NULL
                                 OR target_assignment.effective_to > ?
                               )
-                              AND target_organization.legal_entity_id =
-                                  actor_organization.legal_entity_id
+                              AND target_organization.company_id =
+                                  actor_organization.company_id
                               AND target_version.status = 'ACTIVE'
                               AND target_version.effective_from <= ?
                               AND (
@@ -1122,7 +1715,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
 
     private String resolveAuthorizedScope(RoleAssignmentInput assignment) {
         String targetColumn = switch (assignment.scopeType()) {
-            case "LEGAL_ENTITY" -> "legal_entity_id";
+            case "COMPANY" -> "company_id";
             case "ORGANIZATION" -> "organization_id";
             case "SELF" -> null;
             default -> throw new IllegalArgumentException("unsupported scope type");
@@ -1172,13 +1765,13 @@ public class AccountPersistenceAdapter implements AccountPersistence {
         jdbc.update(
                 """
                 INSERT INTO auth_data_scope (
-                    scope_id, scope_type, legal_entity_id, organization_id,
+                    scope_id, scope_type, company_id, organization_id,
                     include_descendants, valid_from, valid_to
                 ) VALUES (?, ?, ?, ?, TRUE, ?, ?)
                 """,
                 scopeId,
                 assignment.scopeType(),
-                "LEGAL_ENTITY".equals(assignment.scopeType())
+                "COMPANY".equals(assignment.scopeType())
                         ? assignment.scopeResourceId()
                         : null,
                 "ORGANIZATION".equals(assignment.scopeType())
@@ -1187,6 +1780,16 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 requestedFrom,
                 requestedTo);
         return scopeId;
+    }
+
+    private static MapSqlParameterSource visibilityParameters(
+            String principalId,
+            String requiredCapability,
+            Instant at) {
+        return new MapSqlParameterSource()
+                .addValue("principalId", principalId)
+                .addValue("requiredCapability", requiredCapability)
+                .addValue("authorizationTime", Timestamp.from(at));
     }
 
     private static AccountRecord mapAccount(ResultSet result, int row) throws SQLException {
@@ -1202,7 +1805,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 instant(result, "last_login_at"),
                 result.getLong("session_epoch"),
                 result.getLong("row_version"),
-                result.getString("legal_entity_id"));
+                result.getString("company_id"));
     }
 
     private static Instant instant(ResultSet result, String column) throws SQLException {

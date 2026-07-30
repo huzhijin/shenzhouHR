@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AccountAccessService {
 
+    private static final String ACCOUNT_CREATE = "ACCOUNT:CREATE";
     private static final String ACCOUNT_READ = "ACCOUNT:READ";
     private static final String ACCOUNT_EDIT = "ACCOUNT:EDIT";
     private static final String ACCOUNT_LOCK = "ACCOUNT:LOCK";
@@ -109,7 +110,11 @@ public class AccountAccessService {
                 accountId,
                 "SUCCESS",
                 null);
-        return detail(authenticationPersistence.findAccountById(accountId).orElseThrow());
+        return detail(
+                authenticationPersistence.findAccountById(accountId).orElseThrow(),
+                actorId,
+                ACCOUNT_CREATE,
+                now);
     }
 
     @Transactional(readOnly = true)
@@ -143,7 +148,13 @@ public class AccountAccessService {
 
     @Transactional(readOnly = true)
     public AccountDetail getAccount(String accountId) {
-        return detail(requireVisible(accountId, ACCOUNT_READ));
+        String actorId = principalId();
+        Instant now = clock.instant();
+        return detail(
+                requireVisible(accountId, ACCOUNT_READ, actorId, now),
+                actorId,
+                ACCOUNT_READ,
+                now);
     }
 
     @Transactional
@@ -158,9 +169,10 @@ public class AccountAccessService {
                     "VALIDATION_ERROR",
                     "账号状态不受支持");
         }
-        AccountRecord account = requireVisible(accountId, ACCOUNT_EDIT);
         String actorId = principalId();
         Instant now = clock.instant();
+        AccountRecord account = requireLockedVisible(
+                accountId, ACCOUNT_EDIT, actorId, now);
         accountPersistence.updateAccountStatus(
                 account.accountId(),
                 status,
@@ -182,16 +194,22 @@ public class AccountAccessService {
                 accountId,
                 "SUCCESS",
                 reason);
-        return detail(authenticationPersistence.findAccountById(accountId).orElseThrow());
+        return detail(
+                authenticationPersistence.findAccountById(accountId).orElseThrow(),
+                actorId,
+                ACCOUNT_EDIT,
+                now);
     }
 
     @Transactional
     public void lock(String accountId, boolean locked, String reason) {
-        AccountRecord account = requireVisible(
-                accountId,
-                locked ? ACCOUNT_LOCK : ACCOUNT_UNLOCK);
         String actorId = principalId();
         Instant now = clock.instant();
+        AccountRecord account = requireLockedVisible(
+                accountId,
+                locked ? ACCOUNT_LOCK : ACCOUNT_UNLOCK,
+                actorId,
+                now);
         accountPersistence.setAccountLock(account.accountId(), locked, actorId, now);
         if (locked) {
             authenticationPersistence.revokeAllSessions(
@@ -212,12 +230,14 @@ public class AccountAccessService {
 
     @Transactional
     public void issueResetGrant(String accountId, String reason) {
-        AccountRecord account = requireVisible(
-                accountId,
-                ACCOUNT_RESET_PASSWORD);
         String actorId = principalId();
-        String rawGrant = tokenService.newOpaqueToken();
         Instant now = clock.instant();
+        AccountRecord account = requireLockedVisible(
+                accountId,
+                ACCOUNT_RESET_PASSWORD,
+                actorId,
+                now);
+        String rawGrant = tokenService.newOpaqueToken();
         authenticationPersistence.issueResetGrant(
                 account.accountId(),
                 tokenService.digest(rawGrant),
@@ -241,11 +261,34 @@ public class AccountAccessService {
             String reason,
             long expectedVersion) {
         validateAssignments(assignments);
-        AccountRecord account = requireVisible(accountId, ROLE_ASSIGN);
         String actorId = principalId();
         Instant now = clock.instant();
+        AccountRecord account = requireLockedAccount(accountId);
+        if (!accountPersistence.canAccessAllAccountRoleScopes(
+                actorId,
+                account.accountId(),
+                ROLE_ASSIGN,
+                now)) {
+            throw unavailable();
+        }
+        denySelfRoleAssignment(actorId, account.principalId());
+        lockRoleAssignmentAuthorization(
+                actorId,
+                account.principalId(),
+                null,
+                assignments,
+                now);
+        accountPersistence.lockTargetRoleAssignments(
+                account.principalId(), now);
+        if (!accountPersistence.canAccessAllAccountRoleScopes(
+                actorId,
+                account.accountId(),
+                ROLE_ASSIGN,
+                now)) {
+            throw unavailable();
+        }
         List<ResolvedRoleAssignmentInput> authorizedAssignments =
-                authorizeRoleAssignments(
+                resolveAuthorizedRoleAssignments(
                         actorId,
                         account.principalId(),
                         null,
@@ -265,7 +308,11 @@ public class AccountAccessService {
                 accountId,
                 "SUCCESS",
                 reason);
-        return detail(authenticationPersistence.findAccountById(accountId).orElseThrow());
+        return detail(
+                authenticationPersistence.findAccountById(accountId).orElseThrow(),
+                actorId,
+                ROLE_ASSIGN,
+                now);
     }
 
     @Transactional(readOnly = true)
@@ -275,23 +322,57 @@ public class AccountAccessService {
 
     private AccountRecord requireVisible(
             String accountId,
-            String requiredCapability) {
-        String actorId = principalId();
+            String requiredCapability,
+            String actorId,
+            Instant at) {
         if (!accountPersistence.canAccessAccount(
                 actorId,
                 accountId,
                 requiredCapability,
-                clock.instant())) {
+                at)) {
             throw unavailable();
         }
         return authenticationPersistence.findAccountById(accountId)
                 .orElseThrow(AccountAccessService::unavailable);
     }
 
-    private AccountDetail detail(AccountRecord account) {
-        List<RoleAssignmentRecord> roles = accountPersistence.findRoleAssignments(
-                account.principalId(),
-                clock.instant());
+    private AccountRecord requireLockedVisible(
+            String accountId,
+            String requiredCapability,
+            String actorId,
+            Instant at) {
+        AccountRecord account = requireLockedAccount(accountId);
+        if (!accountPersistence.lockCurrentCapabilityAuthority(
+                actorId, requiredCapability, at)) {
+            throw unavailable();
+        }
+        if (!accountPersistence.canAccessAllAccountRoleScopes(
+                actorId,
+                accountId,
+                requiredCapability,
+                at)) {
+            throw unavailable();
+        }
+        return account;
+    }
+
+    private AccountRecord requireLockedAccount(String accountId) {
+        return accountPersistence
+                .lockAccountForScopeAuthorization(accountId)
+                .orElseThrow(AccountAccessService::unavailable);
+    }
+
+    private AccountDetail detail(
+            AccountRecord account,
+            String actorId,
+            String requiredCapability,
+            Instant at) {
+        List<RoleAssignmentRecord> roles =
+                accountPersistence.findVisibleRoleAssignments(
+                        actorId,
+                        account.principalId(),
+                        requiredCapability,
+                        at);
         List<SessionRecord> sessions = accountPersistence.findSessions(account.accountId());
         boolean resetPending = false;
         return new AccountDetail(
@@ -343,7 +424,7 @@ public class AccountAccessService {
                     || assignment.roleId().isBlank()
                     || assignment.roleId().length() > 36
                     || assignment.scopeType() == null
-                    || !Set.of("LEGAL_ENTITY", "ORGANIZATION", "SELF")
+                    || !Set.of("COMPANY", "ORGANIZATION", "SELF")
                             .contains(assignment.scopeType())
                     || assignment.validFrom() == null
                     || assignment.validTo() != null
@@ -415,21 +496,44 @@ public class AccountAccessService {
             String targetEmployeeId,
             List<RoleAssignmentInput> assignments,
             Instant now) {
-        if (actorPrincipalId.equals(targetPrincipalId)) {
-            throw new ApiProblemException(
-                    HttpStatus.FORBIDDEN,
-                    "ROLE_ASSIGNMENT_SELF_SERVICE_DENIED",
-                    "禁止修改本账号的角色授权");
-        }
-        accountPersistence.lockRoleGrantTargetLegalEntities(
+        denySelfRoleAssignment(actorPrincipalId, targetPrincipalId);
+        lockRoleAssignmentAuthorization(
+                actorPrincipalId,
                 targetPrincipalId,
                 targetEmployeeId,
                 assignments,
                 now);
-        if (!accountPersistence.lockCurrentRoleGrantAuthority(
-                actorPrincipalId, now)) {
+        return resolveAuthorizedRoleAssignments(
+                actorPrincipalId,
+                targetPrincipalId,
+                targetEmployeeId,
+                assignments,
+                now);
+    }
+
+    private void lockRoleAssignmentAuthorization(
+            String actorPrincipalId,
+            String targetPrincipalId,
+            String targetEmployeeId,
+            List<RoleAssignmentInput> assignments,
+            Instant now) {
+        accountPersistence.lockRoleGrantTargetCompanies(
+                targetPrincipalId,
+                targetEmployeeId,
+                assignments,
+                now);
+        if (!accountPersistence.lockCurrentCapabilityAuthority(
+                actorPrincipalId, ROLE_ASSIGN, now)) {
             throw roleAssignmentScopeDenied();
         }
+    }
+
+    private List<ResolvedRoleAssignmentInput> resolveAuthorizedRoleAssignments(
+            String actorPrincipalId,
+            String targetPrincipalId,
+            String targetEmployeeId,
+            List<RoleAssignmentInput> assignments,
+            Instant now) {
         Map<String, String> roleCodes = new HashMap<>();
         for (String roleId : assignments.stream()
                 .map(RoleAssignmentInput::roleId)
@@ -454,6 +558,17 @@ public class AccountAccessService {
                 targetEmployeeId,
                 assignments,
                 now);
+    }
+
+    private static void denySelfRoleAssignment(
+            String actorPrincipalId,
+            String targetPrincipalId) {
+        if (actorPrincipalId.equals(targetPrincipalId)) {
+            throw new ApiProblemException(
+                    HttpStatus.FORBIDDEN,
+                    "ROLE_ASSIGNMENT_SELF_SERVICE_DENIED",
+                    "禁止修改本账号的角色授权");
+        }
     }
 
     private static ApiProblemException invalidScopeTarget() {

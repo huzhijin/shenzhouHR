@@ -11,7 +11,7 @@ public final class EvidenceRows {
     public record RawFactRow(
             String rawAttendanceFactId,
             String attendanceSourceId,
-            String legalEntityId,
+            String companyId,
             String factKind,
             String sourceBusinessKey,
             String sourceVersion,
@@ -59,7 +59,7 @@ public final class EvidenceRows {
 
     public record EffectiveEventRow(
             String effectiveAttendanceEventId,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             String eventKind,
             String normalizedDirection,
@@ -95,7 +95,7 @@ public final class EvidenceRows {
 
     public record RecalculationIntentRow(
             String attendanceRecalculationIntentId,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate,
             String reasonCode,

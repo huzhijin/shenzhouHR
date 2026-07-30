@@ -169,7 +169,7 @@ public class DeliPunchPageTransaction {
 
         var decision = EvidenceResolutionPolicy.resolve(
                 employeeResolver,
-                job.legalEntityId(),
+                job.companyId(),
                 record.employeeNumber(),
                 null,
                 record.deviceRef(),
@@ -202,7 +202,7 @@ public class DeliPunchPageTransaction {
         evidenceRepository.insertRawFact(new EvidenceRows.RawFactRow(
                 rawId,
                 job.sourceId(),
-                job.legalEntityId(),
+                job.companyId(),
                 "PUNCH_POINT",
                 record.sourceRecordId(),
                 record.sourceVersion(),
@@ -271,7 +271,7 @@ public class DeliPunchPageTransaction {
         AttendanceConfigurationResolverPort.Resolution configuration;
         try {
             configuration = configurationResolver.resolve(
-                    job.legalEntityId(),
+                    job.companyId(),
                     decision.employeeId(),
                     record.punchInstant());
         } catch (RuntimeException exception) {
@@ -290,7 +290,7 @@ public class DeliPunchPageTransaction {
             AttendancePeriodProtectionPort.Protection protection;
             try {
                 protection = periodProtection.protectionFor(
-                        job.legalEntityId(), decision.employeeId(), date);
+                        job.companyId(), decision.employeeId(), date);
             } catch (RuntimeException exception) {
                 throw failure("ATTENDANCE_PERIOD_PROTECTION_UNAVAILABLE");
             }
@@ -323,10 +323,10 @@ public class DeliPunchPageTransaction {
             String matchId,
             Instant createdAt) {
         evidenceRepository.lockSubject(
-                job.legalEntityId(), decision.employeeId(), createdAt);
+                job.companyId(), decision.employeeId(), createdAt);
         List<EvidenceRows.EffectiveEventRow> exact =
                 evidenceRepository.findExactEvents(
-                        job.legalEntityId(),
+                        job.companyId(),
                         decision.employeeId(),
                         record.punchInstant(),
                         record.direction().name());
@@ -349,14 +349,14 @@ public class DeliPunchPageTransaction {
         String eventId = UUID.randomUUID().toString();
         String eventDigest = AttendanceEvidenceDigests.sha256(
                 "DELI_EFFECTIVE_EVENT_V1",
-                job.legalEntityId(),
+                job.companyId(),
                 decision.employeeId(),
                 record.punchInstant().toString(),
                 record.direction().name());
         evidenceRepository.insertEffectiveEvent(
                 new EvidenceRows.EffectiveEventRow(
                         eventId,
-                        job.legalEntityId(),
+                        job.companyId(),
                         decision.employeeId(),
                         "PUNCH_POINT",
                         record.direction().name(),
@@ -405,7 +405,7 @@ public class DeliPunchPageTransaction {
             evidenceRepository.insertRecalculationIntent(
                     new EvidenceRows.RecalculationIntentRow(
                             UUID.randomUUID().toString(),
-                            job.legalEntityId(),
+                            job.companyId(),
                             decision.employeeId(),
                             protectedDate.businessDate(),
                             "DELI_PUNCH_INGESTED",
@@ -441,7 +441,7 @@ public class DeliPunchPageTransaction {
         return AttendanceEvidenceDigests.sha256(
                 "DELI_RAW_FACT_V1",
                 job.sourceId(),
-                job.legalEntityId(),
+                job.companyId(),
                 record.sourceRecordId(),
                 record.sourceVersion(),
                 record.externalPersonRef(),
@@ -469,7 +469,7 @@ public class DeliPunchPageTransaction {
         }
         return AttendanceEvidenceDigests.sha256(
                 "DELI_UNRESOLVED_MATCH_V1",
-                job.legalEntityId(),
+                job.companyId(),
                 record.employeeNumber(),
                 record.externalPersonRef(),
                 record.externalPersonRefKind().name(),

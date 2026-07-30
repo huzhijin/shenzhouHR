@@ -619,9 +619,9 @@ function TemplateStep({ templates, canCreate, onBatchChange, onExecute, mutation
       >
         <div className="form-grid">
           <Form.Item
-            name="legalEntityId"
-            label={t('peopleImport.legalEntityId')}
-            rules={[{ required: true, message: t('peopleImport.legalEntityRequired') }]}
+            name="companyId"
+            label={t('peopleImport.companyId')}
+            rules={[{ required: true, message: t('peopleImport.companyRequired') }]}
           >
             <Input />
           </Form.Item>

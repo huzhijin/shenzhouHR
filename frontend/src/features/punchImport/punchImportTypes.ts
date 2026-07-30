@@ -14,7 +14,7 @@ export type PunchImportState =
 
 export interface PunchImportBatchView {
   batchId: string;
-  legalEntityId: string;
+  companyId: string;
   sourceId: string;
   originalFilename: string;
   fileSha256: string;

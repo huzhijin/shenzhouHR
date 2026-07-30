@@ -7,7 +7,7 @@ import type {
 export const demoPunchImports: PunchImportBatchView[] = [
   {
     batchId: 'ATT-XLS-DEMO-001',
-    legalEntityId: 'LEGAL-JIANGSU',
+    companyId: 'LEGAL-JIANGSU',
     sourceId: 'SRC-XLS-OFFLINE-A',
     originalFilename: '7月1日-5日总部打卡导入.xlsx',
     fileSha256: 'a'.repeat(64),
@@ -27,7 +27,7 @@ export const demoPunchImports: PunchImportBatchView[] = [
   },
   {
     batchId: 'ATT-XLS-DEMO-002',
-    legalEntityId: 'LEGAL-JIANGSU',
+    companyId: 'LEGAL-JIANGSU',
     sourceId: 'SRC-XLS-OFFLINE-A',
     originalFilename: '6月30日补录-冻结期间.xlsx',
     fileSha256: 'b'.repeat(64),

@@ -8,7 +8,7 @@ public final class AttendanceGroupCommands {
     }
 
     public record LocationCommand(
-            String legalEntityId,
+            String companyId,
             String code,
             String name,
             String timeZone,
@@ -18,7 +18,7 @@ public final class AttendanceGroupCommands {
     }
 
     public record GroupCommand(
-            String legalEntityId,
+            String companyId,
             String code,
             String name,
             String locationId,

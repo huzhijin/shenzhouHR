@@ -1,10 +1,10 @@
 ## 1. Contract and persistence foundation
 
-- [ ] 1.1 Restore the exact W2 V4 generic-policy Java/H2/OpenAPI contract with no `legalEntityId`, original unique/effective constraints and unchanged V1-V6 source/checksums; add independently derived W2 schema/API/full-row retained red tests.
+- [ ] 1.1 Restore the exact W2 V4 generic-policy Java/H2/OpenAPI contract with no company dimension field, original unique/effective constraints and unchanged V1-V6 source/checksums; add independently derived W2 schema/API/full-row retained red tests.
 - [ ] 1.2 Start with RED tests proving current `Wave3MigrationContractTest` ALTER/seed-W2 assertions invalid, then rewrite the never-persisted exact file `backend/src/main/resources/db/migration/V7__attendance_setup_and_base_policies.sql` to create only W3 identity/revision/timeline and independent scoped-policy aggregates; never ALTER W2 `policy_version`, never add scoped-version `status`, and derive lifecycle state from facts.
 - [ ] 1.3 Start with RED tests proving current V7/H2 single `attendance_policy_binding` invalid, then mirror the fixed review-owned all-W3 registry including `attendance_policy_binding_family/revision`, every timeline, FK/CHECK/index in H2, Rows, Mapper/XML and domain DTOs.
 - [ ] 1.4 Revise OpenAPI for final independent W3 routes and strict DTOs; implement exact bidirectional Controller closure for method/path/query/header/status/request/response/nullability/unknown fields and all resolved refs.
-- [ ] 1.5 Implement the independent fixed seed oracle with exact three kinds/IDs/scopes/PUBLISHED v1 canonical JSON/golden digests and no `MIN(legal_entity_id)` or V7-self-derived expected values.
+- [ ] 1.5 Implement the independent fixed seed oracle with exact three kinds/IDs/scopes/PUBLISHED v1 canonical JSON/golden digests and no aggregate-selected company or V7-self-derived expected values.
 
 ## 2. Attendance groups, locations and assignments
 
@@ -35,7 +35,7 @@
 
 ## 5. Attendance setup user interface and runtime
 
-- [ ] 5.1 Align typed clients with final strict OpenAPI routes, legal-entity lifecycle, pagination, impact token and authoritative simulation; normal mode uses real backend/proxy and demo short-circuits before network.
+- [ ] 5.1 Align typed clients with final strict OpenAPI routes, company lifecycle, pagination, impact token and authoritative simulation; normal mode uses real backend/proxy and demo short-circuits before network.
 - [ ] 5.2 Build group/location immutable history and atomic rollover/assignment UI with loading/empty/403/404/409/stale/replay/success states and no read-only manage affordance.
 - [ ] 5.3 Build shift/calendar family/version/timeline UI with dual offsets, gap/overlap/completeness, PATCH days, override issues and byte-stable history visibility.
 - [ ] 5.4 Build scoped-policy lifecycle/binding UI displaying real status/issues/conflicts/impact and server simulation; AUDITOR has no simulation/impact/manage action.

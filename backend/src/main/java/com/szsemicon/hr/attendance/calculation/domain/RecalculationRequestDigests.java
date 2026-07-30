@@ -12,7 +12,7 @@ public final class RecalculationRequestDigests {
     public static String canonicalRequestDigest(
             RecalculationBatchRequest request) {
         List<String> fields = new ArrayList<>(List.of(
-                request.legalEntityId(),
+                request.companyId(),
                 request.periodId(),
                 Long.toString(request.periodVersion()),
                 request.periodToken(),

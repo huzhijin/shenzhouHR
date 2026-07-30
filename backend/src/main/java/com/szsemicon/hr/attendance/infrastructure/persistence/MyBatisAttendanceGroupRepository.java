@@ -253,6 +253,13 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
     }
 
     @Override
+    public boolean hasAssignmentCompanyMismatch(
+            String employeeId, LocalDate asOf, Instant knowledgeAsOf) {
+        return mapper.hasAssignmentCompanyMismatch(
+                employeeId, asOf, knowledgeAsOf);
+    }
+
+    @Override
     public boolean hasAssignmentOverlap(
             String employeeId,
             LocalDate effectiveFrom,
@@ -421,7 +428,11 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
                 "INACTIVE",
                 assignment.effectiveFrom(),
                 requestId);
-        mapper.insertAssignmentSuccessor(successor, current.assignmentId());
+        if (mapper.insertAssignmentSuccessor(
+                successor, current.assignmentId()) != 1) {
+            throw new OptimisticLockingFailureException(
+                    "attendance assignment successor was not inserted");
+        }
         appendAssignmentTimeline(
                 successor,
                 "ACTIVE",
@@ -445,7 +456,7 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
 
     private Location location(AttendanceGroupRows.LocationRow row) {
         return new Location(
-                row.locationId(), row.legalEntityId(), row.locationCode(),
+                row.locationId(), row.companyId(), row.locationCode(),
                 row.locationRevisionId(), row.revisionNumber(), row.locationName(),
                 row.timeZone(), LifecycleStatus.valueOf(row.status()),
                 row.effectiveFrom(), row.effectiveTo(), row.snapshotDigest(), row.rowVersion(),
@@ -455,7 +466,7 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
 
     private AttendanceGroup group(AttendanceGroupRows.GroupRow row) {
         return new AttendanceGroup(
-                row.attendanceGroupId(), row.legalEntityId(), row.groupCode(),
+                row.attendanceGroupId(), row.companyId(), row.groupCode(),
                 row.attendanceGroupRevisionId(), row.revisionNumber(), row.groupName(),
                 row.locationId(), row.locationRevisionId(), row.workCalendarId(),
                 row.shiftTemplateId(), LifecycleStatus.valueOf(row.status()),
@@ -474,7 +485,7 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
 
     private AttendanceGroupRows.LocationRow row(Location value) {
         return new AttendanceGroupRows.LocationRow(
-                value.locationId(), value.legalEntityId(), value.code(),
+                value.locationId(), value.companyId(), value.code(),
                 value.locationRevisionId(), value.revisionNumber(), value.name(),
                 value.timeZone(), value.status().name(), value.effectiveFrom(),
                 value.effectiveTo(), value.snapshotDigest(), value.rowVersion(),
@@ -484,7 +495,7 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
 
     private AttendanceGroupRows.GroupRow row(AttendanceGroup value) {
         return new AttendanceGroupRows.GroupRow(
-                value.groupId(), value.legalEntityId(), value.code(),
+                value.groupId(), value.companyId(), value.code(),
                 value.groupRevisionId(), value.revisionNumber(), value.name(),
                 value.locationId(), value.locationRevisionId(),
                 value.calendarId(), value.shiftTemplateId(),
@@ -574,19 +585,23 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
             String requestId) {
         int sequence = mapper.nextAssignmentTimelineSequence(
                 row.attendanceGroupAssignmentId());
-        mapper.insertAssignmentTimeline(new AttendanceGroupRows.TimelineFactRow(
-                UUID.randomUUID().toString(),
-                null,
-                row.attendanceGroupAssignmentId(),
-                row.employeeId(),
-                sequence,
-                state,
-                businessEffectiveFrom,
-                mapper.latestAssignmentTimelineId(
-                        row.attendanceGroupAssignmentId()),
-                row.updatedAt(),
-                row.updatedBy(),
-                requestId(requestId)));
+        if (mapper.insertAssignmentTimeline(
+                new AttendanceGroupRows.TimelineFactRow(
+                        UUID.randomUUID().toString(),
+                        null,
+                        row.attendanceGroupAssignmentId(),
+                        row.employeeId(),
+                        sequence,
+                        state,
+                        businessEffectiveFrom,
+                        mapper.latestAssignmentTimelineId(
+                                row.attendanceGroupAssignmentId()),
+                        row.updatedAt(),
+                        row.updatedBy(),
+                        requestId(requestId))) != 1) {
+            throw new OptimisticLockingFailureException(
+                    "attendance assignment company boundary changed");
+        }
     }
 
     private String requestId(String value) {

@@ -22,9 +22,9 @@ class AccountTargetAuthorizationIntegrationTest
             "10000000-0000-0000-0000-000000000002";
     private static final String AUDITOR_ROLE =
             "10000000-0000-0000-0000-000000000003";
-    private static final String LEGAL_ENTITY_ONE =
+    private static final String COMPANY_ONE =
             "30000000-0000-0000-0000-000000000001";
-    private static final String LEGAL_ENTITY_TWO =
+    private static final String COMPANY_TWO =
             "30000000-0000-0000-0000-000000000002";
     private static final String SPLIT_SCOPE =
             "99000000-0000-0000-0000-000000000001";
@@ -34,14 +34,212 @@ class AccountTargetAuthorizationIntegrationTest
             "99000000-0000-0000-0000-000000000003";
     private static final String READ_ONLY_SPLIT_SCOPE =
             "99000000-0000-0000-0000-000000000004";
+    private static final String MIXED_TARGET_COMPANY_TWO_SCOPE =
+            "99000000-0000-0000-0000-000000000005";
+    private static final String MIXED_TARGET_COMPANY_TWO_ASSIGNMENT =
+            "aa000000-0000-0000-0000-000000000005";
+
+    @Test
+    void employeeBindingRemainsACompanyBoundaryWhenRolePointsElsewhere()
+            throws Exception {
+        Instant now = Instant.now();
+        insertCompanyScope(
+                MIXED_TARGET_COMPANY_TWO_SCOPE,
+                COMPANY_TWO,
+                now.minusSeconds(60),
+                null);
+        jdbc.update(
+                """
+                UPDATE auth_principal_role_assignment
+                SET data_scope_id = ?
+                WHERE principal_id = ?
+                  AND role_id = ?
+                """,
+                MIXED_TARGET_COMPANY_TWO_SCOPE,
+                ADMIN_PRINCIPAL,
+                ADMIN_ROLE);
+        insertRoleAssignment(
+                MIXED_TARGET_COMPANY_TWO_ASSIGNMENT,
+                STANDARD_PRINCIPAL,
+                AUDITOR_ROLE,
+                MIXED_TARGET_COMPANY_TWO_SCOPE,
+                now.minusSeconds(60),
+                null);
+
+        mockMvc.perform(get("/api/v1/access/accounts")
+                        .queryParam("query", STANDARD_USERNAME)
+                        .with(user(ADMIN_PRINCIPAL)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.total").value(0));
+
+        mockMvc.perform(get(
+                        "/api/v1/access/accounts/{accountId}",
+                        STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+
+        mockMvc.perform(patch(
+                        "/api/v1/access/accounts/{accountId}/status",
+                        STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {
+                                   "status":"DISABLED",
+                                   "reason":"员工所属公司边界负例",
+                                   "expectedVersion":0
+                                 }
+                                 """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT status
+                FROM local_account
+                WHERE account_id = ?
+                """,
+                String.class,
+                STANDARD_ACCOUNT)).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void oneCompanyAuthorityCannotObserveOrMutateAMixedCompanyAccount()
+            throws Exception {
+        Instant now = Instant.now();
+        insertCompanyScope(
+                MIXED_TARGET_COMPANY_TWO_SCOPE,
+                COMPANY_TWO,
+                now.minusSeconds(60),
+                null);
+        jdbc.update(
+                """
+                UPDATE auth_principal_role_assignment
+                SET data_scope_id = ?
+                WHERE principal_id = ?
+                  AND role_id = ?
+                """,
+                MIXED_TARGET_COMPANY_TWO_SCOPE,
+                ADMIN_PRINCIPAL,
+                ADMIN_ROLE);
+        insertRoleAssignment(
+                MIXED_TARGET_COMPANY_TWO_ASSIGNMENT,
+                LIMITED_PRINCIPAL,
+                AUDITOR_ROLE,
+                MIXED_TARGET_COMPANY_TWO_SCOPE,
+                now.minusSeconds(60),
+                null);
+
+        mockMvc.perform(get("/api/v1/access/accounts")
+                        .queryParam("query", LIMITED_USERNAME)
+                        .with(user(ADMIN_PRINCIPAL)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.total").value(0));
+
+        mockMvc.perform(get(
+                        "/api/v1/access/accounts/{accountId}",
+                        LIMITED_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+
+        mockMvc.perform(patch(
+                        "/api/v1/access/accounts/{accountId}/status",
+                        LIMITED_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {
+                                   "status":"DISABLED",
+                                   "reason":"混合公司账号状态修改负例",
+                                   "expectedVersion":0
+                                 }
+                                 """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+
+        assertReasonActionUnavailable(LIMITED_ACCOUNT, "lock");
+        assertReasonActionUnavailable(LIMITED_ACCOUNT, "unlock");
+        assertReasonActionUnavailable(
+                LIMITED_ACCOUNT, "password-reset-grants");
+
+        mockMvc.perform(put(
+                        "/api/v1/access/accounts/{accountId}/role-assignments",
+                        LIMITED_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {
+                                   "assignments":[{
+                                     "roleId":"%s",
+                                     "scopeType":"COMPANY",
+                                     "scopeResourceId":"%s",
+                                     "validFrom":"%s",
+                                     "validTo":null
+                                   }],
+                                   "reason":"混合公司角色替换负例",
+                                   "expectedVersion":0
+                                 }
+                                 """.formatted(
+                                SYSTEM_ADMIN_ROLE,
+                                COMPANY_TWO,
+                                now.plusSeconds(60))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT status
+                FROM local_account
+                WHERE account_id = ?
+                """,
+                String.class,
+                LIMITED_ACCOUNT)).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT row_version
+                FROM local_account
+                WHERE account_id = ?
+                """,
+                Long.class,
+                LIMITED_ACCOUNT)).isZero();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM password_reset_grant
+                WHERE account_id = ?
+                """,
+                Long.class,
+                LIMITED_ACCOUNT)).isZero();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM auth_principal_role_assignment
+                WHERE principal_id = ?
+                  AND valid_to IS NULL
+                """,
+                Long.class,
+                LIMITED_PRINCIPAL)).isEqualTo(2L);
+    }
 
     @Test
     void capabilityAndCoveringScopeMustComeFromTheSameAssignmentForEveryEndpoint()
             throws Exception {
         Instant now = Instant.now();
-        insertLegalEntityScope(
+        insertCompanyScope(
                 SPLIT_SCOPE,
-                LEGAL_ENTITY_TWO,
+                COMPANY_TWO,
                 now.minusSeconds(60),
                 null);
         insertRoleAssignment(
@@ -76,7 +274,7 @@ class AccountTargetAuthorizationIntegrationTest
                         .content("""
                                  {
                                    "status":"DISABLED",
-                                   "reason":"跨法人状态修改负例",
+                                   "reason":"跨公司状态修改负例",
                                    "expectedVersion":0
                                  }
                                  """))
@@ -98,17 +296,17 @@ class AccountTargetAuthorizationIntegrationTest
                                  {
                                    "assignments":[{
                                      "roleId":"%s",
-                                     "scopeType":"LEGAL_ENTITY",
+                                     "scopeType":"COMPANY",
                                      "scopeResourceId":"%s",
                                      "validFrom":"%s",
                                      "validTo":null
                                    }],
-                                   "reason":"跨法人角色替换负例",
+                                   "reason":"跨公司角色替换负例",
                                    "expectedVersion":0
                                  }
                                  """.formatted(
                                 SYSTEM_ADMIN_ROLE,
-                                LEGAL_ENTITY_ONE,
+                                COMPANY_ONE,
                                 now.plusSeconds(60))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code")
@@ -152,9 +350,9 @@ class AccountTargetAuthorizationIntegrationTest
     void expiredActorScopeCannotCoverAnAccountEvenWhenItsAssignmentIsCurrent()
             throws Exception {
         Instant now = Instant.now();
-        insertLegalEntityScope(
+        insertCompanyScope(
                 EXPIRED_ACTOR_SCOPE,
-                LEGAL_ENTITY_ONE,
+                COMPANY_ONE,
                 now.minusSeconds(120),
                 now.minusSeconds(60));
         jdbc.update(
@@ -175,9 +373,9 @@ class AccountTargetAuthorizationIntegrationTest
     void readOnlyScopeCannotBorrowAdministrativeCapabilitiesFromAnotherEntity()
             throws Exception {
         Instant now = Instant.now();
-        insertLegalEntityScope(
+        insertCompanyScope(
                 READ_ONLY_SPLIT_SCOPE,
-                LEGAL_ENTITY_TWO,
+                COMPANY_TWO,
                 now.minusSeconds(60),
                 null);
         insertRoleAssignment(
@@ -227,7 +425,7 @@ class AccountTargetAuthorizationIntegrationTest
                                  {
                                    "assignments":[{
                                      "roleId":"%s",
-                                     "scopeType":"LEGAL_ENTITY",
+                                     "scopeType":"COMPANY",
                                      "scopeResourceId":"%s",
                                      "validFrom":"%s",
                                      "validTo":null
@@ -237,7 +435,7 @@ class AccountTargetAuthorizationIntegrationTest
                                  }
                                  """.formatted(
                                 SYSTEM_ADMIN_ROLE,
-                                LEGAL_ENTITY_ONE,
+                                COMPANY_ONE,
                                 now.plusSeconds(60))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code")
@@ -296,9 +494,9 @@ class AccountTargetAuthorizationIntegrationTest
     void expiredTargetScopeCannotKeepAnUnboundAccountVisible()
             throws Exception {
         Instant now = Instant.now();
-        insertLegalEntityScope(
+        insertCompanyScope(
                 EXPIRED_TARGET_SCOPE,
-                LEGAL_ENTITY_ONE,
+                COMPANY_ONE,
                 now.minusSeconds(120),
                 now.minusSeconds(60));
         jdbc.update(
@@ -324,33 +522,39 @@ class AccountTargetAuthorizationIntegrationTest
     }
 
     private void assertReasonActionUnavailable(String action) throws Exception {
+        assertReasonActionUnavailable(OUTSIDE_SCOPE_ACCOUNT, action);
+    }
+
+    private void assertReasonActionUnavailable(
+            String accountId,
+            String action) throws Exception {
         mockMvc.perform(post(
                         "/api/v1/access/accounts/{accountId}/{action}",
-                        OUTSIDE_SCOPE_ACCOUNT,
+                        accountId,
                         action)
                         .with(user(ADMIN_PRINCIPAL))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reason\":\"跨法人账号动作负例\"}"))
+                        .content("{\"reason\":\"跨公司账号动作负例\"}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code")
                         .value("RESOURCE_NOT_AVAILABLE"));
     }
 
-    private void insertLegalEntityScope(
+    private void insertCompanyScope(
             String scopeId,
-            String legalEntityId,
+            String companyId,
             Instant validFrom,
             Instant validTo) {
         jdbc.update(
                 """
                 INSERT INTO auth_data_scope (
-                    scope_id, scope_type, legal_entity_id, organization_id,
+                    scope_id, scope_type, company_id, organization_id,
                     include_descendants, valid_from, valid_to
-                ) VALUES (?, 'LEGAL_ENTITY', ?, NULL, TRUE, ?, ?)
+                ) VALUES (?, 'COMPANY', ?, NULL, TRUE, ?, ?)
                 """,
                 scopeId,
-                legalEntityId,
+                companyId,
                 Timestamp.from(validFrom),
                 validTo == null ? null : Timestamp.from(validTo));
     }

@@ -11,6 +11,9 @@
 - **Blocked by**: 客户提供批准的 MySQL 8.4 与外部系统测试环境、最小权限账号、白名单和脱敏数据。
 - **Resolves when**: Flyway 迁移/回滚与唯一约束测试、只读权限测试、字段映射签字、得力官方契约联调和凭据轮换流程全部通过。
 - **Update 2026-07-26**: 已获授权使用仓库外 `wave2-runtime.env`，MySQL 客户端、Flyway、迁移账号和两类应用账号变量均为 available；WAVE-3 runId `w3-20260726-1917` 在迁移前确认目标服务不是 MySQL 8.4 LTS并 fail-closed，故 V6→V7、权限和执行计划仍未验证。
+- **Update 2026-07-29**: 得力只读联调凭据已保存在本机私有、Git 忽略且权限为 `0600` 的 `.env.deli.local`，当前变量名为 `DELI_EPLUS_APP_KEY` / `DELI_EPLUS_APP_SECRET`；已验证 HTTPS、签名及 `CHECKIN/checkin_query` 返回业务码 `0`，当前查询窗口为零行。得力仍待租户初始化游标与人员绑定确认；致远 OA MySQL 数据源、审批状态及明细外键契约仍未提供。
+- **Update 2026-07-29（V9 checksum 变更）**: 隔离 MySQL 8.4.10 首次真实空库迁移证明 V9 的未引用 `row_number` 标识符会因 `ROW_NUMBER` 保留字在建表时返回语法错误；该次运行停在 V9，V11 未执行。V9 仅对该列定义、两个索引和 CHECK 中的同一标识符增加反引号，并同步精确源码校验合同。任何已经记录 V9 Flyway history 的外部数据库都不得静默执行 `repair`；必须先核对实际表结构、原 checksum 与当前 checksum，并通过受控审批后再决定修复策略。
+- **Update 2026-07-30（隔离库 live7）**: 修正 V9 后，隔离 MySQL 8.4.10 已完成 V11 live7 验证：29 张边界表、28 张关系表、29 条精确外键、44/44 已启用 CHECK 和 5 组索引切换均通过；权限 A+B 的角色/能力范围与当前身份/公司一致性组合、以及跨公司考勤组分配拒绝均由本地自动化覆盖。该结论不关闭本条外部门禁：生产容量/50 并发、连续 binlog/PITR、真实 OA MySQL、真实得力租户、真实浏览器/设备矩阵和 Ubuntu 部署/回滚仍为 `NOT_VERIFIED`。
 
 ## RESOLVED — design-decision-to-evaluate — 统一身份认证与账号生命周期
 - **Date**: 2026-07-20
@@ -155,6 +158,15 @@
 - **Current leaning**: 为 binding 增加独立 append-only lifecycle fact，并在 business/knowledge time 派生 ACTIVE/DEACTIVATED。
 - **Blocked by**: active OpenSpec registry 尚未声明 binding lifecycle 表及其 retained framing。
 - **Resolves when**: OpenSpec/registry/V7/H2/Mapper/OpenAPI 同时加入并验证 binding lifecycle fact，deactivate 并发一胜一且历史解析测试通过。
+
+## OPEN — deployment-safety-decision — 外部数据库 V9 checksum 兼容处置
+- **Date**: 2026-07-29
+- **Source**: 隔离 MySQL 8.4.10 真实 V1→V10 迁移
+- **Open item**: V9 原文件未引用 MySQL 保留标识符 `row_number`，真实执行返回 SQL 1064；本仓已仅增加反引号并有意把 V9 SHA-256 从 `7855a44e2f6d066490db4b2259bf33903f295a7fe85232af3dac0c21d46ed3cd` 更新为 `56a0476ef24a6fd6ae8559f11b8ace4fdec274f6e1ce681c5525e8335dbd9150`。尚不清楚是否存在已登记成功 V9 history 的外部数据库。
+- **Related constraints**: 禁止为消除 checksum mismatch 静默执行 Flyway `repair`；不得假定外部库与本机失败现场相同，也不得覆盖实际已部署 schema。
+- **Current leaning**: 新库和确认未成功执行 V9 的库使用修正后的 migration；发现成功 V9 history 时先冻结发布，导出实际 schema/checksum、完成备份与差异评审，再审批前向兼容处置。
+- **Blocked by**: 外部开发、测试、预生产和生产数据库的 Flyway V9 history/checksum 与 `punch_import_row` 实际定义尚未核对。
+- **Resolves when**: 所有目标环境完成只读盘点；不存在成功旧 V9，或已为每个存在旧 V9 的环境批准并演练不依赖静默 repair 的前向迁移方案。
 
 ## OPEN — waiting-on-external-condition — UmaDev 文件级词法误报的精确裁决机制
 - **Date**: 2026-07-27

@@ -64,7 +64,7 @@ interfaces (future REST / message adapter)
 
 每次员工业务日计算消费一个闭合快照：
 
-- `legalEntityId`、`employeeId`、`employmentPeriodId`、`businessDate`；
+- `companyId`、`employeeId`、`employmentPeriodId`、`businessDate`；
 - 业务 `ZoneId` 和知识时点 `knowledgeCutoff`；
 - 一个或多个已解析的 `ScheduledWorkSegment`，均以 `[start,end)` instant 表示；
 - W3 attendance-group/shift/calendar/policy snapshot references 与 digest；
@@ -80,7 +80,7 @@ interfaces (future REST / message adapter)
 - 所有 interval 必须 `start < end`；
 - 工作段不得重叠且按 instant、segment ID 稳定排序；
 - evidence/adjustment references 必须唯一；
-- 业务日、员工、法人、期间必须一致；
+- 业务日、员工、公司、期间必须一致；
 - `UNKNOWN` provider 状态 fail closed。
 
 canonical digest 使用明确字段顺序、UTC instant、UTF-8、枚举名称、半开区间和稳定 ID 排序；禁止依赖 Java 对象 hash、Map 迭代顺序、数据库默认排序或本地时区。
@@ -205,7 +205,7 @@ RESOLVED -> REOPENED -> RESOLVED
 - `EARLY_RETURN_CANDIDATE`
 - `INPUT_INTEGRITY_ERROR`
 
-重算以稳定 fingerprint（法人、员工、业务日、segment/slice、type、关键 evidence refs）关联前后版本：
+重算以稳定 fingerprint（公司、员工、业务日、segment/slice、type、关键 evidence refs）关联前后版本：
 
 - 问题仍存在：沿用 case，追加 observation；
 - 问题消失：追加 `RESOLVED_BY_RECALCULATION`；
@@ -218,7 +218,7 @@ RESOLVED -> REOPENED -> RESOLVED
 
 `RecalculationBatch` 接收：
 
-- legal entity 与 period identity/version token；
+- company 与 period identity/version token；
 - 去重且稳定排序的 `(employeeId,businessDate)` targets；
 - upstream intent IDs / trigger references；
 - reason、actor、request/correlation/idempotency；
@@ -279,7 +279,7 @@ UNKNOWN (只读失败态，禁止 mutation)
 
 close 在同一事务中锁 period，重验 precheck token，然后生成 immutable `AttendanceCloseSnapshot`，保存：
 
-- legal entity、period range、scope/version；
+- company、period range、scope/version；
 - organization/employment/configuration/evidence/adjustment/result snapshot references 与 digests；
 - 每个 employee/date 的 calculation version set digest；
 - counts/control totals；
@@ -323,7 +323,7 @@ reopen 需要独立 capability、原因、strong If-Match/idempotency 和主管�
 当前创建 provider-neutral ports：
 
 1. `AttendanceEvidenceSnapshotPort`
-   - 输入：法人、员工、业务日、知识时点、expected provider token；
+   - 输入：公司、员工、业务日、知识时点、expected provider token；
    - 输出：不可变 evidence snapshot ref/digest、point events、interval slices、reversal/conflict metadata；
    - 待 W4 FINAL 决定真实表/DTO/分页与知识时点读取。
 2. `AttendanceConfigurationSnapshotPort`
@@ -393,7 +393,7 @@ reopen 需要独立 capability、原因、strong If-Match/idempotency 和主管�
 - `ATTENDANCE_PERIOD:REOPEN`
 - `ATTENDANCE_CLOSE_SNAPSHOT:READ`
 
-每个动作同时执行 legal entity + location/attendance-group/organization scope、字段策略、对象状态和期间 token。SYSTEM_ADMIN 不自动继承考勤详情或调整/月结能力；AUDITOR 默认只读；reopen 与 close 分权。
+每个动作同时执行 company + location/attendance-group/organization scope、字段策略、对象状态和期间 token。SYSTEM_ADMIN 不自动继承考勤详情或调整/月结能力；AUDITOR 默认只读；reopen 与 close 分权。
 
 解释链根据 raw-row/file/location capability 分层返回；没有 raw 权限仍可看到允许的理由码和 digest，但看不到原始行、文件、精确位置或不必要假因。调整、重算、close/reopen、快照读取/导出均审计，且日志/审计不保存完整敏感 payload。
 

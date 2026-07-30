@@ -93,7 +93,7 @@ export async function downloadPunchTemplate(): Promise<void> {
 
 export function uploadPunchImport(
   file: File,
-  legalEntityId: string,
+  companyId: string,
   sourceId: string,
   reason: string,
 ): Promise<PunchImportBatchView> {
@@ -102,7 +102,7 @@ export function uploadPunchImport(
     const uploaded: PunchImportBatchView = {
       ...demoPunchImports[0]!,
       batchId: `ATT-XLS-UPLOAD-${String(demoUploadSequence).padStart(3, '0')}`,
-      legalEntityId,
+      companyId,
       sourceId,
       originalFilename: file.name,
       fileSha256: 'c'.repeat(64),
@@ -127,7 +127,7 @@ export function uploadPunchImport(
   form.append('file', file);
   form.append(
     'metadata',
-    new Blob([JSON.stringify({ legalEntityId, sourceId })], {
+    new Blob([JSON.stringify({ companyId, sourceId })], {
       type: 'application/json',
     }),
   );

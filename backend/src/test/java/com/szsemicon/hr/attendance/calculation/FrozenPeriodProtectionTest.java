@@ -94,7 +94,7 @@ class FrozenPeriodProtectionTest {
         return new PeriodStateSnapshot(
                 new PeriodIdentity(
                         "synthetic-period",
-                        "synthetic-legal-entity",
+                        "synthetic-company",
                         LocalDate.parse("2026-07-01"),
                         LocalDate.parse("2026-08-01")),
                 version,

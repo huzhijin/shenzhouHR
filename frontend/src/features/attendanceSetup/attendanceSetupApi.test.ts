@@ -126,7 +126,7 @@ describe('attendance setup API boundary', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       scopedVersionId: 'version/2',
       templateId: 'template/3',
-      legalEntityId: 'legal-entity/4',
+      companyId: 'company/4',
       policyKind: 'LATE_GRACE',
     }));
     vi.stubGlobal('fetch', fetchMock);
@@ -286,7 +286,7 @@ describe('attendance setup API boundary', () => {
   it('sends idempotency and strong optimistic-concurrency headers to real routes', async () => {
     const created = {
       groupId: 'group-1',
-      legalEntityId: 'legal-entity-1',
+      companyId: 'company-1',
       code: 'FAB-A',
       groupRevisionId: 'group-revision-1',
       revisionNumber: 1,
@@ -305,7 +305,7 @@ describe('attendance setup API boundary', () => {
     };
     const calendar: WorkCalendarView = {
       calendarId: 'calendar-1',
-      legalEntityId: 'legal-entity-1',
+      companyId: 'company-1',
       locationId: 'location-1',
       code: 'CN-SZ-2026',
       calendarVersionId: 'calendar-version-1',
@@ -327,7 +327,7 @@ describe('attendance setup API boundary', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await createAttendanceGroup({
-      legalEntityId: created.legalEntityId,
+      companyId: created.companyId,
       code: created.code,
       name: created.name,
       locationId: created.locationId,
@@ -349,7 +349,7 @@ describe('attendance setup API boundary', () => {
       .toBe(`UTF-8''${encodeURIComponent('建立考勤组')}`);
     expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string))
       .toEqual({
-        legalEntityId: 'legal-entity-1',
+        companyId: 'company-1',
         code: 'FAB-A',
         name: '晶圆厂 A 班',
         locationId: 'location-1',
@@ -430,7 +430,7 @@ describe('attendance setup API boundary', () => {
     const binding = requiredDemoItem(demoBindings);
     const policyVersion = requiredDemoItem(demoPolicyVersions);
     const locationInput: LocationInput = {
-      legalEntityId: location.legalEntityId,
+      companyId: location.companyId,
       code: location.code,
       name: location.name,
       timeZone: location.timeZone,
@@ -439,7 +439,7 @@ describe('attendance setup API boundary', () => {
       reason: '演示地点变更',
     };
     const groupInput: AttendanceGroupInput = {
-      legalEntityId: group.legalEntityId,
+      companyId: group.companyId,
       code: group.code,
       name: group.name,
       locationId: group.locationId,
@@ -450,7 +450,7 @@ describe('attendance setup API boundary', () => {
       reason: '演示考勤组变更',
     };
     const shiftInput: ShiftTemplateInput = {
-      legalEntityId: shift.legalEntityId,
+      companyId: shift.companyId,
       locationId: shift.locationId,
       code: shift.code,
       name: shift.name,
@@ -463,7 +463,7 @@ describe('attendance setup API boundary', () => {
       reason: '演示班次版本变更',
     };
     const calendarInput: WorkCalendarInput = {
-      legalEntityId: calendar.legalEntityId,
+      companyId: calendar.companyId,
       locationId: calendar.locationId,
       code: calendar.code,
       name: calendar.name,
@@ -597,18 +597,18 @@ describe('attendance setup API boundary', () => {
       updatePolicyBinding: () => attendanceApi.updatePolicyBinding(binding, bindingInput),
       listAttendancePolicyVersions: () => attendanceApi.listAttendancePolicyVersions(
         policyVersion.templateId,
-        policyVersion.legalEntityId,
+        policyVersion.companyId,
       ),
       getAttendancePolicyVersion: () => attendanceApi.getAttendancePolicyVersion(
         policyVersion.templateId,
-        policyVersion.legalEntityId,
+        policyVersion.companyId,
         policyVersion.scopedVersionId,
       ),
       getAttendancePolicyVersionContext: () => attendanceApi
         .getAttendancePolicyVersionContext(policyVersion.scopedVersionId),
       createAttendancePolicyDraft: () => attendanceApi.createAttendancePolicyDraft(
         policyVersion.templateId,
-        policyVersion.legalEntityId,
+        policyVersion.companyId,
         {
         basedOnVersionId: policyVersion.scopedVersionId,
         effectiveFrom: '2026-09-01',

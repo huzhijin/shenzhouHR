@@ -49,8 +49,8 @@ public class MyBatisAttendanceConfigurationResolver
     @Override
     @Transactional(readOnly = true)
     public Resolution resolve(
-            String legalEntityId, String employeeId, Instant instant) {
-        requireIdentifier(legalEntityId, "legalEntityId");
+            String companyId, String employeeId, Instant instant) {
+        requireIdentifier(companyId, "companyId");
         requireIdentifier(employeeId, "employeeId");
         Objects.requireNonNull(instant, "instant");
 
@@ -64,7 +64,7 @@ public class MyBatisAttendanceConfigurationResolver
             LocalDate businessDate = utcDate.plusDays(offset);
             List<AttendanceConfigurationAuthorityRow> rows =
                     mapper.resolveForBusinessDate(
-                            legalEntityId,
+                            companyId,
                             employeeId,
                             businessDate,
                             knowledgeAsOf);
@@ -83,8 +83,8 @@ public class MyBatisAttendanceConfigurationResolver
                     new ArrayList<>();
             for (AttendanceConfigurationAuthorityRow row : entry.getValue()) {
                 if (!validStoredRow(
-                        row, legalEntityId, employeeId, entry.getKey())) {
-                    return unavailable(legalEntityId, employeeId, instant);
+                        row, companyId, employeeId, entry.getKey())) {
+                    return unavailable(companyId, employeeId, instant);
                 }
                 Set<LocalDate> dates = applicableDates(row, instant);
                 if (dates.contains(entry.getKey())) {
@@ -93,7 +93,7 @@ public class MyBatisAttendanceConfigurationResolver
                 }
             }
             if (applicable.size() > 1) {
-                return unavailable(legalEntityId, employeeId, instant);
+                return unavailable(companyId, employeeId, instant);
             }
             if (applicable.size() == 1) {
                 relevant.put(entry.getKey(), applicable.getFirst());
@@ -101,13 +101,13 @@ public class MyBatisAttendanceConfigurationResolver
         }
 
         if (interpretations.size() != 1) {
-            return unavailable(legalEntityId, employeeId, instant);
+            return unavailable(companyId, employeeId, instant);
         }
         Set<LocalDate> candidateDates = interpretations.iterator().next();
         if (!relevant.keySet().containsAll(candidateDates)
                 || candidateDates.size() < 1
                 || candidateDates.size() > 2) {
-            return unavailable(legalEntityId, employeeId, instant);
+            return unavailable(companyId, employeeId, instant);
         }
         List<AttendanceConfigurationAuthorityRow> candidates = candidateDates
                 .stream()
@@ -117,7 +117,7 @@ public class MyBatisAttendanceConfigurationResolver
         if (candidates.stream()
                 .anyMatch(row -> !applicableDates(row, instant)
                         .equals(candidateDates))) {
-            return unavailable(legalEntityId, employeeId, instant);
+            return unavailable(companyId, employeeId, instant);
         }
 
         AttendanceConfigurationAuthorityRow primary = candidates.stream()
@@ -125,7 +125,7 @@ public class MyBatisAttendanceConfigurationResolver
                         AttendanceConfigurationAuthorityRow::businessDate))
                 .orElseThrow();
         if (candidates.stream().anyMatch(row -> !compatible(primary, row))) {
-            return unavailable(legalEntityId, employeeId, instant);
+            return unavailable(companyId, employeeId, instant);
         }
 
         ZoneId zone = ZoneId.of(primary.locationTimeZone());
@@ -133,10 +133,10 @@ public class MyBatisAttendanceConfigurationResolver
         AttendanceConfigurationAuthorityRow punchDateRow =
                 relevant.get(punchDate);
         if (punchDateRow == null) {
-            return unavailable(legalEntityId, employeeId, instant);
+            return unavailable(companyId, employeeId, instant);
         }
         String digest = digest(
-                legalEntityId,
+                companyId,
                 employeeId,
                 zone,
                 candidateDates,
@@ -166,7 +166,7 @@ public class MyBatisAttendanceConfigurationResolver
     private static boolean compatible(
             AttendanceConfigurationAuthorityRow left,
             AttendanceConfigurationAuthorityRow right) {
-        return Objects.equals(left.legalEntityId(), right.legalEntityId())
+        return Objects.equals(left.companyId(), right.companyId())
                 && Objects.equals(left.employeeId(), right.employeeId())
                 && Objects.equals(
                         left.employeeVersionId(), right.employeeVersionId())
@@ -224,12 +224,12 @@ public class MyBatisAttendanceConfigurationResolver
 
     private static boolean validStoredRow(
             AttendanceConfigurationAuthorityRow row,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate) {
         if (row == null
                 || !businessDate.equals(row.businessDate())
-                || !legalEntityId.equals(row.legalEntityId())
+                || !companyId.equals(row.companyId())
                 || !employeeId.equals(row.employeeId())
                 || row.employeeVersion() < 0
                 || row.employmentVersion() < 0) {
@@ -274,14 +274,14 @@ public class MyBatisAttendanceConfigurationResolver
     }
 
     private static String digest(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             ZoneId zone,
             Set<LocalDate> dates,
             List<AttendanceConfigurationAuthorityRow> rows) {
         List<String> fields = new ArrayList<>();
         fields.add("ATTENDANCE_CONFIGURATION_AUTHORITY_V1");
-        fields.add(legalEntityId);
+        fields.add(companyId);
         fields.add(employeeId);
         fields.add(zone.getId());
         dates.stream().sorted().forEach(date -> fields.add(date.toString()));
@@ -319,7 +319,7 @@ public class MyBatisAttendanceConfigurationResolver
     }
 
     private static Resolution unavailable(
-            String legalEntityId, String employeeId, Instant instant) {
+            String companyId, String employeeId, Instant instant) {
         return new Resolution(
                 null,
                 null,
@@ -328,7 +328,7 @@ public class MyBatisAttendanceConfigurationResolver
                 Set.of(),
                 StableAuthorityDigest.sha256(
                         "ATTENDANCE_CONFIGURATION_UNAVAILABLE_V1",
-                        legalEntityId,
+                        companyId,
                         employeeId,
                         instant.toString()),
                 false);

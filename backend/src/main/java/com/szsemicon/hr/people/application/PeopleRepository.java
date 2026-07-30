@@ -18,8 +18,8 @@ import java.util.Optional;
 
 public interface PeopleRepository {
 
-    boolean canAccessLegalEntity(
-            String principalId, String capability, String legalEntityId, Instant at);
+    boolean canAccessCompany(
+            String principalId, String capability, String companyId, Instant at);
 
     boolean canAccessOrganization(
             String principalId, String capability, String organizationId, Instant at);
@@ -27,9 +27,9 @@ public interface PeopleRepository {
     boolean canAccessEmployee(
             String principalId, String capability, String employeeId, LocalDate asOf, Instant at);
 
-    boolean legalEntityExists(String legalEntityId);
+    boolean companyExists(String companyId);
 
-    void lockLegalEntity(String legalEntityId);
+    void lockCompany(String companyId);
 
     Optional<IdempotencyRecord> findIdempotency(
             String actorId, String actionCode, String idempotencyKey);
@@ -72,7 +72,7 @@ public interface PeopleRepository {
     Optional<Publication> findPublicationById(String publicationId);
 
     Optional<Publication> findPublicationByFileHash(
-            String legalEntityId,
+            String companyId,
             String templateType,
             String templateVersion,
             String fileSha256);
@@ -98,18 +98,18 @@ public interface PeopleRepository {
 
     Optional<OrganizationVersion> findOrganizationAsOf(String organizationId, LocalDate asOf);
 
-    Optional<OrganizationVersion> findOrganizationByCode(String legalEntityId, String code);
+    Optional<OrganizationVersion> findOrganizationByCode(String companyId, String code);
 
     List<OrganizationVersion> listOrganizationVersions(String organizationId, int limit, int offset);
 
     long countOrganizationVersions(String organizationId);
 
-    boolean organizationCodeExists(String legalEntityId, String code, String excludeOrganizationId);
+    boolean organizationCodeExists(String companyId, String code, String excludeOrganizationId);
 
     boolean organizationWouldCycle(String organizationId, String parentOrganizationId);
 
     String createOrganizationIdentity(
-            String organizationId, String legalEntityId, String status, Instant at);
+            String organizationId, String companyId, String status, Instant at);
 
     void saveOrganizationVersion(OrganizationVersion version, String projectionBatchId);
 
@@ -126,18 +126,18 @@ public interface PeopleRepository {
 
     Optional<EmployeeVersion> findEmployeeAsOf(String employeeId, LocalDate asOf);
 
-    Optional<EmployeeVersion> findEmployeeByNumber(String legalEntityId, String employeeNumber);
+    Optional<EmployeeVersion> findEmployeeByNumber(String companyId, String employeeNumber);
 
-    List<EmployeeVersion> findEmployeesByExternalId(String legalEntityId, String externalEmployeeId);
+    List<EmployeeVersion> findEmployeesByExternalId(String companyId, String externalEmployeeId);
 
     List<EmployeeVersion> listEmployeeVersions(String employeeId, int limit, int offset);
 
     long countEmployeeVersions(String employeeId);
 
-    boolean employeeNumberExists(String legalEntityId, String employeeNumber, String excludeEmployeeId);
+    boolean employeeNumberExists(String companyId, String employeeNumber, String excludeEmployeeId);
 
     void createEmployeeIdentity(
-            String employeeId, String legalEntityId, String employeeNumber, String displayName,
+            String employeeId, String companyId, String employeeNumber, String displayName,
             String status, LocalDate onboardDate, Instant at);
 
     void updateEmployeeIdentity(

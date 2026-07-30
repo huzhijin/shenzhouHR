@@ -5,7 +5,7 @@
 <mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.ShiftMapper">
 
     <sql id="templateColumns">
-        scoped.shift_template_id, scoped.legal_entity_id, scoped.location_id,
+        scoped.shift_template_id, scoped.company_id, scoped.location_id,
         scoped.template_code,
         COALESCE(
             (
@@ -371,8 +371,8 @@
          AND capability.capability_code = #{capability}
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
-         AND data_scope.scope_type = 'LEGAL_ENTITY'
-         AND data_scope.legal_entity_id = scoped.legal_entity_id
+         AND data_scope.scope_type = 'COMPANY'
+         AND data_scope.company_id = scoped.company_id
         WHERE role_assignment.valid_from &lt;= #{at}
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
@@ -393,8 +393,8 @@
          AND capability.capability_code = #{capability}
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
-         AND data_scope.scope_type = 'LEGAL_ENTITY'
-         AND data_scope.legal_entity_id = scoped.legal_entity_id
+         AND data_scope.scope_type = 'COMPANY'
+         AND data_scope.company_id = scoped.company_id
         WHERE role_assignment.valid_from &lt;= #{at}
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
@@ -403,10 +403,10 @@
 
     <insert id="insertTemplate">
         INSERT INTO shift_template (
-            shift_template_id, legal_entity_id, location_id, template_code,
+            shift_template_id, company_id, location_id, template_code,
             created_by, created_at
         ) VALUES (
-            #{row.shiftTemplateId}, #{row.legalEntityId}, #{row.locationId},
+            #{row.shiftTemplateId}, #{row.companyId}, #{row.locationId},
             #{row.templateCode}, #{row.createdBy}, #{row.createdAt}
         )
     </insert>

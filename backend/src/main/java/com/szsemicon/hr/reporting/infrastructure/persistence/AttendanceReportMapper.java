@@ -9,7 +9,7 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 interface AttendanceReportMapper {
 
-    List<ReportRows.LegalEntityRow> listAuthorizedLegalEntities(
+    List<ReportRows.CompanyRow> listAuthorizedCompanies(
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,
             @Param("periodStart") LocalDate periodStart,
@@ -21,14 +21,14 @@ interface AttendanceReportMapper {
             @Param("capabilityCode") String capabilityCode,
             @Param("periodStart") LocalDate periodStart,
             @Param("periodEndExclusive") LocalDate periodEndExclusive,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("authorizationTime") Instant authorizationTime);
 
     List<ReportRows.ScopeRow> listAuthorizedScopes(
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,
             @Param("projectionId") String projectionId,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("authorizationTime") Instant authorizationTime);
 
     List<ReportRows.DailyRow> listAuthorizedDailyFacts(
@@ -37,7 +37,7 @@ interface AttendanceReportMapper {
             @Param("projectionId") String projectionId,
             @Param("periodStart") LocalDate periodStart,
             @Param("periodEndExclusive") LocalDate periodEndExclusive,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("organizationId") String organizationId,
             @Param("employeeId") String employeeId,
             @Param("authorizationTime") Instant authorizationTime);
@@ -48,7 +48,7 @@ interface AttendanceReportMapper {
             @Param("projectionId") String projectionId,
             @Param("periodStartAt") Instant periodStartAt,
             @Param("periodEndExclusiveAt") Instant periodEndExclusiveAt,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("organizationId") String organizationId,
             @Param("employeeId") String employeeId,
             @Param("authorizationTime") Instant authorizationTime);
@@ -59,7 +59,7 @@ interface AttendanceReportMapper {
             @Param("projectionId") String projectionId,
             @Param("periodStart") LocalDate periodStart,
             @Param("periodEndExclusive") LocalDate periodEndExclusive,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("organizationId") String organizationId,
             @Param("employeeId") String employeeId,
             @Param("status") String status,
@@ -69,7 +69,7 @@ interface AttendanceReportMapper {
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,
             @Param("projectionId") String projectionId,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("organizationId") String organizationId,
             @Param("employeeId") String employeeId,
             @Param("authorizationTime") Instant authorizationTime);

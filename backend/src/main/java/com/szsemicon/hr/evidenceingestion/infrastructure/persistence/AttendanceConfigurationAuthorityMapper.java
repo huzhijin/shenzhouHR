@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Param;
 interface AttendanceConfigurationAuthorityMapper {
 
     List<AttendanceConfigurationAuthorityRow> resolveForBusinessDate(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeId") String employeeId,
             @Param("businessDate") LocalDate businessDate,
             @Param("knowledgeAsOf") Instant knowledgeAsOf);

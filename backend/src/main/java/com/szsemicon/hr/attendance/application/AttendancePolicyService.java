@@ -232,7 +232,7 @@ public class AttendancePolicyService {
         Instant now = clock.instant();
         PolicyBinding created = new PolicyBinding(
                 UUID.randomUUID().toString(), UUID.randomUUID().toString(),
-                1, group.legalEntityId(), command.policyKind(),
+                1, group.companyId(), command.policyKind(),
                 command.policyVersionId(), group.groupId(),
                 group.groupRevisionId(),
                 command.effectiveFrom(), command.effectiveTo(),
@@ -287,7 +287,7 @@ public class AttendancePolicyService {
         Instant now = clock.instant();
         PolicyBinding replacement = new PolicyBinding(
                 current.bindingId(), UUID.randomUUID().toString(),
-                current.revisionNumber() + 1, current.legalEntityId(),
+                current.revisionNumber() + 1, current.companyId(),
                 command.policyKind(), command.policyVersionId(), command.groupId(),
                 command.groupRevisionId(),
                 command.effectiveFrom(), command.effectiveTo(),
@@ -325,7 +325,7 @@ public class AttendancePolicyService {
     private void requirePublishedSourceThrough(
             PolicyBinding current, LocalDate successorEffectiveFrom) {
         if (!repository.publishedVersionMatchesKind(
-                current.legalEntityId(),
+                current.companyId(),
                 current.policyVersionId(),
                 current.policyKind(),
                 current.effectiveFrom(),
@@ -860,9 +860,9 @@ public class AttendancePolicyService {
     private AttendanceGroup requireGroup(String groupId, String capability) {
         AttendanceGroup group = groupRepository.findGroup(groupId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        if (!peopleRepository.canAccessLegalEntity(
+        if (!peopleRepository.canAccessCompany(
                 principalProvider.currentPrincipalId(), capability,
-                group.legalEntityId(), clock.instant())) {
+                group.companyId(), clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         return group;
@@ -883,7 +883,7 @@ public class AttendancePolicyService {
         }
         AttendanceGroup revision = revisions.getFirst();
         if (!revision.groupRevisionId().equals(command.groupRevisionId())
-                || !revision.legalEntityId().equals(identity.legalEntityId())) {
+                || !revision.companyId().equals(identity.companyId())) {
             throw AttendanceSetupRules.conflict(
                     "GROUP_REVISION_MISMATCH",
                     "策略绑定必须显式引用生效日解析出的考勤组 revision");
@@ -900,9 +900,9 @@ public class AttendancePolicyService {
 
     private boolean accessible(String groupId, String capability) {
         return groupRepository.findGroup(groupId)
-                .map(group -> peopleRepository.canAccessLegalEntity(
+                .map(group -> peopleRepository.canAccessCompany(
                         principalProvider.currentPrincipalId(), capability,
-                        group.legalEntityId(), clock.instant()))
+                        group.companyId(), clock.instant()))
                 .orElse(false);
     }
 
@@ -931,7 +931,7 @@ public class AttendancePolicyService {
     private String requirePublishedVersion(
             AttendanceGroup group, BindingCommand command) {
         if (!repository.publishedVersionMatchesKind(
-                group.legalEntityId(), command.policyVersionId(),
+                group.companyId(), command.policyVersionId(),
                 command.policyKind(), command.effectiveFrom(),
                 command.effectiveTo())) {
             throw new ResourceNotAvailableAccessDeniedException();

@@ -10,7 +10,7 @@ public final class AttendanceSourceSyncModels {
     public record SourceJobStart(
             String jobId,
             String sourceId,
-            String legalEntityId,
+            String companyId,
             String sourceDisplayName,
             String secretReferenceName,
             String sourceTimeZone,
@@ -38,7 +38,7 @@ public final class AttendanceSourceSyncModels {
     public record PageState(
             String jobId,
             String sourceId,
-            String legalEntityId,
+            String companyId,
             String jobStatus,
             int committedPages,
             String committedCursor,

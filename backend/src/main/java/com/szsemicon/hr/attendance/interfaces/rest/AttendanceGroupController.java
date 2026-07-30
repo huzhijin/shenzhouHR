@@ -63,14 +63,14 @@ public class AttendanceGroupController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason) {
         var command = new LocationCommand(
-                request.legalEntityId(), request.code(), request.name(),
+                request.companyId(), request.code(), request.name(),
                 request.timeZone(), request.effectiveFrom(),
                 request.effectiveTo(),
                 reason(changeReason, request.reason()));
         var result = mutations.execute(
                 "CREATE_LOCATION",
                 "ATTENDANCE_LOCATION",
-                request.legalEntityId(),
+                request.companyId(),
                 idempotencyKey,
                 command,
                 null,
@@ -108,7 +108,7 @@ public class AttendanceGroupController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason) {
         var command = new LocationCommand(
-                request.legalEntityId(), request.code(), request.name(),
+                request.companyId(), request.code(), request.name(),
                 request.timeZone(), request.effectiveFrom(),
                 request.effectiveTo(),
                 reason(changeReason, request.reason()));
@@ -176,7 +176,7 @@ public class AttendanceGroupController {
         var result = mutations.execute(
                 "CREATE_GROUP",
                 "ATTENDANCE_GROUP",
-                request.legalEntityId(),
+                request.companyId(),
                 idempotencyKey,
                 command,
                 null,
@@ -314,7 +314,7 @@ public class AttendanceGroupController {
 
     private GroupCommand groupCommand(GroupRequest request, String reason) {
         return new GroupCommand(
-                request.legalEntityId(), request.code(), request.name(),
+                request.companyId(), request.code(), request.name(),
                 request.locationId(), request.calendarId(),
                 request.shiftTemplateId(), request.effectiveFrom(),
                 request.effectiveTo(), reason);

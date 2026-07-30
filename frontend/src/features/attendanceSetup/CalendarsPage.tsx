@@ -769,7 +769,7 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
         intent={calendarDialogIntent}
         calendarYear={year}
         initialValues={editingCalendar ? {
-          legalEntityId: editingCalendar.legalEntityId,
+          companyId: editingCalendar.companyId,
           locationId: editingCalendar.locationId,
           code: editingCalendar.code,
           name: editingCalendar.name,

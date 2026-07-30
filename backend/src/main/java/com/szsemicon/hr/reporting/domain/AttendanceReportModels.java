@@ -31,7 +31,7 @@ public final class AttendanceReportModels {
     }
 
     public enum ScopeType {
-        LEGAL_ENTITY,
+        COMPANY,
         ORGANIZATION,
         SELF
     }
@@ -154,15 +154,15 @@ public final class AttendanceReportModels {
 
     public record ReportFilter(
             YearMonth period,
-            String legalEntityId,
+            String companyId,
             String organizationId,
             String employeeId,
             String status) {
 
         public ReportFilter {
             Objects.requireNonNull(period, "period");
-            legalEntityId = optionalFilterReference(
-                    legalEntityId, "legalEntityId", 36);
+            companyId = optionalFilterReference(
+                    companyId, "companyId", 36);
             organizationId = optionalFilterReference(
                     organizationId, "organizationId", 36);
             employeeId = optionalFilterReference(
@@ -183,7 +183,7 @@ public final class AttendanceReportModels {
 
     public record DailyFact(
             String factId,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             String employeeNumber,
             String employeeName,
@@ -210,7 +210,7 @@ public final class AttendanceReportModels {
 
         public DailyFact {
             factId = requireText(factId, "factId");
-            legalEntityId = requireText(legalEntityId, "legalEntityId");
+            companyId = requireText(companyId, "companyId");
             employeeId = requireText(employeeId, "employeeId");
             employeeNumber = requireText(employeeNumber, "employeeNumber");
             employeeName = requireText(employeeName, "employeeName");

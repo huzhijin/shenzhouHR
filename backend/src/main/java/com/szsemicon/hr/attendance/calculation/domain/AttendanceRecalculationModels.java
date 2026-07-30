@@ -48,24 +48,24 @@ public final class AttendanceRecalculationModels {
     }
 
     public record RecalculationTarget(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             LocalDate businessDate) {
 
         public RecalculationTarget {
-            legalEntityId = requireText(legalEntityId, "legalEntityId");
+            companyId = requireText(companyId, "companyId");
             employeeId = requireText(employeeId, "employeeId");
             Objects.requireNonNull(businessDate, "businessDate");
         }
 
         public String stableKey() {
-            return legalEntityId + "|" + employeeId + "|" + businessDate;
+            return companyId + "|" + employeeId + "|" + businessDate;
         }
     }
 
     public record RecalculationBatchRequest(
             String batchId,
-            String legalEntityId,
+            String companyId,
             String periodId,
             long periodVersion,
             String periodToken,
@@ -79,7 +79,7 @@ public final class AttendanceRecalculationModels {
 
         public RecalculationBatchRequest {
             batchId = requireText(batchId, "batchId");
-            legalEntityId = requireText(legalEntityId, "legalEntityId");
+            companyId = requireText(companyId, "companyId");
             periodId = requireText(periodId, "periodId");
             if (periodVersion < 0) {
                 throw new IllegalArgumentException(
@@ -96,9 +96,9 @@ public final class AttendanceRecalculationModels {
                         "recalculation targets must not be empty");
             }
             for (RecalculationTarget target : targets) {
-                if (!legalEntityId.equals(target.legalEntityId())) {
+                if (!companyId.equals(target.companyId())) {
                     throw new IllegalArgumentException(
-                            "targets must belong to the request legal entity");
+                            "targets must belong to the request company");
                 }
             }
             triggerReferences = Objects.requireNonNull(

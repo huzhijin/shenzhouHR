@@ -20,14 +20,14 @@
               AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
               AND data_scope.valid_from &lt;= #{at}
               AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
-              AND data_scope.scope_type = 'LEGAL_ENTITY'
-              AND data_scope.legal_entity_id = batch.legal_entity_id
+              AND data_scope.scope_type = 'COMPANY'
+              AND data_scope.company_id = batch.company_id
         )
     </sql>
 
     <sql id="batchColumns">
         batch.punch_import_batch_id AS batch_id,
-        batch.legal_entity_id,
+        batch.company_id,
         batch.attendance_source_id AS source_id,
         file.original_filename,
         file.content_sha256 AS file_sha256,

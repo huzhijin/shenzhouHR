@@ -181,7 +181,7 @@ Flyway 运行规则：
 |---|---|
 | 主键 | 延续 `VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin` 精确标识；API 一律按 string 传输 |
 | 外部标识 | 致远 19 位及以上 ID、设备原始 ID、第三方业务键使用 `VARCHAR`/精确类型和二进制或大小写明确的排序规则，禁止映射为 JavaScript number |
-| 唯一与幂等 | 按租户/法人、来源、业务键、幂等键、文件哈希和稳定指纹建立命名唯一索引 |
+| 唯一与幂等 | 按公司、来源、业务键、幂等键、文件哈希和稳定指纹建立命名唯一索引 |
 | 完整性 | 可建立外键时使用外键；跨边界无法使用外键时必须有事务校验、不可变引用和完整性巡检 |
 | 状态 | 使用受控枚举/字典和服务端状态机；不能依赖任意文本 |
 | 生效期 | 统一 `effective_from` / `effective_to` 或业务日期半开区间，并检查结束晚于开始 |
@@ -192,18 +192,22 @@ Flyway 运行规则：
 
 ## 9. 各波次表与迁移映射
 
-版本号是当前逻辑序列；每波授权时必须与已经发布的最高版本核对，只能顺延，不能占用或改写已发布版本。
+实际迁移注册表是版本号的唯一权威；每波授权时必须与
+`backend/src/main/resources/db/migration` 已发布的最高版本核对，只能顺延，
+不能占用或改写已发布版本。下表已按当前 V1～V11 注册表重排；更早确认材料
+中的逻辑版本号只作历史规划，不覆盖实际注册表。
 
 | 波次 | 逻辑迁移 | 主要新增/演进表 | 必须验证的约束与索引 |
 |---|---|---|---|
 | WAVE-1 | V3 identity/session；V4 policy foundation | `local_account`、`password_credential`、`login_failure_window`、`password_reset_grant`、`user_session`、`session_revocation`；复用/演进 `auth_principal`、`auth_role`、`auth_capability`、`auth_data_scope`、`auth_principal_role_assignment`、`audit_event`；新增 `policy_template`、`policy_version`、`policy_scope_binding`、`policy_publication_record`、`policy_rollback_record` | 用户名唯一、凭据只存哈希、reset/session token 只存摘要、失败窗口/锁定索引、session 到期/撤销索引、策略版本唯一、作用范围+生效期冲突、发布/停用/回滚不可变审计 |
 | WAVE-2 | V5 people/import | `people_import_batch`、`people_import_file`、`people_import_row`、`people_import_issue`、`people_import_diff`、`people_import_publication`、`position`、`employment_period`、`prior_service_record`；复用并版本化 `organization_*`、`employee`、`employment_assignment` | 文件哈希和发布幂等唯一、原始行可追溯、员工工号/外部 ID 精确保真、任职周期不重叠、二次入职不覆盖、组织/岗位/员工有效期和审计索引 |
-| WAVE-3 | V6 attendance setup | `attendance_group`、`attendance_group_assignment`、`location`、`work_calendar`、`work_calendar_day`、`shift_template`、`shift_version`、`attendance_policy_binding`；复用 V4 policy 表承载晚餐扣除、宽限和单边缺卡策略 | 人员组适用期不冲突、班次版本无空档/重叠、日历日期唯一、地点状态受控、范围+优先级+生效期解析确定、12 月 31 日和跨日班次索引 |
-| WAVE-4 | V7 source/evidence；V8 punch Excel | `attendance_source`、`attendance_sync_job`、`attendance_sync_watermark`、`source_device`、`device_person_binding`、`raw_attendance_fact`、`normalized_attendance_record`、`employee_match_decision`、`effective_attendance_event`、`evidence_link`、`oa_attendance_document`、`source_reversal_record`；`punch_mapping_profile`、`punch_import_batch`、`punch_import_file`、`punch_import_row`、`punch_import_issue`、`duplicate_review_group` | 来源业务键/水位唯一、文件哈希、原始 ID/稳定指纹和跨来源去重索引、设备绑定有效期、员工任职时点匹配、raw append-only、撤销/冲正引用、近似重复裁决前无 active event |
-| WAVE-5 | V9 calculation；V10 period close | `scheduled_work_segment`、`attendance_calculation_version`、`daily_attendance_result`、`attendance_rule_hit`、`attendance_result_item`、`attendance_exception`、`attendance_adjustment`、`recalculation_batch`；`attendance_period`、`attendance_period_transition`、`attendance_close_snapshot`、`attendance_result_difference` | 员工+业务日+计算版本唯一、工作段与证据完整引用、人工调整版本/权限审计、重算幂等、月结期间状态机、冻结快照不可变、反月结生成新版本和差异 |
-| WAVE-6 | V11 leave/time account | `leave_policy`、`leave_policy_version`、`annual_leave_qualification`、`annual_leave_tier`、`annual_leave_grant`、`time_account`、`time_account_ledger_entry`、`time_account_opening_batch`、`time_account_opening_row`、`time_account_expiry_record` | 假别版本/生效期唯一、资格与档位分离、周年 grant 幂等、有效期半开区间、余额只由流水重算、期初批次幂等、到期/冲正引用、冻结版本审计 |
-| WAVE-7 | V12 self-service/reporting | `employee_feedback`、`employee_feedback_progress`、`report_query_projection`、`export_job`、`export_access_audit`、`dashboard_authorized_aggregate`；员工自助读取版本化领域事实，不复制新的权威余额/考勤表 | 本人/scope 授权索引、反馈状态和进度顺序、投影源版本/数据截至时间、导出创建与下载双重授权、水印审计、聚合小样本和敏感字段隔离 |
-| WAVE-8 | V13 payroll reserve，仅单独授权后 | 独立 `PAYROLL` capability/role 记录、`payroll_snapshot_ref`、`payroll_reservation_audit` | 默认拒绝、只引用已关闭考勤快照、普通角色零继承、前端发现性为 0；不建工资条/付款文件链路，不生成银行付款文件 |
+| WAVE-3 | V7 attendance setup | `attendance_group`、`attendance_group_assignment`、`location`、`work_calendar`、`work_calendar_day`、`shift_template`、`shift_version`、`attendance_policy_binding`；考勤专用策略承载晚餐扣除、宽限和单边缺卡规则 | 人员组适用期不冲突、班次版本无空档/重叠、日历日期唯一、地点状态受控、范围+生效期解析确定、12 月 31 日和跨日班次索引 |
+| WAVE-4 | V8 source/evidence；V9 punch Excel | `attendance_source`、`attendance_sync_job`、`attendance_sync_watermark`、`source_device`、`device_person_binding`、`raw_attendance_fact`、`normalized_attendance_record`、`employee_match_decision`、`effective_attendance_event`、`evidence_link`、`oa_attendance_document`、`source_reversal_record`；`punch_mapping_profile`、`punch_import_batch`、`punch_import_file`、`punch_import_row`、`punch_import_issue`、`duplicate_review_group` | 来源业务键/水位唯一、文件哈希、原始 ID/稳定指纹和跨来源去重索引、设备绑定有效期、员工任职时点匹配、raw append-only、撤销/冲正引用、近似重复裁决前无 active event |
+| WAVE-5/7 reporting | V10 formal attendance reporting | 月度不可变报表投影、日/异常/OA/时间账户报表事实和导出存储；不把尚未落库的日计算/月结编排写成已完成迁移 | 投影与事实只追加、公司与月份唯一链、导出授权和内容摘要；自动月结仍按独立接线门禁 |
+| 横向公司边界 | V11 company dimension | `company`、所有当前 `company_id` 外键列和 `COMPANY` scope；稳定 ID 与业务行保持一对一 | V1～V10 文件不变、V10→V11 行数/ID digest 不变、旧 scope 原子迁移、跨公司负例 |
+| WAVE-6 | V12 leave/time account（计划） | `leave_policy`、`leave_policy_version`、`annual_leave_qualification`、`annual_leave_tier`、`annual_leave_grant`、`time_account`、`time_account_ledger_entry`、`time_account_opening_batch`、`time_account_opening_row`、`time_account_expiry_record` | 假别版本/生效期唯一、资格与档位分离、周年 grant 幂等、有效期半开区间、余额只由流水重算、期初批次幂等、到期/冲正引用、冻结版本审计 |
+| WAVE-7 | V13 self-service/reporting（计划） | `employee_feedback`、`employee_feedback_progress`、剩余自助/看板/报表对象；员工自助读取版本化领域事实，不复制新的权威余额/考勤表 | 本人/scope 授权索引、反馈状态和进度顺序、源版本/数据截至时间、聚合小样本和敏感字段隔离 |
+| WAVE-8 PAYROLL | 未分配迁移版本；仅单独授权后 | 独立 `PAYROLL` capability/role 记录、`payroll_snapshot_ref`、`payroll_reservation_audit` | 默认拒绝、只引用已关闭考勤快照、普通角色零继承、前端发现性为 0；不建工资条/付款文件链路，不生成银行付款文件 |
 
 ## 10. 合成数据与四类数据隔离
 

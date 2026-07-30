@@ -22,8 +22,8 @@ final class RoleScopeMatrix {
                     "DEPARTMENT_HEAD",
                     "MANUFACTURING_SUPERVISOR",
                     "MANUFACTURING_CENTER_SUPERVISOR" -> Set.of("ORGANIZATION");
-            case "HR_ADMIN", "SYSTEM_ADMIN", "AUDITOR" -> Set.of("LEGAL_ENTITY");
-            case "EXECUTIVE" -> Set.of("LEGAL_ENTITY", "ORGANIZATION");
+            case "HR_ADMIN", "SYSTEM_ADMIN", "AUDITOR" -> Set.of("COMPANY");
+            case "EXECUTIVE" -> Set.of("COMPANY", "ORGANIZATION");
             default -> Set.of();
         };
     }

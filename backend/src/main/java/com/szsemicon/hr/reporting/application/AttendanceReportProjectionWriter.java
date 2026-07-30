@@ -18,15 +18,15 @@ import java.util.Optional;
  */
 public interface AttendanceReportProjectionWriter {
 
-    boolean lockLegalEntity(String legalEntityId);
+    boolean lockCompany(String companyId);
 
     Optional<StoredProjection> findByDigest(
-            String legalEntityId,
+            String companyId,
             LocalDate periodStart,
             String projectionDigest);
 
     Optional<StoredProjection> findLatestPublished(
-            String legalEntityId, LocalDate periodStart);
+            String companyId, LocalDate periodStart);
 
     void createDraft(ProjectionDraft draft);
 
@@ -42,7 +42,7 @@ public interface AttendanceReportProjectionWriter {
 
     record StoredProjection(
             String projectionId,
-            String legalEntityId,
+            String companyId,
             LocalDate periodStart,
             LocalDate periodEndExclusive,
             PeriodState periodState,
@@ -58,7 +58,7 @@ public interface AttendanceReportProjectionWriter {
 
     record ProjectionDraft(
             String projectionId,
-            String legalEntityId,
+            String companyId,
             LocalDate periodStart,
             LocalDate periodEndExclusive,
             PeriodState periodState,
@@ -84,7 +84,7 @@ public interface AttendanceReportProjectionWriter {
     record ExceptionFactWrite(
             String rowId,
             String projectionId,
-            String legalEntityId,
+            String companyId,
             String employeeVersionId,
             String employmentAssignmentId,
             String organizationVersionId,
@@ -95,7 +95,7 @@ public interface AttendanceReportProjectionWriter {
     record OaDocumentFactWrite(
             String rowId,
             String projectionId,
-            String legalEntityId,
+            String companyId,
             String oaAttendanceDocumentId,
             String employeeId,
             String employeeVersionId,
@@ -117,7 +117,7 @@ public interface AttendanceReportProjectionWriter {
     record TimeAccountFactWrite(
             String rowId,
             String projectionId,
-            String legalEntityId,
+            String companyId,
             String accountId,
             String employeeId,
             String employeeVersionId,

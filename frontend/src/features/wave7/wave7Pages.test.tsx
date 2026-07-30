@@ -343,7 +343,7 @@ describe('Wave 7 formal report route', () => {
       expect(loadReport).toHaveBeenLastCalledWith({
         reportType: 'ATTENDANCE_DETAIL',
         period: '2026-06',
-        legalEntityId: '30000000-0000-0000-0000-000000000001',
+        companyId: '30000000-0000-0000-0000-000000000001',
         page: 0,
         size: 50,
       });
@@ -356,11 +356,11 @@ describe('Wave 7 formal report route', () => {
     renderWithRouter(
       <ReportsRoute
         gateway={gateway({
-          loadReportLegalEntities: async (period) => ({
+          loadReportCompanies: async (period) => ({
             period,
-            legalEntities: [
-              { legalEntityId: 'company-a', name: '神州半导体' },
-              { legalEntityId: 'company-b', name: '神州科技' },
+            companies: [
+              { companyId: 'company-a', companyName: '神州半导体' },
+              { companyId: 'company-b', companyName: '神州科技' },
             ],
           }),
           loadReport,
@@ -384,7 +384,7 @@ describe('Wave 7 formal report route', () => {
     expect(loadReport).toHaveBeenCalledWith({
       reportType: 'ATTENDANCE_DETAIL',
       period: '2026-07',
-      legalEntityId: 'company-b',
+      companyId: 'company-b',
       page: 0,
       size: 50,
     });
@@ -486,7 +486,7 @@ describe('Wave 7 formal report route', () => {
     expect(createReportExport).toHaveBeenCalledWith({
       reportType: 'ATTENDANCE_DETAIL',
       period: '2026-07',
-      legalEntityId: '30000000-0000-0000-0000-000000000001',
+      companyId: '30000000-0000-0000-0000-000000000001',
       status: null,
       purpose: '月度考勤复核',
       currentPassword: 'Current#Password123',
@@ -784,7 +784,7 @@ function formalExport(
     exportId: formalExportId,
     reportType: 'ATTENDANCE_DETAIL',
     period: '2026-07',
-    legalEntityId: '30000000-0000-0000-0000-000000000001',
+    companyId: '30000000-0000-0000-0000-000000000001',
     deliveryMode: 'SYNC',
     status: 'READY',
     purpose: '月度考勤复核',
@@ -855,7 +855,7 @@ function formalReport(
     filters: {
       period: query.period,
       scopeReference: 'scope:server-authorized',
-      legalEntityId: query.legalEntityId
+      companyId: query.companyId
         ?? '30000000-0000-0000-0000-000000000001',
       status: query.status ?? null,
     },

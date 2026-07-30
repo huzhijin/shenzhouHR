@@ -196,8 +196,8 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
                             disabled={allowedScopes.length <= 1}
                             options={allowedScopes.map((scopeType) => ({
                               value: scopeType,
-                              label: scopeType === 'LEGAL_ENTITY'
-                                ? t('access.legalEntity')
+                              label: scopeType === 'COMPANY'
+                                ? t('access.company')
                                 : scopeType === 'ORGANIZATION'
                                   ? t('access.organization')
                                   : t('access.self'),

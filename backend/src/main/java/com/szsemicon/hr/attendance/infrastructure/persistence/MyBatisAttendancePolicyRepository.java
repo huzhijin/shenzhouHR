@@ -35,12 +35,12 @@ class MyBatisAttendancePolicyRepository implements AttendancePolicyRepository {
 
     @Override
     public List<String> findPublishedVersionIdsByKind(
-            String legalEntityId,
+            String companyId,
             PolicyKind policyKind,
             LocalDate effectiveFrom,
             LocalDate effectiveTo) {
         return mapper.findPublishedVersionIdsByKind(
-                legalEntityId, policyKind.name(), effectiveFrom, effectiveTo);
+                companyId, policyKind.name(), effectiveFrom, effectiveTo);
     }
 
     @Override
@@ -101,13 +101,13 @@ class MyBatisAttendancePolicyRepository implements AttendancePolicyRepository {
 
     @Override
     public boolean publishedVersionMatchesKind(
-            String legalEntityId,
+            String companyId,
             String policyVersionId,
             PolicyKind policyKind,
             LocalDate effectiveFrom,
             LocalDate effectiveTo) {
         return mapper.publishedVersionMatchesKind(
-                legalEntityId, policyVersionId, policyKind.name(),
+                companyId, policyVersionId, policyKind.name(),
                 effectiveFrom, effectiveTo);
     }
 
@@ -148,7 +148,7 @@ class MyBatisAttendancePolicyRepository implements AttendancePolicyRepository {
         return new PolicyBinding(
                 row.attendancePolicyBindingId(),
                 row.attendancePolicyBindingRevisionId(), row.revisionNumber(),
-                row.legalEntityId(), PolicyKind.valueOf(row.policyKind()),
+                row.companyId(), PolicyKind.valueOf(row.policyKind()),
                 row.policyVersionId(), row.attendanceGroupId(),
                 row.attendanceGroupRevisionId(),
                 row.effectiveFrom(), effectiveTo,
@@ -161,7 +161,7 @@ class MyBatisAttendancePolicyRepository implements AttendancePolicyRepository {
     private AttendancePolicyRows.BindingRow row(PolicyBinding value) {
         return new AttendancePolicyRows.BindingRow(
                 value.bindingId(), value.bindingRevisionId(),
-                value.revisionNumber(), value.legalEntityId(),
+                value.revisionNumber(), value.companyId(),
                 value.policyKind().name(), value.policyVersionId(),
                 value.groupId(), value.groupRevisionId(),
                 value.effectiveFrom(),

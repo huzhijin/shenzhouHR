@@ -33,7 +33,7 @@ public final class AttendanceSourceReadModels {
 
     public record SourceView(
             String sourceId,
-            String legalEntityId,
+            String companyId,
             String sourceType,
             String code,
             String displayName,

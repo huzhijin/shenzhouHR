@@ -63,7 +63,7 @@ public final class AttendanceReportFactProjector {
         var metrics = result.metrics();
         DailyFact daily = new DailyFact(
                 context.factId(),
-                context.legalEntityId(),
+                context.companyId(),
                 context.employeeId(),
                 context.employeeNumber(),
                 context.employeeName(),
@@ -109,8 +109,8 @@ public final class AttendanceReportFactProjector {
         for (ExceptionFinding finding : observations) {
             boolean sameStableCase =
                     finding.fingerprint().equals(initial.fingerprint())
-                            && finding.legalEntityId().equals(
-                                    initial.legalEntityId())
+                            && finding.companyId().equals(
+                                    initial.companyId())
                             && finding.employeeId().equals(
                                     initial.employeeId())
                             && finding.businessDate().equals(
@@ -122,7 +122,7 @@ public final class AttendanceReportFactProjector {
             }
         }
         ExceptionFinding current = observations.getLast();
-        if (!context.legalEntityId().equals(current.legalEntityId())
+        if (!context.companyId().equals(current.companyId())
                 || !context.employeeId().equals(current.employeeId())
                 || !context.businessDate().equals(current.businessDate())) {
             throw new IllegalArgumentException(
@@ -332,7 +332,7 @@ public final class AttendanceReportFactProjector {
 
     public record ProjectionContext(
             String factId,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             String employeeNumber,
             String employeeName,
@@ -347,7 +347,7 @@ public final class AttendanceReportFactProjector {
 
         public ProjectionContext {
             require(factId, "factId");
-            require(legalEntityId, "legalEntityId");
+            require(companyId, "companyId");
             require(employeeId, "employeeId");
             require(employeeNumber, "employeeNumber");
             require(employeeName, "employeeName");
@@ -377,7 +377,7 @@ public final class AttendanceReportFactProjector {
     }
 
     public record CurrentExceptionProjectionContext(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             String employeeNumber,
             String employeeName,
@@ -387,7 +387,7 @@ public final class AttendanceReportFactProjector {
             long exceptionMinutes) {
 
         public CurrentExceptionProjectionContext {
-            require(legalEntityId, "legalEntityId");
+            require(companyId, "companyId");
             require(employeeId, "employeeId");
             require(employeeNumber, "employeeNumber");
             require(employeeName, "employeeName");

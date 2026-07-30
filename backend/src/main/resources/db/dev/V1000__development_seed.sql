@@ -1,8 +1,8 @@
 -- 仅供 dev profile 使用的合成数据，不得提升到测试、预发布或生产环境。
-INSERT INTO legal_entity (legal_entity_id, code, name, status) VALUES
+INSERT INTO company (company_id, code, name, status) VALUES
     ('30000000-0000-0000-0000-000000000001', 'SZSC', '江苏神州半导体科技股份有限公司', 'ACTIVE');
 
-INSERT INTO organization_identity (organization_id, legal_entity_id, identity_status) VALUES
+INSERT INTO organization_identity (organization_id, company_id, identity_status) VALUES
     ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'ACTIVE');
 
 INSERT INTO organization_version (
@@ -75,14 +75,14 @@ INSERT INTO auth_principal (principal_id, employee_id, status) VALUES
 INSERT INTO auth_data_scope (
     scope_id,
     scope_type,
-    legal_entity_id,
+    company_id,
     organization_id,
     include_descendants,
     valid_from,
     valid_to
 ) VALUES (
     '90000000-0000-0000-0000-000000000001',
-    'LEGAL_ENTITY',
+    'COMPANY',
     '30000000-0000-0000-0000-000000000001',
     NULL,
     TRUE,

@@ -41,7 +41,7 @@ public final class EvidenceLedger {
     public record EvidenceCandidate(
             String rawFactId,
             SourceType sourceType,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             Instant instant,
             Direction direction) {
@@ -49,7 +49,7 @@ public final class EvidenceLedger {
         public EvidenceCandidate {
             requireText(rawFactId, "rawFactId");
             Objects.requireNonNull(sourceType, "sourceType");
-            requireText(legalEntityId, "legalEntityId");
+            requireText(companyId, "companyId");
             requireText(employeeId, "employeeId");
             Objects.requireNonNull(instant, "instant");
             Objects.requireNonNull(direction, "direction");
@@ -123,14 +123,14 @@ public final class EvidenceLedger {
     }
 
     public static String stableFingerprint(
-            String legalEntityId,
+            String companyId,
             String locationId,
             String deviceId,
             String personOrEmployeeId,
             Instant normalizedInstant,
             Direction direction) {
         return digest(List.of(
-                requireText(legalEntityId, "legalEntityId"),
+                requireText(companyId, "companyId"),
                 requireText(locationId, "locationId"),
                 requireText(deviceId, "deviceId"),
                 requireText(personOrEmployeeId, "personOrEmployeeId"),
@@ -261,12 +261,12 @@ public final class EvidenceLedger {
             List<EvidenceCandidate> candidates) {
         EvidenceCandidate first = candidates.getFirst();
         boolean incompatible = candidates.stream().anyMatch(candidate ->
-                !candidate.legalEntityId().equals(first.legalEntityId())
+                !candidate.companyId().equals(first.companyId())
                         || !candidate.employeeId().equals(first.employeeId())
                         || candidate.direction() != first.direction());
         if (incompatible) {
             throw new IllegalArgumentException(
-                    "duplicate candidates must share legal entity, employee and direction");
+                    "duplicate candidates must share company, employee and direction");
         }
     }
 

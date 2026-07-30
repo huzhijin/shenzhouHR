@@ -5,10 +5,10 @@ import java.util.List;
 
 public interface EmployeeEmploymentResolverPort {
 
-    List<Resolution> resolveByEmployeeNumber(String legalEntityId, String employeeNumber, Instant at);
+    List<Resolution> resolveByEmployeeNumber(String companyId, String employeeNumber, Instant at);
 
     List<Resolution> resolveByConfirmedBinding(
-            String legalEntityId,
+            String companyId,
             String locationId,
             String deviceId,
             ConfirmedBindingKind bindingKind,

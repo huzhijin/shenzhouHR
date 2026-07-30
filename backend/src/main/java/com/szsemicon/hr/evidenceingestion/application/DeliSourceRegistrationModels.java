@@ -8,7 +8,7 @@ public final class DeliSourceRegistrationModels {
     }
 
     public record Command(
-            String legalEntityId,
+            String companyId,
             String sourceCode,
             String displayName,
             String sourceTimeZone,
@@ -21,7 +21,7 @@ public final class DeliSourceRegistrationModels {
 
     public record SourceView(
             String sourceId,
-            String legalEntityId,
+            String companyId,
             String sourceCode,
             String displayName,
             String sourceType,
@@ -40,7 +40,7 @@ public final class DeliSourceRegistrationModels {
         public SourceView asReplay() {
             return new SourceView(
                     sourceId,
-                    legalEntityId,
+                    companyId,
                     sourceCode,
                     displayName,
                     sourceType,

@@ -163,17 +163,20 @@ export function createDemoReportProjection(): ReportProjection {
   ];
   return {
     kind: 'REPORT',
-    metadata: metadata({
-      projectionVersion: 'DEMO-REPORT-2026-06-V1',
-      periodLabel: REPORTING_PERIOD,
-      periodState: 'CLOSED',
+    metadata: {
+      ...metadata({
+        projectionVersion: 'DEMO-REPORT-2026-06-V1',
+        periodLabel: REPORTING_PERIOD,
+        periodState: 'CLOSED',
+        scope: companyScope(),
+        allowedActions: [
+          'REPORT_DRILL_DOWN',
+          'REPORT_EXPORT_CREATE',
+          'REPORT_EXPORT_DOWNLOAD',
+        ],
+      }),
       scope: companyScope(),
-      allowedActions: [
-        'REPORT_DRILL_DOWN',
-        'REPORT_EXPORT_CREATE',
-        'REPORT_EXPORT_DOWNLOAD',
-      ],
-    }),
+    },
     reportTitle: '2026 年 06 月部门考勤统计汇总',
     queryFingerprint: 'demo-query:company:2026-06:closed-v1',
     filters: {
@@ -298,7 +301,7 @@ function selfScope(): Wave7Scope {
   };
 }
 
-function companyScope(): Wave7Scope {
+function companyScope(): Wave7Scope & { type: 'COMPANY' } {
   return {
     type: 'COMPANY',
     reference: 'demo-scope:company:shenzhou',

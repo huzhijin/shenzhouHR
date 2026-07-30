@@ -39,12 +39,12 @@ public class MyBatisEmployeeEmploymentResolver
     @Override
     @Transactional(readOnly = true)
     public List<Resolution> resolveByEmployeeNumber(
-            String legalEntityId, String employeeNumber, Instant at) {
-        requireIdentifier(legalEntityId, "legalEntityId", 36);
+            String companyId, String employeeNumber, Instant at) {
+        requireIdentifier(companyId, "companyId", 36);
         requireReference(employeeNumber, "employeeNumber");
         Objects.requireNonNull(at, "at");
         return resolutions(mapper.resolveByEmployeeNumber(
-                legalEntityId,
+                companyId,
                 employeeNumber,
                 at.atZone(BUSINESS_ZONE).toLocalDate()));
     }
@@ -52,20 +52,20 @@ public class MyBatisEmployeeEmploymentResolver
     @Override
     @Transactional(readOnly = true)
     public List<Resolution> resolveByConfirmedBinding(
-            String legalEntityId,
+            String companyId,
             String locationId,
             String deviceId,
             ConfirmedBindingKind bindingKind,
             String externalPersonRef,
             Instant at) {
-        requireIdentifier(legalEntityId, "legalEntityId", 36);
+        requireIdentifier(companyId, "companyId", 36);
         optionalReference(locationId, "locationId", 36);
         optionalReference(deviceId, "deviceId", 191);
         Objects.requireNonNull(bindingKind, "bindingKind");
         requireReference(externalPersonRef, "externalPersonRef");
         Objects.requireNonNull(at, "at");
         return resolutions(mapper.resolveByConfirmedDeliBinding(
-                legalEntityId,
+                companyId,
                 bindingKind.name(),
                 externalPersonRef,
                 at.atZone(BUSINESS_ZONE).toLocalDateTime(),

@@ -92,9 +92,9 @@ class AttendanceReportExportServiceSecurityTest {
                 job.capture(), storedContent.capture());
         assertThat(job.getValue().purpose())
                 .isEqualTo("月度薪资核对");
-        assertThat(job.getValue().filter().legalEntityId())
+        assertThat(job.getValue().filter().companyId())
                 .isEqualTo("legal-1");
-        assertThat(result.legalEntityId()).isEqualTo("legal-1");
+        assertThat(result.companyId()).isEqualTo("legal-1");
         assertThat(storedContent.getValue()).isEqualTo(content);
         assertThat(job.getValue().toString())
                 .doesNotContain(PASSWORD);
@@ -368,7 +368,7 @@ class AttendanceReportExportServiceSecurityTest {
 
     private static ReportSourceSnapshot snapshot(
             ReportFilter filter, DailyFact... facts) {
-        ReportFilter resolvedFilter = filter.legalEntityId() == null
+        ReportFilter resolvedFilter = filter.companyId() == null
                 ? new ReportFilter(
                         filter.period(),
                         "legal-1",
@@ -378,9 +378,9 @@ class AttendanceReportExportServiceSecurityTest {
                 : filter;
         return new ReportSourceSnapshot(
                 new AuthorizedScope(
-                        ScopeType.LEGAL_ENTITY,
+                        ScopeType.COMPANY,
                         "authorized-scope-set:" + DIGEST,
-                        "法人授权范围",
+                        "公司授权范围",
                         DIGEST),
                 resolvedFilter,
                 "projection-1",

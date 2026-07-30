@@ -4,10 +4,10 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper">
 
-    <select id="lockAuthorizedLegalEntity" resultType="string">
-        SELECT entity.legal_entity_id
-        FROM legal_entity entity
-        WHERE entity.legal_entity_id = #{legalEntityId}
+    <select id="lockAuthorizedCompany" resultType="string">
+        SELECT entity.company_id
+        FROM company entity
+        WHERE entity.company_id = #{companyId}
           AND entity.status = 'ACTIVE'
           AND EXISTS (
               SELECT 1
@@ -22,8 +22,8 @@
                AND granted_capability.capability_code = #{capability}
               JOIN auth_data_scope data_scope
                 ON data_scope.scope_id = role_assignment.data_scope_id
-               AND data_scope.scope_type = 'LEGAL_ENTITY'
-               AND data_scope.legal_entity_id = entity.legal_entity_id
+               AND data_scope.scope_type = 'COMPANY'
+               AND data_scope.company_id = entity.company_id
               WHERE principal.principal_id = #{principalId}
                 AND principal.status = 'ACTIVE'
                 AND role_assignment.valid_from &lt;= #{at}
@@ -56,7 +56,7 @@
 
     <sql id="deliSourceRegistrationProjection">
         source.attendance_source_id AS source_id,
-        source.legal_entity_id,
+        source.company_id,
         source.source_code,
         source.display_name,
         source.source_type,
@@ -87,7 +87,7 @@
                        candidate.source_config_revision_id DESC
               LIMIT 1
           )
-        WHERE source.legal_entity_id = #{legalEntityId}
+        WHERE source.company_id = #{companyId}
           AND source.source_code = #{sourceCode}
           AND source.source_type = 'DELI_CLOUD'
         FOR UPDATE
@@ -130,10 +130,10 @@
 
     <insert id="insertDeliSource">
         INSERT INTO attendance_source (
-            attendance_source_id, legal_entity_id, source_code, source_type,
+            attendance_source_id, company_id, source_code, source_type,
             display_name, status, row_version, created_by, created_at
         ) VALUES (
-            #{sourceId}, #{command.legalEntityId}, #{command.sourceCode},
+            #{sourceId}, #{command.companyId}, #{command.sourceCode},
             'DELI_CLOUD', #{command.displayName}, 'ACTIVE', 0,
             #{principalId}, #{createdAt}
         )
@@ -172,7 +172,7 @@
           AND status = 'STARTED'
     </update>
 
-    <sql id="legalEntityCapability">
+    <sql id="companyCapability">
         EXISTS (
             SELECT 1
             FROM auth_principal principal
@@ -186,8 +186,8 @@
              AND granted_capability.capability_code = #{capability}
             JOIN auth_data_scope data_scope
               ON data_scope.scope_id = role_assignment.data_scope_id
-             AND data_scope.scope_type = 'LEGAL_ENTITY'
-             AND data_scope.legal_entity_id = source.legal_entity_id
+             AND data_scope.scope_type = 'COMPANY'
+             AND data_scope.company_id = source.company_id
             WHERE principal.principal_id = #{principalId}
               AND principal.status = 'ACTIVE'
               AND role_assignment.valid_from &lt;= #{authorizationTime}
@@ -206,7 +206,7 @@
     <select id="lockAuthorizedDeliSource"
             resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$AuthorizedDeliSourceRow">
         SELECT source.attendance_source_id AS source_id,
-               source.legal_entity_id,
+               source.company_id,
                source.display_name,
                configuration.secret_reference_name,
                configuration.source_time_zone,
@@ -267,8 +267,8 @@
                AND granted_capability.capability_code = #{capability}
               JOIN auth_data_scope data_scope
                 ON data_scope.scope_id = role_assignment.data_scope_id
-               AND data_scope.scope_type = 'LEGAL_ENTITY'
-               AND data_scope.legal_entity_id = source.legal_entity_id
+               AND data_scope.scope_type = 'COMPANY'
+               AND data_scope.company_id = source.company_id
               WHERE principal.principal_id = #{principalId}
                 AND principal.status = 'ACTIVE'
                 AND role_assignment.valid_from &lt;= #{at}
@@ -291,7 +291,7 @@
                job.status AS original_status,
                job.row_version AS original_row_version,
                source.attendance_source_id AS source_id,
-               source.legal_entity_id,
+               source.company_id,
                source.display_name,
                configuration.secret_reference_name,
                configuration.source_time_zone,
@@ -342,7 +342,7 @@
                 AND other_configuration.secret_reference_name =
                     configuration.secret_reference_name
           )
-          AND <include refid="legalEntityCapability"/>
+          AND <include refid="companyCapability"/>
         FOR UPDATE
     </select>
 
@@ -482,7 +482,7 @@
             resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$PageState">
         SELECT job.attendance_sync_job_id AS job_id,
                source.attendance_source_id AS source_id,
-               source.legal_entity_id,
+               source.company_id,
                job.status AS job_status,
                job.page_count AS committed_pages,
                watermark.committed_cursor,
@@ -497,7 +497,7 @@
           AND source.source_type = 'DELI_CLOUD'
           AND source.status = 'ACTIVE'
           AND job.status = 'RUNNING'
-          AND <include refid="legalEntityCapability"/>
+          AND <include refid="companyCapability"/>
         FOR UPDATE
     </select>
 
@@ -579,8 +579,8 @@
                AND granted_capability.capability_code = #{capability}
               JOIN auth_data_scope data_scope
                 ON data_scope.scope_id = role_assignment.data_scope_id
-               AND data_scope.scope_type = 'LEGAL_ENTITY'
-               AND data_scope.legal_entity_id = source.legal_entity_id
+               AND data_scope.scope_type = 'COMPANY'
+               AND data_scope.company_id = source.company_id
               WHERE principal.principal_id = #{principalId}
                 AND principal.status = 'ACTIVE'
                 AND role_assignment.valid_from &lt;= #{at}

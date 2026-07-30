@@ -493,7 +493,7 @@ function restoreUrlMethod(
 
 function requiredCompanyScope() {
   const scope = customerReportDemoScopes.find((candidate) => (
-    candidate.type === 'LEGAL_ENTITY'
+    candidate.type === 'COMPANY'
     && candidate.actorLabel.toLowerCase().includes('hr')
   ));
   if (!scope) throw new Error('缺少公司 HR 演示数据范围');
@@ -502,7 +502,7 @@ function requiredCompanyScope() {
 
 function requiredExecutiveScope() {
   const scope = customerReportDemoScopes.find((candidate) => (
-    candidate.type === 'LEGAL_ENTITY'
+    candidate.type === 'COMPANY'
     && !candidate.actorLabel.toLowerCase().includes('hr')
   ));
   if (!scope) throw new Error('缺少高管演示数据范围');

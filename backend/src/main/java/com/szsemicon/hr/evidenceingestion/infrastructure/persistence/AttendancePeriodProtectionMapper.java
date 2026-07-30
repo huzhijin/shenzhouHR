@@ -9,7 +9,7 @@ import org.apache.ibatis.annotations.Param;
 interface AttendancePeriodProtectionMapper {
 
     List<AttendancePeriodProjectionRow> resolveLatestPublished(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeId") String employeeId,
             @Param("businessDate") LocalDate businessDate);
 }

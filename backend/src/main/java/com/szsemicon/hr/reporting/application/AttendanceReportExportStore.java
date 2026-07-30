@@ -80,9 +80,9 @@ public interface AttendanceReportExportStore {
                 throw new IllegalArgumentException(
                         "export report type and filter are required");
             }
-            if (filter.legalEntityId() == null) {
+            if (filter.companyId() == null) {
                 throw new IllegalArgumentException(
-                        "export must be bound to one legal entity");
+                        "export must be bound to one company");
             }
             purpose = normalizePurpose(purpose);
             requireText(projectionVersion, "projectionVersion");

@@ -2,9 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AttendanceReportType } from './wave7Contracts';
 import {
+  type ReportExportCreateRequest,
   type ReportQuery,
   wave7ProjectionGateway,
 } from './wave7Gateway';
+
+const retiredBoundaryIdKey = ['legal', 'EntityId'].join('');
+const retiredDirectoryKey = ['legal', 'Entities'].join('');
 
 describe('Wave 7 production report gateway', () => {
   afterEach(() => {
@@ -16,7 +20,7 @@ describe('Wave 7 production report gateway', () => {
     const query: ReportQuery = {
       reportType: 'EXCEPTIONS',
       period: '2026-07',
-      legalEntityId: '30000000-0000-0000-0000-000000000001',
+      companyId: '30000000-0000-0000-0000-000000000001',
       status: 'PENDING_REVIEW',
       page: 2,
       size: 25,
@@ -39,7 +43,7 @@ describe('Wave 7 production report gateway', () => {
     expect(target.pathname).toBe('/api/v1/attendance-reports');
     expect(target.searchParams.get('reportType')).toBe('EXCEPTIONS');
     expect(target.searchParams.get('period')).toBe('2026-07');
-    expect(target.searchParams.get('legalEntityId'))
+    expect(target.searchParams.get('companyId'))
       .toBe('30000000-0000-0000-0000-000000000001');
     expect(target.searchParams.get('status')).toBe('PENDING_REVIEW');
     expect(target.searchParams.get('page')).toBe('2');
@@ -50,37 +54,59 @@ describe('Wave 7 production report gateway', () => {
   it('loads only the period-bound authorized company directory', async () => {
     const directory = {
       period: '2026-07',
-      legalEntities: [
-        { legalEntityId: 'company-a', name: '神州半导体' },
-        { legalEntityId: 'company-b', name: '神州科技' },
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
       ],
     };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(directory));
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      wave7ProjectionGateway.loadReportLegalEntities('2026-07'),
+      wave7ProjectionGateway.loadReportCompanies('2026-07'),
     ).resolves.toEqual(directory);
     const target = new URL(
       String(fetchMock.mock.calls[0]?.[0]),
       window.location.origin,
     );
     expect(target.pathname)
-      .toBe('/api/v1/attendance-reports/legal-entities');
+      .toBe('/api/v1/attendance-reports/companies');
     expect(target.searchParams.get('period')).toBe('2026-07');
+  });
+
+  it('rejects a retired directory response shape', async () => {
+    const directory = {
+      period: '2026-07',
+      companies: [{
+        companyId: 'company-a',
+        companyName: '神州半导体',
+      }],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      ...directory,
+      [retiredDirectoryKey]: directory.companies,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      wave7ProjectionGateway.loadReportCompanies('2026-07'),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: 'INVALID_RESPONSE_BODY',
+    });
   });
 
   it('rejects cross-company report responses', async () => {
     const query: ReportQuery = {
       reportType: 'ATTENDANCE_DETAIL',
       period: '2026-07',
-      legalEntityId: 'company-a',
+      companyId: 'company-a',
     };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       ...reportResponse(query),
       filters: {
         ...reportResponse(query).filters,
-        legalEntityId: 'company-b',
+        companyId: 'company-b',
       },
     }));
     vi.stubGlobal('fetch', fetchMock);
@@ -140,7 +166,7 @@ describe('Wave 7 production report gateway', () => {
     await expect(wave7ProjectionGateway.loadReport({
       reportType: 'LATE',
       period: '2026-07',
-      legalEntityId: ' company-a',
+      companyId: ' company-a',
     })).rejects.toMatchObject({
       status: 400,
       code: 'INVALID_REPORT_QUERY',
@@ -152,6 +178,37 @@ describe('Wave 7 production report gateway', () => {
     })).rejects.toMatchObject({
       status: 400,
       code: 'INVALID_REPORT_QUERY',
+    });
+    const retiredQuery = {
+      reportType: 'LATE',
+      period: '2026-07',
+      [retiredBoundaryIdKey]: 'company-a',
+    } as unknown as ReportQuery;
+    await expect(wave7ProjectionGateway.loadReport(retiredQuery))
+      .rejects.toMatchObject({
+        status: 400,
+        code: 'INVALID_REPORT_QUERY',
+      });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a retired export request property before issuing a request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const retiredRequest = {
+      reportType: 'ATTENDANCE_DETAIL',
+      period: '2026-07',
+      companyId: 'company-a',
+      purpose: '月度考勤复核',
+      currentPassword: 'Current#Password123',
+      [retiredBoundaryIdKey]: 'company-a',
+    } as unknown as ReportExportCreateRequest;
+
+    await expect(
+      wave7ProjectionGateway.createReportExport?.(retiredRequest),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: 'INVALID_REPORT_EXPORT_REQUEST',
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -174,7 +231,7 @@ describe('Wave 7 production report gateway', () => {
     const result = await wave7ProjectionGateway.createReportExport?.({
       reportType: 'ATTENDANCE_DETAIL',
       period: '2026-07',
-      legalEntityId: '30000000-0000-0000-0000-000000000001',
+      companyId: '30000000-0000-0000-0000-000000000001',
       status: null,
       purpose: ' 月度考勤复核 ',
       currentPassword: 'Current#Password123',
@@ -195,7 +252,7 @@ describe('Wave 7 production report gateway', () => {
     expect(JSON.parse(String(createInit?.body))).toEqual({
       reportType: 'ATTENDANCE_DETAIL',
       period: '2026-07',
-      legalEntityId: '30000000-0000-0000-0000-000000000001',
+      companyId: '30000000-0000-0000-0000-000000000001',
       status: null,
       purpose: '月度考勤复核',
       currentPassword: 'Current#Password123',
@@ -207,7 +264,7 @@ describe('Wave 7 production report gateway', () => {
 
   it('rejects an export response bound to another company', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(
-      exportResponse({ legalEntityId: 'company-b' }),
+      exportResponse({ companyId: 'company-b' }),
       201,
     ));
     vi.stubGlobal('fetch', fetchMock);
@@ -215,7 +272,7 @@ describe('Wave 7 production report gateway', () => {
     await expect(wave7ProjectionGateway.createReportExport?.({
       reportType: 'ATTENDANCE_DETAIL',
       period: '2026-07',
-      legalEntityId: 'company-a',
+      companyId: 'company-a',
       purpose: '跨公司负例',
       currentPassword: 'Current#Password123',
     })).rejects.toMatchObject({
@@ -375,7 +432,7 @@ function reportResponse(query: ReportQuery) {
     filters: {
       period: query.period,
       scopeReference: 'scope:formal:authorized',
-      legalEntityId: query.legalEntityId
+      companyId: query.companyId
         ?? '30000000-0000-0000-0000-000000000001',
       organizationId: null,
       employeeId: null,
@@ -406,7 +463,7 @@ function exportResponse(overrides: Record<string, unknown> = {}) {
     exportId,
     reportType: 'ATTENDANCE_DETAIL',
     period: '2026-07',
-    legalEntityId: '30000000-0000-0000-0000-000000000001',
+    companyId: '30000000-0000-0000-0000-000000000001',
     deliveryMode: 'SYNC',
     status: 'READY',
     purpose: '月度考勤复核',

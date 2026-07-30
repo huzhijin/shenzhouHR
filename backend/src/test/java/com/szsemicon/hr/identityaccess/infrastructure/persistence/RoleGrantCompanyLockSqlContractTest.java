@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-class RoleGrantLegalEntityLockSqlContractTest {
+class RoleGrantCompanyLockSqlContractTest {
 
     private static final Path ADAPTER = Path.of(
             "src/main/java/com/szsemicon/hr/identityaccess/infrastructure/persistence/"
@@ -18,36 +18,36 @@ class RoleGrantLegalEntityLockSqlContractTest {
             Path.of("src/main/resources/mappers/PeopleMapper.xml");
 
     @Test
-    void roleGrantAndPeoplePublicationCoordinateOnTheSameLegalEntityRowLock()
+    void roleGrantAndPeoplePublicationCoordinateOnTheSameCompanyRowLock()
             throws Exception {
         String adapter = Files.readString(ADAPTER);
         String peopleMapper = Files.readString(PEOPLE_MAPPER);
 
         assertThat(adapter)
-                .contains("SortedSet<String> targetLegalEntityIds = new TreeSet<>()")
-                .contains("for (String legalEntityId : targetLegalEntityIds)");
+                .contains("SortedSet<String> targetCompanyIds = new TreeSet<>()")
+                .contains("for (String companyId : targetCompanyIds)");
         assertThat(normalizeWhitespace(adapter))
                 .contains(
-                        "SELECT legal_entity_id FROM legal_entity "
-                                + "WHERE legal_entity_id = ? "
+                        "SELECT company_id FROM company "
+                                + "WHERE company_id = ? "
                                 + "AND status = 'ACTIVE' FOR UPDATE");
         assertThat(normalizeWhitespace(peopleMapper))
                 .contains(
-                        "<select id=\"lockLegalEntity\" resultType=\"string\"> "
-                                + "SELECT legal_entity_id FROM legal_entity "
-                                + "WHERE legal_entity_id = #{legalEntityId} "
+                        "<select id=\"lockCompany\" resultType=\"string\"> "
+                                + "SELECT company_id FROM company "
+                                + "WHERE company_id = #{companyId} "
                                 + "FOR UPDATE </select>");
     }
 
     @Test
-    void targetLegalEntitiesAreLockedBeforeActorAssignmentsAndScopeChecks()
+    void targetCompaniesAreLockedBeforeActorAssignmentsAndScopeChecks()
             throws Exception {
         String service = Files.readString(SERVICE);
 
         int targetLock =
-                service.indexOf("accountPersistence.lockRoleGrantTargetLegalEntities(");
+                service.indexOf("accountPersistence.lockRoleGrantTargetCompanies(");
         int actorAssignmentLock =
-                service.indexOf("accountPersistence.lockCurrentRoleGrantAuthority(");
+                service.lastIndexOf("accountPersistence.lockCurrentCapabilityAuthority(");
         int scopeResolution = service.indexOf(
                 "accountPersistence.resolveAuthorizedRoleAssignmentScopes(");
 

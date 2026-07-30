@@ -53,10 +53,10 @@ class AttendanceReportVisibilityDigestTest {
                 null);
         return new ReportSourceSnapshot(
                 new AuthorizedScope(
-                        ScopeType.LEGAL_ENTITY,
+                        ScopeType.COMPANY,
                         "authorized-scope-set:"
                                 + AUTHORIZATION_DIGEST,
-                        "法人授权范围",
+                        "公司授权范围",
                         AUTHORIZATION_DIGEST),
                 filter,
                 "projection-1",

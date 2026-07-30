@@ -24,7 +24,7 @@ export interface Page<T> {
 
 export interface LocationView {
   locationId: string;
-  legalEntityId: string;
+  companyId: string;
   code: string;
   locationRevisionId: string;
   revisionNumber: number;
@@ -40,7 +40,7 @@ export interface LocationView {
 }
 
 export interface LocationInput {
-  legalEntityId: string;
+  companyId: string;
   code: string;
   name: string;
   timeZone: string;
@@ -51,7 +51,7 @@ export interface LocationInput {
 
 export interface AttendanceGroupView {
   groupId: string;
-  legalEntityId: string;
+  companyId: string;
   code: string;
   groupRevisionId: string;
   revisionNumber: number;
@@ -70,7 +70,7 @@ export interface AttendanceGroupView {
 }
 
 export interface AttendanceGroupInput {
-  legalEntityId: string;
+  companyId: string;
   code: string;
   name: string;
   locationId: string;
@@ -102,7 +102,7 @@ export interface AssignmentInput {
 
 export interface ShiftTemplateView {
   shiftId: string;
-  legalEntityId: string;
+  companyId: string;
   locationId: string;
   code: string;
   name: string;
@@ -113,7 +113,7 @@ export interface ShiftTemplateView {
 }
 
 export interface ShiftTemplateInput {
-  legalEntityId: string;
+  companyId: string;
   locationId: string;
   code: string;
   name: string;
@@ -153,7 +153,7 @@ export interface ShiftVersionInput {
 
 export interface WorkCalendarView {
   calendarId: string;
-  legalEntityId: string;
+  companyId: string;
   locationId: string;
   code: string;
   calendarVersionId: string;
@@ -171,7 +171,7 @@ export interface WorkCalendarView {
 }
 
 export interface WorkCalendarInput {
-  legalEntityId: string;
+  companyId: string;
   locationId: string;
   code: string;
   name: string;
@@ -226,7 +226,7 @@ export interface PolicyBindingView {
   bindingId: string;
   bindingRevisionId: string;
   revisionNumber: number;
-  legalEntityId: string;
+  companyId: string;
   policyKind: AttendancePolicyKind;
   policyVersionId: string;
   groupId: string;
@@ -335,7 +335,7 @@ export interface AttendancePolicyVersionSummary {
   scopedVersionId: string;
   scopeId: string;
   templateId: string;
-  legalEntityId: string;
+  companyId: string;
   policyKind: AttendancePolicyKind;
   versionNumber: number;
   status: PolicyVersionStatus;

@@ -26,7 +26,7 @@ public final class AttendanceSourceModels {
 
     public record AttendanceSource(
             String sourceId,
-            String legalEntityId,
+            String companyId,
             String code,
             EvidenceLedger.SourceType sourceType,
             String displayName,
@@ -35,7 +35,7 @@ public final class AttendanceSourceModels {
 
         public AttendanceSource {
             requireText(sourceId, "sourceId");
-            requireText(legalEntityId, "legalEntityId");
+            requireText(companyId, "companyId");
             requireText(code, "code");
             Objects.requireNonNull(sourceType, "sourceType");
             requireText(displayName, "displayName");

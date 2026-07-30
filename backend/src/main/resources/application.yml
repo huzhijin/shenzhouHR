@@ -11,7 +11,7 @@ spring:
       minimum-idle: ${SHENZHOUHR_DB_MIN_IDLE:2}
       connection-timeout: 5000
   flyway:
-    enabled: ${SHENZHOUHR_FLYWAY_ENABLED:true}
+    enabled: ${SHENZHOUHR_FLYWAY_ENABLED:false}
     url: ${SHENZHOUHR_FLYWAY_URL:${SHENZHOUHR_DB_URL}}
     user: ${SHENZHOUHR_FLYWAY_USERNAME}
     password: ${SHENZHOUHR_FLYWAY_PASSWORD}

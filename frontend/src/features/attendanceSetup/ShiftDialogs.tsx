@@ -42,7 +42,7 @@ export function ShiftTemplateDialog({
         initialValues={initialValues}
         onFinish={onSubmit}
       >
-        <Form.Item label={t('attendanceSetup.legalEntityId')} name="legalEntityId" rules={[required()]}>
+        <Form.Item label={t('attendanceSetup.companyId')} name="companyId" rules={[required()]}>
           <Input autoComplete="off" />
         </Form.Item>
         <Form.Item label={t('attendanceSetup.locationId')} name="locationId" rules={[required()]}>

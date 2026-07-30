@@ -13,7 +13,7 @@
             resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendancePeriodProjectionRow">
         SELECT
             projection.attendance_report_projection_id AS projection_id,
-            projection.legal_entity_id,
+            projection.company_id,
             projection.period_start,
             projection.period_end_exclusive,
             projection.period_state,
@@ -29,11 +29,11 @@
             employment.row_version AS employment_version,
             employment.organization_id
         FROM attendance_report_projection projection
-        JOIN legal_entity legal_entity
-          ON legal_entity.legal_entity_id = projection.legal_entity_id
-         AND legal_entity.status = 'ACTIVE'
+        JOIN company company
+          ON company.company_id = projection.company_id
+         AND company.status = 'ACTIVE'
         JOIN employee employee
-          ON employee.legal_entity_id = projection.legal_entity_id
+          ON employee.company_id = projection.company_id
          AND employee.employee_id = #{employeeId}
         JOIN employee_version employee_version
           ON employee_version.employee_id = employee.employee_id
@@ -54,12 +54,12 @@
          )
         JOIN organization_identity organization
           ON organization.organization_id = employment.organization_id
-         AND organization.legal_entity_id = projection.legal_entity_id
+         AND organization.company_id = projection.company_id
          AND organization.identity_status = 'ACTIVE'
         WHERE projection.attendance_report_projection_id = (
                 SELECT latest.attendance_report_projection_id
                 FROM attendance_report_projection latest
-                WHERE latest.legal_entity_id = #{legalEntityId}
+                WHERE latest.company_id = #{companyId}
                   AND latest.period_start &lt;= #{businessDate}
                   AND latest.period_end_exclusive &gt; #{businessDate}
                   AND latest.status = 'PUBLISHED'
@@ -68,7 +68,7 @@
                          latest.attendance_report_projection_id DESC
                 LIMIT 1
         )
-          AND projection.legal_entity_id = #{legalEntityId}
+          AND projection.company_id = #{companyId}
           AND projection.period_start &lt;= #{businessDate}
           AND projection.period_end_exclusive &gt; #{businessDate}
           AND projection.status = 'PUBLISHED'

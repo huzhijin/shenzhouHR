@@ -54,7 +54,7 @@ type OrganizationState =
   | { status: 'error'; error: ApiRequestError };
 
 type OrganizationFormValue = {
-  legalEntityId?: string;
+  companyId?: string;
   parentOrganizationId?: string | null;
   code: string;
   name: string;
@@ -351,7 +351,7 @@ function OrganizationFormDialog({
       {error ? <ApiErrorState error={error} /> : null}
       <Form form={form} layout="vertical">
         {mode === 'create' ? (
-          <Form.Item name="legalEntityId" label={t('people.legalEntity')} rules={[{ required: true }]}>
+          <Form.Item name="companyId" label={t('people.company')} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
         ) : null}
@@ -402,7 +402,7 @@ function flattenOrganizations(
 
 function toCreateRequest(values: OrganizationFormValue): OrganizationCreateRequest {
   return {
-    legalEntityId: values.legalEntityId ?? '',
+    companyId: values.companyId ?? '',
     parentOrganizationId: values.parentOrganizationId || null,
     code: values.code.trim(),
     name: values.name.trim(),

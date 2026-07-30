@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Recalculation targets are exact and provider-derived
-Recalculation SHALL operate only on a deduplicated stable set of `(legalEntityId, employeeId, businessDate)` targets derived from authoritative evidence/configuration/adjustment changes or an explicitly authorized scope expansion. Client-supplied dates MUST NOT override W3/W4 authoritative candidate dates.
+Recalculation SHALL operate only on a deduplicated stable set of `(companyId, employeeId, businessDate)` targets derived from authoritative evidence/configuration/adjustment changes or an explicitly authorized scope expansion. Client-supplied dates MUST NOT override W3/W4 authoritative candidate dates.
 
 #### Scenario: One evidence intent
 - **WHEN** W4 supplies one employee and one authoritative candidate business date

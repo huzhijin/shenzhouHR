@@ -33,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 class Wave3AttendanceConcurrencyIntegrationTest
         extends Wave1IntegrationTestSupport {
 
-    private static final String LEGAL_ENTITY =
+    private static final String COMPANY =
             "30000000-0000-0000-0000-000000000001";
     private static final String EMPLOYEE =
             "b0000000-0000-0000-0000-000000000001";
@@ -83,7 +83,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 "wave3-concurrency-location",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"CONCURRENCY",
                   "name":"并发测试地点",
                   "timeZone":"Asia/Shanghai",
@@ -91,7 +91,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "effectiveTo":"2027-01-01",
                   "reason":"WAVE-3 并发地点建档"
                 }
-                """.formatted(LEGAL_ENTITY)), "$.locationId");
+                """.formatted(COMPANY)), "$.locationId");
         String competingShiftId = createShift(
                 locationId, "CONCURRENT_SHIFT", "wave3-concurrency-shift");
         String firstVersionId = createVersion(
@@ -138,7 +138,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 "wave3-concurrency-calendar",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "locationId":"%s",
                   "code":"CONCURRENCY_2026",
                   "name":"并发测试日历",
@@ -148,7 +148,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "effectiveTo":"2026-08-17",
                   "reason":"WAVE-3 并发日历建档"
                 }
-                """.formatted(LEGAL_ENTITY, locationId));
+                """.formatted(COMPANY, locationId));
         String calendarId = value(calendar, "$.calendarId");
         String calendarVersionId = value(calendar, "$.calendarVersionId");
         MvcResult calendarDays = perform(
@@ -184,7 +184,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 "wave3-concurrency-group",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"CONCURRENCY_GROUP",
                   "name":"并发测试考勤组",
                   "locationId":"%s",
@@ -195,7 +195,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "reason":"WAVE-3 并发考勤组建档"
                 }
                 """.formatted(
-                        LEGAL_ENTITY, locationId, calendarId, baseShiftId)),
+                        COMPANY, locationId, calendarId, baseShiftId)),
                 "$.groupId");
 
         String bindingFamilyId = jdbc.queryForObject(
@@ -270,7 +270,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 "wave3-concurrency-group-second",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"CONCURRENCY_GROUP_SECOND",
                   "name":"第二并发考勤组",
                   "locationId":"%s",
@@ -281,7 +281,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "reason":"WAVE-3 第二并发考勤组建档"
                 }
                 """.formatted(
-                        LEGAL_ENTITY, locationId, calendarId, baseShiftId)),
+                        COMPANY, locationId, calendarId, baseShiftId)),
                 "$.groupId");
 
         List<MvcResult> sameKeyAssignments = concurrent(
@@ -344,7 +344,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 "wave3-concurrency-rollover-group",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"CONCURRENCY_ROLLOVER_GROUP",
                   "name":"并发换版考勤组",
                   "locationId":"%s",
@@ -355,7 +355,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "reason":"WAVE-3 并发换版考勤组建档"
                 }
                 """.formatted(
-                        LEGAL_ENTITY, locationId, calendarId, baseShiftId)),
+                        COMPANY, locationId, calendarId, baseShiftId)),
                 "$.groupId");
         List<MvcResult> groupRolloverResults = concurrent(
                 () -> rolloverGroup(
@@ -406,7 +406,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 "wave3-concurrent-template-status-location",
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"CONCURRENT_TEMPLATE_STATUS",
                   "name":"并发班次模板状态地点",
                   "timeZone":"Asia/Shanghai",
@@ -414,7 +414,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "effectiveTo":"2027-01-01",
                   "reason":"WAVE-3 并发班次模板状态地点"
                 }
-                """.formatted(LEGAL_ENTITY)), "$.locationId");
+                """.formatted(COMPANY)), "$.locationId");
         String shiftId = createShift(
                 locationId,
                 "CONCURRENT_TEMPLATE_STATUS",
@@ -570,13 +570,13 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 idempotencyKey,
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "locationId":"%s",
                   "code":"%s",
                   "name":"并发测试班次",
                   "reason":"WAVE-3 并发班次建档"
                 }
-                """.formatted(LEGAL_ENTITY, locationId, code)), "$.shiftId");
+                """.formatted(COMPANY, locationId, code)), "$.shiftId");
     }
 
     private String createVersion(String shiftId, String idempotencyKey)
@@ -682,7 +682,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                         .header("Idempotency-Key", idempotencyKey),
                 """
                 {
-                  "legalEntityId":"%s",
+                  "companyId":"%s",
                   "code":"CONCURRENCY_ROLLOVER_GROUP",
                   "name":"%s",
                   "locationId":"%s",
@@ -693,7 +693,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "reason":"WAVE-3 不同 key 并发考勤组换版"
                 }
                 """.formatted(
-                        LEGAL_ENTITY,
+                        COMPANY,
                         name,
                         jdbc.queryForObject(
                                 """
@@ -740,7 +740,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate",
                         templateId,
                         versionId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH,
                                 "\"" + expectedVersion + "\"")
                         .header("Idempotency-Key", idempotencyKey),
@@ -756,7 +756,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         templateId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header("Idempotency-Key",
                                 "wave3-concurrent-policy-draft"),
                 """
@@ -778,7 +778,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/deactivate",
                         templateId,
                         versionId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH,
                                 "\"" + expectedVersion + "\"")
                         .header("Idempotency-Key", idempotencyKey),
@@ -896,11 +896,11 @@ class Wave3AttendanceConcurrencyIntegrationTest
         jdbc.update(
                 """
                 INSERT INTO attendance_policy_scope (
-                    scope_id, policy_template_id, legal_entity_id, row_version,
+                    scope_id, policy_template_id, company_id, row_version,
                     created_by, created_at
                 ) VALUES (?, ?, ?, 0, ?, ?)
                 """,
-                scopeId(templateId), templateId, LEGAL_ENTITY,
+                scopeId(templateId), templateId, COMPANY,
                 ADMIN_PRINCIPAL, now);
         jdbc.update(
                 """

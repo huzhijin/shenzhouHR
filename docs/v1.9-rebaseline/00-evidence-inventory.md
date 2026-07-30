@@ -51,12 +51,12 @@
 - Java 21、Spring Boot 4.1.0、Spring Security、MyBatis 4.0.0、Flyway、MariaDB Connector、Actuator/Prometheus，见 `backend/pom.xml`。
 - 模块按 interfaces → application → domain/infrastructure 分层，现有范围为 authorization、organization、employee、shared。
 - 仅实现与 OpenAPI 对应的 3 个 GET 控制器。
-- 已有服务端 capability 校验、角色有效期、法人/组织/后代数据范围、开发身份防冒用、统一错误响应、关联 ID、敏感响应 `no-store`。
+- 已有服务端 capability 校验、角色有效期、公司/组织/后代数据范围、开发身份防冒用、统一错误响应、关联 ID、敏感响应 `no-store`。
 - 正式生产账号密码/session 认证、审计写入服务及 V1.9 业务域均尚不存在。
 
 ### 3.3 数据库与迁移
 
-- `V1__identity_organization_authorization_audit.sql`：法人、员工、组织身份/版本/当前投影/closure/来源绑定、任职、principal/role/capability/data scope、审计事件等 17 张基础表。
+- `V1__identity_organization_authorization_audit.sql`：公司、员工、组织身份/版本/当前投影/closure/来源绑定、任职、principal/role/capability/data scope、审计事件等 17 张基础表。
 - `V2__baseline_authorization_catalog.sql`：基础角色与 `MASTER_DATA:READ`、`MASTER_DATA:SYNC_PREVIEW`、`AUDIT:READ`、`OPERATIONS:READ`。
 - `db/dev/V1000__development_seed.sql` 仅为开发合成数据。
 - V1/V2 不得修改；当前没有 V3+ 正式迁移。

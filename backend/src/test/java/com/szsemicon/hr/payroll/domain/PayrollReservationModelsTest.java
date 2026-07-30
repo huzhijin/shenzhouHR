@@ -154,7 +154,7 @@ class PayrollReservationModelsTest {
         return new EmployeePayrollProfileRef(
                 id("profile-1"),
                 id("employee-1"),
-                id("legal-entity-1"),
+                id("company-1"),
                 id("group-1"),
                 1);
     }

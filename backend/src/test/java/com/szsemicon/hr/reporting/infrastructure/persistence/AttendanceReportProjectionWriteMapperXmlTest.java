@@ -32,7 +32,7 @@ class AttendanceReportProjectionWriteMapperXmlTest {
 
         assertThat(configuration.getMappedStatementNames())
                 .contains(
-                        NAMESPACE + "lockLegalEntity",
+                        NAMESPACE + "lockCompany",
                         NAMESPACE + "findByDigest",
                         NAMESPACE + "findLatestPublished",
                         NAMESPACE + "insertDraft",

@@ -73,14 +73,14 @@ public final class PayrollReservationModels {
     public record EmployeePayrollProfileRef(
             ExternalPreciseId payrollProfileId,
             ExternalPreciseId employeeId,
-            ExternalPreciseId legalEntityId,
+            ExternalPreciseId companyId,
             ExternalPreciseId payrollGroupId,
             long version) {
 
         public EmployeePayrollProfileRef {
             Objects.requireNonNull(payrollProfileId, "payroll profile id is required");
             Objects.requireNonNull(employeeId, "employee id is required");
-            Objects.requireNonNull(legalEntityId, "legal entity id is required");
+            Objects.requireNonNull(companyId, "company id is required");
             Objects.requireNonNull(payrollGroupId, "payroll group id is required");
             positive(version, "payroll profile version");
         }

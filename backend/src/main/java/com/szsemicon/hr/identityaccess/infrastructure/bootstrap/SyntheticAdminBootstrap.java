@@ -26,11 +26,11 @@ import org.springframework.transaction.annotation.Transactional;
         havingValue = "true")
 public class SyntheticAdminBootstrap implements ApplicationRunner {
 
-    static final String SYNTHETIC_LEGAL_ENTITY_ID =
+    static final String SYNTHETIC_COMPANY_ID =
             "30000000-0000-0000-0000-000000000001";
     static final String SYSTEM_ADMIN_ROLE_ID =
             "10000000-0000-0000-0000-000000000002";
-    static final String SYNTHETIC_LEGAL_ENTITY_SCOPE_ID =
+    static final String SYNTHETIC_COMPANY_SCOPE_ID =
             "39000000-0000-0000-0000-000000000001";
     static final String SYNTHETIC_POLICY_TEMPLATE_ID =
             "31000000-0000-0000-0000-000000000001";
@@ -90,7 +90,7 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
             return;
         }
 
-        ensureSyntheticLegalEntity();
+        ensureSyntheticCompany();
         String accountId = accountPersistence.createAccount(
                 username,
                 normalizedUsername,
@@ -99,13 +99,13 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
                 credentialHash,
                 "DEV_SYNTHETIC_BOOTSTRAP",
                 now);
-        ensureSyntheticLegalEntityScope(now);
+        ensureSyntheticCompanyScope(now);
         accountPersistence.replaceRoleAssignments(
                 accountId,
                 0,
                 List.of(new ResolvedRoleAssignmentInput(
                         SYSTEM_ADMIN_ROLE_ID,
-                        SYNTHETIC_LEGAL_ENTITY_SCOPE_ID,
+                        SYNTHETIC_COMPANY_SCOPE_ID,
                         now,
                         null)),
                 "DEV_SYNTHETIC_BOOTSTRAP",
@@ -118,37 +118,37 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
         ensureSyntheticPolicyData(principalId, now);
     }
 
-    private void ensureSyntheticLegalEntity() {
+    private void ensureSyntheticCompany() {
         jdbc.update(
                 """
-                INSERT INTO legal_entity (
-                    legal_entity_id, code, name, status
+                INSERT INTO company (
+                    company_id, code, name, status
                 )
-                SELECT ?, 'WAVE1_SYNTHETIC', 'WAVE-1 合成开发法人', 'ACTIVE'
+                SELECT ?, 'WAVE1_SYNTHETIC', 'WAVE-1 合成开发公司', 'ACTIVE'
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM legal_entity WHERE legal_entity_id = ?
+                    SELECT 1 FROM company WHERE company_id = ?
                 )
                 """,
-                SYNTHETIC_LEGAL_ENTITY_ID,
-                SYNTHETIC_LEGAL_ENTITY_ID);
+                SYNTHETIC_COMPANY_ID,
+                SYNTHETIC_COMPANY_ID);
     }
 
-    private void ensureSyntheticLegalEntityScope(Instant now) {
+    private void ensureSyntheticCompanyScope(Instant now) {
         jdbc.update(
                 """
                 INSERT INTO auth_data_scope (
-                    scope_id, scope_type, legal_entity_id, organization_id,
+                    scope_id, scope_type, company_id, organization_id,
                     include_descendants, valid_from, valid_to
                 )
-                SELECT ?, 'LEGAL_ENTITY', ?, NULL, TRUE, ?, NULL
+                SELECT ?, 'COMPANY', ?, NULL, TRUE, ?, NULL
                 WHERE NOT EXISTS (
                     SELECT 1 FROM auth_data_scope WHERE scope_id = ?
                 )
                 """,
-                SYNTHETIC_LEGAL_ENTITY_SCOPE_ID,
-                SYNTHETIC_LEGAL_ENTITY_ID,
+                SYNTHETIC_COMPANY_SCOPE_ID,
+                SYNTHETIC_COMPANY_ID,
                 Timestamp.from(now),
-                SYNTHETIC_LEGAL_ENTITY_SCOPE_ID);
+                SYNTHETIC_COMPANY_SCOPE_ID);
     }
 
     private void ensureSyntheticPolicyData(String principalId, Instant now) {
@@ -303,7 +303,7 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
                 """,
                 bindingId,
                 versionId,
-                SYNTHETIC_LEGAL_ENTITY_ID,
+                SYNTHETIC_COMPANY_ID,
                 Date.valueOf(effectiveFrom),
                 effectiveTo == null ? null : Date.valueOf(effectiveTo),
                 bindingId);

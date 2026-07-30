@@ -8,7 +8,7 @@ public interface RecalculationIntentPort {
     void append(Intent intent);
 
     record Intent(
-            String legalEntityId,
+            String companyId,
             String employeeId,
             Set<LocalDate> candidateBusinessDates,
             Set<String> evidenceIds,

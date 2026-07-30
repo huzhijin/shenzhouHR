@@ -12,10 +12,10 @@ describe('roleScopePolicy', () => {
     ['EMPLOYEE_SELF', ['SELF']],
     ['DEPARTMENT_HEAD', ['ORGANIZATION']],
     ['MANUFACTURING_CENTER_SUPERVISOR', ['ORGANIZATION']],
-    ['HR_ADMIN', ['LEGAL_ENTITY']],
-    ['SYSTEM_ADMIN', ['LEGAL_ENTITY']],
-    ['AUDITOR', ['LEGAL_ENTITY']],
-    ['EXECUTIVE', ['LEGAL_ENTITY', 'ORGANIZATION']],
+    ['HR_ADMIN', ['COMPANY']],
+    ['SYSTEM_ADMIN', ['COMPANY']],
+    ['AUDITOR', ['COMPANY']],
+    ['EXECUTIVE', ['COMPANY', 'ORGANIZATION']],
   ])('presents the backend role-scope matrix for %s', (roleCode, expected) => {
     expect(allowedScopeTypes(role(roleCode))).toEqual(expected);
   });

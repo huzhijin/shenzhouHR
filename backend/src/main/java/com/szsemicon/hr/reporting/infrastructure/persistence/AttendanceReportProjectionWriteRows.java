@@ -19,7 +19,7 @@ final class AttendanceReportProjectionWriteRows {
 
     record StoredProjectionRow(
             String projectionId,
-            String legalEntityId,
+            String companyId,
             LocalDate periodStart,
             LocalDate periodEndExclusive,
             String periodState,
@@ -35,7 +35,7 @@ final class AttendanceReportProjectionWriteRows {
         StoredProjection toStoredProjection(List<String> sourceVersions) {
             return new StoredProjection(
                     projectionId,
-                    legalEntityId,
+                    companyId,
                     periodStart,
                     periodEndExclusive,
                     PeriodState.valueOf(periodState),
@@ -52,7 +52,7 @@ final class AttendanceReportProjectionWriteRows {
 
     record ProjectionDraftRow(
             String projectionId,
-            String legalEntityId,
+            String companyId,
             LocalDate periodStart,
             LocalDate periodEndExclusive,
             String periodState,
@@ -69,7 +69,7 @@ final class AttendanceReportProjectionWriteRows {
                 ProjectionDraft draft, String sourceVersionsJson) {
             return new ProjectionDraftRow(
                     draft.projectionId(),
-                    draft.legalEntityId(),
+                    draft.companyId(),
                     draft.periodStart(),
                     draft.periodEndExclusive(),
                     draft.periodState().name(),
@@ -87,7 +87,7 @@ final class AttendanceReportProjectionWriteRows {
     record DailyFactRow(
             String rowId,
             String projectionId,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             String employeeVersionId,
             String employmentAssignmentId,
@@ -117,7 +117,7 @@ final class AttendanceReportProjectionWriteRows {
             return new DailyFactRow(
                     value.rowId(),
                     value.projectionId(),
-                    fact.legalEntityId(),
+                    fact.companyId(),
                     fact.employeeId(),
                     value.employeeVersionId(),
                     value.employmentAssignmentId(),
@@ -147,7 +147,7 @@ final class AttendanceReportProjectionWriteRows {
     record ExceptionFactRow(
             String rowId,
             String projectionId,
-            String legalEntityId,
+            String companyId,
             String employeeId,
             String employeeVersionId,
             String employmentAssignmentId,
@@ -168,7 +168,7 @@ final class AttendanceReportProjectionWriteRows {
             return new ExceptionFactRow(
                     value.rowId(),
                     value.projectionId(),
-                    value.legalEntityId(),
+                    value.companyId(),
                     fact.employeeId(),
                     value.employeeVersionId(),
                     value.employmentAssignmentId(),
@@ -189,7 +189,7 @@ final class AttendanceReportProjectionWriteRows {
     record OaDocumentFactRow(
             String rowId,
             String projectionId,
-            String legalEntityId,
+            String companyId,
             String oaAttendanceDocumentId,
             String employeeId,
             String employeeVersionId,
@@ -211,7 +211,7 @@ final class AttendanceReportProjectionWriteRows {
             return new OaDocumentFactRow(
                     value.rowId(),
                     value.projectionId(),
-                    value.legalEntityId(),
+                    value.companyId(),
                     value.oaAttendanceDocumentId(),
                     value.employeeId(),
                     value.employeeVersionId(),
@@ -234,7 +234,7 @@ final class AttendanceReportProjectionWriteRows {
     record TimeAccountFactRow(
             String rowId,
             String projectionId,
-            String legalEntityId,
+            String companyId,
             String accountId,
             String employeeId,
             String employeeVersionId,
@@ -256,7 +256,7 @@ final class AttendanceReportProjectionWriteRows {
             return new TimeAccountFactRow(
                     value.rowId(),
                     value.projectionId(),
-                    value.legalEntityId(),
+                    value.companyId(),
                     value.accountId(),
                     value.employeeId(),
                     value.employeeVersionId(),

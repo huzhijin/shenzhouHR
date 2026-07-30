@@ -20,14 +20,14 @@ describe.runIf(isDemoMode())('punch import demo state', () => {
     const before = await listPunchImports();
     const uploaded = await uploadPunchImport(
       new File(['synthetic'], 'customer-demo.xlsx'),
-      'customer-legal-entity',
+      'customer-company',
       'customer-xlsx-source',
       '客户演示上传',
     );
 
     expect(uploaded).toMatchObject({
       originalFilename: 'customer-demo.xlsx',
-      legalEntityId: 'customer-legal-entity',
+      companyId: 'customer-company',
       sourceId: 'customer-xlsx-source',
       state: 'DRAFT',
       rowVersion: 1,
@@ -42,7 +42,7 @@ describe.runIf(isDemoMode())('punch import demo state', () => {
   it('blocks strict publish while precheck still contains invalid rows', async () => {
     const uploaded = await uploadPunchImport(
       new File(['synthetic'], 'strict-demo.xlsx'),
-      'customer-legal-entity',
+      'customer-company',
       'customer-xlsx-source',
       '客户演示上传',
     );

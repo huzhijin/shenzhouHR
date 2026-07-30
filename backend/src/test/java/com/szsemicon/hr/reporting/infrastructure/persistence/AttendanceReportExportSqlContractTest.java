@@ -11,6 +11,9 @@ class AttendanceReportExportSqlContractTest {
     private static final Path MIGRATION = Path.of(
             "src/main/resources/db/migration/"
                     + "V10__formal_attendance_reporting.sql");
+    private static final Path COMPANY_MIGRATION = Path.of(
+            "src/main/resources/db/migration/"
+                    + "V11__unify_company_dimension.sql");
     private static final Path MAPPER = Path.of(
             "src/main/resources/mappers/"
                     + "AttendanceReportExportMapper.xml");
@@ -27,6 +30,7 @@ class AttendanceReportExportSqlContractTest {
                 migration,
                 "CREATE TABLE attendance_report_export_artifact",
                 "INSERT INTO auth_role");
+        String companyMigration = Files.readString(COMPANY_MIGRATION);
 
         assertThat(jobTable)
                 .contains("principal_id VARCHAR(36)")
@@ -49,9 +53,13 @@ class AttendanceReportExportSqlContractTest {
                 .doesNotContain("LONGBLOB")
                 .doesNotContainIgnoringCase("password")
                 .doesNotContainIgnoringCase("secret");
+        assertThat(companyMigration).contains(
+                "ALTER TABLE attendance_report_export_job\n"
+                        + "    RENAME COLUMN legal_entity_id TO company_id,\n"
+                        + "    ALGORITHM = INPLACE;");
         assertThat(Files.readString(MAPPER))
-                .contains("job.legal_entity_id")
-                .contains("#{legalEntityId}");
+                .contains("job.company_id")
+                .contains("#{companyId}");
         assertThat(artifactTable)
                 .contains("content LONGBLOB NOT NULL")
                 .contains("ON DELETE CASCADE")

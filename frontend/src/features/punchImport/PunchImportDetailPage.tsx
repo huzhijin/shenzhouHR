@@ -132,7 +132,7 @@ function BatchDetail({
           items={[
             { key: 'batch', label: '批次编号', children: batchDisplayNumber(batch.batchId) },
             { key: 'sha', label: '文件摘要', children: <code>{batch.fileSha256}</code> },
-            { key: 'scope', label: '公司', children: companyLabel(batch.legalEntityId) },
+            { key: 'scope', label: '公司', children: companyLabel(batch.companyId) },
             { key: 'source', label: '来源', children: sourceLabel(batch.sourceId) },
             {
               key: 'range',

@@ -37,7 +37,7 @@ import type {
 
 interface LifecyclePanelProps {
   templateId: string;
-  legalEntityId: string;
+  companyId: string;
   selectedVersionId: string;
   fields: PolicyFieldDefinition[];
   canManage: boolean;
@@ -48,7 +48,7 @@ type LifecycleAction = 'validate' | 'publish' | 'deactivate' | 'rollback';
 
 export function AttendancePolicyLifecyclePanel({
   templateId,
-  legalEntityId,
+  companyId,
   selectedVersionId,
   fields,
   canManage,
@@ -68,10 +68,10 @@ export function AttendancePolicyLifecyclePanel({
   const [versionPage, setVersionPage] = useState(0);
   const [versionPageSize, setVersionPageSize] = useState(20);
   const versionsLoader = useMemo(
-    () => () => templateId && legalEntityId
+    () => () => templateId && companyId
       ? listAttendancePolicyVersions(
         templateId,
-        legalEntityId,
+        companyId,
         versionPage,
         versionPageSize,
       )
@@ -81,32 +81,32 @@ export function AttendancePolicyLifecyclePanel({
         page: versionPage,
         size: versionPageSize,
       }),
-    [legalEntityId, templateId, versionPage, versionPageSize],
+    [companyId, templateId, versionPage, versionPageSize],
   );
   const versions = useAsyncResource(
     versionsLoader,
     (page) => page.items.length === 0,
-    [legalEntityId, templateId, versionPage, versionPageSize],
+    [companyId, templateId, versionPage, versionPageSize],
   );
   const effectiveVersionId = selectedVersionId
     || (versions.resource.status === 'ready'
       ? versions.resource.data.items[0]?.scopedVersionId ?? ''
       : '');
   const detailLoader = useMemo(
-    () => () => templateId && legalEntityId && effectiveVersionId
-      ? getAttendancePolicyVersion(templateId, legalEntityId, effectiveVersionId)
+    () => () => templateId && companyId && effectiveVersionId
+      ? getAttendancePolicyVersion(templateId, companyId, effectiveVersionId)
       : Promise.resolve(null),
-    [effectiveVersionId, legalEntityId, templateId],
+    [effectiveVersionId, companyId, templateId],
   );
   const detail = useAsyncResource(
     detailLoader,
     (value) => value === null,
-    [effectiveVersionId, legalEntityId, templateId],
+    [effectiveVersionId, companyId, templateId],
   );
   const selected = detail.resource.status === 'ready'
     && detail.resource.data?.scopedVersionId === effectiveVersionId
     && detail.resource.data.templateId === templateId
-    && detail.resource.data.legalEntityId === legalEntityId
+    && detail.resource.data.companyId === companyId
     ? detail.resource.data
     : undefined;
 
@@ -125,7 +125,7 @@ export function AttendancePolicyLifecyclePanel({
 
   useEffect(() => {
     setVersionPage(0);
-  }, [legalEntityId, templateId]);
+  }, [companyId, templateId]);
 
   const reload = () => {
     versions.reload();
@@ -156,7 +156,7 @@ export function AttendancePolicyLifecyclePanel({
       return;
     }
     void run(async () => {
-      const created = await createAttendancePolicyDraft(templateId, legalEntityId, {
+      const created = await createAttendancePolicyDraft(templateId, companyId, {
         basedOnVersionId: selected?.scopedVersionId ?? null,
         effectiveFrom: draftEffectiveFrom,
         effectiveTo: null,
@@ -349,7 +349,7 @@ export function AttendancePolicyLifecyclePanel({
           </header>
           <dl className="metric-list">
             <div><dt>{t('attendanceSetup.rowVersion')}</dt><dd>{selected.rowVersion}</dd></div>
-            <div><dt>{t('attendanceSetup.legalEntityId')}</dt><dd>{selected.legalEntityId}</dd></div>
+            <div><dt>{t('attendanceSetup.companyId')}</dt><dd>{selected.companyId}</dd></div>
             <div><dt>{t('attendanceSetup.policyKind')}</dt><dd>{selected.policyKind}</dd></div>
             <div><dt>{t('attendanceSetup.scopeId')}</dt><dd>{selected.scopeId}</dd></div>
             <div><dt>{t('attendanceSetup.validation')}</dt><dd>{selected.validation.valid ? t('attendanceSetup.yes') : t('attendanceSetup.no')}</dd></div>

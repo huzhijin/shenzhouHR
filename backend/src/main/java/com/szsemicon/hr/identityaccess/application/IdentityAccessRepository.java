@@ -22,7 +22,7 @@ public interface IdentityAccessRepository
             Instant lastLoginAt,
             long sessionEpoch,
             long rowVersion,
-            String legalEntityId) {
+            String companyId) {
     }
 
     record CredentialRecord(String accountId, String passwordHash, long rowVersion) {

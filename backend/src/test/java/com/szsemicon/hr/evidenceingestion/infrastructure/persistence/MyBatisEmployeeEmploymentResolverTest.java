@@ -27,7 +27,7 @@ class MyBatisEmployeeEmploymentResolverTest {
     void preservesExactEmployeeNumberAndUsesShanghaiBusinessDate() {
         String employeeNumber = " 000A-Ab ";
         when(mapper.resolveByEmployeeNumber(
-                        "legal-entity-1",
+                        "company-1",
                         employeeNumber,
                         LocalDate.parse("2026-07-29")))
                 .thenReturn(List.of(row(
@@ -39,7 +39,7 @@ class MyBatisEmployeeEmploymentResolverTest {
                         null)));
 
         var matches = resolver.resolveByEmployeeNumber(
-                "legal-entity-1", employeeNumber, PUNCH_AT);
+                "company-1", employeeNumber, PUNCH_AT);
 
         assertThat(matches).singleElement().satisfies(match -> {
             assertThat(match.employeeId()).isEqualTo("employee-1");
@@ -49,7 +49,7 @@ class MyBatisEmployeeEmploymentResolverTest {
                     .matches("[0-9a-f]{64}");
         });
         verify(mapper).resolveByEmployeeNumber(
-                "legal-entity-1",
+                "company-1",
                 employeeNumber,
                 LocalDate.parse("2026-07-29"));
     }
@@ -57,7 +57,7 @@ class MyBatisEmployeeEmploymentResolverTest {
     @Test
     void retainsMultipleEmploymentMatchesForFailClosedAmbiguity() {
         when(mapper.resolveByEmployeeNumber(
-                        "legal-entity-1",
+                        "company-1",
                         "E001",
                         LocalDate.parse("2026-07-29")))
                 .thenReturn(List.of(
@@ -77,7 +77,7 @@ class MyBatisEmployeeEmploymentResolverTest {
                                 null)));
 
         assertThat(resolver.resolveByEmployeeNumber(
-                        "legal-entity-1", "E001", PUNCH_AT))
+                        "company-1", "E001", PUNCH_AT))
                 .extracting(value ->
                         value.employeeId() + ":" + value.employmentPeriodId())
                 .containsExactly(
@@ -102,12 +102,12 @@ class MyBatisEmployeeEmploymentResolverTest {
                 "organization-1",
                 "binding-1");
         when(mapper.resolveByEmployeeNumber(
-                        "legal-entity-1",
+                        "company-1",
                         "E001",
                         LocalDate.parse("2026-07-29")))
                 .thenReturn(List.of(withoutBinding));
         when(mapper.resolveByConfirmedDeliBinding(
-                        "legal-entity-1",
+                        "company-1",
                         "DELI_EXT_ID",
                         "deli-user-1",
                         LocalDateTime.parse("2026-07-29T00:30:00"),
@@ -115,11 +115,11 @@ class MyBatisEmployeeEmploymentResolverTest {
                 .thenReturn(List.of(withBinding));
 
         String numberDigest = resolver.resolveByEmployeeNumber(
-                        "legal-entity-1", "E001", PUNCH_AT)
+                        "company-1", "E001", PUNCH_AT)
                 .getFirst()
                 .resolverSnapshotDigest();
         var bindingMatch = resolver.resolveByConfirmedBinding(
-                "legal-entity-1",
+                "company-1",
                 null,
                 "terminal-1",
                 ConfirmedBindingKind.DELI_EXT_ID,
@@ -131,7 +131,7 @@ class MyBatisEmployeeEmploymentResolverTest {
                 .matches("[0-9a-f]{64}")
                 .isNotEqualTo(numberDigest);
         verify(mapper).resolveByConfirmedDeliBinding(
-                "legal-entity-1",
+                "company-1",
                 "DELI_EXT_ID",
                 "deli-user-1",
                 LocalDateTime.parse("2026-07-29T00:30:00"),
@@ -141,10 +141,10 @@ class MyBatisEmployeeEmploymentResolverTest {
     @Test
     void rejectsMalformedInputsAndNullPersistenceResults() {
         assertThatThrownBy(() -> resolver.resolveByEmployeeNumber(
-                        "legal-entity-1", "E001\nOTHER", PUNCH_AT))
+                        "company-1", "E001\nOTHER", PUNCH_AT))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> resolver.resolveByConfirmedBinding(
-                        "legal-entity-1",
+                        "company-1",
                         null,
                         null,
                         ConfirmedBindingKind.DELI_EXT_ID,
@@ -153,12 +153,12 @@ class MyBatisEmployeeEmploymentResolverTest {
                 .isInstanceOf(IllegalArgumentException.class);
 
         when(mapper.resolveByEmployeeNumber(
-                        "legal-entity-1",
+                        "company-1",
                         "E404",
                         LocalDate.parse("2026-07-29")))
                 .thenReturn(null);
         assertThatThrownBy(() -> resolver.resolveByEmployeeNumber(
-                        "legal-entity-1", "E404", PUNCH_AT))
+                        "company-1", "E404", PUNCH_AT))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("returned null");
     }

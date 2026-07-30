@@ -35,7 +35,7 @@ Each immutable version SHALL contain an IANA timezone snapshot and normalized or
 - **THEN** validation blocks publication with a WORK-required issue
 
 ### Requirement: Calendar families publish complete immutable year/effective versions
-The system SHALL manage stable calendar identities, immutable content versions/days and append-only publication/deactivation timeline facts by legal entity, location and IANA timezone. Published days SHALL never be deleted or replaced.
+The system SHALL manage stable calendar identities, immutable content versions/days and append-only publication/deactivation timeline facts by company, location and IANA timezone. Published days SHALL never be deleted or replaced.
 
 #### Scenario: Publish a complete interval
 - **WHEN** every date in the declared half-open interval exists exactly once and lies in the declared year
@@ -66,7 +66,7 @@ Each day SHALL store controlled `WORKDAY/WEEKEND/PUBLIC_HOLIDAY/SPECIAL_WORKDAY`
 
 #### Scenario: Validate explicit override
 - **WHEN** a day supplies an override
-- **THEN** it must match legal entity, location, IANA timezone and business-date publication
+- **THEN** it must match company, location, IANA timezone and business-date publication
 
 #### Scenario: Permit non-working day without shift
 - **WHEN** WEEKEND/PUBLIC_HOLIDAY has no override
@@ -80,7 +80,7 @@ Each day SHALL store controlled `WORKDAY/WEEKEND/PUBLIC_HOLIDAY/SPECIAL_WORKDAY`
 For employee+business date the resolver SHALL return exactly one group revision, location revision, calendar version/day and required shift version, with a complete digest; missing/ambiguous data SHALL fail closed.
 
 #### Scenario: Two groups use different calendar families
-- **WHEN** two groups in the same legal entity/location/timezone/date reference different calendar families
+- **WHEN** two groups in the same company/location/timezone/date reference different calendar families
 - **THEN** each resolves its own correct immutable day/version and digest
 
 #### Scenario: December 31 and January 1 resolve independently

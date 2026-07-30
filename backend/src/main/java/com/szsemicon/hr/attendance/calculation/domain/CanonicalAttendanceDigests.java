@@ -18,7 +18,7 @@ public final class CanonicalAttendanceDigests {
 
     public static String inputDigest(CalculationInputSnapshot snapshot) {
         CanonicalWriter writer = new CanonicalWriter("W5_CALC_INPUT_V2")
-                .text(snapshot.legalEntityId())
+                .text(snapshot.companyId())
                 .text(snapshot.employeeId())
                 .text(snapshot.employmentPeriodId())
                 .text(snapshot.businessDate().toString())

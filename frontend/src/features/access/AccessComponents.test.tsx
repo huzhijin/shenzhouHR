@@ -35,7 +35,7 @@ describe('PermissionMatrix', () => {
   it('translates capability codes and role scopes without changing their values', () => {
     expect(capabilityLabel('ATTENDANCE_PUNCH_IMPORT:VOID_OR_REVERSE'))
       .toBe('考勤打卡导入 · 作废或冲正');
-    expect(roleScopeLabel('LEGAL_ENTITY')).toBe('公司范围');
+    expect(roleScopeLabel('COMPANY')).toBe('公司范围');
     expect(roleScopeLabel('ORGANIZATION')).toBe('组织范围');
     expect(roleScopeLabel('SELF')).toBe('仅本人');
   });

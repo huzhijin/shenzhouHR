@@ -28,12 +28,12 @@ class RoleScopeMatrixTest {
             Arguments.of(
                     "MANUFACTURING_CENTER_SUPERVISOR",
                     Set.of("ORGANIZATION")),
-            Arguments.of("HR_ADMIN", Set.of("LEGAL_ENTITY")),
-            Arguments.of("SYSTEM_ADMIN", Set.of("LEGAL_ENTITY")),
-            Arguments.of("AUDITOR", Set.of("LEGAL_ENTITY")),
+            Arguments.of("HR_ADMIN", Set.of("COMPANY")),
+            Arguments.of("SYSTEM_ADMIN", Set.of("COMPANY")),
+            Arguments.of("AUDITOR", Set.of("COMPANY")),
             Arguments.of(
                     "EXECUTIVE",
-                    Set.of("LEGAL_ENTITY", "ORGANIZATION")),
+                    Set.of("COMPANY", "ORGANIZATION")),
             Arguments.of("UNSIGNED_FUTURE_ROLE", Set.of())
         };
     }

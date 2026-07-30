@@ -50,7 +50,7 @@ The server MUST enforce configurable defaults of 20 MiB compressed file size and
 - **THEN** parsing stops safely, creates no staged row and returns no local path or parser stack
 
 ### Requirement: AC-PUNCH-04 mapping profiles are scoped and immutable by version
-The system SHALL support stable mapping-profile identities with immutable versions scoped by legal entity, vendor, model and optional location. Mapping operations SHALL be limited to registered canonical fields, date formats, timezone, trim policy and enum maps.
+The system SHALL support stable mapping-profile identities with immutable versions scoped by company, vendor, model and optional location. Mapping operations SHALL be limited to registered canonical fields, date formats, timezone, trim policy and enum maps.
 
 #### Scenario: Save a new mapping version
 - **WHEN** an authorized caller changes a used mapping profile
@@ -88,14 +88,14 @@ Punch precheck SHALL first use a unique employee number and validate the punch-t
 - **THEN** precheck reports a non-disclosing scope issue and publish cannot include the row
 
 ### Requirement: AC-PUNCH-06 file hash prevents renamed republish
-The system SHALL identify identical files by legal entity, source scope, content SHA-256 and template/mapping context. Changing only the filename MUST NOT publish a second set of raw facts.
+The system SHALL identify identical files by company, source scope, content SHA-256 and template/mapping context. Changing only the filename MUST NOT publish a second set of raw facts.
 
 #### Scenario: Renamed identical upload
 - **WHEN** an already uploaded file is uploaded again with another filename in the same scope
 - **THEN** the server returns the existing file/batch relation or a new precheck attempt linked to it, and a publish attempt creates no duplicate raw facts
 
-#### Scenario: Same bytes in a different legal entity are isolated
-- **WHEN** authorized callers upload identical bytes to two legal entities
+#### Scenario: Same bytes in a different company are isolated
+- **WHEN** authorized callers upload identical bytes to two companies
 - **THEN** file content may be deduplicated at storage level but batches, permissions and publication identities remain legally isolated
 
 ### Requirement: AC-PUNCH-07 source ID and stable fingerprint idempotency
@@ -204,7 +204,7 @@ A `PUBLISHED` or `PARTIALLY_PUBLISHED` batch MUST NOT be physically deleted or r
 - **THEN** there is no path to DELETE published batch/file/row/raw/evidence history
 
 ### Requirement: AC-PUNCH-14 batch and row trace is complete
-Every batch SHALL retain source type, legal entity, location/device/timezone, original filename, object reference, file hash/size, template and mapping version, attempts, counts, actors, timestamps and request IDs. Every row SHALL retain row number, raw/normalized values, match decision, fingerprint, issues, publication/effective IDs and evidence links as permitted.
+Every batch SHALL retain source type, company, location/device/timezone, original filename, object reference, file hash/size, template and mapping version, attempts, counts, actors, timestamps and request IDs. Every row SHALL retain row number, raw/normalized values, match decision, fingerprint, issues, publication/effective IDs and evidence links as permitted.
 
 #### Scenario: Trace a published row
 - **WHEN** an authorized raw-row reader opens a published row
@@ -253,7 +253,7 @@ The current batch state SHALL derive from append-only state events, and every ma
 - **THEN** the server returns 409 before mutation
 
 ### Requirement: Punch import actions are independently authorized and scoped
-The server SHALL independently enforce template download, upload, precheck, publish, partial publish, void/reverse, raw file read, raw row read, error report download, duplicate review and recalculation-intent actions, plus legal-entity/location/organization scope.
+The server SHALL independently enforce template download, upload, precheck, publish, partial publish, void/reverse, raw file read, raw row read, error report download, duplicate review and recalculation-intent actions, plus company/location/organization scope.
 
 #### Scenario: Upload does not imply publish
 - **WHEN** a caller can upload and precheck but lacks publish

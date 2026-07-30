@@ -112,7 +112,7 @@ public class AttendanceGroupService {
     public Location getLocation(String locationId) {
         Location location = repository.findLocation(locationId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        requireLegalEntity(CapabilityCodes.ATTENDANCE_SETUP_READ, location.legalEntityId());
+        requireCompany(CapabilityCodes.ATTENDANCE_SETUP_READ, location.companyId());
         return location;
     }
 
@@ -134,8 +134,8 @@ public class AttendanceGroupService {
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
         LocationCommand normalized = normalize(command);
         String key = AttendanceSetupRules.idempotencyKey(idempotencyKey);
-        requireLegalEntity(
-                CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP, normalized.legalEntityId());
+        requireCompany(
+                CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP, normalized.companyId());
         String actor = principalProvider.currentPrincipalId();
         Location replay = repository.findLocationByIdempotency(actor, key).orElse(null);
         if (replay != null) {
@@ -148,7 +148,7 @@ public class AttendanceGroupService {
         }
         Instant now = clock.instant();
         Location created = new Location(
-                UUID.randomUUID().toString(), normalized.legalEntityId(),
+                UUID.randomUUID().toString(), normalized.companyId(),
                 normalized.code(), UUID.randomUUID().toString(), 1,
                 normalized.name(), normalized.timeZone(), LifecycleStatus.ACTIVE,
                 normalized.effectiveFrom(), normalized.effectiveTo(),
@@ -167,7 +167,7 @@ public class AttendanceGroupService {
         Location current = requireLocation(
                 locationId, CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
         LocationCommand normalized = normalize(command);
-        if (!current.legalEntityId().equals(normalized.legalEntityId())) {
+        if (!current.companyId().equals(normalized.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         if (!current.code().equals(normalized.code())) {
@@ -184,7 +184,7 @@ public class AttendanceGroupService {
         Instant now = clock.instant();
         String actor = principalProvider.currentPrincipalId();
         Location updated = new Location(
-                current.locationId(), current.legalEntityId(), normalized.code(),
+                current.locationId(), current.companyId(), normalized.code(),
                 UUID.randomUUID().toString(), current.revisionNumber() + 1,
                 normalized.name(), normalized.timeZone(), current.status(),
                 normalized.effectiveFrom(), normalized.effectiveTo(),
@@ -221,12 +221,12 @@ public class AttendanceGroupService {
         Instant now = clock.instant();
         LocalDate nextEffectiveFrom = futureStatusBoundary(current.effectiveFrom());
         LocationCommand transition = new LocationCommand(
-                current.legalEntityId(), current.code(), current.name(),
+                current.companyId(), current.code(), current.name(),
                 current.timeZone(), nextEffectiveFrom, current.effectiveTo(),
                 normalizedReason);
         requireFutureRevision(current.effectiveFrom(), nextEffectiveFrom);
         Location updated = new Location(
-                current.locationId(), current.legalEntityId(), current.code(),
+                current.locationId(), current.companyId(), current.code(),
                 UUID.randomUUID().toString(), current.revisionNumber() + 1,
                 current.name(), current.timeZone(), status,
                 nextEffectiveFrom, current.effectiveTo(),
@@ -278,8 +278,8 @@ public class AttendanceGroupService {
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
         GroupCommand normalized = normalize(command);
         String key = AttendanceSetupRules.idempotencyKey(idempotencyKey);
-        requireLegalEntity(
-                CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP, normalized.legalEntityId());
+        requireCompany(
+                CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP, normalized.companyId());
         String actor = principalProvider.currentPrincipalId();
         Map<String, Location> lockedLocations = lockLocationReferences(
                 Set.of(normalized.locationId()), normalized.effectiveFrom());
@@ -296,12 +296,12 @@ public class AttendanceGroupService {
             return replay;
         }
         List<DefaultPolicy> baselines = resolveDefaultPolicies(
-                normalized.legalEntityId(),
+                normalized.companyId(),
                 normalized.effectiveFrom(),
                 normalized.effectiveTo());
         Instant now = clock.instant();
         AttendanceGroup created = new AttendanceGroup(
-                UUID.randomUUID().toString(), normalized.legalEntityId(),
+                UUID.randomUUID().toString(), normalized.companyId(),
                 normalized.code(), UUID.randomUUID().toString(), 1,
                 normalized.name(), references.location().locationId(),
                 references.location().locationRevisionId(),
@@ -330,7 +330,7 @@ public class AttendanceGroupService {
                     UUID.randomUUID().toString(),
                     UUID.randomUUID().toString(),
                     1,
-                    group.legalEntityId(),
+                    group.companyId(),
                     kind,
                     baseline.policyVersionId(),
                     group.groupId(),
@@ -372,7 +372,7 @@ public class AttendanceGroupService {
         AttendanceGroup current = requireGroup(
                 groupId, CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
         GroupCommand normalized = normalize(command);
-        if (!current.legalEntityId().equals(normalized.legalEntityId())) {
+        if (!current.companyId().equals(normalized.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         if (!current.code().equals(normalized.code())) {
@@ -402,7 +402,7 @@ public class AttendanceGroupService {
         String actor = principalProvider.currentPrincipalId();
         Instant now = clock.instant();
         AttendanceGroup updated = new AttendanceGroup(
-                current.groupId(), current.legalEntityId(), normalized.code(),
+                current.groupId(), current.companyId(), normalized.code(),
                 UUID.randomUUID().toString(), current.revisionNumber() + 1,
                 normalized.name(), references.location().locationId(),
                 references.location().locationRevisionId(), normalized.calendarId(),
@@ -456,12 +456,12 @@ public class AttendanceGroupService {
         Instant now = clock.instant();
         requireFutureRevision(current.effectiveFrom(), nextEffectiveFrom);
         GroupCommand transition = new GroupCommand(
-                current.legalEntityId(), current.code(), current.name(),
+                current.companyId(), current.code(), current.name(),
                 current.locationId(), current.calendarId(), current.shiftTemplateId(),
                 nextEffectiveFrom, current.effectiveTo(), normalizedReason);
         validateGroupReferences(transition, location);
         AttendanceGroup updated = new AttendanceGroup(
-                current.groupId(), current.legalEntityId(), current.code(),
+                current.groupId(), current.companyId(), current.code(),
                 UUID.randomUUID().toString(), current.revisionNumber() + 1,
                 current.name(), current.locationId(), location.locationRevisionId(),
                 current.calendarId(), current.shiftTemplateId(), status,
@@ -530,9 +530,9 @@ public class AttendanceGroupService {
                 groupId, command.effectiveFrom(),
                 CapabilityCodes.ATTENDANCE_SETUP_ASSIGN);
         validateAssignmentWithinGroup(group, command);
-        requireEmployeeInLegalEntity(
+        requireEmployeeInCompany(
                 command.employeeId(), command.effectiveFrom(),
-                group.legalEntityId());
+                group.companyId());
         validateAssignmentConfigurationInterval(group, command);
         if (repository.hasAssignmentOverlap(
                 command.employeeId(), command.effectiveFrom(),
@@ -577,9 +577,9 @@ public class AttendanceGroupService {
                     "人员分配 successor 生效日必须晚于 predecessor 生效日");
         }
         validateAssignmentWithinGroup(group, normalized);
-        requireEmployeeInLegalEntity(
+        requireEmployeeInCompany(
                 normalized.employeeId(), normalized.effectiveFrom(),
-                group.legalEntityId());
+                group.companyId());
         validateAssignmentConfigurationInterval(group, normalized);
         requireVersion(current.rowVersion(), expectedVersion);
         repository.lockEmployee(normalized.employeeId());
@@ -644,7 +644,7 @@ public class AttendanceGroupService {
             requireFutureRevision(
                     currentGroup.effectiveFrom(), successor.effectiveFrom());
             GroupCommand transition = new GroupCommand(
-                    currentGroup.legalEntityId(),
+                    currentGroup.companyId(),
                     currentGroup.code(),
                     currentGroup.name(),
                     successor.locationId(),
@@ -663,7 +663,7 @@ public class AttendanceGroupService {
                             : currentGroup.status();
             AttendanceGroup successorGroup = new AttendanceGroup(
                     currentGroup.groupId(),
-                    currentGroup.legalEntityId(),
+                    currentGroup.companyId(),
                     currentGroup.code(),
                     UUID.randomUUID().toString(),
                     currentGroup.revisionNumber() + 1,
@@ -774,7 +774,7 @@ public class AttendanceGroupService {
                         "默认策略绑定在获取稳定 family 锁期间发生变化");
             }
             if (!policyRepository.publishedVersionMatchesKind(
-                    successor.legalEntityId(),
+                    successor.companyId(),
                     lockedHead.policyVersionId(),
                     kind,
                     successor.effectiveFrom(),
@@ -825,7 +825,7 @@ public class AttendanceGroupService {
                     binding.bindingId(),
                     UUID.randomUUID().toString(),
                     binding.revisionNumber() + 1,
-                    binding.legalEntityId(),
+                    binding.companyId(),
                     binding.policyKind(),
                     binding.policyVersionId(),
                     binding.groupId(),
@@ -909,14 +909,14 @@ public class AttendanceGroupService {
     }
 
     private List<DefaultPolicy> resolveDefaultPolicies(
-            String legalEntityId,
+            String companyId,
             LocalDate effectiveFrom,
             LocalDate effectiveTo) {
         List<DefaultPolicy> result = new ArrayList<>();
         for (PolicyKind kind : ROLLOVER_POLICY_KIND_ORDER) {
             List<String> matches =
                     policyRepository.findPublishedVersionIdsByKind(
-                            legalEntityId, kind, effectiveFrom, effectiveTo);
+                            companyId, kind, effectiveFrom, effectiveTo);
             if (matches.isEmpty()) {
                 throw AttendanceSetupRules.conflict(
                         "POLICY_MISSING",
@@ -1005,7 +1005,7 @@ public class AttendanceGroupService {
         capabilityService.require(capability);
         Location location = repository.findLocation(locationId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        requireLegalEntity(capability, location.legalEntityId());
+        requireCompany(capability, location.companyId());
         return location;
     }
 
@@ -1013,27 +1013,27 @@ public class AttendanceGroupService {
         capabilityService.require(capability);
         AttendanceGroup group = repository.findGroup(groupId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        requireLegalEntity(capability, group.legalEntityId());
+        requireCompany(capability, group.companyId());
         return group;
     }
 
-    private void requireLegalEntity(String capability, String legalEntityId) {
+    private void requireCompany(String capability, String companyId) {
         String actor = principalProvider.currentPrincipalId();
-        if (!peopleRepository.canAccessLegalEntity(
-                actor, capability, legalEntityId, clock.instant())) {
+        if (!peopleRepository.canAccessCompany(
+                actor, capability, companyId, clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
     }
 
-    private void requireEmployeeInLegalEntity(
-            String employeeId, LocalDate asOf, String legalEntityId) {
+    private void requireEmployeeInCompany(
+            String employeeId, LocalDate asOf, String companyId) {
         String actor = principalProvider.currentPrincipalId();
         if (!peopleRepository.canAccessEmployee(
                 actor, CapabilityCodes.ATTENDANCE_SETUP_ASSIGN,
                 employeeId, asOf, clock.instant())
                 || peopleRepository.findEmployeeAsOf(employeeId, asOf)
-                        .filter(employee -> employee.legalEntityId()
-                                .equals(legalEntityId))
+                        .filter(employee -> employee.companyId()
+                                .equals(companyId))
                         .isEmpty()) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -1044,9 +1044,9 @@ public class AttendanceGroupService {
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_ASSIGN);
         AttendanceGroup group = requireGroup(
                 groupId, CapabilityCodes.ATTENDANCE_SETUP_ASSIGN);
-        requireEmployeeInLegalEntity(
+        requireEmployeeInCompany(
                 command.employeeId(), command.effectiveFrom(),
-                group.legalEntityId());
+                group.companyId());
     }
 
     private AttendanceGroup requireEffectiveActiveGroup(
@@ -1062,7 +1062,7 @@ public class AttendanceGroupService {
                     "人员分配生效日必须恰好解析一个考勤组 revision");
         }
         AttendanceGroup group = revisions.getFirst();
-        requireLegalEntity(capability, group.legalEntityId());
+        requireCompany(capability, group.companyId());
         if (group.status() != LifecycleStatus.ACTIVE) {
             throw AttendanceSetupRules.conflict(
                     "ATTENDANCE_GROUP_INACTIVE",
@@ -1101,9 +1101,9 @@ public class AttendanceGroupService {
         var calendar = calendars.getFirst();
         var template = shiftRepository.findTemplate(command.shiftTemplateId())
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        if (!location.legalEntityId().equals(command.legalEntityId())
-                || !calendar.legalEntityId().equals(command.legalEntityId())
-                || !template.legalEntityId().equals(command.legalEntityId())
+        if (!location.companyId().equals(command.companyId())
+                || !calendar.companyId().equals(command.companyId())
+                || !template.companyId().equals(command.companyId())
                 || !template.locationId().equals(location.locationId())
                 || !calendar.locationId().equals(location.locationId())
                 || !calendar.timeZone().equals(location.timeZone())
@@ -1144,7 +1144,7 @@ public class AttendanceGroupService {
         }
         Location location = locations.getFirst();
         if (location.status() != LifecycleStatus.ACTIVE
-                || !location.legalEntityId().equals(group.legalEntityId())) {
+                || !location.companyId().equals(group.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         return location;
@@ -1173,7 +1173,7 @@ public class AttendanceGroupService {
         }
         long versionDays = calendar.effectiveTo().toEpochDay()
                 - calendar.effectiveFrom().toEpochDay();
-        if (!calendar.legalEntityId().equals(group.legalEntityId())
+        if (!calendar.companyId().equals(group.companyId())
                 || !calendar.locationId().equals(location.locationId())
                 || !calendar.timeZone().equals(location.timeZone())) {
             throw new ResourceNotAvailableAccessDeniedException();
@@ -1302,7 +1302,7 @@ public class AttendanceGroupService {
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
             validation.templates.put(shift.shiftId(), template);
         }
-        if (!template.legalEntityId().equals(group.legalEntityId())
+        if (!template.companyId().equals(group.companyId())
                 || !template.locationId().equals(location.locationId())
                 || !shift.timeZone().equals(location.timeZone())) {
             throw new ResourceNotAvailableAccessDeniedException();
@@ -1448,7 +1448,7 @@ public class AttendanceGroupService {
         AttendanceSetupRules.halfOpenPeriod(
                 command.effectiveFrom(), command.effectiveTo());
         return new LocationCommand(
-                Objects.requireNonNull(command.legalEntityId()),
+                Objects.requireNonNull(command.companyId()),
                 AttendanceSetupRules.code(command.code()),
                 AttendanceSetupRules.name(command.name()),
                 AttendanceSetupRules.timeZone(command.timeZone()),
@@ -1461,7 +1461,7 @@ public class AttendanceGroupService {
         AttendanceSetupRules.halfOpenPeriod(
                 command.effectiveFrom(), command.effectiveTo());
         return new GroupCommand(
-                Objects.requireNonNull(command.legalEntityId()),
+                Objects.requireNonNull(command.companyId()),
                 AttendanceSetupRules.code(command.code()),
                 AttendanceSetupRules.name(command.name()),
                 Objects.requireNonNull(command.locationId()),
@@ -1483,7 +1483,7 @@ public class AttendanceGroupService {
     }
 
     private boolean same(Location location, LocationCommand command) {
-        return location.legalEntityId().equals(command.legalEntityId())
+        return location.companyId().equals(command.companyId())
                 && location.code().equals(command.code())
                 && location.name().equals(command.name())
                 && location.timeZone().equals(command.timeZone())
@@ -1492,7 +1492,7 @@ public class AttendanceGroupService {
     }
 
     private boolean same(AttendanceGroup group, GroupCommand command) {
-        return group.legalEntityId().equals(command.legalEntityId())
+        return group.companyId().equals(command.companyId())
                 && group.code().equals(command.code())
                 && group.name().equals(command.name())
                 && group.locationId().equals(command.locationId())
@@ -1520,7 +1520,7 @@ public class AttendanceGroupService {
     private String locationDigest(LocationCommand command) {
         return tokenService.digest(String.join(
                 "|",
-                command.legalEntityId(),
+                command.companyId(),
                 command.code(),
                 command.name(),
                 command.timeZone(),
@@ -1532,7 +1532,7 @@ public class AttendanceGroupService {
             GroupCommand command, Location location) {
         return tokenService.digest(String.join(
                 "|",
-                command.legalEntityId(),
+                command.companyId(),
                 command.code(),
                 command.name(),
                 location.locationRevisionId(),

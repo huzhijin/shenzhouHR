@@ -1,4 +1,4 @@
-export type CustomerReportScopeType = 'LEGAL_ENTITY' | 'ORGANIZATION' | 'SELF';
+export type CustomerReportScopeType = 'COMPANY' | 'ORGANIZATION' | 'SELF';
 
 export interface CustomerReportDataScope {
   reference: string;
@@ -27,16 +27,16 @@ const employeeDirectory: readonly CustomerReportPerson[] = [
 
 export const customerReportDemoScopes: readonly CustomerReportDataScope[] = [
   {
-    reference: 'demo-scope:legal-entity:shenzhou',
-    type: 'LEGAL_ENTITY',
+    reference: 'demo-scope:company:shenzhou',
+    type: 'COMPANY',
     label: '江苏神州半导体科技有限公司 · 全部组织',
     actorLabel: '公司 HR',
     allowedDepartments: ['制造中心', '研发中心', '职能中心'],
     allowedEmployees: employeeDirectory.map((person) => person.employee),
   },
   {
-    reference: 'demo-scope:legal-entity:executive',
-    type: 'LEGAL_ENTITY',
+    reference: 'demo-scope:company:executive',
+    type: 'COMPANY',
     label: '江苏神州半导体科技有限公司 · 管理驾驶舱',
     actorLabel: '高管',
     allowedDepartments: ['制造中心', '研发中心', '职能中心'],
@@ -92,7 +92,7 @@ export function authorizedDepartmentOptions(
   scope: CustomerReportDataScope,
 ): Array<{ value: string; label: string }> {
   return [
-    { value: '全部部门', label: scope.type === 'LEGAL_ENTITY' ? '全部授权部门' : '当前授权范围' },
+    { value: '全部部门', label: scope.type === 'COMPANY' ? '全部授权部门' : '当前授权范围' },
     ...scope.allowedDepartments.map((department) => ({
       value: department,
       label: department,
@@ -118,7 +118,7 @@ export function authorizedEmployeeOptions(
 }
 
 export function scopeTypeLabel(type: CustomerReportScopeType): string {
-  if (type === 'LEGAL_ENTITY') return '法人范围';
+  if (type === 'COMPANY') return '公司范围';
   if (type === 'ORGANIZATION') return '组织范围';
   return '本人范围';
 }

@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Source instances are explicit, scoped and versioned
-The system SHALL model each 得力、OA、设备 Excel 或标准 Excel来源 as a stable source instance scoped to one legal entity, and SHALL store configuration changes as immutable revisions with an effective time.
+The system SHALL model each 得力、OA、设备 Excel 或标准 Excel来源 as a stable source instance scoped to one company, and SHALL store configuration changes as immutable revisions with an effective time.
 
 #### Scenario: Configure a source without storing a secret
 - **WHEN** an authorized caller creates or revises a source configuration with a repository-external secret reference
-- **THEN** the system stores the source type, legal entity, timezone, adapter settings, effective time and secret reference name without storing or returning the secret value
+- **THEN** the system stores the source type, company, timezone, adapter settings, effective time and secret reference name without storing or returning the secret value
 
 #### Scenario: Reject a cross-entity source reference
-- **WHEN** a caller attempts to attach a device, mapping or job to a source in another legal entity
+- **WHEN** a caller attempts to attach a device, mapping or job to a source in another company
 - **THEN** the server rejects the request before mutation and records a failure audit without leaking the target source
 
 ### Requirement: Source boundaries exclude organization sync and upstream writes
@@ -57,7 +57,7 @@ The system SHALL normalize only supported OA attendance business documents and S
 - **THEN** it is idempotently retained or recognized, marked superseded for current knowledge, and does not reactivate obsolete evidence
 
 ### Requirement: Device and person bindings are effective-dated
-The system SHALL represent devices and device-person/external-person bindings with legal-entity, location and half-open effective periods, and SHALL reject overlapping bindings that make matching ambiguous.
+The system SHALL represent devices and device-person/external-person bindings with company, location and half-open effective periods, and SHALL reject overlapping bindings that make matching ambiguous.
 
 #### Scenario: Binding matches at punch time
 - **WHEN** no employee number is supplied and exactly one location + device + device-person binding covers the punch instant
@@ -121,14 +121,14 @@ Starting and retrying a source job SHALL require CSRF, `Idempotency-Key`, `X-Cha
 - **THEN** an identical request can safely retry and no stale started record is treated as successful
 
 ### Requirement: Source permissions and data scope are enforced before query or mutation
-The server SHALL separately enforce `ATTENDANCE_SOURCE:READ`, `CONFIGURE`, `RUN`, `RETRY` and `QUARANTINE_READ`, plus legal-entity/location/organization scope. Technical system administration MUST NOT imply raw attendance access.
+The server SHALL separately enforce `ATTENDANCE_SOURCE:READ`, `CONFIGURE`, `RUN`, `RETRY` and `QUARANTINE_READ`, plus company/location/organization scope. Technical system administration MUST NOT imply raw attendance access.
 
 #### Scenario: System administrator lacks attendance detail by default
 - **WHEN** a system administrator without attendance-source read capability requests source rows or quarantine details
 - **THEN** the server rejects before business-row selection and returns no employee, punch or document data
 
 #### Scenario: Scoped source list is filtered in SQL
-- **WHEN** an authorized caller lists sources or jobs with access to only one legal entity/location
+- **WHEN** an authorized caller lists sources or jobs with access to only one company/location
 - **THEN** the database query selects only that scope before pagination and counts
 
 #### Scenario: Auditor remains read-only

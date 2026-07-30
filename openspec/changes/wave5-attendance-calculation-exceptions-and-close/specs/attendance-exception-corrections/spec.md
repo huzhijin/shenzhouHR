@@ -91,7 +91,7 @@ New effective corrections, adjustments, reversals and their recalculation mutati
 - **THEN** a new adjustment may target only the reopened version and cannot mutate the old close snapshot
 
 ### Requirement: Exception actions are independently authorized and scoped
-Reading, assigning, adjusting, approving, reversing and resolving attendance exceptions SHALL use independent capabilities plus legal-entity/location/attendance-group/organization scope. Technical administrator status MUST NOT grant attendance detail or adjustment authority by default.
+Reading, assigning, adjusting, approving, reversing and resolving attendance exceptions SHALL use independent capabilities plus company/location/attendance-group/organization scope. Technical administrator status MUST NOT grant attendance detail or adjustment authority by default.
 
 #### Scenario: Read does not imply adjust
 - **WHEN** an auditor can read an in-scope exception but lacks adjustment capability

@@ -44,8 +44,8 @@ export function LocationDialog({
         onFinish={onSubmit}
       >
         <Form.Item
-          label={t('attendanceSetup.legalEntityId')}
-          name="legalEntityId"
+          label={t('attendanceSetup.companyId')}
+          name="companyId"
           rules={[requiredRule(t('attendanceSetup.required'))]}
         >
           <Input autoComplete="off" disabled={initialValues !== undefined} />
@@ -116,8 +116,8 @@ export function AttendanceGroupDialog({
         onFinish={onSubmit}
       >
         <Form.Item
-          label={t('attendanceSetup.legalEntityId')}
-          name="legalEntityId"
+          label={t('attendanceSetup.companyId')}
+          name="companyId"
           rules={[requiredRule(t('attendanceSetup.required'))]}
         >
           <Input autoComplete="off" disabled={initialValues !== undefined} />

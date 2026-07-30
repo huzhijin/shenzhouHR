@@ -22,7 +22,7 @@ class MyBatisAttendanceConfigurationResolverTest {
             Instant.parse("2026-07-29T08:00:00Z");
     private static final Clock CLOCK =
             Clock.fixed(KNOWLEDGE_AT, ZoneOffset.UTC);
-    private static final String LEGAL_ENTITY = "legal-entity-1";
+    private static final String COMPANY = "company-1";
     private static final String EMPLOYEE = "employee-1";
 
     private final AttendanceConfigurationAuthorityMapper mapper =
@@ -36,7 +36,7 @@ class MyBatisAttendanceConfigurationResolverTest {
                 !date.isAfter(LocalDate.parse("2026-07-30"));
                 date = date.plusDays(1)) {
             when(mapper.resolveForBusinessDate(
-                            LEGAL_ENTITY, EMPLOYEE, date, KNOWLEDGE_AT))
+                            COMPANY, EMPLOYEE, date, KNOWLEDGE_AT))
                     .thenReturn(List.of());
         }
     }
@@ -47,13 +47,13 @@ class MyBatisAttendanceConfigurationResolverTest {
         LocalDate previous = LocalDate.parse("2026-07-28");
         LocalDate current = LocalDate.parse("2026-07-29");
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, previous, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, previous, KNOWLEDGE_AT))
                 .thenReturn(List.of(row(previous)));
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, current, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, current, KNOWLEDGE_AT))
                 .thenReturn(List.of(row(current)));
 
-        var result = resolver.resolve(LEGAL_ENTITY, EMPLOYEE, punch);
+        var result = resolver.resolve(COMPANY, EMPLOYEE, punch);
 
         assertThat(result.authoritative()).isTrue();
         assertThat(result.businessTimeZone())
@@ -67,12 +67,12 @@ class MyBatisAttendanceConfigurationResolverTest {
         assertThat(result.resolverSnapshotDigest())
                 .matches("[0-9a-f]{64}");
         verify(mapper).resolveForBusinessDate(
-                LEGAL_ENTITY,
+                COMPANY,
                 EMPLOYEE,
                 LocalDate.parse("2026-07-26"),
                 KNOWLEDGE_AT);
         verify(mapper).resolveForBusinessDate(
-                LEGAL_ENTITY,
+                COMPANY,
                 EMPLOYEE,
                 LocalDate.parse("2026-07-29"),
                 KNOWLEDGE_AT);
@@ -83,10 +83,10 @@ class MyBatisAttendanceConfigurationResolverTest {
         Instant punch = Instant.parse("2026-07-29T04:00:00Z");
         LocalDate current = LocalDate.parse("2026-07-29");
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, current, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, current, KNOWLEDGE_AT))
                 .thenReturn(List.of(row(current)));
 
-        var result = resolver.resolve(LEGAL_ENTITY, EMPLOYEE, punch);
+        var result = resolver.resolve(COMPANY, EMPLOYEE, punch);
 
         assertThat(result.authoritative()).isTrue();
         assertThat(result.candidateBusinessDates())
@@ -99,18 +99,18 @@ class MyBatisAttendanceConfigurationResolverTest {
         LocalDate previous = LocalDate.parse("2026-07-28");
         LocalDate current = LocalDate.parse("2026-07-29");
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, current, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, current, KNOWLEDGE_AT))
                 .thenReturn(List.of(row(current)));
 
-        assertThat(resolver.resolve(LEGAL_ENTITY, EMPLOYEE, punch)
+        assertThat(resolver.resolve(COMPANY, EMPLOYEE, punch)
                         .authoritative())
                 .isFalse();
 
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, previous, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, previous, KNOWLEDGE_AT))
                 .thenReturn(List.of(row(previous), row(previous)));
 
-        assertThat(resolver.resolve(LEGAL_ENTITY, EMPLOYEE, punch)
+        assertThat(resolver.resolve(COMPANY, EMPLOYEE, punch)
                         .authoritative())
                 .isFalse();
     }
@@ -121,23 +121,23 @@ class MyBatisAttendanceConfigurationResolverTest {
         LocalDate previous = LocalDate.parse("2026-07-28");
         LocalDate current = LocalDate.parse("2026-07-29");
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, previous, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, previous, KNOWLEDGE_AT))
                 .thenReturn(List.of(row(previous)));
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, current, KNOWLEDGE_AT))
-                .thenReturn(List.of(withLegalEntity(
-                        row(current), "legal-entity-2")));
+                        COMPANY, EMPLOYEE, current, KNOWLEDGE_AT))
+                .thenReturn(List.of(withCompany(
+                        row(current), "company-2")));
 
-        assertThat(resolver.resolve(LEGAL_ENTITY, EMPLOYEE, punch)
+        assertThat(resolver.resolve(COMPANY, EMPLOYEE, punch)
                         .authoritative())
                 .isFalse();
 
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, current, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, current, KNOWLEDGE_AT))
                 .thenReturn(List.of(withShift(
                         row(current), "shift-version-2")));
 
-        assertThat(resolver.resolve(LEGAL_ENTITY, EMPLOYEE, punch)
+        assertThat(resolver.resolve(COMPANY, EMPLOYEE, punch)
                         .authoritative())
                 .isFalse();
     }
@@ -150,12 +150,12 @@ class MyBatisAttendanceConfigurationResolverTest {
         AttendanceConfigurationAuthorityRow changed =
                 withDayDigest(initial, "f".repeat(64));
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, current, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, current, KNOWLEDGE_AT))
                 .thenReturn(List.of(initial), List.of(changed));
 
-        String first = resolver.resolve(LEGAL_ENTITY, EMPLOYEE, punch)
+        String first = resolver.resolve(COMPANY, EMPLOYEE, punch)
                 .resolverSnapshotDigest();
-        String second = resolver.resolve(LEGAL_ENTITY, EMPLOYEE, punch)
+        String second = resolver.resolve(COMPANY, EMPLOYEE, punch)
                 .resolverSnapshotDigest();
 
         assertThat(second).isNotEqualTo(first);
@@ -169,10 +169,10 @@ class MyBatisAttendanceConfigurationResolverTest {
 
         LocalDate firstSeed = LocalDate.parse("2026-07-27");
         when(mapper.resolveForBusinessDate(
-                        LEGAL_ENTITY, EMPLOYEE, firstSeed, KNOWLEDGE_AT))
+                        COMPANY, EMPLOYEE, firstSeed, KNOWLEDGE_AT))
                 .thenReturn(null);
         assertThatThrownBy(() -> resolver.resolve(
-                        LEGAL_ENTITY,
+                        COMPANY,
                         EMPLOYEE,
                         Instant.parse("2026-07-29T04:00:00Z")))
                 .isInstanceOf(IllegalStateException.class)
@@ -183,7 +183,7 @@ class MyBatisAttendanceConfigurationResolverTest {
         String suffix = Integer.toString(date.getDayOfMonth());
         return new AttendanceConfigurationAuthorityRow(
                 date,
-                LEGAL_ENTITY,
+                COMPANY,
                 EMPLOYEE,
                 "employee-version-1",
                 3,
@@ -214,32 +214,32 @@ class MyBatisAttendanceConfigurationResolverTest {
                 "6".repeat(64));
     }
 
-    private static AttendanceConfigurationAuthorityRow withLegalEntity(
-            AttendanceConfigurationAuthorityRow row, String legalEntityId) {
-        return copy(row, legalEntityId, row.shiftVersionId(),
+    private static AttendanceConfigurationAuthorityRow withCompany(
+            AttendanceConfigurationAuthorityRow row, String companyId) {
+        return copy(row, companyId, row.shiftVersionId(),
                 row.calendarDaySnapshotDigest());
     }
 
     private static AttendanceConfigurationAuthorityRow withShift(
             AttendanceConfigurationAuthorityRow row, String shiftVersionId) {
-        return copy(row, row.legalEntityId(), shiftVersionId,
+        return copy(row, row.companyId(), shiftVersionId,
                 row.calendarDaySnapshotDigest());
     }
 
     private static AttendanceConfigurationAuthorityRow withDayDigest(
             AttendanceConfigurationAuthorityRow row, String dayDigest) {
         return copy(
-                row, row.legalEntityId(), row.shiftVersionId(), dayDigest);
+                row, row.companyId(), row.shiftVersionId(), dayDigest);
     }
 
     private static AttendanceConfigurationAuthorityRow copy(
             AttendanceConfigurationAuthorityRow row,
-            String legalEntityId,
+            String companyId,
             String shiftVersionId,
             String dayDigest) {
         return new AttendanceConfigurationAuthorityRow(
                 row.businessDate(),
-                legalEntityId,
+                companyId,
                 row.employeeId(),
                 row.employeeVersionId(),
                 row.employeeVersion(),

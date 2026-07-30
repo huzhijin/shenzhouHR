@@ -69,7 +69,7 @@ describe('attendance policy route and revision safety', () => {
     await waitFor(() => {
       expect(detailSpy).toHaveBeenCalledWith(
         routed.templateId,
-        routed.legalEntityId,
+        routed.companyId,
         routed.scopedVersionId,
       );
     });
@@ -162,7 +162,7 @@ describe('attendance policy route and revision safety', () => {
       expect(contextSpy).toHaveBeenCalledWith(bounded.scopedVersionId);
       expect(detailSpy).toHaveBeenCalledWith(
         bounded.templateId,
-        bounded.legalEntityId,
+        bounded.companyId,
         bounded.scopedVersionId,
       );
     }, { timeout: 5_000 });

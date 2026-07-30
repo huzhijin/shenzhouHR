@@ -22,7 +22,7 @@ export interface StablePage<T> {
 
 export interface AttendanceSourceView {
   sourceId: string;
-  legalEntityId: string;
+  companyId: string;
   sourceType: AttendanceSourceType;
   code: string;
   displayName: string;

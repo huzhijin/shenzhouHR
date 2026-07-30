@@ -32,8 +32,8 @@ public class MyBatisDeliSourceRegistrationRepository
             String idempotencyId,
             String snapshotDigest,
             Instant at) {
-        String authorizedEntity = mapper.lockAuthorizedLegalEntity(
-                command.legalEntityId(), principalId, capability, at);
+        String authorizedEntity = mapper.lockAuthorizedCompany(
+                command.companyId(), principalId, capability, at);
         if (authorizedEntity == null) {
             return RegistrationResult.of(
                     RegistrationState.RESOURCE_UNAVAILABLE);
@@ -48,7 +48,7 @@ public class MyBatisDeliSourceRegistrationRepository
                         RegistrationState.IDEMPOTENCY_CONFLICT);
             }
             var replay = mapper.findDeliSourceByCode(
-                    command.legalEntityId(), command.sourceCode());
+                    command.companyId(), command.sourceCode());
             return replay == null
                     ? RegistrationResult.of(
                             RegistrationState.IDEMPOTENCY_CONFLICT)
@@ -56,7 +56,7 @@ public class MyBatisDeliSourceRegistrationRepository
                             RegistrationState.REPLAYED, replay);
         }
         if (mapper.findDeliSourceByCode(
-                        command.legalEntityId(), command.sourceCode())
+                        command.companyId(), command.sourceCode())
                 != null) {
             return RegistrationResult.of(
                     RegistrationState.SOURCE_CODE_CONFLICT);
@@ -92,7 +92,7 @@ public class MyBatisDeliSourceRegistrationRepository
                     "Deli source idempotency completion failed");
         }
         var created = mapper.findDeliSourceByCode(
-                command.legalEntityId(), command.sourceCode());
+                command.companyId(), command.sourceCode());
         if (created == null) {
             throw new IllegalStateException(
                     "created Deli source is unavailable");

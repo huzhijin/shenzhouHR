@@ -45,21 +45,21 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("data_scope.valid_to")
                 .contains("projection.status = 'PUBLISHED'")
                 .contains(
-                        "projection.legal_entity_id = fact.legal_entity_id")
+                        "projection.company_id = fact.company_id")
                 .contains(
                         "fact_organization.organization_id ="
                                 + System.lineSeparator()
                                 + "                        fact.organization_id")
                 .contains(
-                        "fact_organization.legal_entity_id ="
+                        "fact_organization.company_id ="
                                 + System.lineSeparator()
-                                + "                        fact.legal_entity_id")
+                                + "                        fact.company_id")
                 .contains("fact_employee.employee_id = fact.employee_id")
                 .contains(
-                        "fact_employee.legal_entity_id ="
+                        "fact_employee.company_id ="
                                 + System.lineSeparator()
-                                + "                        fact.legal_entity_id")
-                .contains("data_scope.scope_type = 'LEGAL_ENTITY'")
+                                + "                        fact.company_id")
+                .contains("data_scope.scope_type = 'COMPANY'")
                 .contains("data_scope.scope_type = 'ORGANIZATION'")
                 .contains("data_scope.scope_type = 'SELF'")
                 .contains("data_scope.include_descendants = FALSE")
@@ -105,7 +105,7 @@ class AttendanceReportDataScopeSqlContractTest {
         for (String queryId : FACT_QUERY_IDS) {
             assertThat(select(xml, queryId))
                     .contains("<include refid=\"reportFactVisibility\"/>")
-                    .contains("fact.legal_entity_id = #{legalEntityId}")
+                    .contains("fact.company_id = #{companyId}")
                     .contains("fact.organization_id = #{organizationId}")
                     .contains("fact.employee_id = #{employeeId}")
                     .doesNotContain(" OFFSET ")
@@ -127,13 +127,13 @@ class AttendanceReportDataScopeSqlContractTest {
                                 + " #{periodEndExclusive}")
                 .contains("projection.status = 'PUBLISHED'")
                 .contains("projection.published_at &lt;= #{authorizationTime}")
-                .contains("#{legalEntityId} IS NULL")
+                .contains("#{companyId} IS NULL")
                 .contains(
-                        "projection.legal_entity_id = #{legalEntityId}")
+                        "projection.company_id = #{companyId}")
                 .contains("<include refid=\"reportProjectionVisibility\"/>")
                 .contains("NOT EXISTS (")
-                .contains("newer_projection.legal_entity_id =")
-                .contains("ORDER BY projection.legal_entity_id")
+                .contains("newer_projection.company_id =")
+                .contains("ORDER BY projection.company_id")
                 .contains(
                         "projection.attendance_report_projection_id DESC")
                 .contains("LIMIT 2")
@@ -141,16 +141,16 @@ class AttendanceReportDataScopeSqlContractTest {
     }
 
     @Test
-    void legalEntityDirectoryCannotEnumerateUnpublishedOrUnauthorizedCompanies()
+    void companyDirectoryCannotEnumerateUnpublishedOrUnauthorizedCompanies()
             throws Exception {
         String directory = select(
                 Files.readString(MAPPER),
-                "listAuthorizedLegalEntities");
+                "listAuthorizedCompanies");
 
         assertThat(directory)
-                .contains("SELECT DISTINCT projection.legal_entity_id")
-                .contains("legal_entity.name")
-                .contains("legal_entity.status = 'ACTIVE'")
+                .contains("SELECT DISTINCT projection.company_id")
+                .contains("company.name AS company_name")
+                .contains("company.status = 'ACTIVE'")
                 .contains("projection.period_start = #{periodStart}")
                 .contains(
                         "projection.period_end_exclusive ="

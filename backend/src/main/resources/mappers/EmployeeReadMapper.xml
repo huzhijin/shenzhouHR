@@ -59,11 +59,24 @@
               AND data_scope.valid_from &lt;= #{at}
               AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
               AND (
-                  (data_scope.scope_type = 'LEGAL_ENTITY'
-                   AND data_scope.legal_entity_id = employee.legal_entity_id)
+                  (data_scope.scope_type = 'COMPANY'
+                   AND data_scope.company_id = employee.company_id)
                   OR
                   (data_scope.scope_type = 'ORGANIZATION'
                    AND current_assignment.organization_id IS NOT NULL
+                   AND EXISTS (
+                       SELECT 1
+                       FROM organization_identity scoped_organization
+                       JOIN organization_identity assigned_organization
+                         ON assigned_organization.organization_id =
+                                current_assignment.organization_id
+                        AND assigned_organization.company_id =
+                                scoped_organization.company_id
+                       WHERE scoped_organization.organization_id =
+                                data_scope.organization_id
+                         AND scoped_organization.company_id =
+                                employee.company_id
+                   )
                    AND (
                        current_assignment.organization_id = data_scope.organization_id
                        OR (data_scope.include_descendants = TRUE AND EXISTS (

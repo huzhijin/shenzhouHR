@@ -28,7 +28,7 @@ export interface SessionSummary {
 
 export interface RoleAssignmentRequest {
   roleId: string;
-  scopeType: 'LEGAL_ENTITY' | 'ORGANIZATION' | 'SELF';
+  scopeType: 'COMPANY' | 'ORGANIZATION' | 'SELF';
   scopeResourceId: string | null;
   validFrom: string;
   validTo: string | null;
@@ -138,7 +138,7 @@ export function getAccount(accountId: string): Promise<AccountDetail> {
         roleId: demoRoles[0]?.roleId ?? '',
         roleCode: demoRoles[0]?.roleCode ?? '',
         roleName: demoRoles[0]?.roleName ?? '',
-        scopeType: 'LEGAL_ENTITY',
+        scopeType: 'COMPANY',
         scopeResourceId: '9700000000000000001',
         validFrom: '2026-07-01T00:00:00Z',
         validTo: null,

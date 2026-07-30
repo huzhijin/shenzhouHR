@@ -10,12 +10,12 @@ import org.apache.ibatis.annotations.Param;
 interface AttendanceEvidenceMapper {
 
     void insertSubjectLock(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeId") String employeeId,
             @Param("touchedAt") Instant touchedAt);
 
     void lockSubject(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeId") String employeeId);
 
     EvidenceRows.RawFactRow findRawBySourceIdentity(
@@ -34,13 +34,13 @@ interface AttendanceEvidenceMapper {
     void insertMatchDecision(EvidenceRows.MatchDecisionRow row);
 
     List<EvidenceRows.EffectiveEventRow> findExactEvents(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeId") String employeeId,
             @Param("pointInstant") Instant pointInstant,
             @Param("normalizedDirection") String normalizedDirection);
 
     List<EvidenceRows.EffectiveEventRow> findNearEvents(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("employeeId") String employeeId,
             @Param("windowStart") Instant windowStart,
             @Param("windowEnd") Instant windowEnd,
@@ -55,6 +55,6 @@ interface AttendanceEvidenceMapper {
     void insertRecalculationIntent(EvidenceRows.RecalculationIntentRow row);
 
     List<EvidenceRows.EvidenceTraceRow> evidenceTrace(
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("eventId") String eventId);
 }

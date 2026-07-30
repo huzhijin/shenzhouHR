@@ -24,7 +24,7 @@ import { PageHeader } from '../../shared/components/PagePrimitives';
 import { wave7ProjectionGateway } from '../../shared/runtime/wave7ProjectionGateway';
 import type {
   AttendanceReportExportView,
-  AttendanceReportLegalEntityDirectory,
+  AttendanceReportCompanyDirectory,
   AttendanceReportType,
   LiveReportProjection,
   ReportColumnKey,
@@ -63,9 +63,9 @@ export function ReportsRoute({
   const [reportType, setReportType] =
     useState<AttendanceReportType>(initialReportType);
   const [period, setPeriod] = useState(initialPeriod);
-  const [legalEntityId, setLegalEntityId] = useState('');
-  const loadLegalEntities = useCallback(
-    () => gateway.loadReportLegalEntities(period),
+  const [companyId, setCompanyId] = useState('');
+  const loadCompanies = useCallback(
+    () => gateway.loadReportCompanies(period),
     [gateway, period],
   );
 
@@ -97,7 +97,7 @@ export function ReportsRoute({
               value={period}
               onChange={(event) => {
                 if (event.target.value) {
-                  setLegalEntityId('');
+                  setCompanyId('');
                   setPeriod(event.target.value);
                 }
               }}
@@ -107,15 +107,15 @@ export function ReportsRoute({
         <p>切换月份后会先清空上一条件的数据，再读取当前账号可见且已有正式投影的公司。</p>
       </section>
       <Wave7AsyncBoundary
-        key={`legal-entities:${period}`}
-        loader={loadLegalEntities}
-        isEmpty={(value) => value.legalEntities.length === 0}
+        key={`companies:${period}`}
+        loader={loadCompanies}
+        isEmpty={(value) => value.companies.length === 0}
       >
         {(directory) => (
-          <AuthorizedLegalEntityReport
+          <AuthorizedCompanyReport
             directory={directory}
-            selectedLegalEntityId={legalEntityId}
-            onSelectLegalEntity={setLegalEntityId}
+            selectedCompanyId={companyId}
+            onSelectCompany={setCompanyId}
             reportType={reportType}
             period={period}
             capabilities={capabilities}
@@ -127,43 +127,43 @@ export function ReportsRoute({
   );
 }
 
-function AuthorizedLegalEntityReport({
+function AuthorizedCompanyReport({
   directory,
-  selectedLegalEntityId,
-  onSelectLegalEntity,
+  selectedCompanyId,
+  onSelectCompany,
   reportType,
   period,
   capabilities,
   gateway,
 }: {
-  directory: AttendanceReportLegalEntityDirectory;
-  selectedLegalEntityId: string;
-  onSelectLegalEntity: (legalEntityId: string) => void;
+  directory: AttendanceReportCompanyDirectory;
+  selectedCompanyId: string;
+  onSelectCompany: (companyId: string) => void;
   reportType: AttendanceReportType;
   period: string;
   capabilities: readonly string[];
   gateway: Wave7ProjectionGateway;
 }) {
-  const selectedIsAuthorized = directory.legalEntities.some(
-    (option) => option.legalEntityId === selectedLegalEntityId,
+  const selectedIsAuthorized = directory.companies.some(
+    (option) => option.companyId === selectedCompanyId,
   );
-  const effectiveLegalEntityId = selectedIsAuthorized
-    ? selectedLegalEntityId
-    : directory.legalEntities.length === 1
-      ? directory.legalEntities[0]!.legalEntityId
+  const effectiveCompanyId = selectedIsAuthorized
+    ? selectedCompanyId
+    : directory.companies.length === 1
+      ? directory.companies[0]!.companyId
       : '';
   const loadReport = useCallback(
     () => gateway.loadReport({
       reportType,
       period,
-      legalEntityId: effectiveLegalEntityId,
+      companyId: effectiveCompanyId,
       page: 0,
       size: 50,
     }),
-    [effectiveLegalEntityId, gateway, period, reportType],
+    [effectiveCompanyId, gateway, period, reportType],
   );
   const queryKey =
-    `${reportType}:${period}:${effectiveLegalEntityId}`;
+    `${reportType}:${period}:${effectiveCompanyId}`;
 
   return (
     <>
@@ -177,32 +177,32 @@ function AuthorizedLegalEntityReport({
             <span>公司</span>
             <select
               aria-label="公司"
-              value={effectiveLegalEntityId}
-              disabled={directory.legalEntities.length === 1}
+              value={effectiveCompanyId}
+              disabled={directory.companies.length === 1}
               onChange={(event) =>
-                onSelectLegalEntity(event.target.value)}
+                onSelectCompany(event.target.value)}
             >
-              {directory.legalEntities.length > 1 ? (
+              {directory.companies.length > 1 ? (
                 <option value="">请选择公司</option>
               ) : null}
-              {directory.legalEntities.map((option) => (
+              {directory.companies.map((option) => (
                 <option
-                  key={option.legalEntityId}
-                  value={option.legalEntityId}
+                  key={option.companyId}
+                  value={option.companyId}
                 >
-                  {option.name}
+                  {option.companyName}
                 </option>
               ))}
             </select>
           </label>
         </div>
         <p>
-          {directory.legalEntities.length > 1
+          {directory.companies.length > 1
             ? '当前账号可查看多个公司，请显式选择后查询；公司条件只会缩小服务端授权范围。'
             : '已按当前月份唯一可见且已有正式投影的公司查询。'}
         </p>
       </section>
-      {effectiveLegalEntityId === '' ? (
+      {effectiveCompanyId === '' ? (
         <OperationFeedback
           kind="info"
           message="请选择公司后查询正式报表。"
@@ -314,7 +314,7 @@ function FormalReportWorkspace({
     const created = await gateway.createReportExport({
       reportType: projection.reportType,
       period: projection.filters.period,
-      legalEntityId: projection.filters.legalEntityId,
+      companyId: projection.filters.companyId,
       status: projection.reportType === 'EXCEPTIONS'
         && typeof projection.filters.status === 'string'
         && isReportExceptionState(projection.filters.status)
@@ -566,10 +566,10 @@ export function ReportView({
             </div>
           ) : null}
           <div><dt>筛选期间</dt><dd>{projection.filters.period}</dd></div>
-          {projection.filters.legalEntityId ? (
+          {projection.filters.companyId ? (
             <div>
               <dt>公司绑定</dt>
-              <dd><code>{projection.filters.legalEntityId}</code></dd>
+              <dd><code>{projection.filters.companyId}</code></dd>
             </div>
           ) : null}
           <div><dt>状态</dt><dd>{projection.filters.status ?? '全部'}</dd></div>

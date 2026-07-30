@@ -7,11 +7,14 @@ import {
 } from '../../test/fixtures/wave7ContractFixtures';
 import {
   assertAttendanceReportExportView,
-  assertAttendanceReportLegalEntityDirectory,
+  assertAttendanceReportCompanyDirectory,
   assertLiveReportProjection,
   assertWave7Projection,
 } from './wave7Contracts';
 import { wave7ProjectionGateway } from './wave7Gateway';
+
+const retiredBoundaryIdKey = ['legal', 'EntityId'].join('');
+const retiredDirectoryKey = ['legal', 'Entities'].join('');
 
 describe('Wave 7 projection contracts', () => {
   it.each([todayFixture, dashboardFixture, reportFixture])(
@@ -82,6 +85,16 @@ describe('Wave 7 projection contracts', () => {
       ...liveReport,
       reportType: 'UNSUPPORTED',
     })).toThrow(/reportType/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      metadata: {
+        ...liveReport.metadata,
+        scope: {
+          ...liveReport.metadata.scope,
+          type: 'ATTENDANCE_GROUP',
+        },
+      },
+    })).toThrow(/scope.type/);
   });
 
   it('accepts strict synchronous and asynchronous export views', () => {
@@ -89,7 +102,7 @@ describe('Wave 7 projection contracts', () => {
       exportId: '1f9a72c2-fcd5-4e66-8a61-a8e6744d166f',
       reportType: 'ATTENDANCE_DETAIL',
       period: '2026-07',
-      legalEntityId: '30000000-0000-0000-0000-000000000001',
+      companyId: '30000000-0000-0000-0000-000000000001',
       deliveryMode: 'SYNC',
       status: 'READY',
       purpose: '月度考勤复核',
@@ -110,22 +123,92 @@ describe('Wave 7 projection contracts', () => {
   it('accepts an authorized company directory and rejects duplicate ids', () => {
     const directory = {
       period: '2026-07',
-      legalEntities: [
-        { legalEntityId: 'company-a', name: '神州半导体' },
-        { legalEntityId: 'company-b', name: '神州科技' },
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
       ],
     };
 
     expect(() =>
-      assertAttendanceReportLegalEntityDirectory(directory))
+      assertAttendanceReportCompanyDirectory(directory))
       .not.toThrow();
-    expect(() => assertAttendanceReportLegalEntityDirectory({
+    expect(() => assertAttendanceReportCompanyDirectory({
       ...directory,
-      legalEntities: [
-        directory.legalEntities[0],
-        directory.legalEntities[0],
+      companies: [
+        directory.companies[0],
+        directory.companies[0],
       ],
     })).toThrow(/duplicate ids/);
+  });
+
+  it('rejects retired boundary properties even beside canonical company data', () => {
+    const directory = {
+      period: '2026-07',
+      companies: [{
+        companyId: 'company-a',
+        companyName: '神州半导体',
+      }],
+    };
+    expect(() => assertAttendanceReportCompanyDirectory({
+      ...directory,
+      [retiredDirectoryKey]: directory.companies,
+    })).toThrow(/unsupported property/);
+    expect(() => assertAttendanceReportCompanyDirectory({
+      ...directory,
+      companies: [{
+        ...directory.companies[0],
+        [retiredBoundaryIdKey]: 'company-a',
+      }],
+    })).toThrow(/unsupported property/);
+
+    expect(() => assertLiveReportProjection({
+      ...reportFixture,
+      filters: {
+        ...reportFixture.filters,
+        [retiredBoundaryIdKey]: reportFixture.filters.companyId,
+      },
+    })).toThrow(/unsupported property/);
+    expect(() => assertLiveReportProjection({
+      ...reportFixture,
+      [retiredBoundaryIdKey]: reportFixture.filters.companyId,
+    })).toThrow(/unsupported property/);
+    expect(() => assertLiveReportProjection({
+      ...reportFixture,
+      metadata: {
+        ...reportFixture.metadata,
+        [retiredBoundaryIdKey]: reportFixture.filters.companyId,
+      },
+    })).toThrow(/unsupported property/);
+    expect(() => assertLiveReportProjection({
+      ...reportFixture,
+      columns: [{
+        ...reportFixture.columns[0],
+        [retiredBoundaryIdKey]: reportFixture.filters.companyId,
+      }],
+    })).toThrow(/unsupported property/);
+    expect(() => assertLiveReportProjection({
+      ...reportFixture,
+      rows: [{
+        ...reportFixture.rows[0],
+        [retiredBoundaryIdKey]: reportFixture.filters.companyId,
+      }],
+    })).toThrow(/unsupported property/);
+
+    const exportView = {
+      exportId: '1f9a72c2-fcd5-4e66-8a61-a8e6744d166f',
+      reportType: 'ATTENDANCE_DETAIL',
+      period: '2026-07',
+      companyId: 'company-a',
+      deliveryMode: 'SYNC',
+      status: 'READY',
+      purpose: '月度考勤复核',
+      rowCount: 42,
+      expiresAt: '2026-07-30T01:00:00Z',
+      completedAt: '2026-07-29T01:00:00Z',
+      [retiredBoundaryIdKey]: 'company-a',
+    };
+    expect(() => assertAttendanceReportExportView(exportView))
+      .toThrow(/unsupported property/);
   });
 
   it('rejects malformed or internally inconsistent export views', () => {
@@ -133,7 +216,7 @@ describe('Wave 7 projection contracts', () => {
       exportId: '1f9a72c2-fcd5-4e66-8a61-a8e6744d166f',
       reportType: 'ATTENDANCE_DETAIL',
       period: '2026-07',
-      legalEntityId: '30000000-0000-0000-0000-000000000001',
+      companyId: '30000000-0000-0000-0000-000000000001',
       deliveryMode: 'SYNC',
       status: 'READY',
       purpose: '月度考勤复核',

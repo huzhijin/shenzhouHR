@@ -5,7 +5,7 @@ import java.time.LocalDate;
 
 record AttendancePeriodProjectionRow(
         String projectionId,
-        String legalEntityId,
+        String companyId,
         LocalDate periodStart,
         LocalDate periodEndExclusive,
         String periodState,

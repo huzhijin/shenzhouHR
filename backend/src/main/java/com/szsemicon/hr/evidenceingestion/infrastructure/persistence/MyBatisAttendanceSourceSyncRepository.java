@@ -55,7 +55,7 @@ public class MyBatisAttendanceSourceSyncRepository
                 new AttendanceSourceSyncModels.SourceJobStart(
                         jobId,
                         source.sourceId(),
-                        source.legalEntityId(),
+                        source.companyId(),
                         source.displayName(),
                         source.secretReferenceName(),
                         source.sourceTimeZone(),
@@ -139,7 +139,7 @@ public class MyBatisAttendanceSourceSyncRepository
                 new AttendanceSourceSyncModels.SourceJobStart(
                         newJobId,
                         candidate.sourceId(),
-                        candidate.legalEntityId(),
+                        candidate.companyId(),
                         candidate.displayName(),
                         candidate.secretReferenceName(),
                         candidate.sourceTimeZone(),

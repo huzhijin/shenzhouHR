@@ -12,8 +12,8 @@ describe('i18n interpolation', () => {
   it('renders multiple variables used by policy conflict feedback', () => {
     expect(i18n.t('policy.conflictVersion', {
       versionId: 'version-3',
-      scopeType: 'LEGAL_ENTITY',
-      scopeId: 'legal-entity-1',
+      scopeType: 'COMPANY',
+      scopeId: 'company-1',
     })).not.toContain('{');
   });
 

@@ -9,7 +9,7 @@
 **Goals**
 
 - 字节级保留 W2 V4 `policy_version` 表列/索引/约束、W2 Java/API DTO 与现有 W2 行。
-- 建立独立 W3 法人 scoped policy aggregate，不从 W2 通用 lifecycle 泄漏数据或权限。
+- 建立独立 W3 公司 scoped policy aggregate，不从 W2 通用 lifecycle 泄漏数据或权限。
 - 以稳定 identity、不可变 content revision/version 和只追加 timeline/lifecycle fact 保证历史重放。
 - 原子协调 group revision、assignment successor 和三类默认 binding successor。
 - 以 employee/date/punches 和只读 authoritative usage provider 完成服务端权威 simulation。
@@ -17,7 +17,7 @@
 
 **Non-Goals**
 
-- 不修改 V1～V6，不扩展 W2 通用 policy 法人字段，不把 W3 template 放入 W2 通用目录。
+- 不修改 V1～V6，不扩展 W2 通用 policy 公司字段，不把 W3 template 放入 W2 通用目录。
 - 不接入打卡来源，不写 raw facts、正式 day/month result 或正式 exemption usage。
 - 不实现 W4、异常/月结、假期、自助、报表、看板或 PAYROLL。
 - 不用 H2、MySQL 8.0、demo 或 `NOT_VERIFIED` 替代完成硬门。
@@ -28,13 +28,13 @@
 
 V4 `policy_version` 保持：
 
-- 无 `legal_entity_id`；
+- 无 `company_id`；
 - `UNIQUE(template_id, version_number)`；
 - 原 effective period CHECK、FK、列 nullability 和列序；
 - 通用 `PolicyModels/Rows/Repository/Mapper/XML/Draft/Lifecycle/Application/RecordSupport/Dtos/Controller` 均保持 W2 既有形状；
 - W2 OpenAPI request/response 不增加 W3 字段。
 
-W3 attendance 模块不得注入 `PolicyApplicationService` 或 `PolicyRepository` 承载 scoped version。它可以只读 W2 employee/legal-entity authority，但 W2 不反向依赖 attendance。
+W3 attendance 模块不得注入 `PolicyApplicationService` 或 `PolicyRepository` 承载 scoped version。它可以只读 W2 employee/company authority，但 W2 不反向依赖 attendance。
 
 门禁从 V4 DDL 独立 oracle 重建 expected schema，并对 V6 before 与 target7/latest after 执行 W2 full-row retained subset。任何 W2 列、索引、约束、API schema 或行 hash 漂移使 W3 失败。
 
@@ -43,7 +43,7 @@ W3 attendance 模块不得注入 `PolicyApplicationService` 或 `PolicyRepositor
 V7 新建：
 
 - `attendance_policy_template`：恰好三个 W3 专用 template，不进入 W2 通用 policy catalog。
-- `attendance_policy_scope(scope_id PK, policy_template_id FK, legal_entity_id, row_version, audit..., UNIQUE(policy_template_id, legal_entity_id))`。
+- `attendance_policy_scope(scope_id PK, policy_template_id FK, company_id, row_version, audit..., UNIQUE(policy_template_id, company_id))`。
 - `attendance_policy_scoped_version(scoped_version_id PK, scope_id FK, version_number, parameters_json, effective_from, effective_to, validation_json, snapshot_json, snapshot_digest, rollback_of_scoped_version_id, row_version, audit..., UNIQUE(scope_id, version_number))`。`status` 不属于版本列；状态由 append-only lifecycle facts 在指定 business/knowledge time 派生。
 - `attendance_policy_lifecycle_event`：只追加 `DRAFT_CREATED/VALIDATED/PUBLISHED/DEACTIVATE_SCHEDULED/ROLLED_BACK` 事实，引用 immutable scoped version、predecessor event、business-effective time、actor/reason/request。
 - `attendance_policy_binding_family`：稳定 `(attendance_group_id, policy_kind)` identity，唯一键固定在 group identity + kind，绝不随 group revision rollover 重建 family。
@@ -66,7 +66,7 @@ location/group/assignment/shift/calendar/binding/scoped-policy 的业务 content
 
 统一模型：
 
-1. stable identity row 只保存 ID、法人、不可变 code；
+1. stable identity row 只保存 ID、公司、不可变 code；
 2. content revision/version 保存完整 snapshot、`effective_from`、`supersedes_*_id`、revision/version number 与 digest；
 3. publish/deactivate/rollover 追加 timeline/lifecycle fact；不改旧 fact；
 4. 对 business date，resolver 取该 identity 的未分叉 successor chain 中最后一个 `effective_from <= businessDate` 的 fact，并显式断言 exactly one；不是用 `LIMIT 1` 掩盖多行；
@@ -90,7 +90,7 @@ V7 使用：
 
 group revision 精确引用 immutable `location_revision_id`，并引用 stable `shift_template_id` 与 `work_calendar_id`，不钉 concrete version。location future timezone rollover 若存在引用 group，必须在同一事务生成 matching group successors，或因影响/freeze 不满足而整体拒绝。
 
-configuration digest 包含 legal entity、location revision/timezone、group revision、calendar family/version/day、shift family/version/segments、三类 binding/scoped version 和 monthly context；timeline metadata 不混入 content digest。
+configuration digest 包含 company、location revision/timezone、group revision、calendar family/version/day、shift family/version/segments、三类 binding/scoped version 和 monthly context；timeline metadata 不混入 content digest。
 
 ### 5. Group rollover 的固定锁序和原子协调
 
@@ -137,13 +137,13 @@ publish 前锁 shift template，分配 immutable version number，验证 non-emp
 
 calendar family/version 同理。每个 published effective/year version 必须覆盖 interval 内全部 business date；day 唯一。Draft day API 为 PATCH/upsert，只产生新的 draft content，不删除 published day。
 
-day override 可空。未提供时使用 group shift family按 date exactly-one PUBLISHED version；提供时必须是同法人、地点、timezone、business date 有效且 PUBLISHED 的 immutable shift version。
+day override 可空。未提供时使用 group shift family按 date exactly-one PUBLISHED version；提供时必须是同公司、地点、timezone、business date 有效且 PUBLISHED 的 immutable shift version。
 
-同 calendar family 的 published timeline overlap/gap 拒绝；同年度 rollover 原子。两个 group 可在同一法人/地点/timezone/date 引用不同 calendar families 并得到不同正确 snapshot。
+同 calendar family 的 published timeline overlap/gap 拒绝；同年度 rollover 原子。两个 group 可在同一公司/地点/timezone/date 引用不同 calendar families 并得到不同正确 snapshot。
 
 ### 7. W3 scoped lifecycle、binding 与 resolution
 
-W3 repository/facade 只读写 `attendance_policy_*`。`ATTENDANCE_SETUP:LEGAL_ENTITY` 贯穿 query、write、DTO、audit 和 negative object-scope test。HR_ADMIN/SYSTEM_ADMIN manage，AUDITOR read-only。
+W3 repository/facade 只读写 `attendance_policy_*`。`ATTENDANCE_SETUP:COMPANY` 贯穿 query、write、DTO、audit 和 negative object-scope test。HR_ADMIN/SYSTEM_ADMIN manage，AUDITOR read-only。
 
 scoped version resolution 条件：
 
@@ -151,7 +151,7 @@ scoped version resolution 条件：
 - group revision derived interval 命中；
 - scoped version 的 `[effective_from,effective_to)` 命中；
 - lifecycle timeline 在 business date 为 PUBLISHED 且没有 effective deactivation；
-- scope legal entity、group legal entity、kind 一致。
+- scope company、group company、kind 一致。
 
 每个稳定 `(attendance_group_id, policy_kind)` 必须恰好一个 binding family；business date 在该 family 下必须恰好解析一个引用当前 group revision 的 binding revision。resolver 返回完整候选集合并断言 cardinality=1；零个或多个均 fail closed。`priority` 不属于 W3 binding 模型，也不存在“同 kind/date 多候选后按 priority 选 winner”的第二套模型。mapper 不返回可能多行的单值，不做无日期 `findPublishedVersionIdByKind`。
 
@@ -165,7 +165,7 @@ month-close provider 未实现前，publish/deactivate/rollover 仅允许 future
 
 `actor_id + operation_code + resource_type + resource_id + idempotency_key`
 
-request digest 使用 canonical JSON，reason、If-Match、legal entity 和所有 payload 字段都进入摘要；correlation/requestId 与 key 分离。
+request digest 使用 canonical JSON，reason、If-Match、company 和所有 payload 字段都进入摘要；correlation/requestId 与 key 分离。
 
 协议：
 
@@ -192,7 +192,7 @@ Request 仅含：
 
 流程：
 
-1. capability + employee/legal-entity/object scope；
+1. capability + employee/company/object scope；
 2. resolver 取得 immutable group/location/calendar/day/shift/三类 policy；
 3. 用 resolved IANA timezone 和 actual instant 生成本地跨日语义，EXIT 使用真实 next-day date；
 4. 从 scheduled WORK start 与 ENTRY punch 推导 late minutes；
@@ -236,7 +236,7 @@ AUDITOR 无 simulation/impact/manage affordance且服务端拒绝。lifecycle UI
 
 ### 11. 独立 seed oracle
 
-固定 baseline legal entity：`30000000-0000-0000-0000-000000000001`。V7 只能对这个明确 ID 条件 seed，绝不使用 `MIN(legal_entity_id)`；该 ID 不存在时不得选择其他法人，group provisioning fail closed，部署 bootstrap 必须显式创建 scope。
+固定 baseline company：`30000000-0000-0000-0000-000000000001`。V7 只能对这个明确 ID 条件 seed，绝不使用聚合选择任意公司；该 ID 不存在时不得选择其他公司，group provisioning fail closed，部署 bootstrap 必须显式创建 scope。
 
 固定 IDs：
 

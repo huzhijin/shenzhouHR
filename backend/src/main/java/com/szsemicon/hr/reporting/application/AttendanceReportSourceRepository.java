@@ -10,7 +10,7 @@ import java.util.Optional;
 
 public interface AttendanceReportSourceRepository {
 
-    List<LegalEntityOption> listAuthorizedLegalEntities(
+    List<CompanyOption> listAuthorizedCompanies(
             String principalId,
             String capabilityCode,
             YearMonth period,
@@ -22,11 +22,12 @@ public interface AttendanceReportSourceRepository {
             ReportFilter filter,
             Instant authorizationTime);
 
-    record LegalEntityOption(String legalEntityId, String name) {
+    record CompanyOption(String companyId, String companyName) {
 
-        public LegalEntityOption {
-            legalEntityId = requireText(legalEntityId, "legalEntityId", 36);
-            name = requireText(name, "name", 200);
+        public CompanyOption {
+            companyId = requireText(companyId, "companyId", 36);
+            companyName = requireText(
+                    companyName, "companyName", 200);
         }
 
         private static String requireText(
