@@ -1,5 +1,5 @@
-import { IconLock, IconPlus, IconSearch } from '@tabler/icons-react';
-import { Alert, Button, Form, Input, Modal, Select } from 'antd';
+import { IconLock, IconPlus, IconSearch, IconUsersPlus } from '@tabler/icons-react';
+import { Button, Form, Input, Modal, Select, Space } from 'antd';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -20,11 +20,11 @@ import {
   listAccounts,
   listRoles,
   lockAccount,
-  requiresStrongTemporaryPassword,
   type AccountStatus,
   type AccountSummary,
   type RoleView,
 } from './accessApi';
+import { EmployeeAccountProvisioningDialog } from './EmployeeAccountProvisioningDialog';
 import { allowedScopeTypes, type RoleScopeType } from './roleScopePolicy';
 
 export function AccountsPage({ capabilities }: { capabilities: string[] }) {
@@ -32,6 +32,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<AccountStatus>();
   const [createOpen, setCreateOpen] = useState(false);
+  const [provisioningOpen, setProvisioningOpen] = useState(false);
   const [lockTarget, setLockTarget] = useState<AccountSummary>();
   const [processing, setProcessing] = useState(false);
   const [feedback, setFeedback] = useState<string>();
@@ -41,7 +42,6 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const selectedScopeType = Form.useWatch<RoleScopeType>('scopeType', form);
   const selectedRole = roles.find((role) => role.roleId === selectedRoleId);
   const allowedScopes = selectedRole ? allowedScopeTypes(selectedRole) : [];
-  const privilegedRoleSelected = requiresStrongTemporaryPassword(selectedRole?.roleCode);
   const loader = useMemo(() => () => listAccounts({ q: query, status }), [query, status]);
   const { resource, reload } = useAsyncResource(loader, (page) => page.items.length === 0, [query, status]);
 
@@ -61,13 +61,10 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   }) => {
     setProcessing(true);
     try {
-      const role = roles.find((candidate) => candidate.roleId === values.roleId);
       await createAccount({
         username: values.username,
         displayName: values.displayName,
-        temporaryPassword: requiresStrongTemporaryPassword(role?.roleCode)
-          ? values.temporaryPassword
-          : undefined,
+        temporaryPassword: values.temporaryPassword,
         employeeId: values.scopeType === 'SELF' ? values.employeeId ?? null : null,
         roleAssignments: [{
           roleId: values.roleId,
@@ -110,7 +107,20 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
         title={t('access.accounts')}
         description={t('access.description')}
         breadcrumbs={[{ label: t('access.section') }, { label: t('access.accounts') }]}
-        actions={capabilities.includes('ACCOUNT:CREATE') ? <Button type="primary" icon={<IconPlus stroke={2} />} onClick={() => void openCreate()}>{t('access.createAccount')}</Button> : undefined}
+        actions={capabilities.includes('ACCOUNT:CREATE') ? (
+          <Space wrap>
+            <Button icon={<IconPlus stroke={2} />} onClick={() => void openCreate()}>
+              {t('access.createAccount')}
+            </Button>
+            <Button
+              type="primary"
+              icon={<IconUsersPlus stroke={2} />}
+              onClick={() => setProvisioningOpen(true)}
+            >
+              从员工批量开通
+            </Button>
+          </Space>
+        ) : undefined}
       />
       {feedback ? <OperationFeedback kind="success" message={feedback} /> : null}
       <section className="content-surface">
@@ -156,7 +166,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
       </section>
       <Modal open={createOpen} title={t('access.createLocalAccount')} okText={t('policy.create')} cancelText={t('common.cancel')} confirmLoading={processing} onOk={() => void form.submit()} onCancel={closeCreate}>
         <Form form={form} layout="vertical" onFinish={(values) => void create(values)}>
-          <Form.Item label={t('access.username')} name="username" rules={[{ required: true, pattern: /^[a-z0-9._-]{3,64}$/, message: t('access.usernameRule') }]}><Input autoComplete="off" /></Form.Item>
+          <Form.Item label={t('access.username')} name="username" rules={[{ required: true, pattern: /^[A-Za-z0-9._-]{3,128}$/, message: t('access.usernameRule') }]}><Input autoComplete="off" /></Form.Item>
           <Form.Item label={t('access.displayName')} name="displayName" rules={[{ required: true, message: t('access.displayNameRequired') }]}><Input /></Form.Item>
           <Form.Item label={t('access.initialRole')} name="roleId" rules={[{ required: true, message: t('access.roleRequired') }]}>
             <Select
@@ -174,29 +184,21 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
             />
           </Form.Item>
           {selectedRole ? (
-            privilegedRoleSelected ? (
-              <Form.Item
-                label={t('access.initialPassword')}
-                name="temporaryPassword"
-                extra={t('access.initialPasswordRule')}
-                rules={[
-                  { required: true, message: t('access.privilegedPasswordRequired') },
-                  {
-                    validator: (_rule, value) => !value || isStrongTemporaryPassword(value)
-                      ? Promise.resolve()
-                      : Promise.reject(new Error(t('access.initialPasswordRule'))),
-                  },
-                ]}
-              >
-                <Input.Password autoComplete="new-password" />
-              </Form.Item>
-            ) : (
-              <Alert
-                showIcon
-                type="info"
-                title={t('access.defaultTemporaryPasswordNotice')}
-              />
-            )
+            <Form.Item
+              label={t('access.initialPassword')}
+              name="temporaryPassword"
+              extra={t('access.initialPasswordRule')}
+              rules={[
+                { required: true, message: t('access.temporaryPasswordRequired') },
+                {
+                  validator: (_rule, value) => !value || isStrongTemporaryPassword(value)
+                    ? Promise.resolve()
+                    : Promise.reject(new Error(t('access.initialPasswordRule'))),
+                },
+              ]}
+            >
+              <Input.Password autoComplete="new-password" />
+            </Form.Item>
           ) : null}
           <Form.Item label={t('access.scopeType')} name="scopeType" rules={[{ required: true }]}>
             <Select
@@ -246,6 +248,14 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
           ) : null}
         </Form>
       </Modal>
+      <EmployeeAccountProvisioningDialog
+        open={provisioningOpen}
+        onClose={() => setProvisioningOpen(false)}
+        onCreated={() => {
+          setFeedback('员工账号已批量开通，账号清单已下载。');
+          reload();
+        }}
+      />
       <ConfirmationDialog
         open={Boolean(lockTarget)}
         title={t('access.confirmLock')}

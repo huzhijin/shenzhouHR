@@ -53,23 +53,50 @@ export interface AccountPage {
   size: number;
 }
 
+export type EmployeeAccountCandidateStatus =
+  | 'AVAILABLE'
+  | 'ALREADY_PROVISIONED'
+  | 'USERNAME_CONFLICT';
+
+export interface EmployeeAccountCandidate {
+  employeeId: string;
+  companyId: string;
+  employeeNumber: string;
+  displayName: string;
+  organizationName?: string | null;
+  status: EmployeeAccountCandidateStatus;
+}
+
+export interface EmployeeAccountCandidatePage {
+  items: EmployeeAccountCandidate[];
+  total: number;
+  available: number;
+  alreadyProvisioned: number;
+  usernameConflicts: number;
+  page: number;
+  size: number;
+}
+
+export interface TemporaryCredential {
+  accountId: string;
+  employeeId: string;
+  employeeNumber: string;
+  displayName: string;
+  organizationName?: string | null;
+  username: string;
+  temporaryPassword: string;
+}
+
+export interface BulkAccountCreationResult {
+  credentials: TemporaryCredential[];
+  created: number;
+}
+
 export interface RoleView {
   roleId: string;
   roleCode: string;
   roleName: string;
   capabilities: string[];
-}
-
-const privilegedRoleCodes = new Set(['SYSTEM_ADMIN', 'HR_ADMIN', 'AUDITOR']);
-
-export function requiresStrongTemporaryPassword(roleCode?: string): boolean {
-  return Boolean(roleCode && privilegedRoleCodes.has(roleCode));
-}
-
-export function accountRequiresStrongTemporaryPassword(
-  roles: Array<Pick<RoleAssignmentView, 'roleCode'>>,
-): boolean {
-  return roles.some((role) => requiresStrongTemporaryPassword(role.roleCode));
 }
 
 export function isStrongTemporaryPassword(value: string): boolean {
@@ -187,6 +214,47 @@ export function createAccount(input: {
   });
 }
 
+export function listEmployeeAccountCandidates(input: {
+  companyId: string;
+  query?: string;
+  page?: number;
+  size?: number;
+}): Promise<EmployeeAccountCandidatePage> {
+  if (isDemoMode()) {
+    return Promise.resolve({
+      items: [],
+      total: 0,
+      available: 0,
+      alreadyProvisioned: 0,
+      usernameConflicts: 0,
+      page: input.page ?? 0,
+      size: input.size ?? 20,
+    });
+  }
+  const params = new URLSearchParams({
+    companyId: input.companyId,
+    page: String(input.page ?? 0),
+    size: String(input.size ?? 20),
+  });
+  if (input.query?.trim()) params.set('query', input.query.trim());
+  return requestJson<EmployeeAccountCandidatePage>(
+    `/api/v1/access/account-provisioning/candidates?${params}`,
+  );
+}
+
+export function createEmployeeAccounts(
+  employeeIds: string[],
+): Promise<BulkAccountCreationResult> {
+  if (isDemoMode()) return Promise.resolve({ credentials: [], created: 0 });
+  return requestJson<BulkAccountCreationResult>(
+    '/api/v1/access/account-provisioning/accounts',
+    {
+      method: 'POST',
+      body: JSON.stringify({ employeeIds }),
+    },
+  );
+}
+
 export function updateAccountStatus(
   accountId: string,
   status: Exclude<AccountStatus, 'LOCKED'>,
@@ -227,7 +295,7 @@ export function issuePasswordReset(accountId: string, reason: string): Promise<v
 export function resetTemporaryPassword(
   accountId: string,
   reason: string,
-  temporaryPassword?: string,
+  temporaryPassword: string,
 ): Promise<void> {
   if (isDemoMode()) return Promise.resolve();
   return requestJson<void>(
@@ -236,7 +304,7 @@ export function resetTemporaryPassword(
       method: 'POST',
       body: JSON.stringify({
         reason,
-        ...(temporaryPassword ? { temporaryPassword } : {}),
+        temporaryPassword,
       }),
     },
   );

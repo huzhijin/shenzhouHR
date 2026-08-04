@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   listReferenceAttendanceGroups,
@@ -37,7 +37,23 @@ export function CompanySelect(props: BusinessSelectProps) {
     })),
     [],
   );
-  return <ReferenceSelect {...props} state={state} placeholder={props.placeholder ?? '请选择公司'} />;
+  const onlyCompany = state.status === 'ready' && state.options.length === 1
+    ? state.options[0]
+    : undefined;
+  useEffect(() => {
+    if (!props.value && onlyCompany) {
+      props.onChange?.(onlyCompany.value);
+    }
+  }, [onlyCompany, props.onChange, props.value]);
+  return (
+    <ReferenceSelect
+      {...props}
+      state={state}
+      disabled={props.disabled || Boolean(onlyCompany)}
+      allowClear={onlyCompany ? false : props.allowClear}
+      placeholder={props.placeholder ?? '请选择公司'}
+    />
+  );
 }
 
 export function EmployeeSelect(props: BusinessSelectProps) {

@@ -1,6 +1,8 @@
 package com.szsemicon.hr.identityaccess.infrastructure.persistence;
 
 import com.szsemicon.hr.identityaccess.application.AccountPersistence;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.CandidateCounts;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.EmployeeAccountCandidateRecord;
 import com.szsemicon.hr.identityaccess.application.EmployeeAccountConflictException;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.AccountRecord;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.ResolvedRoleAssignmentInput;
@@ -45,6 +47,133 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                    account.last_login_at, account.session_epoch, account.row_version,
                    employee.company_id
             """ + ACCOUNT_FROM;
+
+    private static final String EMPLOYEE_ACCOUNT_CANDIDATE_FROM = """
+            FROM employee employee
+            JOIN company company
+              ON company.company_id = employee.company_id
+             AND company.status = 'ACTIVE'
+            JOIN employee_current_projection employee_projection
+              ON employee_projection.employee_id = employee.employee_id
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id =
+                 employee_projection.current_version_id
+             AND employee_version.employee_id = employee.employee_id
+            LEFT JOIN employment_assignment current_assignment
+              ON current_assignment.assignment_id = (
+                SELECT assignment.assignment_id
+                FROM employment_assignment assignment
+                WHERE assignment.employee_id = employee.employee_id
+                  AND assignment.record_status = 'ACTIVE'
+                  AND assignment.version_valid_to IS NULL
+                  AND assignment.effective_from <= :authorizationTime
+                  AND (
+                    assignment.effective_to IS NULL
+                    OR assignment.effective_to > :authorizationTime
+                  )
+                ORDER BY assignment.effective_from DESC,
+                         assignment.assignment_id
+                LIMIT 1
+              )
+            LEFT JOIN organization_current_projection organization_projection
+              ON organization_projection.organization_id =
+                 current_assignment.organization_id
+            LEFT JOIN organization_version organization_version
+              ON organization_version.organization_version_id =
+                 organization_projection.current_version_id
+             AND organization_version.organization_id =
+                 current_assignment.organization_id
+            LEFT JOIN auth_principal bound_principal
+              ON bound_principal.employee_id = employee.employee_id
+            LEFT JOIN local_account username_account
+              ON username_account.normalized_username =
+                 LOWER(TRIM(employee_version.employee_number))
+            """;
+
+    private static final String EMPLOYEE_ACCOUNT_CANDIDATE_STATUS = """
+            CASE
+              WHEN bound_principal.principal_id IS NOT NULL
+                THEN 'ALREADY_PROVISIONED'
+              WHEN username_account.account_id IS NOT NULL
+                THEN 'USERNAME_CONFLICT'
+              ELSE 'AVAILABLE'
+            END
+            """;
+
+    private static final String EMPLOYEE_ACCOUNT_CANDIDATE_AUTHORIZATION = """
+            (
+              SELECT COUNT(DISTINCT capability.capability_code)
+              FROM auth_principal actor
+              JOIN auth_principal_role_assignment assignment
+                ON assignment.principal_id = actor.principal_id
+              JOIN auth_role_capability role_capability
+                ON role_capability.role_id = assignment.role_id
+              JOIN auth_capability capability
+                ON capability.capability_id = role_capability.capability_id
+               AND capability.capability_code IN ('ACCOUNT:CREATE', 'ROLE:ASSIGN')
+              JOIN auth_data_scope scope
+                ON scope.scope_id = assignment.data_scope_id
+              WHERE actor.principal_id = :principalId
+                AND actor.status = 'ACTIVE'
+                AND assignment.valid_from <= :authorizationTime
+                AND (
+                  assignment.valid_to IS NULL
+                  OR assignment.valid_to > :authorizationTime
+                )
+                AND scope.valid_from <= :authorizationTime
+                AND (
+                  scope.valid_to IS NULL
+                  OR scope.valid_to > :authorizationTime
+                )
+                AND (
+                  (
+                    scope.scope_type = 'COMPANY'
+                    AND scope.company_id = employee.company_id
+                  )
+                  OR (
+                    scope.scope_type = 'ORGANIZATION'
+                    AND current_assignment.organization_id IS NOT NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM organization_identity scoped_organization
+                      WHERE scoped_organization.organization_id =
+                            scope.organization_id
+                        AND scoped_organization.identity_status = 'ACTIVE'
+                        AND scoped_organization.company_id = employee.company_id
+                    )
+                    AND (
+                      scope.organization_id =
+                          current_assignment.organization_id
+                      OR (
+                        scope.include_descendants = TRUE
+                        AND EXISTS (
+                          SELECT 1
+                          FROM organization_current_closure closure
+                          WHERE closure.ancestor_organization_id =
+                                scope.organization_id
+                            AND closure.descendant_organization_id =
+                                current_assignment.organization_id
+                        )
+                      )
+                    )
+                  )
+                )
+            ) = 2
+            """;
+
+    private static final String EMPLOYEE_ACCOUNT_CANDIDATE_BASE_FILTER = """
+            employee.company_id = :companyId
+              AND employee.employment_status = 'ACTIVE'
+              AND employee_version.status = 'ACTIVE'
+              AND current_assignment.assignment_id IS NOT NULL
+              AND (
+                :normalizedQuery = ''
+                OR LOWER(employee_version.employee_number) LIKE :queryPattern
+                OR LOWER(employee_version.display_name) LIKE :queryPattern
+                OR LOWER(COALESCE(organization_version.name, '')) LIKE :queryPattern
+              )
+              AND
+            """ + EMPLOYEE_ACCOUNT_CANDIDATE_AUTHORIZATION;
 
     private static final String ACCOUNT_VISIBILITY_PREDICATE = """
             EXISTS (
@@ -780,6 +909,107 @@ public class AccountPersistenceAdapter implements AccountPersistence {
     }
 
     @Override
+    public List<EmployeeAccountCandidateRecord> listEmployeeAccountCandidates(
+            String principalId,
+            String companyId,
+            String query,
+            int limit,
+            int offset,
+            Instant at) {
+        MapSqlParameterSource parameters = candidateParameters(
+                        principalId, companyId, query, at)
+                .addValue("limit", limit)
+                .addValue("offset", offset);
+        return namedJdbc.query(
+                """
+                SELECT employee.employee_id,
+                       employee.company_id,
+                       employee_version.employee_number,
+                       employee_version.display_name,
+                       organization_version.name AS organization_name,
+                """
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_STATUS
+                        + " AS candidate_status "
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_FROM
+                        + " WHERE "
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_BASE_FILTER
+                        + """
+                         ORDER BY employee_version.employee_number,
+                                  employee.employee_id
+                         LIMIT :limit OFFSET :offset
+                         """,
+                parameters,
+                AccountPersistenceAdapter::mapEmployeeAccountCandidate);
+    }
+
+    @Override
+    public List<EmployeeAccountCandidateRecord> findEmployeeAccountCandidates(
+            String principalId,
+            List<String> employeeIds,
+            Instant at) {
+        if (employeeIds.isEmpty()) {
+            return List.of();
+        }
+        MapSqlParameterSource parameters = candidateParameters(
+                        principalId, "", "", at)
+                .addValue("employeeIds", employeeIds);
+        return namedJdbc.query(
+                """
+                SELECT employee.employee_id,
+                       employee.company_id,
+                       employee_version.employee_number,
+                       employee_version.display_name,
+                       organization_version.name AS organization_name,
+                """
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_STATUS
+                        + " AS candidate_status "
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_FROM
+                        + " WHERE employee.employee_id IN (:employeeIds)"
+                        + """
+                          AND employee.employment_status = 'ACTIVE'
+                          AND employee_version.status = 'ACTIVE'
+                          AND current_assignment.assignment_id IS NOT NULL
+                          AND
+                         """
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_AUTHORIZATION
+                        + """
+                         ORDER BY employee.company_id,
+                                  employee_version.employee_number,
+                                  employee.employee_id
+                         """,
+                parameters,
+                AccountPersistenceAdapter::mapEmployeeAccountCandidate);
+    }
+
+    @Override
+    public CandidateCounts countEmployeeAccountCandidates(
+            String principalId,
+            String companyId,
+            String query,
+            Instant at) {
+        MapSqlParameterSource parameters = candidateParameters(
+                principalId, companyId, query, at);
+        return namedJdbc.queryForObject(
+                "SELECT COUNT(*) AS total, "
+                        + "SUM(candidate_status = 'AVAILABLE') AS available, "
+                        + "SUM(candidate_status = 'ALREADY_PROVISIONED') AS already_provisioned, "
+                        + "SUM(candidate_status = 'USERNAME_CONFLICT') AS username_conflicts "
+                        + "FROM (SELECT "
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_STATUS
+                        + " AS candidate_status "
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_FROM
+                        + " WHERE "
+                        + EMPLOYEE_ACCOUNT_CANDIDATE_BASE_FILTER
+                        + ") candidate_counts",
+                parameters,
+                (result, row) -> new CandidateCounts(
+                        result.getLong("total"),
+                        result.getLong("available"),
+                        result.getLong("already_provisioned"),
+                        result.getLong("username_conflicts")));
+    }
+
+    @Override
     public long countAccounts(
             String principalId,
             String requiredCapability,
@@ -975,6 +1205,22 @@ public class AccountPersistenceAdapter implements AccountPersistence {
     }
 
     @Override
+    public Optional<String> findRoleIdByCodeForUpdate(String roleCode) {
+        List<String> roleIds = jdbc.queryForList(
+                """
+                SELECT role_id
+                FROM auth_role
+                WHERE role_code = ?
+                FOR UPDATE
+                """,
+                String.class,
+                roleCode);
+        return roleIds.size() == 1
+                ? Optional.of(roleIds.getFirst())
+                : Optional.empty();
+    }
+
+    @Override
     public List<ResolvedRoleAssignmentInput> resolveAuthorizedRoleAssignmentScopes(
             String actorPrincipalId,
             String targetPrincipalId,
@@ -1155,8 +1401,14 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 FROM auth_role role
                 LEFT JOIN auth_role_capability role_capability ON role_capability.role_id = role.role_id
                 LEFT JOIN auth_capability capability ON capability.capability_id = role_capability.capability_id
-                WHERE capability.capability_code IS NULL
-                   OR capability.capability_code NOT LIKE 'PAYROLL:%'
+                WHERE (
+                  capability.capability_code IS NULL
+                  OR capability.capability_code NOT LIKE 'PAYROLL:%'
+                )
+                  AND role.role_code NOT IN (
+                    'MANUFACTURING_SUPERVISOR',
+                    'MANUFACTURING_CENTER_SUPERVISOR'
+                  )
                 ORDER BY role.role_code, capability.capability_code
                 """,
                 result -> {
@@ -1790,6 +2042,34 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 .addValue("principalId", principalId)
                 .addValue("requiredCapability", requiredCapability)
                 .addValue("authorizationTime", Timestamp.from(at));
+    }
+
+    private static MapSqlParameterSource candidateParameters(
+            String principalId,
+            String companyId,
+            String query,
+            Instant at) {
+        String normalizedQuery = query == null
+                ? ""
+                : query.trim().toLowerCase();
+        return new MapSqlParameterSource()
+                .addValue("principalId", principalId)
+                .addValue("companyId", companyId)
+                .addValue("normalizedQuery", normalizedQuery)
+                .addValue("queryPattern", "%" + normalizedQuery + "%")
+                .addValue("authorizationTime", Timestamp.from(at));
+    }
+
+    private static EmployeeAccountCandidateRecord mapEmployeeAccountCandidate(
+            ResultSet result,
+            int row) throws SQLException {
+        return new EmployeeAccountCandidateRecord(
+                result.getString("employee_id"),
+                result.getString("company_id"),
+                result.getString("employee_number"),
+                result.getString("display_name"),
+                result.getString("organization_name"),
+                result.getString("candidate_status"));
     }
 
     private static AccountRecord mapAccount(ResultSet result, int row) throws SQLException {

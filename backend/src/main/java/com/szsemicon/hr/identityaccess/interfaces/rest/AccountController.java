@@ -4,7 +4,9 @@ import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.AccountDetail;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.AccountPage;
+import com.szsemicon.hr.identityaccess.application.AccountAccessService.BulkAccountCreationResult;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.CreateAccountCommand;
+import com.szsemicon.hr.identityaccess.application.AccountAccessService.EmployeeAccountCandidatePage;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleRecord;
 import com.szsemicon.hr.identityaccess.interfaces.rest.AuthenticationController.AcceptedOperation;
@@ -20,6 +22,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -67,6 +70,28 @@ public class AccountController {
                 request.roleAssignments().stream().map(RoleAssignmentRequest::toInput).toList()));
         return ResponseEntity.created(URI.create("/api/v1/access/accounts/" + detail.accountId()))
                 .body(detail);
+    }
+
+    @GetMapping("/account-provisioning/candidates")
+    @PreAuthorize("hasAuthority('ACCOUNT:CREATE') and hasAuthority('ROLE:ASSIGN')")
+    ResponseEntity<EmployeeAccountCandidatePage> accountProvisioningCandidates(
+            @RequestParam @Size(max = 36) String companyId,
+            @RequestParam(defaultValue = "") @Size(max = 100) String query,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(accountService.listEmployeeAccountCandidates(
+                        companyId, query, page, size));
+    }
+
+    @PostMapping("/account-provisioning/accounts")
+    @PreAuthorize("hasAuthority('ACCOUNT:CREATE') and hasAuthority('ROLE:ASSIGN')")
+    ResponseEntity<BulkAccountCreationResult> createEmployeeAccounts(
+            @Valid @RequestBody EmployeeAccountsCreateRequest request) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(accountService.createEmployeeAccounts(request.employeeIds()));
     }
 
     @GetMapping("/accounts/{accountId}")
@@ -148,14 +173,19 @@ public class AccountController {
     public record AccountCreateRequest(
             @NotBlank @Size(min = 3, max = 128) String username,
             @NotBlank @Size(max = 100) String displayName,
-            @Size(max = 256) String temporaryPassword,
+            @NotBlank @Size(min = 12, max = 256) String temporaryPassword,
             @Size(max = 36) String employeeId,
             @NotEmpty @Size(max = 100)
             List<@Valid RoleAssignmentRequest> roleAssignments) {
     }
 
+    public record EmployeeAccountsCreateRequest(
+            @NotEmpty @Size(max = 20)
+            List<@NotBlank @Size(max = 36) String> employeeIds) {
+    }
+
     public record TemporaryPasswordResetRequest(
-            @Size(max = 256) String temporaryPassword,
+            @NotBlank @Size(min = 12, max = 256) String temporaryPassword,
             @NotBlank @Size(min = 2, max = 500) String reason) {
     }
 

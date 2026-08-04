@@ -12,6 +12,15 @@ import java.util.Optional;
 
 public interface AccountPersistence {
 
+    record EmployeeAccountCandidateRecord(
+            String employeeId,
+            String companyId,
+            String employeeNumber,
+            String displayName,
+            String organizationName,
+            String status) {
+    }
+
     boolean canAccessAccount(
             String principalId,
             String accountId,
@@ -53,6 +62,32 @@ public interface AccountPersistence {
             int limit,
             int offset,
             Instant at);
+
+    List<EmployeeAccountCandidateRecord> listEmployeeAccountCandidates(
+            String principalId,
+            String companyId,
+            String query,
+            int limit,
+            int offset,
+            Instant at);
+
+    List<EmployeeAccountCandidateRecord> findEmployeeAccountCandidates(
+            String principalId,
+            List<String> employeeIds,
+            Instant at);
+
+    CandidateCounts countEmployeeAccountCandidates(
+            String principalId,
+            String companyId,
+            String query,
+            Instant at);
+
+    record CandidateCounts(
+            long total,
+            long available,
+            long alreadyProvisioned,
+            long usernameConflicts) {
+    }
 
     long countAccounts(
             String principalId,
@@ -104,6 +139,8 @@ public interface AccountPersistence {
      * as a non-delegable role by the application service.
      */
     Optional<String> findRoleCodeForUpdate(String roleId);
+
+    Optional<String> findRoleIdByCodeForUpdate(String roleCode);
 
     /**
      * Verifies that each requested scope resource exists and is covered by a

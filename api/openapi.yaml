@@ -589,7 +589,7 @@ paths:
     post:
       tags: [Access]
       operationId: createAccount
-      summary: 创建本地账号；普通账号默认临时密码为 123456
+      summary: 创建本地账号；所有账号都必须设置强临时密码
       x-capability: ACCOUNT:CREATE
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -606,6 +606,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccountDetail'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /access/account-provisioning/candidates:
+    get:
+      tags: [Access]
+      operationId: listEmployeeAccountCandidates
+      summary: 预检可从员工档案开通的登录账号
+      description: 只返回当前账号同时具有 ACCOUNT:CREATE 与 ROLE:ASSIGN 范围内的在职员工。
+      x-capabilities: [ACCOUNT:CREATE, ROLE:ASSIGN]
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/ResourceId' }
+        - name: query
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 员工账号开通预检结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeAccountCandidatePage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+  /access/account-provisioning/accounts:
+    post:
+      tags: [Access]
+      operationId: createEmployeeAccounts
+      summary: 按员工档案批量开通本人账号
+      description: |
+        登录名固定使用工号，显示名称使用员工姓名，角色固定为员工本人，数据范围固定为本人。
+        每次最多 20 人；服务端为每人生成不同的强临时密码，明文只在本次响应中返回且不得写入日志或审计。
+      x-capabilities: [ACCOUNT:CREATE, ROLE:ASSIGN]
+      parameters:
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeAccountsCreateRequest'
+      responses:
+        '200':
+          description: 本次创建结果与一次性临时凭据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkAccountCreationResult'
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '401':
@@ -741,8 +803,7 @@ paths:
       operationId: resetAccountTemporaryPassword
       summary: 管理员直接重置临时密码并强制账号下次登录改密
       description: |
-        普通账号由服务端固定重置为临时密码 123456，忽略请求中的 temporaryPassword；
-        SYSTEM_ADMIN、HR_ADMIN、AUDITOR 高权限账号必须提供符合强密码策略的临时密码。
+        所有账号都必须提供符合强密码策略的临时密码。
         成功后撤销该账号全部会话、作废未使用的密码重置授权，并记录不含密码的审计事件。
       x-capability: ACCOUNT:RESET_PASSWORD
       parameters:
@@ -5965,16 +6026,15 @@ components:
     TemporaryPasswordResetRequest:
       type: object
       additionalProperties: false
-      required: [reason]
+      required: [reason, temporaryPassword]
       properties:
         reason: { type: string, minLength: 2, maxLength: 500 }
         temporaryPassword:
           type: string
+          minLength: 12
           maxLength: 256
           writeOnly: true
-          description: |
-            仅高权限账号使用，须为 12–256 位且同时包含大小写字母、数字和符号；
-            普通账号即使传入也会被忽略并固定重置为 123456。
+          description: 须为 12–256 位且同时包含大小写字母、数字和符号。
     AccountSummary:
       type: object
       additionalProperties: false
@@ -6018,17 +6078,16 @@ components:
     AccountCreateRequest:
       type: object
       additionalProperties: false
-      required: [username, displayName, roleAssignments]
+      required: [username, displayName, temporaryPassword, roleAssignments]
       properties:
         username: { type: string, minLength: 3, maxLength: 128 }
         displayName: { type: string, minLength: 1, maxLength: 100 }
         temporaryPassword:
           type: string
+          minLength: 12
           maxLength: 256
           writeOnly: true
-          description: |
-            SYSTEM_ADMIN、HR_ADMIN、AUDITOR 账号必填并须符合强密码策略；
-            普通账号无需传入，服务端固定使用临时密码 123456。
+          description: 所有账号必填，须符合大小写字母、数字和符号的强密码策略。
         employeeId:
           oneOf:
             - $ref: '#/components/schemas/ResourceId'
@@ -6040,6 +6099,70 @@ components:
           maxItems: 100
           items:
             $ref: '#/components/schemas/RoleAssignmentRequest'
+    EmployeeAccountCandidate:
+      type: object
+      additionalProperties: false
+      required: [employeeId, companyId, employeeNumber, displayName, status]
+      properties:
+        employeeId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
+        employeeNumber: { type: string }
+        displayName: { type: string }
+        organizationName: { type: [string, 'null'] }
+        status:
+          type: string
+          enum: [AVAILABLE, ALREADY_PROVISIONED, USERNAME_CONFLICT]
+    EmployeeAccountCandidatePage:
+      type: object
+      additionalProperties: false
+      required: [items, total, available, alreadyProvisioned, usernameConflicts, page, size]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/EmployeeAccountCandidate' }
+        total: { type: integer, format: int64, minimum: 0 }
+        available: { type: integer, format: int64, minimum: 0 }
+        alreadyProvisioned: { type: integer, format: int64, minimum: 0 }
+        usernameConflicts: { type: integer, format: int64, minimum: 0 }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 100 }
+    EmployeeAccountsCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeIds]
+      properties:
+        employeeIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ResourceId' }
+    TemporaryCredential:
+      type: object
+      additionalProperties: false
+      required: [accountId, employeeId, employeeNumber, displayName, username, temporaryPassword]
+      properties:
+        accountId: { $ref: '#/components/schemas/ResourceId' }
+        employeeId: { $ref: '#/components/schemas/ResourceId' }
+        employeeNumber: { type: string }
+        displayName: { type: string }
+        organizationName: { type: [string, 'null'] }
+        username: { type: string }
+        temporaryPassword:
+          type: string
+          format: password
+          minLength: 12
+          x-sensitive: true
+          description: 只在本次响应中返回，服务端不得持久化或记录明文。
+    BulkAccountCreationResult:
+      type: object
+      additionalProperties: false
+      required: [credentials, created]
+      properties:
+        credentials:
+          type: array
+          items: { $ref: '#/components/schemas/TemporaryCredential' }
+        created: { type: integer, minimum: 0, maximum: 20 }
     AccountStatusUpdateRequest:
       type: object
       additionalProperties: false

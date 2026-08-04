@@ -80,7 +80,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
     }
 
     @Test
-    void ordinaryAccountCreationUsesServerDefaultAndPrivilegedCreationRequiresStrongPassword()
+    void everyAccountCreationRequiresAnExplicitStrongTemporaryPassword()
             throws Exception {
         jdbc.update(
                 """
@@ -92,7 +92,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
         String ordinaryUsername =
                 "wave1_ordinary_" + UUID.randomUUID().toString().replace("-", "");
 
-        MvcResult ordinary = mockMvc.perform(post("/api/v1/access/accounts")
+        mockMvc.perform(post("/api/v1/access/accounts")
                         .with(user(ADMIN_PRINCIPAL))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -107,14 +107,36 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                                      "validFrom":"2026-07-20T00:00:00Z",
                                      "validTo":null
                                    }]
-                                 }
+                }
                                  """.formatted(ordinaryUsername, EXECUTIVE_ROLE)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.firstPasswordChangeRequired").value(true))
-                .andReturn();
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
-        assertThat(ordinary.getResponse().getContentAsString().toLowerCase())
-                .doesNotContain("123456", "temporarypassword", "passwordhash");
+        String ordinaryPassword = newTestSecret();
+        mockMvc.perform(post("/api/v1/access/accounts")
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {
+                                   "username":"%s",
+                                   "displayName":"WAVE-1 普通账号",
+                                   "temporaryPassword":"%s",
+                                   "roleAssignments":[{
+                                     "roleId":"%s",
+                                     "scopeType":"COMPANY",
+                                     "scopeResourceId":"30000000-0000-0000-0000-000000000001",
+                                     "validFrom":"2026-07-20T00:00:00Z",
+                                     "validTo":null
+                                   }]
+                                 }
+                                 """.formatted(
+                                ordinaryUsername,
+                                ordinaryPassword,
+                                EXECUTIVE_ROLE)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.firstPasswordChangeRequired").value(true));
+
         String ordinaryHash = jdbc.queryForObject(
                 """
                 SELECT credential.password_hash
@@ -124,7 +146,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                 """,
                 String.class,
                 ordinaryUsername);
-        assertThat(new BCryptPasswordEncoder().matches("123456", ordinaryHash))
+        assertThat(new BCryptPasswordEncoder().matches(ordinaryPassword, ordinaryHash))
                 .isTrue();
 
         String privilegedBody = """
@@ -145,12 +167,12 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                         .with(user(ADMIN_PRINCIPAL))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(privilegedBody.formatted(
+                .content(privilegedBody.formatted(
                                 "wave1_privileged_missing_" + UUID.randomUUID(),
                                 "",
                                 SYSTEM_ADMIN_ROLE)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PASSWORD_POLICY_VIOLATION"));
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         mockMvc.perform(post("/api/v1/access/accounts")
                         .with(user(ADMIN_PRINCIPAL))
                         .with(csrf())
@@ -160,7 +182,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                                 "\"temporaryPassword\":\"123456\",",
                                 SYSTEM_ADMIN_ROLE)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PASSWORD_POLICY_VIOLATION"));
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -334,7 +356,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
     }
 
     @Test
-    void administratorDirectResetUsesDefaultRevokesSessionsAndInvalidatesGrants()
+    void administratorDirectResetRequiresStrongPasswordRevokesSessionsAndInvalidatesGrants()
             throws Exception {
         AuthenticatedSession oldSession = login(STANDARD_USERNAME, standardPassword);
         jdbc.update(
@@ -351,17 +373,17 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                 ADMIN_PRINCIPAL,
                 "direct-reset-test");
 
-        MvcResult result = mockMvc.perform(post(
+        mockMvc.perform(post(
                                 "/api/v1/access/accounts/{accountId}/temporary-password-reset",
                                 STANDARD_ACCOUNT)
                         .with(user(ADMIN_PRINCIPAL))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"管理员直接重置\"}"))
-                .andExpect(status().isNoContent())
-                .andReturn();
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
-        assertThat(result.getResponse().getContentAsString()).isEmpty();
+        String resetPassword = newTestSecret();
         mockMvc.perform(post(
                                 "/api/v1/access/accounts/{accountId}/temporary-password-reset",
                                 STANDARD_ACCOUNT)
@@ -370,16 +392,16 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                  {
-                                   "temporaryPassword":"123456",
-                                   "reason":"普通账号显式携带默认密码"
+                                   "temporaryPassword":"%s",
+                                   "reason":"管理员设置独立临时密码"
                                  }
-                                 """))
+                                 """.formatted(resetPassword)))
                 .andExpect(status().isNoContent());
         String storedHash = jdbc.queryForObject(
                 "SELECT password_hash FROM password_credential WHERE account_id = ?",
                 String.class,
                 STANDARD_ACCOUNT);
-        assertThat(new BCryptPasswordEncoder().matches("123456", storedHash)).isTrue();
+        assertThat(new BCryptPasswordEncoder().matches(resetPassword, storedHash)).isTrue();
         assertThat(jdbc.queryForObject(
                 "SELECT first_password_change_required FROM local_account WHERE account_id = ?",
                 Boolean.class,
@@ -397,7 +419,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                 ORDER BY occurred_at DESC LIMIT 1
                 """,
                 String.class,
-                STANDARD_ACCOUNT)).isEqualTo("普通账号显式携带默认密码");
+                STANDARD_ACCOUNT)).isEqualTo("管理员设置独立临时密码");
     }
 
     @Test
@@ -465,7 +487,7 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"高权限账号禁止弱临时密码\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("PASSWORD_POLICY_VIOLATION"));
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
         String strongTemporaryPassword = newTestSecret();
         mockMvc.perform(post(

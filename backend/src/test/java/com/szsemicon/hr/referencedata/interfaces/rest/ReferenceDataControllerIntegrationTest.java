@@ -66,22 +66,17 @@ class ReferenceDataControllerIntegrationTest {
     }
 
     @Test
-    void returnsOnlyActiveCompaniesForManagementReader() throws Exception {
+    void returnsOnlyAuthorizedActiveCompaniesForManagementReader() throws Exception {
         mockMvc.perform(get("/api/v1/reference-data/companies")
                         .with(user(MANAGEMENT_PRINCIPAL)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].companyId")
                         .value("30000000-0000-0000-0000-000000000001"))
                 .andExpect(jsonPath("$[0].code").value("WAVE2-LE-001"))
                 .andExpect(jsonPath("$[0].name")
                         .value("WAVE-2 合成公司一"))
-                .andExpect(jsonPath("$[1].companyId")
-                        .value("30000000-0000-0000-0000-000000000002"))
-                .andExpect(jsonPath("$[1].code").value("WAVE2-LE-002"))
-                .andExpect(jsonPath("$[1].name")
-                        .value("WAVE-2 合成公司二"))
                 .andExpect(jsonPath("$[0].status").doesNotExist());
     }
 }

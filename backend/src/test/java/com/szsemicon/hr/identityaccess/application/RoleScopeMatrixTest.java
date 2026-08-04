@@ -24,16 +24,14 @@ class RoleScopeMatrixTest {
             Arguments.of("EMPLOYEE_SELF", Set.of("SELF")),
             Arguments.of("DEPARTMENT_MANAGER", Set.of("ORGANIZATION")),
             Arguments.of("DEPARTMENT_HEAD", Set.of("ORGANIZATION")),
-            Arguments.of("MANUFACTURING_SUPERVISOR", Set.of("ORGANIZATION")),
-            Arguments.of(
-                    "MANUFACTURING_CENTER_SUPERVISOR",
-                    Set.of("ORGANIZATION")),
             Arguments.of("HR_ADMIN", Set.of("COMPANY")),
             Arguments.of("SYSTEM_ADMIN", Set.of("COMPANY")),
             Arguments.of("AUDITOR", Set.of("COMPANY")),
             Arguments.of(
                     "EXECUTIVE",
                     Set.of("COMPANY", "ORGANIZATION")),
+            Arguments.of("MANUFACTURING_SUPERVISOR", Set.of()),
+            Arguments.of("MANUFACTURING_CENTER_SUPERVISOR", Set.of()),
             Arguments.of("UNSIGNED_FUTURE_ROLE", Set.of())
         };
     }

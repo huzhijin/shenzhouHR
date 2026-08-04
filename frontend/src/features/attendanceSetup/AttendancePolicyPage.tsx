@@ -73,7 +73,7 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
     () => () => Promise.all([
       listPolicyCatalog(),
       listPolicyBindings(undefined, undefined, bindingPage, bindingPageSize),
-      listAttendanceGroups(undefined, 0, 500),
+      listAttendanceGroups(undefined, 0, 100),
     ]),
     [bindingPage, bindingPageSize],
   );

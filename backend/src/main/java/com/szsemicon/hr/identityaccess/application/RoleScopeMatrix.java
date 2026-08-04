@@ -18,10 +18,7 @@ final class RoleScopeMatrix {
     static Set<String> allowedScopeTypes(String roleCode) {
         return switch (roleCode) {
             case "EMPLOYEE", "EMPLOYEE_SELF" -> Set.of("SELF");
-            case "DEPARTMENT_MANAGER",
-                    "DEPARTMENT_HEAD",
-                    "MANUFACTURING_SUPERVISOR",
-                    "MANUFACTURING_CENTER_SUPERVISOR" -> Set.of("ORGANIZATION");
+            case "DEPARTMENT_MANAGER", "DEPARTMENT_HEAD" -> Set.of("ORGANIZATION");
             case "HR_ADMIN", "SYSTEM_ADMIN", "AUDITOR" -> Set.of("COMPANY");
             case "EXECUTIVE" -> Set.of("COMPANY", "ORGANIZATION");
             default -> Set.of();

@@ -22,7 +22,6 @@ import {
 } from './AccessComponents';
 import {
   assignRoles,
-  accountRequiresStrongTemporaryPassword,
   getAccount,
   isStrongTemporaryPassword,
   listRoles,
@@ -71,15 +70,13 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
 
   const confirmOperation = async () => {
     if (!operation || resource.status !== 'ready') return;
-    const privilegedAccount = accountRequiresStrongTemporaryPassword(resource.data.roles);
     if (
       operation === 'reset'
-      && privilegedAccount
       && !isStrongTemporaryPassword(temporaryPassword)
     ) {
       setTemporaryPasswordError(
         !temporaryPassword
-          ? t('access.privilegedPasswordRequired')
+          ? t('access.temporaryPasswordRequired')
           : t('access.initialPasswordRule'),
       );
       return;
@@ -88,7 +85,7 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
     try {
       if (operation === 'unlock') await unlockAccount(accountId, reason);
       if (operation === 'reset') {
-        const passwordForRequest = temporaryPassword || undefined;
+        const passwordForRequest = temporaryPassword;
         setTemporaryPassword('');
         await resetTemporaryPassword(accountId, reason, passwordForRequest);
       }
@@ -130,7 +127,6 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
   if ('error' in resource) return <StatePanel state={resource.status} description={resource.error.message} onRetry={reload} />;
   if (resource.status !== 'ready') return <StatePanel state="404" />;
   const account = resource.data;
-  const privilegedAccount = accountRequiresStrongTemporaryPassword(account.roles);
   const openUnlock = () => setOperation('unlock');
   const openStatusChange = () => setOperation(account.status === 'DISABLED' ? 'enable' : 'disable');
   const openReset = () => {
@@ -332,36 +328,30 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
               <>
                 <Alert
                   showIcon
-                  type={privilegedAccount ? 'warning' : 'info'}
-                  title={privilegedAccount
-                    ? t('access.privilegedResetPasswordNotice')
-                    : t('access.standardResetPasswordNotice')}
+                  type="warning"
+                  title={t('access.resetPasswordNotice')}
                 />
-                {privilegedAccount ? (
-                  <>
-                    <label htmlFor="account-temporary-password">
-                      {t('access.strongTemporaryPassword')}
-                    </label>
-                    <Input.Password
-                      id="account-temporary-password"
-                      value={temporaryPassword}
-                      autoComplete="new-password"
-                      required
-                      aria-required="true"
-                      aria-describedby="account-temporary-password-policy"
-                      aria-invalid={temporaryPasswordError ? 'true' : undefined}
-                      onChange={(event) => {
-                        setTemporaryPassword(event.target.value);
-                        setTemporaryPasswordError(undefined);
-                      }}
-                    />
-                    <p id="account-temporary-password-policy" className="form-help">
-                      {t('access.initialPasswordRule')}
-                    </p>
-                    {temporaryPasswordError ? (
-                      <p role="alert">{temporaryPasswordError}</p>
-                    ) : null}
-                  </>
+                <label htmlFor="account-temporary-password">
+                  {t('access.strongTemporaryPassword')}
+                </label>
+                <Input.Password
+                  id="account-temporary-password"
+                  value={temporaryPassword}
+                  autoComplete="new-password"
+                  required
+                  aria-required="true"
+                  aria-describedby="account-temporary-password-policy"
+                  aria-invalid={temporaryPasswordError ? 'true' : undefined}
+                  onChange={(event) => {
+                    setTemporaryPassword(event.target.value);
+                    setTemporaryPasswordError(undefined);
+                  }}
+                />
+                <p id="account-temporary-password-policy" className="form-help">
+                  {t('access.initialPasswordRule')}
+                </p>
+                {temporaryPasswordError ? (
+                  <p role="alert">{temporaryPasswordError}</p>
                 ) : null}
               </>
             ) : null}

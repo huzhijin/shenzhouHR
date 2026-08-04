@@ -11,7 +11,6 @@ describe('roleScopePolicy', () => {
   it.each([
     ['EMPLOYEE_SELF', ['SELF']],
     ['DEPARTMENT_HEAD', ['ORGANIZATION']],
-    ['MANUFACTURING_CENTER_SUPERVISOR', ['ORGANIZATION']],
     ['HR_ADMIN', ['COMPANY']],
     ['SYSTEM_ADMIN', ['COMPANY']],
     ['AUDITOR', ['COMPANY']],
@@ -22,6 +21,7 @@ describe('roleScopePolicy', () => {
 
   it('fails closed for an unknown role code', () => {
     expect(allowedScopeTypes(role('UNSIGNED_FUTURE_ROLE'))).toEqual([]);
+    expect(allowedScopeTypes(role('MANUFACTURING_CENTER_SUPERVISOR'))).toEqual([]);
   });
 
   it('round-trips multiple scopes for the same role without collapsing validity', () => {

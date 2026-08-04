@@ -1,6 +1,8 @@
 package com.szsemicon.hr.identityaccess.application;
 
 import com.szsemicon.hr.audit.application.AuditService;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.CandidateCounts;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.EmployeeAccountCandidateRecord;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.AccountRecord;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.ResolvedRoleAssignmentInput;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
@@ -37,7 +39,9 @@ public class AccountAccessService {
     private static final String ACCOUNT_RESET_PASSWORD =
             "ACCOUNT:RESET_PASSWORD";
     private static final String ROLE_ASSIGN = "ROLE:ASSIGN";
-    private static final String DEFAULT_TEMPORARY_PASSWORD = "123456";
+    private static final String LEGACY_DEFAULT_TEMPORARY_PASSWORD = "123456";
+    private static final String EMPLOYEE_SELF_ROLE = "EMPLOYEE_SELF";
+    private static final int MAX_BULK_ACCOUNT_COUNT = 20;
     private static final Set<String> PRIVILEGED_ROLE_CODES =
             Set.of("SYSTEM_ADMIN", "HR_ADMIN", "AUDITOR");
 
@@ -149,6 +153,140 @@ public class AccountAccessService {
                         now),
                 boundedPage,
                 boundedSize);
+    }
+
+    @Transactional(readOnly = true)
+    public EmployeeAccountCandidatePage listEmployeeAccountCandidates(
+            String companyId,
+            String query,
+            int page,
+            int size) {
+        if (companyId == null || companyId.isBlank() || companyId.length() > 36) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "请选择公司后再查看待开通员工");
+        }
+        if (query != null && query.length() > 100) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "搜索内容不能超过 100 个字符");
+        }
+        int boundedSize = Math.min(Math.max(size, 1), 100);
+        int boundedPage = Math.max(page, 0);
+        String actorId = principalId();
+        Instant now = clock.instant();
+        List<EmployeeAccountCandidate> items = accountPersistence
+                .listEmployeeAccountCandidates(
+                        actorId,
+                        companyId,
+                        query,
+                        boundedSize,
+                        boundedPage * boundedSize,
+                        now)
+                .stream()
+                .map(AccountAccessService::candidate)
+                .toList();
+        CandidateCounts counts = accountPersistence.countEmployeeAccountCandidates(
+                actorId, companyId, query, now);
+        return new EmployeeAccountCandidatePage(
+                items,
+                counts.total(),
+                counts.available(),
+                counts.alreadyProvisioned(),
+                counts.usernameConflicts(),
+                boundedPage,
+                boundedSize);
+    }
+
+    @Transactional
+    public BulkAccountCreationResult createEmployeeAccounts(
+            List<String> requestedEmployeeIds) {
+        if (requestedEmployeeIds == null
+                || requestedEmployeeIds.isEmpty()
+                || requestedEmployeeIds.size() > MAX_BULK_ACCOUNT_COUNT
+                || requestedEmployeeIds.stream().anyMatch(id ->
+                        id == null || id.isBlank() || id.length() > 36)) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "每批请选择 1 至 " + MAX_BULK_ACCOUNT_COUNT + " 名员工");
+        }
+        List<String> employeeIds = requestedEmployeeIds.stream()
+                .distinct()
+                .sorted()
+                .toList();
+        if (employeeIds.size() != requestedEmployeeIds.size()) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "同一批次不能重复选择员工");
+        }
+        String actorId = principalId();
+        Instant now = clock.instant();
+        List<EmployeeAccountCandidateRecord> candidates =
+                accountPersistence.findEmployeeAccountCandidates(
+                        actorId, employeeIds, now);
+        if (candidates.size() != employeeIds.size()) {
+            throw new ApiProblemException(
+                    HttpStatus.CONFLICT,
+                    "ACCOUNT_PROVISIONING_CANDIDATE_CHANGED",
+                    "部分员工已离职、没有有效任职或不在当前授权范围，请刷新后重试");
+        }
+        EmployeeAccountCandidateRecord blocked = candidates.stream()
+                .filter(item -> !"AVAILABLE".equals(item.status()))
+                .findFirst()
+                .orElse(null);
+        if (blocked != null) {
+            String message = "ALREADY_PROVISIONED".equals(blocked.status())
+                    ? "员工 “" + blocked.displayName() + "” 已有登录账号"
+                    : "工号 “" + blocked.employeeNumber() + "” 已被其他账号使用";
+            throw new ApiProblemException(
+                    HttpStatus.CONFLICT,
+                    "ACCOUNT_PROVISIONING_CONFLICT",
+                    message + "，请刷新预检结果后处理");
+        }
+        String employeeRoleId = accountPersistence
+                .findRoleIdByCodeForUpdate(EMPLOYEE_SELF_ROLE)
+                .orElseThrow(() -> new ApiProblemException(
+                        HttpStatus.CONFLICT,
+                        "EMPLOYEE_ROLE_NOT_CONFIGURED",
+                        "系统尚未配置“员工本人”角色，暂时无法批量开通账号"));
+        Set<String> generatedPasswords = new HashSet<>();
+        List<TemporaryCredential> credentials = new java.util.ArrayList<>();
+        for (EmployeeAccountCandidateRecord employee : candidates) {
+            String temporaryPassword = newProvisioningPassword(generatedPasswords);
+            AccountDetail created = createAccount(new CreateAccountCommand(
+                    employee.employeeNumber(),
+                    employee.displayName(),
+                    temporaryPassword,
+                    employee.employeeId(),
+                    List.of(new RoleAssignmentInput(
+                            employeeRoleId,
+                            "SELF",
+                            null,
+                            now,
+                            null))));
+            credentials.add(new TemporaryCredential(
+                    created.accountId(),
+                    employee.employeeId(),
+                    employee.employeeNumber(),
+                    employee.displayName(),
+                    employee.organizationName(),
+                    created.username(),
+                    temporaryPassword));
+        }
+        auditService.record(
+                actorId,
+                "EMPLOYEE_ACCOUNTS_BULK_CREATED",
+                "LOCAL_ACCOUNT_BATCH",
+                auditService.currentCorrelationId(),
+                "SUCCESS",
+                "created=" + credentials.size());
+        return new BulkAccountCreationResult(
+                List.copyOf(credentials),
+                credentials.size());
     }
 
     @Transactional(readOnly = true)
@@ -466,6 +604,17 @@ public class AccountAccessService {
                 account.rowVersion());
     }
 
+    private static EmployeeAccountCandidate candidate(
+            EmployeeAccountCandidateRecord candidate) {
+        return new EmployeeAccountCandidate(
+                candidate.employeeId(),
+                candidate.companyId(),
+                candidate.employeeNumber(),
+                candidate.displayName(),
+                candidate.organizationName(),
+                candidate.status());
+    }
+
     private static void validateAssignments(List<RoleAssignmentInput> assignments) {
         if (assignments == null || assignments.isEmpty() || assignments.size() > 100) {
             throw new ApiProblemException(
@@ -629,7 +778,7 @@ public class AccountAccessService {
         boolean stillUsesDefaultTemporaryPassword = authenticationPersistence
                 .findCredential(account.accountId())
                 .map(credential -> passwordCodec.matches(
-                        DEFAULT_TEMPORARY_PASSWORD,
+                        LEGACY_DEFAULT_TEMPORARY_PASSWORD,
                         credential.passwordHash()))
                 .orElse(true);
         if (stillUsesDefaultTemporaryPassword) {
@@ -675,18 +824,12 @@ public class AccountAccessService {
     private String creationTemporaryPassword(
             boolean privileged,
             String suppliedSecret) {
-        if (!privileged) {
-            return DEFAULT_TEMPORARY_PASSWORD;
-        }
         return requireStrongTemporaryPassword(suppliedSecret);
     }
 
     private String resetTemporaryPassword(
             boolean privileged,
             String suppliedSecret) {
-        if (!privileged) {
-            return DEFAULT_TEMPORARY_PASSWORD;
-        }
         return requireStrongTemporaryPassword(suppliedSecret);
     }
 
@@ -695,9 +838,17 @@ public class AccountAccessService {
             throw new ApiProblemException(
                     HttpStatus.BAD_REQUEST,
                     "PASSWORD_POLICY_VIOLATION",
-                    "高权限或显式临时密码必须为 12 至 256 位，并包含大小写字母、数字和符号");
+                    "临时密码必须为 12 至 256 位，并包含大小写字母、数字和符号");
         }
         return suppliedSecret;
+    }
+
+    private String newProvisioningPassword(Set<String> generatedPasswords) {
+        String candidate;
+        do {
+            candidate = "Hr1!" + tokenService.newOpaqueToken().substring(0, 16);
+        } while (!generatedPasswords.add(candidate));
+        return candidate;
     }
 
     private static String normalizeUsername(String username) {
@@ -722,6 +873,40 @@ public class AccountAccessService {
             String temporaryPassword,
             String employeeId,
             List<RoleAssignmentInput> roleAssignments) {
+    }
+
+    public record EmployeeAccountCandidate(
+            String employeeId,
+            String companyId,
+            String employeeNumber,
+            String displayName,
+            String organizationName,
+            String status) {
+    }
+
+    public record EmployeeAccountCandidatePage(
+            List<EmployeeAccountCandidate> items,
+            long total,
+            long available,
+            long alreadyProvisioned,
+            long usernameConflicts,
+            int page,
+            int size) {
+    }
+
+    public record TemporaryCredential(
+            String accountId,
+            String employeeId,
+            String employeeNumber,
+            String displayName,
+            String organizationName,
+            String username,
+            String temporaryPassword) {
+    }
+
+    public record BulkAccountCreationResult(
+            List<TemporaryCredential> credentials,
+            int created) {
     }
 
     private record AuthorizedRoleAssignments(
