@@ -33,6 +33,10 @@ import {
   mutationSuccessNotice,
   type AttendanceSetupNotice as Notice,
 } from './attendanceSetupFeedback';
+import {
+  loadAllAttendanceDirectoryItems,
+  missingDirectoryLabel,
+} from './attendanceDirectory';
 import { ShiftTemplateDialog, ShiftVersionDialog } from './ShiftDialogs';
 import type {
   ShiftTemplateInput,
@@ -88,12 +92,12 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
     [effectiveShiftId, versionPage, versionPageSize],
   );
   const locations = useAsyncResource(
-    () => listLocations(0, 500),
+    () => loadAllAttendanceDirectoryItems((page, size) => listLocations(page, size)),
     () => false,
     [],
   );
   const locationLabels = locations.resource.status === 'ready'
-    ? new Map(locations.resource.data.items.map((location) => [
+    ? new Map(locations.resource.data.map((location) => [
       location.locationId,
       `${location.name}（${location.code}）`,
     ]))
@@ -362,7 +366,7 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
                     </AccessibleButton>
                   ),
                 },
-                { key: 'location', title: '地点', render: (shift) => locationLabels.get(shift.locationId) ?? '已归档地点' },
+                { key: 'location', title: '地点', render: (shift) => locationLabels.get(shift.locationId) ?? missingDirectoryLabel(locations.resource.status, '地点') },
                 { key: 'status', title: t('attendanceSetup.status'), render: (shift) => <StatusBadge status={shift.status} /> },
                 { key: 'reason', title: t('attendanceSetup.reason'), render: (shift) => shift.changeReason },
                 ...(canManage ? [{

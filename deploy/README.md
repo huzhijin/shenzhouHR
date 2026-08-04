@@ -12,6 +12,7 @@
 - `/opt/shenzhouhr/app/shenzhou-hr.jar`：后端可执行 JAR，只读
 - `/opt/shenzhouhr/db/migration`：与发布版本一致的 Flyway SQL，只允许发布流程读取
 - `/etc/shenzhouhr/shenzhouhr.env`：root 所有、权限 `0600`，仅保存环境变量
+- `/etc/shenzhouhr/shenzhouhr-migrator.env`：仅迁移流程读取；账号开通恢复参数必须与应用 env 完全一致
 - `/etc/shenzhouhr/tls`：企业批准的证书与私钥
 - `/var/lib/shenzhouhr`：应用运行时受控文件目录
 
@@ -20,7 +21,13 @@ Nginx 文件分为：
 - `deploy/nginx/shenzhouhr-http.conf`：复制到 `/etc/nginx/conf.d/`，定义无 query string 的安全日志格式与限流 zone；
 - `deploy/nginx/shenzhouhr.conf`：复制到站点目录，定义 TLS server、API 反向代理、CSP nonce、no-store 与静态哈希资产缓存。
 
-`shenzhouhr.env` 至少提供 `SHENZHOUHR_DB_URL`、`SHENZHOUHR_DB_USERNAME`、`SHENZHOUHR_DB_PASSWORD`、`SHENZHOUHR_FLYWAY_ENABLED=false`、`SPRING_PROFILES_ACTIVE=prod`。真实值不得写入仓库、安装脚本、命令历史或普通日志。
+`shenzhouhr.env` 至少提供 `SHENZHOUHR_DB_URL`、`SHENZHOUHR_DB_USERNAME`、`SHENZHOUHR_DB_PASSWORD`、`SHENZHOUHR_FLYWAY_ENABLED=false`、`SPRING_PROFILES_ACTIVE=prod`，以及下列账号批量开通配置：
+
+- `SHENZHOUHR_PROVISIONING_PEPPER`：32 个随机字节，经无填充 base64url 编码后必须恰好 43 位；
+- `SHENZHOUHR_PROVISIONING_KEY_ID`：1–64 位安全标识符，首次部署使用 `v1`；
+- `SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW`：大于 0 且不超过 24 小时，推荐 `PT1H`。
+
+应用 env 和迁移 env 必须使用同一组值，尤其不能在重启或升级时重新生成 pepper，否则尚在恢复窗口内的批量开通回执将无法重放。真实值不得写入仓库、安装脚本、命令历史或普通日志。
 
 ## 安装边界
 
@@ -46,7 +53,7 @@ python3 scripts/release/native_preflight.py \
   --artifact-manifest /absolute/immutable/release/artifacts.json
 ```
 
-环境文件检查只读取变量名，不输出值。它只适用于当前用户持有的非生产检查文件；真实 `/etc/shenzhouhr/shenzhouhr.env` 由基础设施负责人在 Ubuntu 主机上检查。
+环境文件检查只读取并校验配置，不输出任何值。它会要求上述三个账号开通变量存在，校验 pepper 是 32 字节规范 base64url、密钥版本格式安全、恢复窗口不超过 24 小时。它只适用于当前用户持有的非生产检查文件；真实 `/etc/shenzhouhr/shenzhouhr.env` 由基础设施负责人在 Ubuntu 主机上检查。
 
 ## 迁移、切流与回滚
 

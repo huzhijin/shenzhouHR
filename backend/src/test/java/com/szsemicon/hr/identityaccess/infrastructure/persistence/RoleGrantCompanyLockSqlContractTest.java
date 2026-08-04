@@ -47,13 +47,52 @@ class RoleGrantCompanyLockSqlContractTest {
         int targetLock =
                 service.indexOf("accountPersistence.lockRoleGrantTargetCompanies(");
         int actorAssignmentLock =
-                service.lastIndexOf("accountPersistence.lockCurrentCapabilityAuthority(");
+                service.indexOf(
+                        "accountPersistence.lockCurrentCapabilityAuthority(",
+                        targetLock);
         int scopeResolution = service.indexOf(
                 "accountPersistence.resolveAuthorizedRoleAssignmentScopes(");
 
         assertThat(targetLock).isGreaterThanOrEqualTo(0);
         assertThat(actorAssignmentLock).isGreaterThan(targetLock);
         assertThat(scopeResolution).isGreaterThan(actorAssignmentLock);
+    }
+
+    @Test
+    void roleReplacementDoesNotLockTargetPrincipalOrEmployeeBeforeCompany()
+            throws Exception {
+        String adapter = Files.readString(ADAPTER);
+        String service = Files.readString(SERVICE);
+        String replacement = between(
+                service,
+                "public AccountDetail replaceRoleAssignments(",
+                "public List<RoleRecord> listRoles()");
+        String localAccountLock = between(
+                adapter,
+                "public Optional<AccountRecord> lockProvisionedAccount(",
+                "public String createAccount(");
+
+        assertThat(replacement)
+                .containsSubsequence(
+                        "requireLockedLocalAccount(accountId)",
+                        "lockRoleAssignmentAuthorization(",
+                        "lockTargetRoleAssignments(")
+                .doesNotContain("requireLockedAccount(accountId)");
+        assertThat(service).contains(
+                "@Transactional(isolation = Isolation.READ_COMMITTED)\n"
+                        + "    public AccountDetail replaceRoleAssignments(");
+        assertThat(localAccountLock)
+                .contains("FROM local_account account", "FOR UPDATE")
+                .doesNotContain("JOIN auth_principal")
+                .doesNotContain("JOIN employee");
+    }
+
+    private static String between(String value, String start, String end) {
+        int from = value.indexOf(start);
+        int to = value.indexOf(end, from + start.length());
+        assertThat(from).isGreaterThanOrEqualTo(0);
+        assertThat(to).isGreaterThan(from);
+        return value.substring(from, to);
     }
 
     private static String normalizeWhitespace(String value) {

@@ -15,5 +15,10 @@ spring:
 shenzhouhr:
   development-principal:
     enabled: true
+  security:
+    account-provisioning:
+      pepper: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      key-id: test-v1
+      recovery-window: PT1H
   reporting:
     export-worker-enabled: false

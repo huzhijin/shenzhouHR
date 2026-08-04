@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OrganizationNode } from './organizationApi';
-import { toOrganizationTreeData } from './organizationTree';
+import { topLevelOrganizationKeys, toOrganizationTreeData } from './organizationTree';
 
 describe('toOrganizationTreeData', () => {
   it('preserves precise external IDs as strings', () => {
@@ -24,3 +24,30 @@ describe('toOrganizationTreeData', () => {
     expect(typeof result[0]?.unit.sourceOrganizationId).toBe('string');
   });
 });
+
+describe('topLevelOrganizationKeys', () => {
+  it('expands only root organizations by default', () => {
+    const child = organizationNode('child', []);
+    const roots = [organizationNode('root-1', [child]), organizationNode('root-2', [])];
+
+    expect(topLevelOrganizationKeys(roots)).toEqual(['root-1', 'root-2']);
+    expect(topLevelOrganizationKeys(roots)).not.toContain('child');
+  });
+});
+
+function organizationNode(
+  organizationId: string,
+  children: OrganizationNode[],
+): OrganizationNode {
+  return {
+    organizationId,
+    code: organizationId,
+    name: organizationId,
+    organizationType: 'DEPARTMENT',
+    status: 'ACTIVE',
+    sourceOrganizationId: null,
+    effectiveFrom: '2026-01-01T00:00:00Z',
+    effectiveTo: null,
+    children,
+  };
+}

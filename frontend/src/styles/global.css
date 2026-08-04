@@ -197,6 +197,13 @@ a:hover {
   color: var(--color-on-surface-inverse);
 }
 
+.app-sidebar .ant-menu-item-group-title {
+  padding-top: var(--space-4);
+  color: var(--palette-ink-400) !important;
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
 .app-sidebar .ant-menu-item-selected {
   background: var(--color-brand-primary);
   color: var(--color-on-brand-primary);
@@ -306,6 +313,10 @@ a:hover {
 
 .app-layout--demo-open-design .app-sidebar .ant-menu-item .ant-menu-item-icon {
   color: currentcolor;
+}
+
+.app-layout--demo-open-design .app-sidebar .ant-menu-item-group-title {
+  color: var(--demo-od-muted) !important;
 }
 
 .app-layout--demo-open-design .ant-layout-sider-trigger {
@@ -744,6 +755,79 @@ a:hover {
   padding-block: var(--space-1);
 }
 
+.account-provisioning-toolbar {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.8fr) minmax(18rem, 1.2fr);
+  gap: var(--space-4);
+  margin: var(--space-5) var(--space-0) var(--space-4);
+}
+
+.account-provisioning-toolbar label {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.account-provisioning-toolbar .ant-select,
+.account-provisioning-toolbar .ant-space-compact {
+  width: 100%;
+}
+
+.account-provisioning-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  color: var(--color-on-surface-subtle);
+}
+
+.account-provisioning-summary strong {
+  color: var(--color-on-success-soft);
+}
+
+.account-provisioning-progress {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.account-provisioning-table,
+.account-provisioning-progress + .ant-alert,
+.account-provisioning-summary + .ant-alert {
+  margin-top: var(--space-4);
+}
+
+.account-provisioning-table .ant-table-thead > tr > th {
+  border-bottom-color: var(--color-border-strong);
+  background: var(--color-surface-subtle);
+  color: var(--color-on-surface-subtle);
+}
+
+.account-provisioning-modal .ant-modal-body {
+  max-height: calc(100dvh - 15rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.account-provisioning-modal .ant-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.account-provisioning-modal .ant-modal-footer .ant-btn {
+  margin-inline-start: var(--space-0);
+}
+
 .history-filter {
   width: 100%;
   margin-bottom: var(--space-4);
@@ -1059,6 +1143,127 @@ a:hover {
   text-align: left;
 }
 
+.role-overview {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.role-overview__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.role-overview__heading h2,
+.role-overview__heading p {
+  margin: var(--space-0);
+}
+
+.role-overview__heading h2 {
+  font-size: var(--text-xl);
+}
+
+.role-overview__heading p {
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+}
+
+.role-overview__heading > .ant-tag,
+.role-card__header > .ant-tag,
+.role-card__tags > .ant-tag {
+  margin-inline-end: var(--space-0);
+}
+
+.role-card__header > .ant-tag,
+.role-card__tags > .ant-tag:not(.ant-tag-geekblue) {
+  border-color: var(--color-border);
+  background: var(--color-surface-subtle);
+  color: var(--color-on-surface-subtle);
+}
+
+.role-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: var(--space-4);
+}
+
+.role-card {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: var(--border-width-default) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-raised);
+}
+
+.role-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.role-card__header h3 {
+  margin: var(--space-1) var(--space-0) var(--space-0);
+  color: var(--color-text-primary);
+  font-size: var(--text-lg);
+}
+
+.role-card__eyebrow {
+  color: var(--color-brand-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-label);
+}
+
+.role-card__description {
+  min-height: 4.5em;
+  margin: var(--space-0);
+  color: var(--color-text-secondary);
+}
+
+.role-card__section {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: var(--border-width-default) solid var(--color-border);
+}
+
+.role-card__section strong {
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+}
+
+.role-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.roles-advanced {
+  margin-top: var(--space-6);
+  border-color: var(--color-border);
+  background: var(--color-surface-subtle);
+}
+
+.roles-advanced__label {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.roles-advanced__label > span {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.roles-advanced .ant-collapse-content-box {
+  padding: var(--space-2) var(--space-4) var(--space-4);
+}
+
 .summary-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1082,6 +1287,74 @@ a:hover {
 .summary-card-grid p {
   margin-bottom: var(--space-0);
   color: var(--color-text-secondary);
+}
+
+.rules-hub-section {
+  margin-top: var(--space-8);
+}
+
+.rules-hub-section__header {
+  margin-bottom: var(--space-4);
+}
+
+.rules-hub-section__header h2,
+.rules-hub-section__header p {
+  margin: var(--space-0);
+}
+
+.rules-hub-section__header p {
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+}
+
+.rules-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.rules-hub-card {
+  height: 100%;
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-raised);
+}
+
+.rules-hub-card .ant-card-body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.rules-hub-card__meta {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-brand-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.rules-hub-card__meta svg {
+  width: var(--size-icon-lg);
+  height: var(--size-icon-lg);
+}
+
+.rules-hub-card h3 {
+  margin: var(--space-4) var(--space-0) var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.rules-hub-card p {
+  flex: 1;
+  margin: var(--space-0) var(--space-0) var(--space-5);
+  color: var(--color-text-secondary);
+}
+
+.rules-hub-card--advanced {
+  max-width: 46rem;
 }
 
 .definition-list {
@@ -1555,6 +1828,10 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
+  .rules-hub-grid {
+    grid-template-columns: 1fr;
+  }
+
   .import-stepper {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1565,6 +1842,10 @@ a:hover {
 }
 
 @media (max-width: 768px) {
+  .account-provisioning-toolbar {
+    grid-template-columns: 1fr;
+  }
+
   .app-topbar__title {
     display: none;
   }
@@ -1593,6 +1874,46 @@ a:hover {
 }
 
 @media (max-width: 430px) {
+  .account-provisioning-modal {
+    top: var(--space-2);
+    max-width: calc(100vw - var(--space-6));
+    padding-bottom: var(--space-2);
+  }
+
+  .account-provisioning-modal .ant-modal-content {
+    max-height: calc(100dvh - var(--space-4));
+    display: flex;
+    flex-direction: column;
+  }
+
+  .account-provisioning-modal .ant-modal-header,
+  .account-provisioning-modal .ant-modal-footer {
+    flex: 0 0 auto;
+  }
+
+  .account-provisioning-modal .ant-modal-body {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .account-provisioning-modal .ant-modal-footer {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .account-provisioning-modal .ant-modal-footer .ant-btn {
+    width: 100%;
+    height: auto;
+    margin-inline-start: var(--space-0);
+    white-space: normal;
+  }
+
+  .account-provisioning-modal .ant-modal-footer .ant-btn:last-child {
+    grid-column: 1 / -1;
+  }
+
   .app-sidebar {
     display: none;
   }

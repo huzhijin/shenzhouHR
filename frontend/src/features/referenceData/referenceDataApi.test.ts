@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as ApiClientExports from '../../shared/api/apiClient';
-import { listReferenceCompanies } from './referenceDataApi';
+import {
+  listReferenceCompanies,
+  listReferenceLocations,
+} from './referenceDataApi';
 
 const runtimeMode = vi.hoisted(() => ({ demo: false }));
 const apiClient = vi.hoisted(() => ({ requestJson: vi.fn() }));
@@ -63,5 +66,30 @@ describe('reference data API', () => {
       }),
     ]);
     expect(apiClient.requestJson).not.toHaveBeenCalled();
+  });
+
+  it('loads every reference-data page with the supported page size', async () => {
+    apiClient.requestJson.mockImplementation((path: string) => {
+      const page = new URL(path, 'http://localhost').searchParams.get('page');
+      const count = page === '0' ? 100 : 1;
+      return Promise.resolve({
+        items: Array.from({ length: count }, (_, index) => ({
+          locationId: `location-${page}-${index}`,
+        })),
+        total: 101,
+        page: Number(page),
+        size: 100,
+      });
+    });
+
+    await expect(listReferenceLocations()).resolves.toHaveLength(101);
+    expect(apiClient.requestJson).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/attendance-setup/locations?page=0&size=100',
+    );
+    expect(apiClient.requestJson).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/attendance-setup/locations?page=1&size=100',
+    );
   });
 });

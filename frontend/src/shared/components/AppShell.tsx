@@ -17,14 +17,15 @@ import {
   IconUsersGroup,
   IconUser,
 } from '@tabler/icons-react';
-import { Drawer, Form, Input, Layout, Menu, Modal, message } from 'antd';
-import { useMemo, useState, type ReactNode } from 'react';
+import { Drawer, Form, Input, Layout, Menu, Modal, message, type MenuProps } from 'antd';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import type { MenuItem } from '../../features/session/sessionApi';
 import { logout } from '../../features/session/sessionApi';
 import { changePassword } from '../../features/auth/authApi';
+import { listReferenceCompanies } from '../../features/referenceData/referenceDataApi';
 import { selectedMenuKey } from '../../app/routeAuthorization';
 import { BrandLogo } from './BrandLogo';
 import { AccessibleButton } from './AccessibleButton';
@@ -58,13 +59,63 @@ const menuIcons = {
   'attendance-punch-imports': IconFileSpreadsheet,
   workbench: IconFileAnalytics,
   'personal-workbench': IconUser,
+  'my-attendance': IconClock,
+  'my-leave': IconCalendar,
+  'attendance-feedback': IconFileAnalytics,
   'attendance-screen': IconFileAnalytics,
   'attendance-reports': IconFileAnalytics,
   'self-today': IconClock,
   'self-records': IconCalendar,
   'self-leave': IconCalendar,
   'self-feedback': IconFileAnalytics,
+  'people-import': IconFileSpreadsheet,
+  'people-organization': IconBuildingCommunity,
+  'people-employees': IconUsers,
 };
+
+const navigationGroups = [
+  {
+    key: 'workspace',
+    label: 'navigation.workspace',
+    matches: (item: MenuItem) => ![
+      '/people/',
+      '/rules',
+      '/sources/',
+      '/access/',
+    ].some((prefix) => item.path.startsWith(prefix)),
+  },
+  {
+    key: 'people',
+    label: 'navigation.people',
+    matches: (item: MenuItem) => item.path.startsWith('/people/'),
+  },
+  {
+    key: 'attendance',
+    label: 'navigation.attendance',
+    matches: (item: MenuItem) => item.path === '/rules' || item.path.startsWith('/rules/'),
+  },
+  {
+    key: 'sources',
+    label: 'navigation.sources',
+    matches: (item: MenuItem) => item.path.startsWith('/sources/'),
+  },
+  {
+    key: 'administration',
+    label: 'navigation.administration',
+    matches: (item: MenuItem) => item.path.startsWith('/access/'),
+  },
+] as const;
+
+const personalMenuKeys = new Set([
+  'personal-workbench',
+  'my-attendance',
+  'my-leave',
+  'attendance-feedback',
+  'self-today',
+  'self-records',
+  'self-leave',
+  'self-feedback',
+]);
 
 export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
   const { t } = useTranslation();
@@ -72,11 +123,40 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordProcessing, setPasswordProcessing] = useState(false);
+  const [visibleCompanyNames, setVisibleCompanyNames] = useState<string[]>([]);
   const [passwordForm] = Form.useForm();
   const navigate = useNavigate();
   const location = useLocation();
   const demoMode = isDemoMode();
   const selectedKey = selectedMenuKey(menu, location.pathname);
+  const showsCompanyContext = menu.length > 0
+    && menu.some((item) => !personalMenuKeys.has(item.key));
+  const topbarTitle = showsCompanyContext && visibleCompanyNames.length === 1
+    ? t('app.currentCompany', { name: visibleCompanyNames[0] })
+    : showsCompanyContext && visibleCompanyNames.length > 1
+      ? t('app.multipleCompanies', { count: visibleCompanyNames.length })
+      : t('app.name');
+
+  useEffect(() => {
+    setVisibleCompanyNames([]);
+    if (!showsCompanyContext) {
+      return undefined;
+    }
+    let active = true;
+    void listReferenceCompanies()
+      .then((companies) => {
+        if (!active) return;
+        setVisibleCompanyNames(companies
+          .map((company) => company.companyName.trim())
+          .filter((companyName) => companyName.length > 0));
+      })
+      .catch(() => {
+        // Company context is helpful orientation, but must never block navigation.
+      });
+    return () => {
+      active = false;
+    };
+  }, [menu, showsCompanyContext]);
 
   const openMenuItem = ({ key }: { key: string }) => {
     const item = menu.find((candidate) => candidate.key === key);
@@ -148,7 +228,7 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
           <span id="mobile-menu-trigger-label" className="sr-only">
             {translate('app.openNavigation')}
           </span>
-          <span className="app-topbar__title">{translate('app.companyName')}</span>
+          <span className="app-topbar__title" title={topbarTitle}>{topbarTitle}</span>
           {demoMode ? (
             <span className="app-environment app-environment--demo">
               {translate('app.demoEnvironment')}
@@ -232,15 +312,23 @@ export function ResponsiveNavigation({ menu, selectedKey, onOpen, theme = 'dark'
   onOpen: (value: { key: string }) => void;
   theme?: 'light' | 'dark';
 }) {
-  const items = useMemo(() => {
-    return menu.map((item) => {
+  const items = useMemo<MenuProps['items']>(() => {
+    const menuItem = (item: MenuItem) => {
       const Icon = menuIcons[item.key as keyof typeof menuIcons] ?? IconBuildingCommunity;
       return {
         key: item.key,
         icon: <Icon aria-hidden="true" stroke={2} size="var(--size-icon-md)" />,
         label: item.label,
       };
-    });
+    };
+    return navigationGroups
+      .map((group) => ({
+        type: 'group' as const,
+        key: `navigation-${group.key}`,
+        label: translate(group.label),
+        children: menu.filter(group.matches).map(menuItem),
+      }))
+      .filter((group) => group.children.length > 0);
   }, [menu]);
   return (
     <Menu

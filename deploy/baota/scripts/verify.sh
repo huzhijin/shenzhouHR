@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=provisioning-env.sh
+source "$SCRIPT_DIR/provisioning-env.sh"
+
 ENV_FILE="/etc/shenzhouhr/shenzhouhr.env"
+MIGRATOR_ENV_FILE="/etc/shenzhouhr/shenzhouhr-migrator.env"
 HEALTH_URL="http://127.0.0.1:8080/actuator/health"
 MYSQL_BIN="${MYSQL_BIN:-mysql}"
 
@@ -13,10 +18,11 @@ die() {
 while (($#)); do
   case "$1" in
     --env-file) ENV_FILE="$2"; shift 2 ;;
+    --migrator-env-file) MIGRATOR_ENV_FILE="$2"; shift 2 ;;
     --health-url) HEALTH_URL="$2"; shift 2 ;;
     --mysql-bin) MYSQL_BIN="$2"; shift 2 ;;
     -h|--help)
-      printf 'Usage: verify.sh [--env-file PATH] [--health-url URL] [--mysql-bin PATH]\n'
+      printf 'Usage: verify.sh [--env-file PATH] [--migrator-env-file PATH] [--health-url URL] [--mysql-bin PATH]\n'
       exit 0
       ;;
     *) die "Unknown option: $1" ;;
@@ -24,6 +30,10 @@ while (($#)); do
 done
 
 [[ -r "$ENV_FILE" ]] || die "App env not found: $ENV_FILE"
+[[ -r "$MIGRATOR_ENV_FILE" ]] || die "Migrator env not found: $MIGRATOR_ENV_FILE"
+provisioning_validate_env_pair "$ENV_FILE" "$MIGRATOR_ENV_FILE" \
+  || die "$PROVISIONING_ENV_ERROR"
+printf '%s\n' 'Checking account-provisioning recovery configuration... passed'
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"

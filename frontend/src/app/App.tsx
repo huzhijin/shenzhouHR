@@ -138,7 +138,7 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
   const canReadDashboard = session.capabilities.includes('ATTENDANCE_DASHBOARD:READ');
   const canReadSelfAttendance = session.capabilities.includes('ATTENDANCE_SELF:READ');
   const rulesLanding = session.capabilities.includes('POLICY:READ')
-    ? <RulesHomePage />
+    ? <RulesHomePage capabilities={session.capabilities} />
     : session.capabilities.includes('ATTENDANCE_SETUP:READ')
       ? <Navigate to="/rules/attendance-groups" replace />
       : <AccessDenied />;

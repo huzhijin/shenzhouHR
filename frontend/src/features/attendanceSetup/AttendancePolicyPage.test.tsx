@@ -113,7 +113,7 @@ describe('attendance policy route and impact isolation', () => {
       routeB.resolve(lateVersion);
     });
     expect(await screen.findByText('策略版本生命周期')).toBeInTheDocument();
-    expect(screen.getAllByText('迟到分钟宽限').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('迟到宽限').length).toBeGreaterThan(0);
     expect(screen.queryByText(lateVersion.scopedVersionId)).not.toBeInTheDocument();
   }, 30_000);
 
@@ -174,9 +174,9 @@ function renderPolicyPage(versionId: string, directLinkTarget?: string) {
 
 async function chooseVisiblePolicyVersion(version: AttendancePolicyVersionView) {
   const tabLabel = {
-    MEAL_DEDUCTION: '晚餐扣除',
+    MEAL_DEDUCTION: '用餐时段扣除',
     LATE_GRACE: '迟到宽限',
-    MONTHLY_LATE_EXEMPTION: '自然月迟到豁免',
+    MONTHLY_LATE_EXEMPTION: '每月迟到豁免',
   }[version.policyKind];
   fireEvent.click(screen.getByTitle(tabLabel));
 

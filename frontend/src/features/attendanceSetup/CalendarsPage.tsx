@@ -43,6 +43,10 @@ import {
   mutationSuccessNotice,
   type AttendanceSetupNotice as Notice,
 } from './attendanceSetupFeedback';
+import {
+  loadAllAttendanceDirectoryItems,
+  missingDirectoryLabel,
+} from './attendanceDirectory';
 import type {
   CalendarDayInput,
   WorkCalendarInput,
@@ -168,42 +172,47 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
     range.from,
     range.to,
   ]);
-  const businessLabelsLoader = useMemo(
+  const locationDirectory = useAsyncResource(
+    () => loadAllAttendanceDirectoryItems((page, size) => listLocations(page, size)),
+    () => false,
+    [],
+  );
+  const shiftBusinessLabelsLoader = useMemo(
     () => async () => {
-      const [locationPage, shiftPage] = await Promise.all([
-        listLocations(0, 500),
-        listShifts(0, 500),
-      ]);
+      const shifts = await loadAllAttendanceDirectoryItems(
+        (page, size) => listShifts(page, size),
+      );
       const versionPages = await Promise.all(
-        shiftPage.items.map((shift) => listShiftVersions(shift.shiftId, 0, 500)),
+        shifts.map((shift) => loadAllAttendanceDirectoryItems(
+          (page, size) => listShiftVersions(shift.shiftId, page, size),
+        )),
       );
       return {
-        locations: locationPage.items,
-        shifts: shiftPage.items,
-        versions: versionPages.flatMap((page) => page.items),
+        shifts,
+        versions: versionPages.flat(),
       };
     },
     [],
   );
-  const businessLabels = useAsyncResource(
-    businessLabelsLoader,
+  const shiftBusinessLabels = useAsyncResource(
+    shiftBusinessLabelsLoader,
     () => false,
     [],
   );
-  const locationLabels = businessLabels.resource.status === 'ready'
-    ? new Map(businessLabels.resource.data.locations.map((location) => [
+  const locationLabels = locationDirectory.resource.status === 'ready'
+    ? new Map(locationDirectory.resource.data.map((location) => [
       location.locationId,
       `${location.name}（${location.code}）`,
     ]))
     : new Map<string, string>();
-  const shiftNameById = businessLabels.resource.status === 'ready'
-    ? new Map(businessLabels.resource.data.shifts.map((shift) => [
+  const shiftNameById = shiftBusinessLabels.resource.status === 'ready'
+    ? new Map(shiftBusinessLabels.resource.data.shifts.map((shift) => [
       shift.shiftId,
       shift.name,
     ]))
     : new Map<string, string>();
-  const shiftVersionLabels = businessLabels.resource.status === 'ready'
-    ? new Map(businessLabels.resource.data.versions.map((version) => [
+  const shiftVersionLabels = shiftBusinessLabels.resource.status === 'ready'
+    ? new Map(shiftBusinessLabels.resource.data.versions.map((version) => [
       version.shiftVersionId,
       `${shiftNameById.get(version.shiftId) ?? '班次'} · V${version.versionNumber}`,
     ]))
@@ -552,7 +561,7 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
                 },
                 { key: 'versionNumber', title: t('attendanceSetup.version'), render: (calendar) => calendar.versionNumber },
                 { key: 'year', title: t('attendanceSetup.calendarYear'), render: (calendar) => calendar.calendarYear },
-                { key: 'location', title: '地点', render: (calendar) => locationLabels.get(calendar.locationId) ?? '已归档地点' },
+                { key: 'location', title: '地点', render: (calendar) => locationLabels.get(calendar.locationId) ?? missingDirectoryLabel(locationDirectory.resource.status, '地点') },
                 { key: 'status', title: t('attendanceSetup.status'), render: (calendar) => <StatusBadge status={calendar.status} /> },
                 ...(canManage ? [{
                   key: 'actions',
@@ -780,7 +789,7 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
                   page={days.resource.data.page}
                   pageSize={days.resource.data.size}
                   total={days.resource.data.total}
-                  pageSizeOptions={[20, 50, 100, 200, 366]}
+                  pageSizeOptions={[20, 50, 100]}
                   onChange={(page, pageSize) => {
                     setDayPage(pageSize === dayPageSize ? page : 0);
                     setDayPageSize(pageSize);

@@ -130,7 +130,8 @@ describe('App session and route authorization', () => {
 
     expect(screen.getByTestId('current-location')).toHaveTextContent('/login');
     expect(screen.getByRole('textbox', { name: '用户名' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '规则中心' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: translate('rules.title') }))
+      .not.toBeInTheDocument();
   });
 
   it('shows an explicit unauthorized state for an empty menu', () => {
@@ -655,7 +656,7 @@ describe('App session and route authorization', () => {
         session: {
           capabilities: ['POLICY:READ', 'ATTENDANCE_SETUP:READ'],
           menu: [
-            { key: 'rules', label: '规则中心', path: '/rules' },
+            { key: 'rules', label: '规则设置', path: '/rules' },
             {
               key: 'attendance-groups',
               label: '考勤组',
@@ -669,7 +670,7 @@ describe('App session and route authorization', () => {
 
     renderApp('/rules');
 
-    expect(await screen.findByRole('heading', { name: '规则中心' }))
+    expect(await screen.findByRole('heading', { name: translate('rules.title') }))
       .toBeInTheDocument();
     expect(screen.getByTestId('current-location')).toHaveTextContent('/rules');
   });

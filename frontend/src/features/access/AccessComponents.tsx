@@ -1,4 +1,4 @@
-import { Button, Checkbox, Descriptions } from 'antd';
+import { Button, Checkbox, Descriptions, Tag } from 'antd';
 import { useTranslation } from 'react-i18next';
 
 import { StatusBadge } from '../../shared/components/FeedbackComponents';
@@ -7,6 +7,97 @@ import {
   OrganizationSelect,
 } from '../referenceData';
 import type { AccountDetail, RoleAssignmentView, RoleView } from './accessApi';
+import { allowedScopeTypes } from './roleScopePolicy';
+
+const hiddenRoleCodes = new Set([
+  'MANUFACTURING_SUPERVISOR',
+  'MANUFACTURING_CENTER_SUPERVISOR',
+  'MANUFACTURING_DIRECTOR',
+  'MANUFACTURING_CENTER_DIRECTOR',
+]);
+
+const hiddenRoleNames = new Set([
+  '制造中心主管',
+  '制造中心主任',
+  'manufacturing center supervisor',
+  'manufacturing center director',
+]);
+
+const roleDescriptions: Readonly<Record<string, string>> = {
+  SYSTEM_ADMIN: '维护系统配置、账号和权限。这是最高权限，只建议分配给系统负责人。',
+  HR_ADMIN: '在所属公司内维护组织、员工和考勤设置，处理日常人事工作。',
+  AUDITOR: '只读查看操作记录和相关数据，用于审计、核对和问题追溯。',
+  DEPARTMENT_HEAD: '查看所负责部门的员工、考勤和请假信息，不管理系统设置。',
+  DEPARTMENT_MANAGER: '查看所负责部门的员工、考勤和请假信息，不管理系统设置。',
+  EXECUTIVE: '查看获授权公司或部门的汇总报表和经营概览。',
+  EMPLOYEE_SELF: '只查看和处理本人的考勤、请假与反馈，不能查看他人数据。',
+  EMPLOYEE: '只查看和处理本人的考勤、请假与反馈，不能查看他人数据。',
+};
+
+export function visibleAccessRoles(roles: RoleView[]): RoleView[] {
+  return roles.filter((role) => (
+    !hiddenRoleCodes.has(role.roleCode.trim().toUpperCase())
+    && !hiddenRoleNames.has(role.roleName.trim().toLowerCase())
+  ));
+}
+
+export function roleDescription(role: Pick<RoleView, 'roleCode' | 'roleName'>): string {
+  return roleDescriptions[role.roleCode.trim().toUpperCase()]
+    ?? `${role.roleName}的具体功能以下方权限数量和高级对照表为准。`;
+}
+
+export function RoleOverviewCards({ roles }: { roles: RoleView[] }) {
+  const visibleRoles = visibleAccessRoles(roles);
+  return (
+    <section className="role-overview" aria-labelledby="role-overview-title">
+      <div className="role-overview__heading">
+        <div>
+          <h2 id="role-overview-title">各角色能做什么</h2>
+          <p>先看用途和数据范围；只有需要核对细项时，再展开下方高级权限对照。</p>
+        </div>
+        <Tag color="blue">共 {visibleRoles.length} 个角色</Tag>
+      </div>
+      <div className="role-card-grid" role="list">
+        {visibleRoles.map((role) => {
+          const capabilities = uniqueCapabilities(role.capabilities);
+          const scopeTypes = allowedScopeTypes(role);
+          const capabilityDomains = uniqueCapabilityDomains(capabilities);
+          const shownDomains = capabilityDomains.slice(0, 5);
+          const hiddenDomainCount = capabilityDomains.length - shownDomains.length;
+          return (
+            <article className="role-card" key={role.roleId} role="listitem">
+              <header className="role-card__header">
+                <div>
+                  <span className="role-card__eyebrow">角色</span>
+                  <h3>{role.roleName}</h3>
+                </div>
+                <Tag>{capabilities.length} 项权限</Tag>
+              </header>
+              <p className="role-card__description">{roleDescription(role)}</p>
+              <div className="role-card__section">
+                <strong>可授权范围</strong>
+                <div className="role-card__tags">
+                  {scopeTypes.length > 0
+                    ? scopeTypes.map((scopeType) => <Tag color="geekblue" key={scopeType}>{roleScopeLabel(scopeType)}</Tag>)
+                    : <Tag>未配置</Tag>}
+                </div>
+              </div>
+              <div className="role-card__section">
+                <strong>主要功能</strong>
+                <div className="role-card__tags">
+                  {shownDomains.length > 0
+                    ? shownDomains.map((domain) => <Tag key={domain}>{domain}</Tag>)
+                    : <Tag>暂无功能权限</Tag>}
+                  {hiddenDomainCount > 0 ? <Tag>+{hiddenDomainCount} 类</Tag> : null}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 export function AccountStatusPanel({ account }: { account: AccountDetail }) {
   const { t } = useTranslation();
@@ -170,11 +261,16 @@ const capabilityDomainLabels: Readonly<Record<string, string>> = {
   PEOPLE_IMPORT: '组织与员工导入',
   POLICY: '通用策略',
   ATTENDANCE_SETUP: '考勤设置',
+  ATTENDANCE_LOCATION: '考勤地点',
   ATTENDANCE_SOURCE: '考勤数据源',
   ATTENDANCE_PUNCH_IMPORT: '考勤打卡导入',
   ATTENDANCE_DASHBOARD: '考勤工作台',
+  ATTENDANCE_PERIOD: '考勤期间',
   ATTENDANCE_REPORT: '考勤报表',
   ATTENDANCE_SELF: '个人考勤',
+  LEAVE_MANAGEMENT: '假期管理',
+  LEAVE_ACCOUNT: '假期账户',
+  LEAVE_POLICY: '假期规则',
   LEAVE_SELF: '个人假期',
   ATTENDANCE_FEEDBACK: '考勤反馈',
 };
@@ -209,12 +305,21 @@ const capabilityActionLabels: Readonly<Record<string, string>> = {
   DUPLICATE_REVIEW: '复核重复记录',
   RECALCULATE: '触发重算',
   ADJUST: '调整',
+  MANAGE: '管理',
+  MATERIALIZE: '生成账户',
+  EXPORT: '导出',
   MANAGE_GROUP: '管理考勤组',
   MANAGE_SHIFT: '管理班次',
   MANAGE_CALENDAR: '管理工作日历',
   MANAGE_POLICY: '管理考勤策略',
   EXPORT_CREATE: '创建导出任务',
   EXPORT_DOWNLOAD: '下载导出文件',
+  REFRESH: '刷新数据',
+  SYNC_PREVIEW: '预览同步',
+  CLOSE: '月结',
+  PRECLOSE: '月结预检',
+  REOPEN: '重新打开',
+  SCHEDULE_CLOSE: '定时月结',
 };
 
 const roleScopeLabels: Readonly<Record<string, string>> = {
@@ -227,6 +332,12 @@ export function capabilityLabel(capability: string): string {
   const [domain, action] = capability.trim().toUpperCase().split(':');
   if (!domain || !action) return '未识别权限';
   return `${capabilityDomainLabels[domain] ?? '其他功能'} · ${capabilityActionLabels[action] ?? '其他操作'}`;
+}
+
+export function capabilityDomainLabel(capability: string): string {
+  const [domain] = capability.trim().toUpperCase().split(':');
+  if (!domain) return '其他功能';
+  return capabilityDomainLabels[domain] ?? '其他功能';
 }
 
 export function roleScopeLabel(scopeType: string): string {
@@ -245,4 +356,14 @@ function formatDate(value: string): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return '未设置';
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeZone: 'Asia/Shanghai' }).format(timestamp);
+}
+
+function uniqueCapabilities(capabilities: string[]): string[] {
+  return Array.from(new Set(capabilities.map((capability) => capability.trim()).filter(Boolean)));
+}
+
+function uniqueCapabilityDomains(capabilities: string[]): string[] {
+  return Array.from(new Set(capabilities.map(capabilityDomainLabel))).sort((left, right) => (
+    left.localeCompare(right, 'zh-CN')
+  ));
 }

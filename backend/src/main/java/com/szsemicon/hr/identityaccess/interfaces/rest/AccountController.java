@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -88,10 +89,14 @@ public class AccountController {
     @PostMapping("/account-provisioning/accounts")
     @PreAuthorize("hasAuthority('ACCOUNT:CREATE') and hasAuthority('ROLE:ASSIGN')")
     ResponseEntity<BulkAccountCreationResult> createEmployeeAccounts(
-            @Valid @RequestBody EmployeeAccountsCreateRequest request) {
+            @Valid @RequestBody EmployeeAccountsCreateRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("Provisioning-Recovery-Key") String recoveryKey) {
+        BulkAccountCreationResult result = accountService.createEmployeeAccounts(
+                request.employeeIds(), idempotencyKey, recoveryKey);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(accountService.createEmployeeAccounts(request.employeeIds()));
+                .body(result);
     }
 
     @GetMapping("/accounts/{accountId}")

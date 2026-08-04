@@ -7,6 +7,7 @@ import {
   listShifts,
   listShiftVersions,
 } from '../attendanceSetup/attendanceSetupApi';
+import { loadAllAttendanceDirectoryItems } from '../attendanceSetup/attendanceDirectory';
 import type {
   AttendanceGroupView,
   LocationView,
@@ -79,31 +80,42 @@ export function listReferenceOrganizations(): Promise<OrganizationNode[]> {
 }
 
 export async function listReferenceLocations(): Promise<LocationView[]> {
-  return (await listLocations(0, 100)).items;
+  return loadAllAttendanceDirectoryItems((page, size) => listLocations(page, size));
 }
 
 export async function listReferenceAttendanceGroups(
   asOf?: string,
 ): Promise<AttendanceGroupView[]> {
-  return (await listAttendanceGroups(asOf, 0, 100)).items;
+  return loadAllAttendanceDirectoryItems(
+    (page, size) => listAttendanceGroups(asOf, page, size),
+  );
 }
 
 export async function listReferenceShiftTemplates(): Promise<ShiftTemplateView[]> {
-  return (await listShifts(0, 100)).items;
+  return loadAllAttendanceDirectoryItems((page, size) => listShifts(page, size));
 }
 
 export async function listReferenceShiftVersions(
   shiftId: string,
 ): Promise<ShiftVersionView[]> {
-  return (await listShiftVersions(shiftId, 0, 100)).items;
+  return loadAllAttendanceDirectoryItems(
+    (page, size) => listShiftVersions(shiftId, page, size),
+  );
 }
 
 export async function listReferenceCalendars(
   year?: number,
 ): Promise<WorkCalendarView[]> {
-  return (await listCalendars(year, 0, 100)).items;
+  return loadAllAttendanceDirectoryItems(
+    (page, size) => listCalendars(year, page, size),
+  );
 }
 
 export async function listReferenceAttendanceSources(): Promise<AttendanceSourceView[]> {
-  return (await listAttendanceSources(0, 100)).items;
+  return loadAllAttendanceDirectoryItems(
+    async (page, size) => {
+      const response = await listAttendanceSources(page, size);
+      return { items: response.items, total: response.totalElements };
+    },
+  );
 }

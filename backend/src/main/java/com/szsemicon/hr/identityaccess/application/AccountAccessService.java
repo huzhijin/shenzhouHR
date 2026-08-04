@@ -3,7 +3,11 @@ package com.szsemicon.hr.identityaccess.application;
 import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.CandidateCounts;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.EmployeeAccountCandidateRecord;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.EmployeeProvisioningTarget;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.IdempotencyClaim;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.RecoverableRoleAssignment;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.AccountRecord;
+import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.CredentialRecord;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.ResolvedRoleAssignmentInput;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentRecord;
@@ -11,22 +15,39 @@ import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.Role
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.SessionRecord;
 import com.szsemicon.hr.shared.security.PasswordCodec;
 import com.szsemicon.hr.shared.security.SecurityTokenService;
+import com.szsemicon.hr.shared.validation.IdempotencyKeyPolicy;
 import com.szsemicon.hr.shared.web.ApiProblemException;
+import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class AccountAccessService {
@@ -41,6 +62,16 @@ public class AccountAccessService {
     private static final String ROLE_ASSIGN = "ROLE:ASSIGN";
     private static final String LEGACY_DEFAULT_TEMPORARY_PASSWORD = "123456";
     private static final String EMPLOYEE_SELF_ROLE = "EMPLOYEE_SELF";
+    private static final String EMPLOYEE_ACCOUNTS_BULK_CREATE =
+            "EMPLOYEE_ACCOUNTS_BULK_CREATE";
+    private static final String EMPLOYEE_ACCOUNTS_BULK_CREATE_DIGEST_VERSION =
+            "EMPLOYEE_ACCOUNTS_BULK_CREATE_V2";
+    private static final String PROVISIONING_PASSWORD_DERIVATION_VERSION =
+            "HMAC_SHA256_V1";
+    private static final Pattern PROVISIONING_RECOVERY_KEY_PATTERN =
+            Pattern.compile("^[A-Za-z0-9_-]{43}$");
+    private static final Pattern PROVISIONING_KEY_ID_PATTERN =
+            Pattern.compile("^[A-Za-z0-9._:-]{1,64}$");
     private static final int MAX_BULK_ACCOUNT_COUNT = 20;
     private static final Set<String> PRIVILEGED_ROLE_CODES =
             Set.of("SYSTEM_ADMIN", "HR_ADMIN", "AUDITOR");
@@ -50,6 +81,11 @@ public class AccountAccessService {
     private final AuditService auditService;
     private final SecurityTokenService tokenService;
     private final PasswordCodec passwordCodec;
+    private final ObjectMapper objectMapper;
+    private final byte[] provisioningPepper;
+    private final String provisioningKeyId;
+    private final Duration provisioningRecoveryWindow;
+    private final TransactionTemplate provisioningTransactions;
     private final Clock clock;
 
     public AccountAccessService(
@@ -58,12 +94,37 @@ public class AccountAccessService {
             AuditService auditService,
             SecurityTokenService tokenService,
             PasswordCodec passwordCodec,
+            ObjectMapper objectMapper,
+            @Value("${shenzhouhr.security.account-provisioning.pepper:}")
+                    String provisioningPepper,
+            @Value("${shenzhouhr.security.account-provisioning.key-id:v1}")
+                    String provisioningKeyId,
+            @Value("${shenzhouhr.security.account-provisioning.recovery-window:PT1H}")
+                    Duration provisioningRecoveryWindow,
+            PlatformTransactionManager transactionManager,
             Clock clock) {
         this.accountPersistence = accountPersistence;
         this.authenticationPersistence = authenticationPersistence;
         this.auditService = auditService;
         this.tokenService = tokenService;
         this.passwordCodec = passwordCodec;
+        this.objectMapper = objectMapper;
+        this.provisioningPepper = decodeProvisioningPepper(provisioningPepper);
+        if (!PROVISIONING_KEY_ID_PATTERN.matcher(provisioningKeyId).matches()) {
+            throw new IllegalStateException(
+                    "account provisioning key id must be 1 to 64 safe characters");
+        }
+        if (provisioningRecoveryWindow.isNegative()
+                || provisioningRecoveryWindow.isZero()
+                || provisioningRecoveryWindow.compareTo(Duration.ofHours(24)) > 0) {
+            throw new IllegalStateException(
+                    "account provisioning recovery window must be between 0 and 24 hours");
+        }
+        this.provisioningKeyId = provisioningKeyId;
+        this.provisioningRecoveryWindow = provisioningRecoveryWindow;
+        this.provisioningTransactions = new TransactionTemplate(transactionManager);
+        this.provisioningTransactions.setIsolationLevel(
+                TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = clock;
     }
 
@@ -200,9 +261,22 @@ public class AccountAccessService {
                 boundedSize);
     }
 
-    @Transactional
     public BulkAccountCreationResult createEmployeeAccounts(
-            List<String> requestedEmployeeIds) {
+            List<String> requestedEmployeeIds,
+            String idempotencyKey,
+            String recoveryKey) {
+        if (!IdempotencyKeyPolicy.isValid(idempotencyKey)) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "Idempotency-Key 必须为 16 至 128 位字母、数字或 ._:-");
+        }
+        if (!validProvisioningRecoveryKey(recoveryKey)) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "Provisioning-Recovery-Key 必须是 32 字节随机值");
+        }
         if (requestedEmployeeIds == null
                 || requestedEmployeeIds.isEmpty()
                 || requestedEmployeeIds.size() > MAX_BULK_ACCOUNT_COUNT
@@ -225,15 +299,77 @@ public class AccountAccessService {
         }
         String actorId = principalId();
         Instant now = clock.instant();
-        List<EmployeeAccountCandidateRecord> candidates =
-                accountPersistence.findEmployeeAccountCandidates(
-                        actorId, employeeIds, now);
-        if (candidates.size() != employeeIds.size()) {
-            throw new ApiProblemException(
-                    HttpStatus.CONFLICT,
-                    "ACCOUNT_PROVISIONING_CANDIDATE_CHANGED",
-                    "部分员工已离职、没有有效任职或不在当前授权范围，请刷新后重试");
+        String employeeSetDigest = employeeAccountSetDigest(employeeIds);
+        String requestDigest = employeeAccountProvisioningDigest(
+                actorId,
+                idempotencyKey,
+                recoveryKey,
+                employeeSetDigest);
+        if (accountPersistence.findIdempotency(
+                        actorId,
+                        EMPLOYEE_ACCOUNTS_BULK_CREATE,
+                        idempotencyKey)
+                .isPresent()) {
+            return runProvisioningTransaction(() -> recoverEmployeeAccountBatch(
+                    employeeIds,
+                    actorId,
+                    idempotencyKey,
+                    recoveryKey,
+                    employeeSetDigest,
+                    requestDigest,
+                    now));
         }
+        try {
+            return runProvisioningTransaction(() -> createEmployeeAccountBatch(
+                    employeeIds,
+                    actorId,
+                    idempotencyKey,
+                    recoveryKey,
+                    employeeSetDigest,
+                    requestDigest,
+                    now));
+        } catch (ProvisioningReplayRaceException exception) {
+            return runProvisioningTransaction(() -> recoverEmployeeAccountBatch(
+                    employeeIds,
+                    actorId,
+                    idempotencyKey,
+                    recoveryKey,
+                    employeeSetDigest,
+                    requestDigest,
+                    now));
+        }
+    }
+
+    private BulkAccountCreationResult createEmployeeAccountBatch(
+            List<String> employeeIds,
+            String actorId,
+            String idempotencyKey,
+            String recoveryKey,
+            String employeeSetDigest,
+            String requestDigest,
+            Instant now) {
+        lockEmployeeProvisioningTargets(employeeIds);
+        lockBulkProvisioningAuthority(actorId, now);
+        if (accountPersistence.findIdempotency(
+                        actorId,
+                        EMPLOYEE_ACCOUNTS_BULK_CREATE,
+                        idempotencyKey)
+                .isPresent()) {
+            throw new ProvisioningReplayRaceException();
+        }
+        IdempotencyClaim claim = accountPersistence.claimIdempotency(
+                UUID.randomUUID().toString(),
+                actorId,
+                EMPLOYEE_ACCOUNTS_BULK_CREATE,
+                idempotencyKey,
+                requestDigest,
+                now);
+        requireMatchingProvisioningDigest(claim, requestDigest);
+        if (!claim.firstClaim()) {
+            throw new ProvisioningReplayRaceException();
+        }
+        List<EmployeeAccountCandidateRecord> candidates = requireProvisioningCandidates(
+                actorId, employeeIds, now);
         EmployeeAccountCandidateRecord blocked = candidates.stream()
                 .filter(item -> !"AVAILABLE".equals(item.status()))
                 .findFirst()
@@ -253,10 +389,15 @@ public class AccountAccessService {
                         HttpStatus.CONFLICT,
                         "EMPLOYEE_ROLE_NOT_CONFIGURED",
                         "系统尚未配置“员工本人”角色，暂时无法批量开通账号"));
-        Set<String> generatedPasswords = new HashSet<>();
-        List<TemporaryCredential> credentials = new java.util.ArrayList<>();
+        List<TemporaryCredential> credentials = new ArrayList<>();
         for (EmployeeAccountCandidateRecord employee : candidates) {
-            String temporaryPassword = newProvisioningPassword(generatedPasswords);
+            String temporaryPassword = provisioningPassword(
+                    claim.recordId(),
+                    actorId,
+                    idempotencyKey,
+                    recoveryKey,
+                    employeeSetDigest,
+                    employee.employeeId());
             AccountDetail created = createAccount(new CreateAccountCommand(
                     employee.employeeNumber(),
                     employee.displayName(),
@@ -277,16 +418,96 @@ public class AccountAccessService {
                     created.username(),
                     temporaryPassword));
         }
+        if (!accountPersistence.completeIdempotency(
+                claim.recordId(),
+                requestDigest,
+                accountBindingJson(credentials))) {
+            throw new IllegalStateException(
+                    "account provisioning idempotency completion failed");
+        }
         auditService.record(
                 actorId,
                 "EMPLOYEE_ACCOUNTS_BULK_CREATED",
                 "LOCAL_ACCOUNT_BATCH",
-                auditService.currentCorrelationId(),
+                claim.recordId(),
                 "SUCCESS",
                 "created=" + credentials.size());
         return new BulkAccountCreationResult(
                 List.copyOf(credentials),
-                credentials.size());
+                credentials.size(),
+                false);
+    }
+
+    private BulkAccountCreationResult recoverEmployeeAccountBatch(
+            List<String> employeeIds,
+            String actorId,
+            String idempotencyKey,
+            String recoveryKey,
+            String employeeSetDigest,
+            String requestDigest,
+            Instant now) {
+        IdempotencyClaim claim = accountPersistence.lockIdempotency(
+                        actorId,
+                        EMPLOYEE_ACCOUNTS_BULK_CREATE,
+                        idempotencyKey)
+                .orElseThrow(AccountAccessService::accountProvisioningRecoveryUnavailable);
+        requireMatchingProvisioningDigest(claim, requestDigest);
+        requireProvisioningRecoveryWindow(claim.createdAt(), now);
+        Map<String, String> expectedAccountIds = storedAccountBindings(
+                claim.resultJson());
+        if (!expectedAccountIds.keySet().equals(Set.copyOf(employeeIds))) {
+            throw accountProvisioningRecoveryUnavailable();
+        }
+        Map<String, AccountRecord> lockedAccounts = lockProvisionedAccounts(
+                expectedAccountIds);
+        lockEmployeeProvisioningTargets(employeeIds);
+        lockBulkProvisioningAuthority(actorId, now);
+        List<EmployeeAccountCandidateRecord> candidates = requireProvisioningCandidates(
+                actorId, employeeIds, now);
+        return recoverEmployeeAccountCredentials(
+                candidates,
+                claim.recordId(),
+                actorId,
+                idempotencyKey,
+                recoveryKey,
+                employeeSetDigest,
+                expectedAccountIds,
+                lockedAccounts,
+                now);
+    }
+
+    private BulkAccountCreationResult runProvisioningTransaction(
+            Supplier<BulkAccountCreationResult> operation) {
+        return Objects.requireNonNull(provisioningTransactions.execute(
+                status -> operation.get()));
+    }
+
+    private void requireMatchingProvisioningDigest(
+            IdempotencyClaim claim,
+            String requestDigest) {
+        if (!claim.requestDigest().equals(requestDigest)) {
+            throw new ApiProblemException(
+                    HttpStatus.CONFLICT,
+                    "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST",
+                    "幂等键已用于不同请求");
+        }
+    }
+
+    private List<EmployeeAccountCandidateRecord> requireProvisioningCandidates(
+            String actorId,
+            List<String> employeeIds,
+            Instant now) {
+        List<EmployeeAccountCandidateRecord> candidates =
+                accountPersistence.findEmployeeAccountCandidates(
+                                actorId, employeeIds, now)
+                        .stream()
+                        .sorted(Comparator.comparing(
+                                EmployeeAccountCandidateRecord::employeeId))
+                        .toList();
+        if (candidates.size() != employeeIds.size()) {
+            throw accountProvisioningCandidateChanged();
+        }
+        return candidates;
     }
 
     @Transactional(readOnly = true)
@@ -445,7 +666,7 @@ public class AccountAccessService {
                 reason);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public AccountDetail replaceRoleAssignments(
             String accountId,
             List<RoleAssignmentInput> assignments,
@@ -454,7 +675,7 @@ public class AccountAccessService {
         validateAssignments(assignments);
         String actorId = principalId();
         Instant now = clock.instant();
-        AccountRecord account = requireLockedAccount(accountId);
+        AccountRecord account = requireLockedLocalAccount(accountId);
         if (!accountPersistence.canAccessAllAccountRoleScopes(
                 actorId,
                 account.accountId(),
@@ -553,6 +774,12 @@ public class AccountAccessService {
     private AccountRecord requireLockedAccount(String accountId) {
         return accountPersistence
                 .lockAccountForScopeAuthorization(accountId)
+                .orElseThrow(AccountAccessService::unavailable);
+    }
+
+    private AccountRecord requireLockedLocalAccount(String accountId) {
+        return accountPersistence
+                .lockProvisionedAccount(accountId)
                 .orElseThrow(AccountAccessService::unavailable);
     }
 
@@ -843,12 +1070,343 @@ public class AccountAccessService {
         return suppliedSecret;
     }
 
-    private String newProvisioningPassword(Set<String> generatedPasswords) {
-        String candidate;
-        do {
-            candidate = "Hr1!" + tokenService.newOpaqueToken().substring(0, 16);
-        } while (!generatedPasswords.add(candidate));
-        return candidate;
+    private String employeeAccountSetDigest(List<String> employeeIds) {
+        StringBuilder canonical = new StringBuilder(
+                "EMPLOYEE_ACCOUNT_SET_V1")
+                .append('\n')
+                .append(employeeIds.size())
+                .append('\n');
+        employeeIds.stream().sorted().forEach(employeeId -> canonical
+                .append(employeeId.length())
+                .append(':')
+                .append(employeeId)
+                .append('\n'));
+        return tokenService.digest(canonical.toString());
+    }
+
+    private String employeeAccountProvisioningDigest(
+            String actorId,
+            String idempotencyKey,
+            String recoveryKey,
+            String employeeSetDigest) {
+        return tokenService.digest(lengthPrefixedCanonical(
+                EMPLOYEE_ACCOUNTS_BULK_CREATE_DIGEST_VERSION,
+                actorId,
+                EMPLOYEE_ACCOUNTS_BULK_CREATE,
+                idempotencyKey,
+                employeeSetDigest,
+                recoveryKey));
+    }
+
+    private String provisioningPassword(
+            String idempotencyRecordId,
+            String actorId,
+            String idempotencyKey,
+            String recoveryKey,
+            String employeeSetDigest,
+            String employeeId) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(provisioningPepper, "HmacSHA256"));
+            updateLengthPrefixed(
+                    mac,
+                    PROVISIONING_PASSWORD_DERIVATION_VERSION,
+                    provisioningKeyId,
+                    actorId,
+                    EMPLOYEE_ACCOUNTS_BULK_CREATE,
+                    idempotencyKey,
+                    idempotencyRecordId,
+                    employeeSetDigest,
+                    employeeId,
+                    recoveryKey);
+            String material = Base64.getUrlEncoder()
+                    .withoutPadding()
+                    .encodeToString(mac.doFinal());
+            return "Hr1!" + material.substring(0, 24);
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "HmacSHA256 must be available for account provisioning",
+                    exception);
+        }
+    }
+
+    private void lockBulkProvisioningAuthority(String actorId, Instant now) {
+        boolean canCreate = accountPersistence.lockCurrentCapabilityAuthority(
+                actorId, ACCOUNT_CREATE, now);
+        boolean canAssign = accountPersistence.lockCurrentCapabilityAuthority(
+                actorId, ROLE_ASSIGN, now);
+        if (!canCreate || !canAssign) {
+            throw new ApiProblemException(
+                    HttpStatus.FORBIDDEN,
+                    "ACCOUNT_PROVISIONING_AUTHORITY_CHANGED",
+                    "当前账号已无权批量开通员工账号，请重新登录后确认权限");
+        }
+    }
+
+    private String accountBindingJson(List<TemporaryCredential> credentials) {
+        List<ProvisionedAccountBinding> bindings = credentials.stream()
+                .map(credential -> new ProvisionedAccountBinding(
+                        credential.employeeId(), credential.accountId()))
+                .sorted(Comparator.comparing(
+                        ProvisionedAccountBinding::employeeId))
+                .toList();
+        try {
+            return objectMapper.writeValueAsString(new ProvisioningBatchReceipt(
+                    PROVISIONING_PASSWORD_DERIVATION_VERSION,
+                    provisioningKeyId,
+                    bindings));
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "account provisioning bindings must be JSON serializable",
+                    exception);
+        }
+    }
+
+    private Map<String, String> storedAccountBindings(String resultJson) {
+        if (resultJson == null || resultJson.isBlank()) {
+            throw accountProvisioningRecoveryUnavailable();
+        }
+        try {
+            ProvisioningBatchReceipt receipt = objectMapper.readValue(
+                    resultJson, ProvisioningBatchReceipt.class);
+            if (receipt == null
+                    || !PROVISIONING_PASSWORD_DERIVATION_VERSION.equals(
+                            receipt.derivationVersion())
+                    || !provisioningKeyId.equals(receipt.keyId())
+                    || receipt.bindings() == null
+                    || receipt.bindings().isEmpty()) {
+                throw accountProvisioningRecoveryUnavailable();
+            }
+            Map<String, String> result = new HashMap<>();
+            for (ProvisionedAccountBinding binding : receipt.bindings()) {
+                if (binding == null
+                        || binding.employeeId() == null
+                        || binding.employeeId().isBlank()
+                        || binding.accountId() == null
+                        || binding.accountId().isBlank()
+                        || result.putIfAbsent(
+                                        binding.employeeId(), binding.accountId())
+                                != null) {
+                    throw accountProvisioningRecoveryUnavailable();
+                }
+            }
+            return Map.copyOf(result);
+        } catch (ApiProblemException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw accountProvisioningRecoveryUnavailable();
+        }
+    }
+
+    private Map<String, AccountRecord> lockProvisionedAccounts(
+            Map<String, String> expectedAccountIds) {
+        List<String> accountIds = expectedAccountIds.values().stream()
+                .distinct()
+                .sorted()
+                .toList();
+        if (accountIds.size() != expectedAccountIds.size()) {
+            throw accountProvisioningRecoveryUnavailable();
+        }
+        Map<String, AccountRecord> locked = new HashMap<>();
+        for (String accountId : accountIds) {
+            AccountRecord account = accountPersistence
+                    .lockProvisionedAccount(accountId)
+                    .orElseThrow(AccountAccessService::accountProvisioningRecoveryUnavailable);
+            locked.put(accountId, account);
+        }
+        return Map.copyOf(locked);
+    }
+
+    private void lockEmployeeProvisioningTargets(List<String> employeeIds) {
+        List<EmployeeProvisioningTarget> expected =
+                accountPersistence.findEmployeeProvisioningTargets(employeeIds);
+        if (expected.size() != employeeIds.size()) {
+            throw accountProvisioningCandidateChanged();
+        }
+        accountPersistence.lockEmployeeProvisioningTargets(expected);
+        List<EmployeeProvisioningTarget> current =
+                accountPersistence.findEmployeeProvisioningTargets(employeeIds);
+        if (!current.equals(expected)) {
+            throw accountProvisioningCandidateChanged();
+        }
+    }
+
+    private void requireProvisioningRecoveryWindow(
+            Instant idempotencyCreatedAt,
+            Instant now) {
+        if (idempotencyCreatedAt == null
+                || !now.isBefore(idempotencyCreatedAt.plus(
+                        provisioningRecoveryWindow))) {
+            throw accountProvisioningRecoveryUnavailable();
+        }
+    }
+
+    private BulkAccountCreationResult recoverEmployeeAccountCredentials(
+            List<EmployeeAccountCandidateRecord> candidates,
+            String idempotencyRecordId,
+            String actorId,
+            String idempotencyKey,
+            String recoveryKey,
+            String employeeSetDigest,
+            Map<String, String> expectedAccountIds,
+            Map<String, AccountRecord> lockedAccounts,
+            Instant now) {
+        Map<String, String> currentAccountIds = new HashMap<>();
+        for (EmployeeAccountCandidateRecord candidate : candidates) {
+            if (candidate.accountId() != null) {
+                currentAccountIds.put(
+                        candidate.employeeId(), candidate.accountId());
+            }
+        }
+        boolean invalidBinding = candidates.stream().anyMatch(candidate ->
+                !"ALREADY_PROVISIONED".equals(candidate.status())
+                        || candidate.accountId() == null
+                        || candidate.accountId().isBlank());
+        List<String> accountIds = candidates.stream()
+                .map(EmployeeAccountCandidateRecord::accountId)
+                .filter(accountId -> accountId != null && !accountId.isBlank())
+                .distinct()
+                .sorted()
+                .toList();
+        if (invalidBinding
+                || accountIds.size() != candidates.size()
+                || !currentAccountIds.equals(expectedAccountIds)) {
+            throw accountProvisioningRecoveryUnavailable();
+        }
+
+        for (EmployeeAccountCandidateRecord employee : candidates) {
+            String accountId = employee.accountId();
+            AccountRecord account = lockedAccounts.get(accountId);
+            List<RecoverableRoleAssignment> assignments = account == null
+                    ? List.of()
+                    : accountPersistence.lockRecoverableRoleAssignments(
+                            account.principalId(), now);
+            CredentialRecord credential = account == null
+                    ? null
+                    : authenticationPersistence.lockCredential(accountId)
+                            .orElse(null);
+            String expectedPassword = provisioningPassword(
+                    idempotencyRecordId,
+                    actorId,
+                    idempotencyKey,
+                    recoveryKey,
+                    employeeSetDigest,
+                    employee.employeeId());
+            if (account == null
+                    || !"ACTIVE".equals(account.status())
+                    || !account.firstPasswordChangeRequired()
+                    || account.lastLoginAt() != null
+                    || !account.username().equals(employee.employeeNumber())
+                    || !recoverableEmployeeSelfRole(assignments, now)
+                    || credential == null
+                    || !passwordCodec.matches(
+                            expectedPassword, credential.passwordHash())) {
+                throw accountProvisioningRecoveryUnavailable();
+            }
+        }
+
+        List<TemporaryCredential> credentials = new ArrayList<>();
+        for (EmployeeAccountCandidateRecord employee : candidates) {
+            AccountRecord account = lockedAccounts.get(employee.accountId());
+            String temporaryPassword = provisioningPassword(
+                    idempotencyRecordId,
+                    actorId,
+                    idempotencyKey,
+                    recoveryKey,
+                    employeeSetDigest,
+                    employee.employeeId());
+            credentials.add(new TemporaryCredential(
+                    account.accountId(),
+                    employee.employeeId(),
+                    employee.employeeNumber(),
+                    employee.displayName(),
+                    employee.organizationName(),
+                    account.username(),
+                    temporaryPassword));
+        }
+        auditService.record(
+                actorId,
+                "EMPLOYEE_ACCOUNTS_BULK_REPLAY_CONFIRMED",
+                "LOCAL_ACCOUNT_BATCH",
+                idempotencyRecordId,
+                "SUCCESS",
+                "confirmed=" + credentials.size());
+        return new BulkAccountCreationResult(
+                List.copyOf(credentials),
+                credentials.size(),
+                true);
+    }
+
+    private static boolean recoverableEmployeeSelfRole(
+            List<RecoverableRoleAssignment> assignments,
+            Instant now) {
+        if (assignments.size() != 1) {
+            return false;
+        }
+        RecoverableRoleAssignment assignment = assignments.getFirst();
+        return EMPLOYEE_SELF_ROLE.equals(assignment.roleCode())
+                && "SELF".equals(assignment.scopeType())
+                && assignment.companyId() == null
+                && assignment.organizationId() == null
+                && !assignment.validFrom().isAfter(now)
+                && assignment.validTo() == null
+                && assignment.scopeValidFrom() != null
+                && !assignment.scopeValidFrom().isAfter(now)
+                && assignment.scopeValidTo() == null;
+    }
+
+    private static boolean validProvisioningRecoveryKey(String recoveryKey) {
+        if (recoveryKey == null
+                || !PROVISIONING_RECOVERY_KEY_PATTERN.matcher(recoveryKey).matches()) {
+            return false;
+        }
+        try {
+            return Base64.getUrlDecoder().decode(recoveryKey).length == 32;
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
+    private static byte[] decodeProvisioningPepper(String encodedPepper) {
+        if (!validProvisioningRecoveryKey(encodedPepper)) {
+            throw new IllegalStateException(
+                    "SHENZHOUHR_PROVISIONING_PEPPER must be 32 random bytes encoded as base64url");
+        }
+        return Base64.getUrlDecoder().decode(encodedPepper);
+    }
+
+    private static String lengthPrefixedCanonical(String... values) {
+        StringBuilder canonical = new StringBuilder();
+        for (String value : values) {
+            byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+            canonical.append(bytes.length).append(':').append(value).append('\n');
+        }
+        return canonical.toString();
+    }
+
+    private static void updateLengthPrefixed(Mac mac, String... values) {
+        for (String value : values) {
+            byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+            mac.update((byte) (bytes.length >>> 24));
+            mac.update((byte) (bytes.length >>> 16));
+            mac.update((byte) (bytes.length >>> 8));
+            mac.update((byte) bytes.length);
+            mac.update(bytes);
+        }
+    }
+
+    private static ApiProblemException accountProvisioningRecoveryUnavailable() {
+        return new ApiProblemException(
+                HttpStatus.CONFLICT,
+                "ACCOUNT_PROVISIONING_RECOVERY_UNAVAILABLE",
+                "此前开通的账号已被使用或状态已变化，不能恢复临时凭据，请按密码重置流程处理");
+    }
+
+    private static ApiProblemException accountProvisioningCandidateChanged() {
+        return new ApiProblemException(
+                HttpStatus.CONFLICT,
+                "ACCOUNT_PROVISIONING_CANDIDATE_CHANGED",
+                "部分员工已离职、没有有效任职或不在当前授权范围，请刷新后重试");
     }
 
     private static String normalizeUsername(String username) {
@@ -906,12 +1464,28 @@ public class AccountAccessService {
 
     public record BulkAccountCreationResult(
             List<TemporaryCredential> credentials,
-            int created) {
+            int created,
+            boolean replayed) {
     }
 
     private record AuthorizedRoleAssignments(
             List<ResolvedRoleAssignmentInput> assignments,
             boolean privileged) {
+    }
+
+    private record ProvisionedAccountBinding(
+            String employeeId,
+            String accountId) {
+    }
+
+    private record ProvisioningBatchReceipt(
+            String derivationVersion,
+            String keyId,
+            List<ProvisionedAccountBinding> bindings) {
+    }
+
+    private static final class ProvisioningReplayRaceException
+            extends RuntimeException {
     }
 
     public record AccountSummary(

@@ -59,6 +59,10 @@ shenzhouhr:
   development-principal:
     enabled: false
   security:
+    account-provisioning:
+      pepper: ${SHENZHOUHR_PROVISIONING_PEPPER:}
+      key-id: ${SHENZHOUHR_PROVISIONING_KEY_ID:v1}
+      recovery-window: ${SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW:PT1H}
     login:
       max-failures: ${SHENZHOUHR_LOGIN_MAX_FAILURES:5}
       failure-window: ${SHENZHOUHR_LOGIN_FAILURE_WINDOW:PT15M}

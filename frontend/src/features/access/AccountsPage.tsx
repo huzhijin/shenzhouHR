@@ -1,12 +1,12 @@
 import { IconLock, IconPlus, IconSearch, IconUsersPlus } from '@tabler/icons-react';
 import { Button, Form, Input, Modal, Select, Space } from 'antd';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
 import { DataTable } from '../../shared/components/DataTable';
 import { ConfirmationDialog, OperationFeedback, StatusBadge } from '../../shared/components/FeedbackComponents';
-import { PageHeader, QueryFilterBar } from '../../shared/components/PagePrimitives';
+import { PageHeader, QueryFilterBar, ResourcePagination } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import {
@@ -31,6 +31,8 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<AccountStatus>();
+  const [pageNumber, setPageNumber] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [createOpen, setCreateOpen] = useState(false);
   const [provisioningOpen, setProvisioningOpen] = useState(false);
   const [lockTarget, setLockTarget] = useState<AccountSummary>();
@@ -42,8 +44,27 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const selectedScopeType = Form.useWatch<RoleScopeType>('scopeType', form);
   const selectedRole = roles.find((role) => role.roleId === selectedRoleId);
   const allowedScopes = selectedRole ? allowedScopeTypes(selectedRole) : [];
-  const loader = useMemo(() => () => listAccounts({ q: query, status }), [query, status]);
-  const { resource, reload } = useAsyncResource(loader, (page) => page.items.length === 0, [query, status]);
+  const canCreateAccount = capabilities.includes('ACCOUNT:CREATE');
+  const canBulkProvision = canBulkProvisionEmployeeAccounts(capabilities);
+  const loader = useMemo(
+    () => () => listAccounts({ q: query, status, page: pageNumber, size: pageSize }),
+    [pageNumber, pageSize, query, status],
+  );
+  const { resource, reload } = useAsyncResource(
+    loader,
+    (page) => page.items.length === 0 && page.total === 0,
+    [pageNumber, pageSize, query, status],
+  );
+
+  useEffect(() => {
+    if (
+      resource.status !== 'ready'
+      || resource.data.items.length > 0
+      || resource.data.total === 0
+      || pageNumber === 0
+    ) return;
+    setPageNumber(Math.max(0, Math.ceil(resource.data.total / pageSize) - 1));
+  }, [pageNumber, pageSize, resource]);
 
   const openCreate = async () => {
     setRoles(await listRoles());
@@ -107,30 +128,42 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
         title={t('access.accounts')}
         description={t('access.description')}
         breadcrumbs={[{ label: t('access.section') }, { label: t('access.accounts') }]}
-        actions={capabilities.includes('ACCOUNT:CREATE') ? (
+        actions={canCreateAccount ? (
           <Space wrap>
             <Button icon={<IconPlus stroke={2} />} onClick={() => void openCreate()}>
               {t('access.createAccount')}
             </Button>
-            <Button
-              type="primary"
-              icon={<IconUsersPlus stroke={2} />}
-              onClick={() => setProvisioningOpen(true)}
-            >
-              从员工批量开通
-            </Button>
+            {canBulkProvision ? (
+              <Button
+                type="primary"
+                icon={<IconUsersPlus stroke={2} />}
+                onClick={() => setProvisioningOpen(true)}
+              >
+                从员工批量开通
+              </Button>
+            ) : null}
           </Space>
         ) : undefined}
       />
       {feedback ? <OperationFeedback kind="success" message={feedback} /> : null}
       <section className="content-surface">
-        <QueryFilterBar query={query} onQueryChange={setQuery} placeholder={t('access.searchAccounts')}>
+        <QueryFilterBar
+          query={query}
+          onQueryChange={(value) => {
+            setQuery(value);
+            setPageNumber(0);
+          }}
+          placeholder={t('access.searchAccounts')}
+        >
           <Select
             allowClear
             aria-label={t('access.accountStatus')}
             placeholder={t('access.allStatuses')}
             value={status}
-            onChange={setStatus}
+            onChange={(value) => {
+              setStatus(value);
+              setPageNumber(0);
+            }}
             options={[
               { value: 'ACTIVE', label: t('status.active') },
               { value: 'DISABLED', label: t('status.disabled') },
@@ -144,24 +177,36 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
         {resource.status === 'empty' ? <StatePanel state="empty" description={t('access.noAccounts')} /> : null}
         {'error' in resource ? <StatePanel state={resource.status} description={resource.error.message} onRetry={reload} /> : null}
         {resource.status === 'ready' ? (
-          <DataTable
-            rows={resource.data.items}
-            rowKey={(row) => row.accountId}
-            columns={[
-              { key: 'username', title: t('access.username'), render: (row) => <Link to={`/access/accounts/${row.accountId}`}>{row.username}</Link> },
-              { key: 'displayName', title: t('access.displayName'), render: (row) => row.displayName },
-              { key: 'status', title: t('access.status'), render: (row) => <StatusBadge status={row.status} /> },
-              { key: 'firstChange', title: t('access.firstChange'), render: (row) => row.firstPasswordChangeRequired ? t('access.pending') : t('access.completed') },
-              { key: 'lastLogin', title: t('access.lastLogin'), render: (row) => row.lastLoginAt ? formatTime(row.lastLoginAt) : t('access.neverLoggedIn') },
-              {
-                key: 'actions',
-                title: t('access.actions'),
-                render: (row) => capabilities.includes('ACCOUNT:LOCK') && row.status !== 'LOCKED'
-                  ? <Button danger size="small" icon={<IconLock stroke={2} />} onClick={() => setLockTarget(row)}>{t('access.lock')}</Button>
-                  : <Link to={`/access/accounts/${row.accountId}`}>{t('common.view')}</Link>,
-              },
-            ]}
-          />
+          <>
+            <DataTable
+              rows={resource.data.items}
+              rowKey={(row) => row.accountId}
+              columns={[
+                { key: 'username', title: t('access.username'), render: (row) => <Link to={`/access/accounts/${row.accountId}`}>{row.username}</Link> },
+                { key: 'displayName', title: t('access.displayName'), render: (row) => row.displayName },
+                { key: 'status', title: t('access.status'), render: (row) => <StatusBadge status={row.status} /> },
+                { key: 'firstChange', title: t('access.firstChange'), render: (row) => row.firstPasswordChangeRequired ? t('access.pending') : t('access.completed') },
+                { key: 'lastLogin', title: t('access.lastLogin'), render: (row) => row.lastLoginAt ? formatTime(row.lastLoginAt) : t('access.neverLoggedIn') },
+                {
+                  key: 'actions',
+                  title: t('access.actions'),
+                  render: (row) => capabilities.includes('ACCOUNT:LOCK') && row.status !== 'LOCKED'
+                    ? <Button danger size="small" icon={<IconLock stroke={2} />} onClick={() => setLockTarget(row)}>{t('access.lock')}</Button>
+                    : <Link to={`/access/accounts/${row.accountId}`}>{t('common.view')}</Link>,
+                },
+              ]}
+            />
+            <ResourcePagination
+              ariaLabel="账号列表分页"
+              page={resource.data.page}
+              pageSize={resource.data.size}
+              total={resource.data.total}
+              onChange={(nextPage, nextPageSize) => {
+                setPageNumber(nextPage);
+                setPageSize(nextPageSize);
+              }}
+            />
+          </>
         ) : null}
       </section>
       <Modal open={createOpen} title={t('access.createLocalAccount')} okText={t('policy.create')} cancelText={t('common.cancel')} confirmLoading={processing} onOk={() => void form.submit()} onCancel={closeCreate}>
@@ -248,14 +293,16 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
           ) : null}
         </Form>
       </Modal>
-      <EmployeeAccountProvisioningDialog
-        open={provisioningOpen}
-        onClose={() => setProvisioningOpen(false)}
-        onCreated={() => {
-          setFeedback('员工账号已批量开通，账号清单已下载。');
-          reload();
-        }}
-      />
+      {canBulkProvision ? (
+        <EmployeeAccountProvisioningDialog
+          open={provisioningOpen}
+          onClose={() => setProvisioningOpen(false)}
+          onCreated={() => {
+            setFeedback('员工账号开通结果已更新，请按窗口提示保存账号清单。');
+            reload();
+          }}
+        />
+      ) : null}
       <ConfirmationDialog
         open={Boolean(lockTarget)}
         title={t('access.confirmLock')}
@@ -268,6 +315,10 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
       />
     </>
   );
+}
+
+export function canBulkProvisionEmployeeAccounts(capabilities: readonly string[]): boolean {
+  return capabilities.includes('ACCOUNT:CREATE') && capabilities.includes('ROLE:ASSIGN');
 }
 
 export default AccountsPage;

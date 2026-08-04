@@ -125,7 +125,9 @@ class AuthenticationReauthenticationContractTest {
                     "legal-1");
             when(repository.findAccountByPrincipalId("principal-1"))
                     .thenReturn(Optional.of(account));
-            when(repository.findCredential("account-1"))
+            when(repository.lockAccountById("account-1"))
+                    .thenReturn(Optional.of(account));
+            when(repository.lockCredential("account-1"))
                     .thenReturn(Optional.of(new CredentialRecord(
                             "account-1",
                             passwordCodec.encode(passwordMatches

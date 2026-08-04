@@ -90,6 +90,7 @@ export interface TemporaryCredential {
 export interface BulkAccountCreationResult {
   credentials: TemporaryCredential[];
   created: number;
+  replayed: boolean;
 }
 
 export interface RoleView {
@@ -244,12 +245,18 @@ export function listEmployeeAccountCandidates(input: {
 
 export function createEmployeeAccounts(
   employeeIds: string[],
+  idempotencyKey: string,
+  recoveryKey: string,
 ): Promise<BulkAccountCreationResult> {
-  if (isDemoMode()) return Promise.resolve({ credentials: [], created: 0 });
+  if (isDemoMode()) return Promise.resolve({ credentials: [], created: 0, replayed: false });
   return requestJson<BulkAccountCreationResult>(
     '/api/v1/access/account-provisioning/accounts',
     {
       method: 'POST',
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+        'Provisioning-Recovery-Key': recoveryKey,
+      },
       body: JSON.stringify({ employeeIds }),
     },
   );

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import os
 import re
@@ -24,6 +26,9 @@ REQUIRED_ENVIRONMENT_KEYS = {
     "SHENZHOUHR_DB_USERNAME",
     "SHENZHOUHR_DB_PASSWORD",
     "SHENZHOUHR_FLYWAY_ENABLED",
+    "SHENZHOUHR_PROVISIONING_PEPPER",
+    "SHENZHOUHR_PROVISIONING_KEY_ID",
+    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW",
 }
 ALLOWED_PRODUCTION_ENVIRONMENT_KEYS = frozenset(
     REQUIRED_ENVIRONMENT_KEYS
@@ -85,6 +90,13 @@ POSITIVE_INTEGER_ENVIRONMENT_KEYS = frozenset(
     }
 )
 ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+PROVISIONING_PEPPER_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
+PROVISIONING_KEY_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+PROVISIONING_RECOVERY_WINDOW_PATTERN = re.compile(
+    r"^P(?:(?P<days>[0-9]+)D)?"
+    r"(?:T(?:(?P<hours>[0-9]+)H)?(?:(?P<minutes>[0-9]+)M)?"
+    r"(?:(?P<seconds>[0-9]+)S)?)?$"
+)
 
 
 @dataclass(frozen=True)
@@ -92,6 +104,42 @@ class PreflightCheck:
     check_id: str
     status: str
     detail: str
+
+
+def _valid_provisioning_pepper(value: str) -> bool:
+    if not PROVISIONING_PEPPER_PATTERN.fullmatch(value):
+        return False
+    try:
+        decoded = base64.b64decode(
+            value.replace("-", "+").replace("_", "/") + "=",
+            altchars=None,
+            validate=True,
+        )
+    except (binascii.Error, ValueError):
+        return False
+    canonical = base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=")
+    return len(decoded) == 32 and canonical == value
+
+
+def _valid_provisioning_recovery_window(value: str) -> bool:
+    match = PROVISIONING_RECOVERY_WINDOW_PATTERN.fullmatch(value)
+    if match is None:
+        return False
+    components = {
+        name: int(component) if component is not None else 0
+        for name, component in match.groupdict().items()
+    }
+    if not any(components.values()):
+        return False
+    if value.endswith("T"):
+        return False
+    seconds = (
+        components["days"] * 86_400
+        + components["hours"] * 3_600
+        + components["minutes"] * 60
+        + components["seconds"]
+    )
+    return 0 < seconds <= 86_400
 
 
 def _file_text(repository: Path, relative: str) -> str:
@@ -256,6 +304,30 @@ def inspect_environment_file(path: Path) -> PreflightCheck:
             "FAIL",
             "production safety variables have invalid values: "
             f"{invalid_fixed_values}",
+        )
+    if not _valid_provisioning_pepper(values["SHENZHOUHR_PROVISIONING_PEPPER"]):
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "SHENZHOUHR_PROVISIONING_PEPPER must canonically encode exactly "
+            "32 bytes as 43-character unpadded base64url",
+        )
+    if not PROVISIONING_KEY_ID_PATTERN.fullmatch(
+        values["SHENZHOUHR_PROVISIONING_KEY_ID"]
+    ):
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "SHENZHOUHR_PROVISIONING_KEY_ID must use 1-64 safe identifier characters",
+        )
+    if not _valid_provisioning_recovery_window(
+        values["SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW"]
+    ):
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW must be greater than zero "
+            "and no more than 24 hours",
         )
     invalid_booleans = sorted(
         name

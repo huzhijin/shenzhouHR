@@ -45,6 +45,10 @@ import {
   mutationSuccessNotice,
   type AttendanceSetupNotice as Notice,
 } from './attendanceSetupFeedback';
+import {
+  loadAllAttendanceDirectoryItems,
+  missingDirectoryLabel,
+} from './attendanceDirectory';
 import type {
   AssignmentInput,
   AssignmentView,
@@ -164,41 +168,54 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
     (page) => page.total === 0,
     [assignmentPage, assignmentPageSize, effectiveGroupId, asOf],
   );
-  const businessLabelsLoader = useMemo(
-    () => () => Promise.all([
-      listCalendars(undefined, 0, 500),
-      listShifts(0, 500),
-      getEmployees(0, 500, { sort: 'employeeNumber' }),
-    ]),
-    [],
-  );
-  const businessLabels = useAsyncResource(
-    businessLabelsLoader,
+  const locationDirectory = useAsyncResource(
+    () => loadAllAttendanceDirectoryItems((page, size) => listLocations(page, size)),
     () => false,
     [],
   );
-  const calendarLabels = businessLabels.resource.status === 'ready'
-    ? new Map(businessLabels.resource.data[0].items.map((calendar) => [
+  const calendarDirectory = useAsyncResource(
+    () => loadAllAttendanceDirectoryItems(
+      (page, size) => listCalendars(undefined, page, size),
+    ),
+    () => false,
+    [],
+  );
+  const shiftDirectory = useAsyncResource(
+    () => loadAllAttendanceDirectoryItems((page, size) => listShifts(page, size)),
+    () => false,
+    [],
+  );
+  const employeeDirectory = useAsyncResource(
+    () => loadAllAttendanceDirectoryItems((page, size) => getEmployees(
+        page,
+        size,
+        { sort: 'employeeNumber' },
+      )),
+    () => false,
+    [],
+  );
+  const locationLabels = locationDirectory.resource.status === 'ready'
+    ? new Map(locationDirectory.resource.data.map((location) => [
+      location.locationId,
+      `${location.name}（${location.code}）`,
+    ]))
+    : new Map<string, string>();
+  const calendarLabels = calendarDirectory.resource.status === 'ready'
+    ? new Map(calendarDirectory.resource.data.map((calendar) => [
       calendar.calendarId,
       `${calendar.name}（${calendar.code}）`,
     ]))
     : new Map<string, string>();
-  const shiftLabels = businessLabels.resource.status === 'ready'
-    ? new Map(businessLabels.resource.data[1].items.map((shift) => [
+  const shiftLabels = shiftDirectory.resource.status === 'ready'
+    ? new Map(shiftDirectory.resource.data.map((shift) => [
       shift.shiftId,
       `${shift.name}（${shift.code}）`,
     ]))
     : new Map<string, string>();
-  const employeeLabels = businessLabels.resource.status === 'ready'
-    ? new Map(businessLabels.resource.data[2].items.map((employee) => [
+  const employeeLabels = employeeDirectory.resource.status === 'ready'
+    ? new Map(employeeDirectory.resource.data.map((employee) => [
       employee.employeeId,
       `${employee.displayName}（${employee.employeeNumber}）`,
-    ]))
-    : new Map<string, string>();
-  const locationLabels = overview.resource.status === 'ready'
-    ? new Map(overview.resource.data[0].items.map((location) => [
-      location.locationId,
-      `${location.name}（${location.code}）`,
     ]))
     : new Map<string, string>();
   useEffect(() => {
@@ -645,10 +662,11 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     {
                       key: 'location',
                       title: '地点',
-                      render: (group) => locationLabels.get(group.locationId) ?? '已归档地点',
+                      render: (group) => locationLabels.get(group.locationId)
+                        ?? missingDirectoryLabel(locationDirectory.resource.status, '地点'),
                     },
-                    { key: 'calendar', title: '工作日历', render: (group) => calendarLabels.get(group.calendarId) ?? '已归档日历' },
-                    { key: 'shift', title: '班次', render: (group) => shiftLabels.get(group.shiftTemplateId) ?? '已归档班次' },
+                    { key: 'calendar', title: '工作日历', render: (group) => calendarLabels.get(group.calendarId) ?? missingDirectoryLabel(calendarDirectory.resource.status, '日历') },
+                    { key: 'shift', title: '班次', render: (group) => shiftLabels.get(group.shiftTemplateId) ?? missingDirectoryLabel(shiftDirectory.resource.status, '班次') },
                     { key: 'status', title: t('attendanceSetup.status'), render: (group) => <StatusBadge status={group.status} /> },
                     ...(canManageGroups ? [{
                       key: 'actions',
@@ -736,9 +754,9 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'name', title: t('attendanceSetup.name'), render: (group) => group.name },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (group) => group.revisionNumber },
                     { key: 'period', title: t('attendanceSetup.period'), render: (group) => formatPeriod(group.effectiveFrom, group.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'location', title: '地点', render: (group) => locationLabels.get(group.locationId) ?? '已归档地点' },
-                    { key: 'calendar', title: '工作日历', render: (group) => calendarLabels.get(group.calendarId) ?? '已归档日历' },
-                    { key: 'shift', title: '班次', render: (group) => shiftLabels.get(group.shiftTemplateId) ?? '已归档班次' },
+                    { key: 'location', title: '地点', render: (group) => locationLabels.get(group.locationId) ?? missingDirectoryLabel(locationDirectory.resource.status, '地点') },
+                    { key: 'calendar', title: '工作日历', render: (group) => calendarLabels.get(group.calendarId) ?? missingDirectoryLabel(calendarDirectory.resource.status, '日历') },
+                    { key: 'shift', title: '班次', render: (group) => shiftLabels.get(group.shiftTemplateId) ?? missingDirectoryLabel(shiftDirectory.resource.status, '班次') },
                     { key: 'status', title: t('attendanceSetup.status'), render: (group) => <StatusBadge status={group.status} /> },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (group) => group.changeReason },
                   ]}
@@ -796,7 +814,7 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                   rowKey={(assignment) => assignment.assignmentId}
                   ariaLabel={t('attendanceSetup.assignmentSection')}
                   columns={[
-                    { key: 'employee', title: '员工', render: (assignment) => employeeLabels.get(assignment.employeeId) ?? '已归档员工' },
+                    { key: 'employee', title: '员工', render: (assignment) => employeeLabels.get(assignment.employeeId) ?? missingDirectoryLabel(employeeDirectory.resource.status, '员工') },
                     { key: 'period', title: t('attendanceSetup.period'), render: (assignment) => formatPeriod(assignment.effectiveFrom, assignment.effectiveTo, t('attendanceSetup.longTerm')) },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (assignment) => assignment.changeReason },
                     ...(canAssign ? [{

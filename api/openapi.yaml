@@ -651,10 +651,17 @@ paths:
       summary: 按员工档案批量开通本人账号
       description: |
         登录名固定使用工号，显示名称使用员工姓名，角色固定为员工本人，数据范围固定为本人。
-        每次最多 20 人；服务端为每人生成不同的强临时密码，明文只在本次响应中返回且不得写入日志或审计。
+        每次最多 20 人；服务端使用部署密钥与浏览器生成的 32 字节高熵恢复键，为每人确定性派生不同的
+        强临时密码。临时密码和恢复键均不得写入数据库、日志或审计。
+        Idempotency-Key 按当前主体、动作、恢复键和排序后的员工 ID 集合绑定。首次请求原子创建账号；
+        相同双键和相同员工集合在恢复窗口内再次请求时，仅当原账号仍为 ACTIVE、仍要求首次改密、
+        从未登录、仍只有 EMPLOYEE_SELF + SELF 授权且凭据未被修改，才返回同一批当前有效的临时密码，
+        不会创建账号或轮换密码。不同恢复键或员工集合复用同一 Idempotency-Key 返回 409。
       x-capabilities: [ACCOUNT:CREATE, ROLE:ASSIGN]
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ProvisioningRecoveryKey'
       requestBody:
         required: true
         content:
@@ -663,7 +670,9 @@ paths:
               $ref: '#/components/schemas/EmployeeAccountsCreateRequest'
       responses:
         '200':
-          description: 本次创建结果与一次性临时凭据
+          description: 本次创建或受控恢复结果与一次性临时凭据
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
           content:
             application/json:
               schema:
@@ -675,7 +684,18 @@ paths:
         '403':
           $ref: '#/components/responses/AccessDenied'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: |
+            Idempotency-Key 已用于不同恢复键或员工集合，候选人状态已变化，角色不再是员工本人/本人范围，
+            或原批次账号已登录、停用、解除首次改密要求、超过恢复窗口或凭据已变化，因而不能安全确认。
+          x-error-codes:
+            - IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST
+            - ACCOUNT_PROVISIONING_CANDIDATE_CHANGED
+            - ACCOUNT_PROVISIONING_CONFLICT
+            - ACCOUNT_PROVISIONING_RECOVERY_UNAVAILABLE
+            - EMPLOYEE_ROLE_NOT_CONFIGURED
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
   /access/accounts/{accountId}:
     get:
       tags: [Access]
@@ -4879,6 +4899,20 @@ components:
         minLength: 16
         maxLength: 128
         pattern: '^[A-Za-z0-9._:-]+$'
+    ProvisioningRecoveryKey:
+      name: Provisioning-Recovery-Key
+      in: header
+      required: true
+      description: |
+        浏览器为单批请求生成的 32 字节 base64url 高熵恢复键；自动和手动重试必须复用原值。
+        该值按临时凭据处理，不得持久化、记录或回显。
+      x-sensitive: true
+      schema:
+        type: string
+        minLength: 43
+        maxLength: 43
+        pattern: '^[A-Za-z0-9_-]{43}$'
+        writeOnly: true
     IfMatch:
       name: If-Match
       in: header
@@ -6153,16 +6187,24 @@ components:
           format: password
           minLength: 12
           x-sensitive: true
-          description: 只在本次响应中返回，服务端不得持久化或记录明文。
+          description: |
+            只在首次成功响应及恢复窗口内的安全重放中返回；服务端不得持久化或记录明文。
     BulkAccountCreationResult:
       type: object
       additionalProperties: false
-      required: [credentials, created]
+      required: [credentials, created, replayed]
       properties:
         credentials:
           type: array
           items: { $ref: '#/components/schemas/TemporaryCredential' }
-        created: { type: integer, minimum: 0, maximum: 20 }
+        created:
+          type: integer
+          minimum: 0
+          maximum: 20
+          description: 本次确认的账号数量；恢复响应中不会据此重复创建账号。
+        replayed:
+          type: boolean
+          description: 是否命中相同双键与规范员工集合并确认了同一批未变更凭据。
     AccountStatusUpdateRequest:
       type: object
       additionalProperties: false

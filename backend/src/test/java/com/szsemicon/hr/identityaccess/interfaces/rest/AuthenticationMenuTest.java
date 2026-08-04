@@ -80,4 +80,45 @@ class AuthenticationMenuTest {
                 .filteredOn(item -> item.path().equals("/workbench"))
                 .hasSize(1);
     }
+
+    @Test
+    void managementMenusUsePlainBusinessLabels() {
+        var menu = AuthenticationController.menu(List.of(
+                "POLICY:READ",
+                "ACCOUNT:READ",
+                "ROLE:READ",
+                "AUDIT:READ",
+                "PEOPLE_IMPORT:READ",
+                "ORGANIZATION:READ",
+                "EMPLOYEE:READ",
+                "ATTENDANCE_SETUP:READ",
+                "ATTENDANCE_SOURCE:READ",
+                "ATTENDANCE_PUNCH_IMPORT:READ"));
+
+        assertThat(menu).contains(
+                new AuthenticationController.MenuItem(
+                        "rules", "规则设置", "/rules"),
+                new AuthenticationController.MenuItem(
+                        "audit", "操作记录", "/access/audit"),
+                new AuthenticationController.MenuItem(
+                        "people-import", "导入人员", "/people/import"),
+                new AuthenticationController.MenuItem(
+                        "people-organization", "部门与组织", "/people/organization"),
+                new AuthenticationController.MenuItem(
+                        "people-employees", "员工", "/people/employees"),
+                new AuthenticationController.MenuItem(
+                        "attendance-groups", "考勤组", "/rules/attendance-groups"),
+                new AuthenticationController.MenuItem(
+                        "attendance-shifts", "班次", "/rules/shifts"),
+                new AuthenticationController.MenuItem(
+                        "attendance-policies", "考勤规则", "/rules/attendance-policy"),
+                new AuthenticationController.MenuItem(
+                        "attendance-sources-online", "考勤机数据", "/sources/online"),
+                new AuthenticationController.MenuItem(
+                        "attendance-sources-oa", "OA 单据", "/sources/oa"),
+                new AuthenticationController.MenuItem(
+                        "attendance-source-jobs", "同步记录", "/sources/jobs"),
+                new AuthenticationController.MenuItem(
+                        "attendance-punch-imports", "导入打卡文件", "/sources/attendance-excel"));
+    }
 }

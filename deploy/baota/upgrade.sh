@@ -4,6 +4,8 @@ umask 077
 
 RELEASE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BAOTA_ROOT="$RELEASE_ROOT/deploy/baota"
+# shellcheck source=deploy/baota/scripts/provisioning-env.sh
+source "$BAOTA_ROOT/scripts/provisioning-env.sh"
 APP_ROOT="/opt/shenzhouhr"
 APP_DIR="$APP_ROOT/app"
 ENV_ROOT="/etc/shenzhouhr"
@@ -44,6 +46,15 @@ detect_java() {
 [[ -f "$APP_DIR/shenzhou-hr.jar" ]] || die 'Existing application was not found'
 command -v systemctl >/dev/null 2>&1 || die 'systemctl is required'
 command -v curl >/dev/null 2>&1 || die 'curl is required'
+
+# Older installations predate deterministic recovery receipts. Converge both
+# root-owned env files before Flyway starts the full Spring context. Existing
+# valid values are reused; conflicting values stop the upgrade.
+provisioning_sync_env_pair \
+  "$ENV_ROOT/shenzhouhr.env" \
+  "$ENV_ROOT/shenzhouhr-migrator.env" \
+  || die "$PROVISIONING_ENV_ERROR"
+printf '%s\n' 'Account-provisioning recovery configuration verified.'
 
 read -r -p 'Customer domain (for example hr.example.com): ' DOMAIN
 DOMAIN="${DOMAIN:-${SHENZHOUHR_DOMAIN:-}}"
@@ -100,7 +111,9 @@ if ((WAS_ACTIVE == 1)) || [[ "${START_APP:-Y}" =~ ^[Yy]$ ]]; then
     fi
     sleep 2
   done
-  "$BAOTA_ROOT/scripts/verify.sh" --env-file "$ENV_ROOT/shenzhouhr.env"
+  "$BAOTA_ROOT/scripts/verify.sh" \
+    --env-file "$ENV_ROOT/shenzhouhr.env" \
+    --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env"
 else
   printf 'Upgrade completed; application remains stopped by choice.\n'
 fi

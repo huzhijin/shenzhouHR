@@ -2,7 +2,7 @@ import { Form, Input, Modal, Select } from 'antd';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { listAttendanceGroups } from './attendanceSetupApi';
+import { listReferenceAttendanceGroups } from '../referenceData/referenceDataApi';
 import type {
   AttendanceGroupView,
   AttendancePolicyKind,
@@ -32,17 +32,27 @@ export function PolicyBindingDialog({
   const { t } = useTranslation();
   const [form] = Form.useForm<PolicyBindingPreviewInput>();
   const [groups, setGroups] = useState<AttendanceGroupView[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [groupsUnavailable, setGroupsUnavailable] = useState(false);
   useEffect(() => {
     let active = true;
     if (!open) return () => {
       active = false;
     };
-    void listAttendanceGroups(undefined, 0, 500)
-      .then((page) => {
-        if (active) setGroups(page.items);
+    setGroupsLoading(true);
+    setGroupsUnavailable(false);
+    void listReferenceAttendanceGroups()
+      .then((items) => {
+        if (active) setGroups(items);
       })
       .catch(() => {
-        if (active) setGroups([]);
+        if (active) {
+          setGroups([]);
+          setGroupsUnavailable(true);
+        }
+      })
+      .finally(() => {
+        if (active) setGroupsLoading(false);
       });
     return () => {
       active = false;
@@ -86,6 +96,8 @@ export function PolicyBindingDialog({
             showSearch
             optionFilterProp="label"
             placeholder="请选择考勤组"
+            loading={groupsLoading}
+            notFoundContent={groupsUnavailable ? '考勤组目录暂不可用，请稍后重试' : undefined}
             options={groups.map((group) => ({
               value: group.groupId,
               label: `${group.name}（${group.code}）· 修订 ${group.revisionNumber}`,

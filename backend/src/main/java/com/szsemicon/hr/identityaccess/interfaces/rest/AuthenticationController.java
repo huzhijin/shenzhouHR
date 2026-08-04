@@ -241,7 +241,7 @@ public class AuthenticationController {
                     "/attendance/reports"));
         }
         if (capabilities.contains("POLICY:READ")) {
-            menu.add(new MenuItem("rules", "规则中心", "/rules"));
+            menu.add(new MenuItem("rules", "规则设置", "/rules"));
         }
         if (capabilities.contains("ACCOUNT:READ")) {
             menu.add(new MenuItem("accounts", "账号管理", "/access/accounts"));
@@ -250,40 +250,40 @@ public class AuthenticationController {
             menu.add(new MenuItem("roles", "角色权限", "/access/roles"));
         }
         if (capabilities.contains("AUDIT:READ")) {
-            menu.add(new MenuItem("audit", "审计事件", "/access/audit"));
+            menu.add(new MenuItem("audit", "操作记录", "/access/audit"));
         }
         if (capabilities.contains("PEOPLE_IMPORT:READ")) {
-            menu.add(new MenuItem("people-import", "人员期初导入", "/people/import"));
+            menu.add(new MenuItem("people-import", "导入人员", "/people/import"));
         }
         if (capabilities.contains("ORGANIZATION:READ")
                 || capabilities.contains("MASTER_DATA:READ")) {
             menu.add(new MenuItem(
-                    "people-organization", "组织维护", "/people/organization"));
+                    "people-organization", "部门与组织", "/people/organization"));
         }
         if (capabilities.contains("EMPLOYEE:READ")
                 || capabilities.contains("MASTER_DATA:READ")) {
-            menu.add(new MenuItem("people-employees", "员工维护", "/people/employees"));
+            menu.add(new MenuItem("people-employees", "员工", "/people/employees"));
         }
         if (capabilities.contains("ATTENDANCE_SETUP:READ")) {
             menu.add(new MenuItem(
-                    "attendance-groups", "考勤组与人员", "/rules/attendance-groups"));
-            menu.add(new MenuItem("attendance-shifts", "班次版本", "/rules/shifts"));
+                    "attendance-groups", "考勤组", "/rules/attendance-groups"));
+            menu.add(new MenuItem("attendance-shifts", "班次", "/rules/shifts"));
             menu.add(new MenuItem("attendance-calendars", "工作日历", "/rules/calendars"));
             menu.add(new MenuItem(
-                    "attendance-policies", "考勤基础策略", "/rules/attendance-policy"));
+                    "attendance-policies", "考勤规则", "/rules/attendance-policy"));
         }
         if (capabilities.contains("ATTENDANCE_SOURCE:READ")) {
             menu.add(new MenuItem(
-                    "attendance-sources-online", "在线考勤来源", "/sources/online"));
+                    "attendance-sources-online", "考勤机数据", "/sources/online"));
             menu.add(new MenuItem(
-                    "attendance-sources-oa", "OA 考勤单据", "/sources/oa"));
+                    "attendance-sources-oa", "OA 单据", "/sources/oa"));
             menu.add(new MenuItem(
-                    "attendance-source-jobs", "来源同步作业", "/sources/jobs"));
+                    "attendance-source-jobs", "同步记录", "/sources/jobs"));
         }
         if (capabilities.contains("ATTENDANCE_PUNCH_IMPORT:READ")) {
             menu.add(new MenuItem(
                     "attendance-punch-imports",
-                    "异构考勤 Excel",
+                    "导入打卡文件",
                     "/sources/attendance-excel"));
         }
         return List.copyOf(menu);

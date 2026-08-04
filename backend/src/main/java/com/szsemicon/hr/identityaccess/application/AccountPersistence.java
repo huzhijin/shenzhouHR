@@ -18,7 +18,38 @@ public interface AccountPersistence {
             String employeeNumber,
             String displayName,
             String organizationName,
-            String status) {
+            String status,
+            String accountId) {
+    }
+
+    /**
+     * Minimal target snapshot used before account provisioning acquires its
+     * company and employee row locks. Keeping this read model free of actor
+     * authorization makes the target-before-actor lock order explicit.
+     */
+    record EmployeeProvisioningTarget(
+            String employeeId,
+            String companyId) {
+    }
+
+    record IdempotencyClaim(
+            String recordId,
+            String requestDigest,
+            String resultJson,
+            Instant createdAt,
+            boolean firstClaim) {
+    }
+
+    record RecoverableRoleAssignment(
+            String assignmentId,
+            String roleCode,
+            String scopeType,
+            String companyId,
+            String organizationId,
+            Instant validFrom,
+            Instant validTo,
+            Instant scopeValidFrom,
+            Instant scopeValidTo) {
     }
 
     boolean canAccessAccount(
@@ -45,6 +76,15 @@ public interface AccountPersistence {
      */
     Optional<AccountRecord> lockAccountForScopeAuthorization(String accountId);
 
+    /**
+     * Locks only the local-account row for lock-order-sensitive account flows.
+     * Unlike the scope-authorization read model, this must not join and
+     * implicitly lock the principal or bound employee before target company
+     * locks are acquired. Provisioning recovery and role replacement both rely
+     * on this property.
+     */
+    Optional<AccountRecord> lockProvisionedAccount(String accountId);
+
     String createAccount(
             String username,
             String normalizedUsername,
@@ -53,6 +93,45 @@ public interface AccountPersistence {
             String passwordHash,
             String actorId,
             Instant at);
+
+    /**
+     * Atomically claims an actor/action/key tuple. Implementations must insert
+     * the generated record id with an INSERT ... ON DUPLICATE KEY no-op and
+     * re-read the stored row while it remains locked. Comparing record ids is
+     * what distinguishes the first claimant from a replay without relying on
+     * vendor-specific update counts.
+     */
+    IdempotencyClaim claimIdempotency(
+            String generatedRecordId,
+            String actorId,
+            String actionCode,
+            String idempotencyKey,
+            String requestDigest,
+            Instant at);
+
+    /**
+     * Non-locking probe used only to choose the initial target-first or
+     * account-first provisioning path. The selected transaction must re-read
+     * the record under a lock before relying on it.
+     */
+    Optional<IdempotencyClaim> findIdempotency(
+            String actorId,
+            String actionCode,
+            String idempotencyKey);
+
+    /**
+     * Locks an existing provisioning idempotency row without inserting a
+     * child row that would implicitly lock the actor through its foreign key.
+     */
+    Optional<IdempotencyClaim> lockIdempotency(
+            String actorId,
+            String actionCode,
+            String idempotencyKey);
+
+    boolean completeIdempotency(
+            String recordId,
+            String requestDigest,
+            String resultJson);
 
     List<AccountRecord> listAccounts(
             String principalId,
@@ -75,6 +154,18 @@ public interface AccountPersistence {
             String principalId,
             List<String> employeeIds,
             Instant at);
+
+    List<EmployeeProvisioningTarget> findEmployeeProvisioningTargets(
+            List<String> employeeIds);
+
+    /**
+     * Locks every distinct target company first and every employee second,
+     * both in deterministic order. People mutations use the same
+     * company-before-employee order, so employment and organization changes
+     * cannot race the later authorization recheck.
+     */
+    void lockEmployeeProvisioningTargets(
+            List<EmployeeProvisioningTarget> targets);
 
     CandidateCounts countEmployeeAccountCandidates(
             String principalId,
@@ -133,6 +224,15 @@ public interface AccountPersistence {
      * replacing any assignment.
      */
     void lockTargetRoleAssignments(String targetPrincipalId, Instant at);
+
+    /**
+     * Returns every current or future assignment while locking the assignment,
+     * role and scope rows. Credential recovery must reject any shape other than
+     * one currently effective EMPLOYEE_SELF assignment with SELF scope.
+     */
+    List<RecoverableRoleAssignment> lockRecoverableRoleAssignments(
+            String targetPrincipalId,
+            Instant at);
 
     /**
      * Resolves a role id under a lock. An empty result is deliberately treated

@@ -2,7 +2,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiRequestError } from '../../shared/api/apiClient';
 import '../../shared/i18n/i18n';
+import * as employeeApi from '../employee/employeeApi';
 import * as attendanceSetupApi from './attendanceSetupApi';
 import {
   demoCalendars,
@@ -11,6 +13,7 @@ import {
   requiredDemoItem,
 } from './attendanceSetupDemo';
 import { AttendanceGroupsPage } from './AttendanceGroupsPage';
+import { loadAllAttendanceDirectoryItems } from './attendanceDirectory';
 import { AttendancePolicyPage } from './AttendancePolicyPage';
 import { CalendarDaysDialog } from './CalendarDialogs';
 import { CalendarsPage } from './CalendarsPage';
@@ -119,11 +122,46 @@ describe('attendance setup demo pages', () => {
     renderPage(<AttendanceGroupsPage capabilities={capabilities} />);
 
     expect((await screen.findAllByText('苏州一号晶圆厂')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('已归档员工')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('历史员工（名称未找到）')).length)
+      .toBeGreaterThan(0);
+    expect(screen.queryByText(/已归档/)).not.toBeInTheDocument();
     expect(screen.getAllByText('暑期产线轮班安排').length).toBeGreaterThan(0);
     expect(screen.queryByText('9200000000000000001:2026-07')).not.toBeInTheDocument();
     expect(screen.queryByText('9200000000000000001')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '分配人员' })).toBeEnabled();
+  });
+
+  it('loads every business-label page within the server page-size limit', async () => {
+    const loadPage = vi.fn((page: number, size: number) => Promise.resolve({
+      items: Array.from(
+        { length: page === 6 ? 15 : 100 },
+        (_, index) => page * size + index,
+      ),
+      total: 615,
+    }));
+
+    const items = await loadAllAttendanceDirectoryItems(loadPage);
+
+    expect(items).toHaveLength(615);
+    expect(loadPage).toHaveBeenCalledTimes(7);
+    expect(loadPage.mock.calls.every(([, size]) => size === 100)).toBe(true);
+  });
+
+  it('keeps calendar and shift names when the employee directory is forbidden', async () => {
+    vi.spyOn(employeeApi, 'getEmployees').mockRejectedValue(new ApiRequestError(403, {
+      code: 'FORBIDDEN',
+      retryable: false,
+    }));
+
+    renderPage(<AttendanceGroupsPage capabilities={['ATTENDANCE_SETUP:READ']} />);
+
+    expect((await screen.findAllByText('苏州一号厂 2026 工作日历（CN-SZ-2026）')).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText('一号厂 A 班白班（FAB-A-DAY）').length)
+      .toBeGreaterThan(0);
+    expect((await screen.findAllByText('员工名称暂不可用')).length)
+      .toBeGreaterThan(0);
+    expect(screen.queryByText(/已归档/)).not.toBeInTheDocument();
   });
 
   it('renders seasonal immutable versions on one effective timeline', async () => {
@@ -528,7 +566,7 @@ describe('attendance setup demo pages', () => {
   it('resolves a deep-linked non-meal policy from its exact server context', async () => {
     renderPolicyPage(lateGracePolicyVersionId);
 
-    expect(await screen.findByText('迟到分钟宽限')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '迟到宽限' })).toBeInTheDocument();
     expect(await screen.findByText('江苏神州半导体科技股份有限公司'))
       .toBeInTheDocument();
     expect(screen.getByText('当前策略版本：V1')).toBeInTheDocument();
@@ -758,7 +796,7 @@ describe('attendance setup demo pages', () => {
     await waitFor(() => {
       expect(screen.queryByText('切换 kind 前的结果')).not.toBeInTheDocument();
     });
-    selectPolicyKind('晚餐扣除');
+    selectPolicyKind('用餐时段扣除');
     expect(screen.queryByText('切换 kind 前的结果')).not.toBeInTheDocument();
   });
 
@@ -839,7 +877,7 @@ describe('attendance setup demo pages', () => {
     await waitFor(() => {
       expect(screen.queryByText('旧 route 结果')).not.toBeInTheDocument();
     });
-    expect(await screen.findByText('迟到分钟宽限')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '迟到宽限' })).toBeInTheDocument();
 
     await submitSimulationForm(view.container);
     expect(await screen.findByText('服务暂时不可用，请稍后重试。')).toBeInTheDocument();
@@ -847,7 +885,7 @@ describe('attendance setup demo pages', () => {
     await waitFor(() => {
       expect(screen.queryByText('服务暂时不可用，请稍后重试。')).not.toBeInTheDocument();
     });
-    expect(await screen.findByRole('heading', { name: '自然月迟到豁免' }))
+    expect(await screen.findByRole('heading', { name: '每月迟到豁免' }))
       .toBeInTheDocument();
 
     await submitSimulationForm(view.container);
@@ -1056,9 +1094,9 @@ async function selectSimulationEmployee(container: HTMLElement) {
 
 async function changePolicyRoute(policyKind: AttendancePolicyKind) {
   const labels: Record<AttendancePolicyKind, string> = {
-    MEAL_DEDUCTION: '晚餐扣除',
+    MEAL_DEDUCTION: '用餐时段扣除',
     LATE_GRACE: '迟到宽限',
-    MONTHLY_LATE_EXEMPTION: '自然月迟到豁免',
+    MONTHLY_LATE_EXEMPTION: '每月迟到豁免',
   };
   selectPolicyKind(labels[policyKind]);
   const company = await screen.findByLabelText('公司') as HTMLSelectElement;

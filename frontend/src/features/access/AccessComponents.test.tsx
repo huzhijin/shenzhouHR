@@ -4,8 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import '../../shared/i18n/i18n';
 import {
   AccountStatusPanel,
+  capabilityDomainLabel,
   capabilityLabel,
   PermissionMatrix,
+  RoleOverviewCards,
   RoleScopeList,
   roleScopeLabel,
   SessionStatusPanel,
@@ -60,6 +62,53 @@ describe('PermissionMatrix', () => {
     expect(roleScopeLabel('COMPANY')).toBe('公司范围');
     expect(roleScopeLabel('ORGANIZATION')).toBe('部门范围');
     expect(roleScopeLabel('SELF')).toBe('仅本人');
+  });
+
+  it('uses plain labels for current attendance and leave capabilities', () => {
+    expect(capabilityLabel('ATTENDANCE_LOCATION:READ')).toBe('考勤地点 · 查看');
+    expect(capabilityLabel('ATTENDANCE_FEEDBACK:MANAGE')).toBe('考勤反馈 · 管理');
+    expect(capabilityLabel('LEAVE_ACCOUNT:MATERIALIZE')).toBe('假期账户 · 生成账户');
+    expect(capabilityLabel('LEAVE_MANAGEMENT:EXPORT')).toBe('假期管理 · 导出');
+    expect(capabilityDomainLabel('ATTENDANCE_LOCATION:READ')).toBe('考勤地点');
+  });
+});
+
+describe('RoleOverviewCards', () => {
+  it('explains supported roles and hides retired manufacturing roles', () => {
+    render(
+      <RoleOverviewCards
+        roles={[
+          {
+            roleId: 'system-admin-role',
+            roleCode: 'SYSTEM_ADMIN',
+            roleName: '系统管理员',
+            capabilities: ['ACCOUNT:READ', 'ACCOUNT:EDIT', 'ROLE:ASSIGN'],
+          },
+          {
+            roleId: 'retired-role',
+            roleCode: 'MANUFACTURING_CENTER_SUPERVISOR',
+            roleName: '制造中心主管',
+            capabilities: ['EMPLOYEE:READ'],
+          },
+          {
+            roleId: 'retired-name-alias',
+            roleCode: 'LEGACY_CENTER_DIRECTOR',
+            roleName: '制造中心主任',
+            capabilities: ['EMPLOYEE:READ'],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '各角色能做什么' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '系统管理员' })).toBeInTheDocument();
+    expect(screen.getByText('维护系统配置、账号和权限。这是最高权限，只建议分配给系统负责人。')).toBeInTheDocument();
+    expect(screen.getByText('公司范围')).toBeInTheDocument();
+    expect(screen.getByText('3 项权限')).toBeInTheDocument();
+    expect(screen.getByText('账号')).toBeInTheDocument();
+    expect(screen.getByText('共 1 个角色')).toBeInTheDocument();
+    expect(screen.queryByText('制造中心主管')).not.toBeInTheDocument();
+    expect(screen.queryByText('制造中心主任')).not.toBeInTheDocument();
   });
 });
 

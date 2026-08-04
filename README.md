@@ -4,9 +4,17 @@
 
 ## 公司数据边界
 
-公司是员工、组织、考勤配置、外部来源、计算、报表和权限的唯一顶层业务维度。当前公开契约和运行时统一使用 `companyId`、`Company`、`COMPANY` 和“公司”；组织范围必须先证明属于一个明确公司，员工本人范围只从服务端会话解析。公司 HR、高管、部门负责人、制造中心主管和员工本人仍需同时满足各自 capability 与明确的 `COMPANY`、`ORGANIZATION` 或 `SELF` 范围，角色名称和前端隐藏都不能扩大权限。
+公司是员工、组织、考勤配置、外部来源、计算、报表和权限的唯一顶层业务维度。当前公开契约和运行时统一使用 `companyId`、`Company`、`COMPANY` 和“公司”；组织范围必须先证明属于一个明确公司，员工本人范围只从服务端会话解析。公司 HR、高管、部门负责人和员工本人仍需同时满足各自 capability 与明确的 `COMPANY`、`ORGANIZATION` 或 `SELF` 范围，角色名称和前端隐藏都不能扩大权限。
 
 单个授权公司可以安全自动选中；存在多个授权公司时必须显式选择，系统不猜测第一家公司。V1～V8、V10 及冻结验证证据保留原始字节与历史术语；V9 仅对 MySQL 8.4 保留字 `row_number` 做了有记录的标识符引用修正，已有 V9 Flyway history 的数据库不得静默 `repair`。V11 是一次性前向迁移桥，最新数据库、后端、OpenAPI、前端和当前交付文档只使用公司语义。
+
+面向管理员的简明操作说明见 [`docs/user-guide/README.md`](docs/user-guide/README.md)。
+
+## 当前部署迁移状态
+
+仓库已按原始 Git 对象恢复并校验 V12～V28，但本机现有 V30 数据库对应的权威 V29、V30 迁移源文件仍待恢复。该缺口不影响当前本机数据库和服务继续验收，但会阻止从空库完整、可审计地部署到 V30；不得编造同名迁移或用 Flyway `repair` 掩盖 checksum 差异。
+
+[`deploy/mysql/usability-finalization-post-v30.sql`](deploy/mysql/usability-finalization-post-v30.sql) 只用于已经准确执行过 V30 且包含 W3 基线的现有数据库；干净数据库不得运行。它负责停用 W3 验证公司、停用旧合成管理员并撤销会话、移除制造中心主管/主任角色，以及按精确标识清理浏览器验收产生的合成员工与组织。脚本会先核对数据形状，发现真实授权或异常依赖时立即回滚。在权威 V29、V30 恢复前，它保持为 Flyway 外的可重复执行收口脚本。
 
 ## W9 发布加固与验收
 
@@ -85,6 +93,7 @@ bash deploy/mysql/wave1-local-mysql.sh \
 - Spring Boot 保持 `SHENZHOUHR_FLYWAY_ENABLED=false`
 - Spring Boot 日常运行禁止使用 `root`
 - 数据库会话时区为 UTC，业务时区为 `Asia/Shanghai`
+- 批量开通账号必须注入稳定的 `SHENZHOUHR_PROVISIONING_PEPPER`：32 个随机字节、无填充 base64url 编码后恰好 43 位；实际值只放部署密钥管理器，不写入仓库。`SHENZHOUHR_PROVISIONING_KEY_ID` 默认 `v1`，轮换后尚未完成的批次须改走管理员密码重置。
 
 ```bash
 cd backend

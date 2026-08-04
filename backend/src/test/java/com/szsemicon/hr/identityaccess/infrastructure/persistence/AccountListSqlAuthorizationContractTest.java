@@ -103,12 +103,17 @@ class AccountListSqlAuthorizationContractTest {
                 "lockCurrentCapabilityAuthority(",
                 "canAccessAllAccountRoleScopes(");
         assertThat(replacement).containsSubsequence(
-                "requireLockedAccount(accountId)",
+                "requireLockedLocalAccount(accountId)",
                 "canAccessAllAccountRoleScopes(",
                 "lockRoleAssignmentAuthorization(",
                 "lockTargetRoleAssignments(",
                 "canAccessAllAccountRoleScopes(",
                 "replaceRoleAssignments(");
+        assertThat(replacement)
+                .doesNotContain("requireLockedAccount(accountId)");
+        assertThat(service).contains(
+                "@Transactional(isolation = Isolation.READ_COMMITTED)\n"
+                        + "    public AccountDetail replaceRoleAssignments(");
         assertThat(service).contains(
                 "AccountRecord account = requireLockedVisible(\n"
                         + "                accountId, ACCOUNT_EDIT",

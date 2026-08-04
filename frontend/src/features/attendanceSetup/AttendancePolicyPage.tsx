@@ -16,10 +16,10 @@ import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import { CompanySelect } from '../referenceData';
+import { listReferenceAttendanceGroups } from '../referenceData/referenceDataApi';
 import {
   createPolicyBinding,
   getAttendancePolicyVersionContext,
-  listAttendanceGroups,
   listPolicyBindings,
   listPolicyCatalog,
   previewPolicyImpact,
@@ -33,6 +33,7 @@ import {
   mutationSuccessNotice,
   type AttendanceSetupNotice as Notice,
 } from './attendanceSetupFeedback';
+import { missingDirectoryLabel } from './attendanceDirectory';
 import { PolicyBindingDialog } from './PolicyBindingDialog';
 import { PolicySimulationPanel } from './PolicySimulationPanel';
 import type {
@@ -73,7 +74,6 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
     () => () => Promise.all([
       listPolicyCatalog(),
       listPolicyBindings(undefined, undefined, bindingPage, bindingPageSize),
-      listAttendanceGroups(undefined, 0, 100),
     ]),
     [bindingPage, bindingPageSize],
   );
@@ -81,6 +81,11 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
     catalogAndBindingsLoader,
     ([catalog, bindings]) => catalog.length === 0 && bindings.items.length === 0,
     [bindingPage, bindingPageSize],
+  );
+  const groupDirectory = useAsyncResource(
+    listReferenceAttendanceGroups,
+    () => false,
+    [],
   );
   const policyVersionContextLoader = useMemo(
     () => () => versionId
@@ -110,8 +115,8 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
     : undefined;
   const lifecycleCompanyId = routeContext?.companyId ?? selectedCompanyId;
   const effectiveVersionId = routeContext?.scopedVersionId ?? '';
-  const groupLabels = catalogAndBindings.resource.status === 'ready'
-    ? new Map(catalogAndBindings.resource.data[2].items.map((group) => [
+  const groupLabels = groupDirectory.resource.status === 'ready'
+    ? new Map(groupDirectory.resource.data.map((group) => [
       group.groupId,
       `${group.name}（${group.code}）`,
     ]))
@@ -409,7 +414,9 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
           <section className="content-surface attendance-section">
             <div className="section-heading">
               <div>
-                <h2>{selectedTemplate?.name ?? t('attendanceSetup.policyCatalog')}</h2>
+                <h2>{selectedTemplate
+                  ? policyKindLabel(selectedTemplate.policyKind)
+                  : t('attendanceSetup.policyCatalog')}</h2>
                 <p>{t('attendanceSetup.policyDescription')}</p>
               </div>
             </div>
@@ -447,7 +454,15 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
                   columns={[
                     { key: 'kind', title: t('attendanceSetup.policyKind'), render: (binding) => policyKindLabel(binding.policyKind) },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (binding) => binding.revisionNumber },
-                    { key: 'group', title: '考勤组', render: (binding) => groupLabels.get(binding.groupId) ?? '已归档考勤组' },
+                    {
+                      key: 'group',
+                      title: '考勤组',
+                      render: (binding) => groupLabels.get(binding.groupId)
+                        ?? missingDirectoryLabel(
+                          groupDirectory.resource.status,
+                          '考勤组',
+                        ),
+                    },
                     { key: 'period', title: t('attendanceSetup.period'), render: (binding) => `${binding.effectiveFrom} → ${binding.effectiveTo ?? t('attendanceSetup.longTerm')}` },
                     { key: 'status', title: t('attendanceSetup.status'), render: (binding) => <StatusBadge status={binding.status} /> },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (binding) => binding.changeReason },
@@ -538,7 +553,11 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
                     <h2>{t('attendanceSetup.impactPreview')}</h2>
                     <p>
                       {impactBinding
-                        ? groupLabels.get(impactBinding.groupId) ?? '已归档考勤组'
+                        ? groupLabels.get(impactBinding.groupId)
+                          ?? missingDirectoryLabel(
+                            groupDirectory.resource.status,
+                            '考勤组',
+                          )
                         : t('attendanceSetup.selectBindingForImpact')}
                     </p>
                   </div>
@@ -587,8 +606,8 @@ export default AttendancePolicyPage;
 
 function policyKindLabel(value: AttendancePolicyKind): string {
   return ({
-    MEAL_DEDUCTION: '餐时扣除',
+    MEAL_DEDUCTION: '用餐时段扣除',
     LATE_GRACE: '迟到宽限',
-    MONTHLY_LATE_EXEMPTION: '月度迟到豁免',
+    MONTHLY_LATE_EXEMPTION: '每月迟到豁免',
   } as const)[value];
 }

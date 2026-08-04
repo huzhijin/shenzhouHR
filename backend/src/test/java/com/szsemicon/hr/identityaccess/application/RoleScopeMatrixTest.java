@@ -32,6 +32,8 @@ class RoleScopeMatrixTest {
                     Set.of("COMPANY", "ORGANIZATION")),
             Arguments.of("MANUFACTURING_SUPERVISOR", Set.of()),
             Arguments.of("MANUFACTURING_CENTER_SUPERVISOR", Set.of()),
+            Arguments.of("MANUFACTURING_DIRECTOR", Set.of()),
+            Arguments.of("MANUFACTURING_CENTER_DIRECTOR", Set.of()),
             Arguments.of("UNSIGNED_FUTURE_ROLE", Set.of())
         };
     }

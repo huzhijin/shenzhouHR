@@ -16,3 +16,6 @@ export function toOrganizationTreeData(nodes: OrganizationNode[]): OrganizationT
   }));
 }
 
+export function topLevelOrganizationKeys(nodes: OrganizationNode[]): string[] {
+  return nodes.map((node) => node.organizationId);
+}

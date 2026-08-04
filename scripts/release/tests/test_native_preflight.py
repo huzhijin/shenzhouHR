@@ -16,6 +16,8 @@ from scripts.release.native_preflight import (
 
 
 class NativePreflightTest(unittest.TestCase):
+    _SYNTHETIC_PROVISIONING_PEPPER = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+
     def test_repository_templates_pass_static_plan_without_changes(self) -> None:
         plan = build_plan(Path.cwd())
 
@@ -201,6 +203,88 @@ class NativePreflightTest(unittest.TestCase):
             self.assertEqual("FAIL", result.status)
             self.assertIn("must be non-empty", result.detail)
 
+    def test_environment_file_requires_provisioning_recovery_configuration(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "shenzhouhr.env"
+            for name in (
+                "SHENZHOUHR_PROVISIONING_PEPPER",
+                "SHENZHOUHR_PROVISIONING_KEY_ID",
+                "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW",
+            ):
+                with self.subTest(name=name):
+                    lines = [
+                        line
+                        for line in self._valid_environment_text().splitlines()
+                        if not line.startswith(f"{name}=")
+                    ]
+                    env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                    os.chmod(env_file, 0o600)
+                    result = inspect_environment_file(env_file)
+                    self.assertEqual("FAIL", result.status)
+                    self.assertIn("missing variable names", result.detail)
+                    self.assertIn(name, result.detail)
+                    self.assertNotIn(self._SYNTHETIC_PROVISIONING_PEPPER, result.detail)
+
+    def test_environment_file_validates_provisioning_values_without_leaking_them(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "shenzhouhr.env"
+            replacements = (
+                (
+                    f"SHENZHOUHR_PROVISIONING_PEPPER={self._SYNTHETIC_PROVISIONING_PEPPER}",
+                    "SHENZHOUHR_PROVISIONING_PEPPER=pepper-secret-that-must-not-leak",
+                    "SHENZHOUHR_PROVISIONING_PEPPER",
+                    "pepper-secret-that-must-not-leak",
+                ),
+                (
+                    "SHENZHOUHR_PROVISIONING_KEY_ID=v1",
+                    "SHENZHOUHR_PROVISIONING_KEY_ID=unsafe/key-id-secret",
+                    "SHENZHOUHR_PROVISIONING_KEY_ID",
+                    "unsafe/key-id-secret",
+                ),
+                (
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW=PT1H",
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW=PT25H",
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW",
+                    "PT25H",
+                ),
+                (
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW=PT1H",
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW=PT0S",
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW",
+                    "PT0S",
+                ),
+            )
+            for current, replacement, name, secret_value in replacements:
+                with self.subTest(name=name, replacement=replacement.split("=", 1)[1]):
+                    env_file.write_text(
+                        self._valid_environment_text().replace(current, replacement),
+                        encoding="utf-8",
+                    )
+                    os.chmod(env_file, 0o600)
+                    result = inspect_environment_file(env_file)
+                    self.assertEqual("FAIL", result.status)
+                    self.assertIn(name, result.detail)
+                    self.assertNotIn(secret_value, result.detail)
+
+    def test_environment_file_accepts_exactly_twenty_four_hour_recovery_window(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "shenzhouhr.env"
+            env_file.write_text(
+                self._valid_environment_text().replace(
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW=PT1H",
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW=P1D",
+                ),
+                encoding="utf-8",
+            )
+            os.chmod(env_file, 0o600)
+            self.assertEqual("PASS", inspect_environment_file(env_file).status)
+
     def test_wide_environment_file_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             env_file = Path(directory) / "shenzhouhr.env"
@@ -256,6 +340,9 @@ class NativePreflightTest(unittest.TestCase):
                     "SHENZHOUHR_DB_USERNAME=secret-user",
                     "SHENZHOUHR_DB_PASSWORD=secret-password",
                     "SHENZHOUHR_FLYWAY_ENABLED=false",
+                    f"SHENZHOUHR_PROVISIONING_PEPPER={self._SYNTHETIC_PROVISIONING_PEPPER}",
+                    "SHENZHOUHR_PROVISIONING_KEY_ID=v1",
+                    "SHENZHOUHR_PROVISIONING_RECOVERY_WINDOW=PT1H",
                 )
             )
             + "\n"

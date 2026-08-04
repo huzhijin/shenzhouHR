@@ -3,6 +3,9 @@ package com.szsemicon.hr.identityaccess.infrastructure.persistence;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.CandidateCounts;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.EmployeeAccountCandidateRecord;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.EmployeeProvisioningTarget;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.IdempotencyClaim;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.RecoverableRoleAssignment;
 import com.szsemicon.hr.identityaccess.application.EmployeeAccountConflictException;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.AccountRecord;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.ResolvedRoleAssignmentInput;
@@ -85,6 +88,8 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                  current_assignment.organization_id
             LEFT JOIN auth_principal bound_principal
               ON bound_principal.employee_id = employee.employee_id
+            LEFT JOIN local_account bound_account
+              ON bound_account.principal_id = bound_principal.principal_id
             LEFT JOIN local_account username_account
               ON username_account.normalized_username =
                  LOWER(TRIM(employee_version.employee_number))
@@ -804,6 +809,26 @@ public class AccountPersistenceAdapter implements AccountPersistence {
     }
 
     @Override
+    public Optional<AccountRecord> lockProvisionedAccount(String accountId) {
+        List<AccountRecord> accounts = jdbc.query(
+                """
+                SELECT account.account_id, account.principal_id, account.username,
+                       account.normalized_username, account.display_name, account.status,
+                       account.first_password_change_required, account.locked_until,
+                       account.last_login_at, account.session_epoch, account.row_version,
+                       NULL AS company_id
+                FROM local_account account
+                WHERE account.account_id = ?
+                FOR UPDATE
+                """,
+                AccountPersistenceAdapter::mapAccount,
+                accountId);
+        return accounts.size() == 1
+                ? Optional.of(accounts.getFirst())
+                : Optional.empty();
+    }
+
+    @Override
     public String createAccount(
             String username,
             String normalizedUsername,
@@ -868,6 +893,119 @@ public class AccountPersistenceAdapter implements AccountPersistence {
     }
 
     @Override
+    public IdempotencyClaim claimIdempotency(
+            String generatedRecordId,
+            String actorId,
+            String actionCode,
+            String idempotencyKey,
+            String requestDigest,
+            Instant at) {
+        jdbc.update(
+                """
+                INSERT INTO people_idempotency_record (
+                    idempotency_record_id, actor_id, action_code,
+                    idempotency_key, request_digest, resource_id,
+                    result_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)
+                ON DUPLICATE KEY UPDATE
+                    idempotency_record_id = idempotency_record_id
+                """,
+                generatedRecordId,
+                actorId,
+                actionCode,
+                idempotencyKey,
+                requestDigest,
+                Timestamp.from(at));
+        List<IdempotencyClaim> claims = jdbc.query(
+                """
+                SELECT idempotency_record_id, request_digest, result_json, created_at
+                FROM people_idempotency_record
+                WHERE actor_id = ?
+                  AND action_code = ?
+                  AND idempotency_key = ?
+                FOR UPDATE
+                """,
+                (result, row) -> new IdempotencyClaim(
+                        result.getString("idempotency_record_id"),
+                        result.getString("request_digest"),
+                        result.getString("result_json"),
+                        instant(result, "created_at"),
+                        generatedRecordId.equals(
+                                result.getString("idempotency_record_id"))),
+                actorId,
+                actionCode,
+                idempotencyKey);
+        if (claims.size() != 1) {
+            throw new IllegalStateException(
+                    "account provisioning idempotency claim disappeared");
+        }
+        return claims.getFirst();
+    }
+
+    @Override
+    public Optional<IdempotencyClaim> findIdempotency(
+            String actorId,
+            String actionCode,
+            String idempotencyKey) {
+        return readIdempotency(actorId, actionCode, idempotencyKey, false);
+    }
+
+    @Override
+    public Optional<IdempotencyClaim> lockIdempotency(
+            String actorId,
+            String actionCode,
+            String idempotencyKey) {
+        return readIdempotency(actorId, actionCode, idempotencyKey, true);
+    }
+
+    private Optional<IdempotencyClaim> readIdempotency(
+            String actorId,
+            String actionCode,
+            String idempotencyKey,
+            boolean lock) {
+        List<IdempotencyClaim> claims = jdbc.query(
+                """
+                SELECT idempotency_record_id, request_digest, result_json, created_at
+                FROM people_idempotency_record
+                WHERE actor_id = ?
+                  AND action_code = ?
+                  AND idempotency_key = ?
+                """ + (lock ? " FOR UPDATE" : ""),
+                (result, row) -> new IdempotencyClaim(
+                        result.getString("idempotency_record_id"),
+                        result.getString("request_digest"),
+                        result.getString("result_json"),
+                        instant(result, "created_at"),
+                        false),
+                actorId,
+                actionCode,
+                idempotencyKey);
+        if (claims.size() > 1) {
+            throw new IllegalStateException(
+                    "account provisioning idempotency key is not unique");
+        }
+        return claims.stream().findFirst();
+    }
+
+    @Override
+    public boolean completeIdempotency(
+            String recordId,
+            String requestDigest,
+            String resultJson) {
+        return jdbc.update(
+                """
+                UPDATE people_idempotency_record
+                SET result_json = ?
+                WHERE idempotency_record_id = ?
+                  AND request_digest = ?
+                  AND result_json IS NULL
+                """,
+                resultJson,
+                recordId,
+                requestDigest) == 1;
+    }
+
+    @Override
     public List<AccountRecord> listAccounts(
             String principalId,
             String requiredCapability,
@@ -927,6 +1065,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                        employee_version.employee_number,
                        employee_version.display_name,
                        organization_version.name AS organization_name,
+                       bound_account.account_id AS bound_account_id,
                 """
                         + EMPLOYEE_ACCOUNT_CANDIDATE_STATUS
                         + " AS candidate_status "
@@ -960,6 +1099,7 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                        employee_version.employee_number,
                        employee_version.display_name,
                        organization_version.name AS organization_name,
+                       bound_account.account_id AS bound_account_id,
                 """
                         + EMPLOYEE_ACCOUNT_CANDIDATE_STATUS
                         + " AS candidate_status "
@@ -979,6 +1119,64 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                          """,
                 parameters,
                 AccountPersistenceAdapter::mapEmployeeAccountCandidate);
+    }
+
+    @Override
+    public List<EmployeeProvisioningTarget> findEmployeeProvisioningTargets(
+            List<String> employeeIds) {
+        if (employeeIds.isEmpty()) {
+            return List.of();
+        }
+        return namedJdbc.query(
+                """
+                SELECT employee_id, company_id
+                FROM employee
+                WHERE employee_id IN (:employeeIds)
+                ORDER BY company_id, employee_id
+                """,
+                new MapSqlParameterSource("employeeIds", employeeIds),
+                (result, row) -> new EmployeeProvisioningTarget(
+                        result.getString("employee_id"),
+                        result.getString("company_id")));
+    }
+
+    @Override
+    public void lockEmployeeProvisioningTargets(
+            List<EmployeeProvisioningTarget> targets) {
+        SortedSet<String> companyIds = new TreeSet<>();
+        SortedSet<String> employeeIds = new TreeSet<>();
+        for (EmployeeProvisioningTarget target : targets) {
+            companyIds.add(target.companyId());
+            employeeIds.add(target.employeeId());
+        }
+        for (String companyId : companyIds) {
+            List<String> locked = jdbc.queryForList(
+                    """
+                    SELECT company_id
+                    FROM company
+                    WHERE company_id = ?
+                    FOR UPDATE
+                    """,
+                    String.class,
+                    companyId);
+            if (locked.size() != 1) {
+                throw new ResourceNotAvailableAccessDeniedException();
+            }
+        }
+        for (String employeeId : employeeIds) {
+            List<String> locked = jdbc.queryForList(
+                    """
+                    SELECT employee_id
+                    FROM employee
+                    WHERE employee_id = ?
+                    FOR UPDATE
+                    """,
+                    String.class,
+                    employeeId);
+            if (locked.size() != 1) {
+                throw new ResourceNotAvailableAccessDeniedException();
+            }
+        }
     }
 
     @Override
@@ -1147,6 +1345,44 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 FOR UPDATE
                 """,
                 String.class,
+                targetPrincipalId,
+                Timestamp.from(at));
+    }
+
+    @Override
+    public List<RecoverableRoleAssignment> lockRecoverableRoleAssignments(
+            String targetPrincipalId,
+            Instant at) {
+        return jdbc.query(
+                """
+                SELECT assignment.assignment_id,
+                       role.role_code,
+                       scope.scope_type,
+                       scope.company_id,
+                       scope.organization_id,
+                       assignment.valid_from,
+                       assignment.valid_to,
+                       scope.valid_from AS scope_valid_from,
+                       scope.valid_to AS scope_valid_to
+                FROM auth_principal_role_assignment assignment
+                JOIN auth_role role ON role.role_id = assignment.role_id
+                LEFT JOIN auth_data_scope scope
+                  ON scope.scope_id = assignment.data_scope_id
+                WHERE assignment.principal_id = ?
+                  AND (assignment.valid_to IS NULL OR assignment.valid_to > ?)
+                ORDER BY assignment.assignment_id
+                FOR UPDATE
+                """,
+                (result, row) -> new RecoverableRoleAssignment(
+                        result.getString("assignment_id"),
+                        result.getString("role_code"),
+                        result.getString("scope_type"),
+                        result.getString("company_id"),
+                        result.getString("organization_id"),
+                        instant(result, "valid_from"),
+                        instant(result, "valid_to"),
+                        instant(result, "scope_valid_from"),
+                        instant(result, "scope_valid_to")),
                 targetPrincipalId,
                 Timestamp.from(at));
     }
@@ -1407,7 +1643,9 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 )
                   AND role.role_code NOT IN (
                     'MANUFACTURING_SUPERVISOR',
-                    'MANUFACTURING_CENTER_SUPERVISOR'
+                    'MANUFACTURING_CENTER_SUPERVISOR',
+                    'MANUFACTURING_DIRECTOR',
+                    'MANUFACTURING_CENTER_DIRECTOR'
                   )
                 ORDER BY role.role_code, capability.capability_code
                 """,
@@ -2069,7 +2307,8 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                 result.getString("employee_number"),
                 result.getString("display_name"),
                 result.getString("organization_name"),
-                result.getString("candidate_status"));
+                result.getString("candidate_status"),
+                result.getString("bound_account_id"));
     }
 
     private static AccountRecord mapAccount(ResultSet result, int row) throws SQLException {

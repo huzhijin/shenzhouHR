@@ -47,8 +47,12 @@ class MyBatisMapperContractTest {
 
         assertThat(configuration.getMappedStatementNames())
                 .contains(
+                        "com.szsemicon.hr.identityaccess.infrastructure.persistence.AuthenticationMapper.lockAccountByNormalizedUsername",
+                        "com.szsemicon.hr.identityaccess.infrastructure.persistence.AuthenticationMapper.lockAccountById",
+                        "com.szsemicon.hr.identityaccess.infrastructure.persistence.AuthenticationMapper.lockCredential",
+                        "com.szsemicon.hr.identityaccess.infrastructure.persistence.AuthenticationMapper.lockActiveResetGrant",
                         "com.szsemicon.hr.authorization.infrastructure.persistence.CapabilityMapper.findActiveCodes",
-                        "com.szsemicon.hr.referencedata.infrastructure.persistence.CompanyReferenceMapper.findActive",
+                        "com.szsemicon.hr.referencedata.infrastructure.persistence.CompanyReferenceMapper.findVisibleActive",
                         "com.szsemicon.hr.organization.infrastructure.persistence.OrganizationReadMapper.findCurrentVisibleTo",
                         "com.szsemicon.hr.employee.infrastructure.persistence.EmployeeReadMapper.countVisibleTo",
                         "com.szsemicon.hr.employee.infrastructure.persistence.EmployeeReadMapper.findVisibleTo",

@@ -38,7 +38,11 @@ import {
   type OrganizationNode,
   type OrganizationUpdateRequest,
 } from './organizationApi';
-import { toOrganizationTreeData, type OrganizationTreeDataNode } from './organizationTree';
+import {
+  topLevelOrganizationKeys,
+  toOrganizationTreeData,
+  type OrganizationTreeDataNode,
+} from './organizationTree';
 
 type OrganizationState =
   | { status: 'loading' }
@@ -209,7 +213,7 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
             <Tree<OrganizationTreeDataNode>
               className="organization-tree"
               treeData={treeData}
-              defaultExpandAll
+              defaultExpandedKeys={topLevelOrganizationKeys(state.nodes)}
               blockNode
               selectedKeys={selectedId ? [selectedId] : []}
               onSelect={(keys) => setSelectedId(keys[0] ? String(keys[0]) : undefined)}
