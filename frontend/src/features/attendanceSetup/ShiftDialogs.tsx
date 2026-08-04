@@ -3,6 +3,7 @@ import { Form, Input, Modal, Select } from 'antd';
 import { useTranslation } from 'react-i18next';
 
 import { AccessibleButton } from '../../shared/components/AccessibleButton';
+import { CompanySelect, LocationSelect } from '../referenceData';
 import type {
   ShiftSegment,
   ShiftTemplateInput,
@@ -25,6 +26,7 @@ export function ShiftTemplateDialog({
 }: DialogProps<ShiftTemplateInput> & { initialValues?: ShiftTemplateInput }) {
   const { t } = useTranslation();
   const [form] = Form.useForm<ShiftTemplateInput>();
+  const companyId = Form.useWatch<string>('companyId', form);
   return (
     <Modal
       open={open}
@@ -42,11 +44,11 @@ export function ShiftTemplateDialog({
         initialValues={initialValues}
         onFinish={onSubmit}
       >
-        <Form.Item label={t('attendanceSetup.companyId')} name="companyId" rules={[required()]}>
-          <Input autoComplete="off" />
+        <Form.Item label="公司" name="companyId" rules={[required()]}>
+          <CompanySelect disabled={initialValues !== undefined} />
         </Form.Item>
-        <Form.Item label={t('attendanceSetup.locationId')} name="locationId" rules={[required()]}>
-          <Input autoComplete="off" />
+        <Form.Item label="地点" name="locationId" rules={[required()]}>
+          <LocationSelect companyId={companyId} disabled={initialValues !== undefined} />
         </Form.Item>
         <Form.Item label={t('attendanceSetup.code')} name="code" rules={[required()]}>
           <Input autoComplete="off" />

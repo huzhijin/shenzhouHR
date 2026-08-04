@@ -23,7 +23,6 @@ const capabilitiesByPath: Readonly<Record<string, readonly string[]>> = {
   '/access/accounts': ['ACCOUNT:READ'],
   '/access/roles': ['ROLE:READ'],
   '/access/audit': ['AUDIT:READ'],
-  '/workbench': ['ATTENDANCE_DASHBOARD:READ'],
   '/attendance/screen': ['ATTENDANCE_DASHBOARD:READ'],
   '/attendance/reports': ['ATTENDANCE_REPORT:READ'],
   '/me/today': ['ATTENDANCE_SELF:READ'],
@@ -32,8 +31,19 @@ const capabilitiesByPath: Readonly<Record<string, readonly string[]>> = {
   '/me/feedback': ['ATTENDANCE_FEEDBACK:READ'],
 };
 
+const anyCapabilitiesByPath: Readonly<Record<string, readonly string[]>> = {
+  // The route selects an organization or strictly self-scoped view in App.tsx.
+  '/workbench': ['ATTENDANCE_DASHBOARD:READ', 'ATTENDANCE_SELF:READ'],
+};
+
 export function authorizedMenu(session: CurrentCapabilities): MenuItem[] {
   return session.menu.filter((item) => {
+    const anyRequiredCapabilities = anyCapabilitiesByPath[item.path];
+    if (anyRequiredCapabilities !== undefined) {
+      return anyRequiredCapabilities.some((capability) => (
+        session.capabilities.includes(capability)
+      ));
+    }
     const requiredCapabilities = capabilitiesByPath[item.path];
     return requiredCapabilities !== undefined
       && requiredCapabilities.every((capability) => session.capabilities.includes(capability));

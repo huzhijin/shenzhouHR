@@ -1,6 +1,7 @@
 package com.szsemicon.hr.identityaccess.interfaces.rest;
 
 import com.szsemicon.hr.audit.application.AuditService;
+import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService.LoginResult;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService.SessionIdentity;
@@ -199,6 +200,46 @@ public class AuthenticationController {
 
     public static List<MenuItem> menu(List<String> capabilities) {
         List<MenuItem> menu = new ArrayList<>();
+        boolean canReadOrganizationDashboard = capabilities.contains(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ);
+        boolean canReadSelfAttendance = capabilities.contains(
+                CapabilityCodes.ATTENDANCE_SELF_READ);
+        if (canReadOrganizationDashboard) {
+            menu.add(new MenuItem(
+                    "workbench", "考勤工作台", "/workbench"));
+        } else if (canReadSelfAttendance) {
+            /*
+             * /workbench is capability-sensitive: personal accounts receive a
+             * self-scoped projection, while administrators keep the organization
+             * dashboard. Keeping this item first makes login land on the correct
+             * home without widening either data scope.
+             */
+            menu.add(new MenuItem(
+                    "personal-workbench", "我的考勤工作台", "/workbench"));
+        }
+        if (canReadSelfAttendance) {
+            menu.add(new MenuItem(
+                    "my-attendance", "我的考勤", "/me/today"));
+        }
+        if (capabilities.contains(
+                CapabilityCodes.LEAVE_SELF_READ)) {
+            menu.add(new MenuItem(
+                    "my-leave", "我的假期", "/me/leave"));
+        }
+        if (capabilities.contains(
+                CapabilityCodes.ATTENDANCE_FEEDBACK_READ)) {
+            menu.add(new MenuItem(
+                    "attendance-feedback",
+                    "考勤反馈",
+                    "/me/feedback"));
+        }
+        if (capabilities.contains(
+                CapabilityCodes.ATTENDANCE_REPORT_READ)) {
+            menu.add(new MenuItem(
+                    "attendance-reports",
+                    "考勤报表",
+                    "/attendance/reports"));
+        }
         if (capabilities.contains("POLICY:READ")) {
             menu.add(new MenuItem("rules", "规则中心", "/rules"));
         }

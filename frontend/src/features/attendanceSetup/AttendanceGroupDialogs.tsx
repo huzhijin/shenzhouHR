@@ -1,6 +1,12 @@
 import { Form, Input, Modal, Select } from 'antd';
 import { useTranslation } from 'react-i18next';
 
+import {
+  CalendarSelect,
+  CompanySelect,
+  EmployeeSelect,
+  ShiftTemplateSelect,
+} from '../referenceData';
 import type {
   AssignmentInput,
   AttendanceGroupInput,
@@ -44,11 +50,11 @@ export function LocationDialog({
         onFinish={onSubmit}
       >
         <Form.Item
-          label={t('attendanceSetup.companyId')}
+          label="公司"
           name="companyId"
           rules={[requiredRule(t('attendanceSetup.required'))]}
         >
-          <Input autoComplete="off" disabled={initialValues !== undefined} />
+          <CompanySelect disabled={initialValues !== undefined} />
         </Form.Item>
         <Form.Item
           label={t('attendanceSetup.code')}
@@ -96,6 +102,8 @@ export function AttendanceGroupDialog({
 }) {
   const { t } = useTranslation();
   const [form] = Form.useForm<AttendanceGroupInput>();
+  const companyId = Form.useWatch<string>('companyId', form);
+  const locationId = Form.useWatch<string>('locationId', form);
   return (
     <Modal
       open={open}
@@ -116,11 +124,11 @@ export function AttendanceGroupDialog({
         onFinish={onSubmit}
       >
         <Form.Item
-          label={t('attendanceSetup.companyId')}
+          label="公司"
           name="companyId"
           rules={[requiredRule(t('attendanceSetup.required'))]}
         >
-          <Input autoComplete="off" disabled={initialValues !== undefined} />
+          <CompanySelect disabled={initialValues !== undefined} />
         </Form.Item>
         <Form.Item
           label={t('attendanceSetup.code')}
@@ -149,18 +157,18 @@ export function AttendanceGroupDialog({
           />
         </Form.Item>
         <Form.Item
-          label={t('attendanceSetup.calendarId')}
+          label="工作日历"
           name="calendarId"
           rules={[requiredRule(t('attendanceSetup.required'))]}
         >
-          <Input autoComplete="off" />
+          <CalendarSelect companyId={companyId} locationId={locationId} />
         </Form.Item>
         <Form.Item
-          label={t('attendanceSetup.shiftTemplateId')}
+          label="班次"
           name="shiftTemplateId"
           rules={[requiredRule(t('attendanceSetup.required'))]}
         >
-          <Input autoComplete="off" />
+          <ShiftTemplateSelect companyId={companyId} locationId={locationId} />
         </Form.Item>
         <EffectivePeriodFields />
         <ReasonField />
@@ -198,11 +206,11 @@ export function AssignmentDialog({
         onFinish={onSubmit}
       >
         <Form.Item
-          label={t('attendanceSetup.employeeId')}
+          label="员工"
           name="employeeId"
           rules={[requiredRule(t('attendanceSetup.required'))]}
         >
-          <Input autoComplete="off" disabled={initialValues !== undefined} />
+          <EmployeeSelect disabled={initialValues !== undefined} />
         </Form.Item>
         <EffectivePeriodFields />
         <ReasonField />

@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -18,10 +19,10 @@ import {
   queuedExportFixture,
   recordsFixture,
   reportFixture,
-  todayFixture,
+  selfDashboardFixture,
   wave7FixtureGateway,
 } from '../../test/fixtures/wave7ContractFixtures';
-import { DashboardView } from './DashboardPage';
+import { DashboardRoute, DashboardView } from './DashboardPage';
 import {
   EmployeeFeedbackRoute,
   EmployeeFeedbackView,
@@ -32,9 +33,12 @@ import {
 import {
   createReportExportRequest,
   exportDeliveryForRowCount,
+  reportCellDisplayValue,
+  reportColumnLabel,
   ReportExportStatus,
   ReportView,
   ReportsRoute,
+  reportTypeLabel,
   reportTypeOptions,
 } from './ReportsPage';
 import type {
@@ -43,7 +47,10 @@ import type {
   Wave7ProjectionGateway,
 } from './wave7Gateway';
 import type {
+  AttendanceReportType,
   AttendanceReportExportView,
+  DashboardLoadResult,
+  LiveDashboardProjection,
   LiveReportProjection,
 } from './wave7Contracts';
 import { Wave7AsyncBoundary } from './Wave7Common';
@@ -66,8 +73,13 @@ describe('Wave 7 fixture-driven pages', () => {
       '/me/today',
     );
 
-    expect(await screen.findByRole('heading', { name: '今日状态' })).toBeInTheDocument();
-    expect(screen.getByText(todayFixture.shiftLabel!)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', {
+      name: '我的考勤工作台',
+    })).toBeInTheDocument();
+    expect(screen.getByText(selfDashboardFixture.today!.shiftLabel!))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText('本人考勤关键指标'))
+      .toHaveTextContent('待处理异常');
     expect(screen.getByRole('navigation', { name: '员工自助' })).toHaveTextContent('今日记录假期反馈');
     const todayLink = screen.getByRole('link', { name: '今日' });
     expect(todayLink).toHaveClass('is-active');
@@ -78,16 +90,22 @@ describe('Wave 7 fixture-driven pages', () => {
   it('renders frozen records with both desktop table and mobile card semantics', () => {
     renderWithRouter(<EmployeeRecordsView projection={recordsFixture} />);
 
-    expect(screen.getByRole('status', { name: '冻结版本' })).toHaveTextContent('冻结版本');
+    expect(screen.getByRole('status', { name: '本月数据已冻结' }))
+      .toHaveTextContent('本月数据已冻结');
     expect(screen.getByRole('region', { name: '本人每日考勤记录' })).toBeInTheDocument();
     expect(document.querySelectorAll('.record-card')).toHaveLength(recordsFixture.records.length);
-    expect(screen.getAllByText(recordsFixture.metadata.projectionVersion).length).toBeGreaterThan(0);
+    expect(screen.queryByText(recordsFixture.metadata.projectionVersion))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(recordsFixture.records[0]!.explanationReference!))
+      .not.toBeInTheDocument();
   });
 
   it('renders balances without client-side synthesis and feedback as plain text', () => {
     const { rerender } = renderWithRouter(<EmployeeLeaveView projection={leaveFixture} />);
     expect(screen.getByText('32.00 小时')).toBeInTheDocument();
     expect(screen.getByText('4.00 天')).toBeInTheDocument();
+    expect(screen.queryByText(leaveFixture.accounts[0]!.ledgerVersion))
+      .not.toBeInTheDocument();
 
     rerender(
       <MemoryRouter>
@@ -101,6 +119,8 @@ describe('Wave 7 fixture-driven pages', () => {
     expect(document.querySelector('script')).toBeNull();
     expect(screen.getByRole('button', { name: '提交反馈' })).toBeDisabled();
     expect(screen.getByRole('note')).toHaveTextContent('当前仅可查看反馈');
+    expect(screen.queryByText(feedbackFixture.items[0]!.feedbackReference))
+      .not.toBeInTheDocument();
   });
 
   it('binds dashboard drill-down to the opaque reference and projection version', () => {
@@ -115,6 +135,115 @@ describe('Wave 7 fixture-driven pages', () => {
       'report:attendance-rate:v3',
       dashboardFixture.metadata.projectionVersion,
     );
+  });
+
+  it('renders real daily anomaly totals and the authorized top-ten list', () => {
+    const onOpenReports = vi.fn();
+    renderWithRouter(
+      <DashboardView
+        projection={liveDashboard()}
+        onOpenReports={onOpenReports}
+      />,
+      '/workbench',
+    );
+
+    expect(screen.getByRole('heading', {
+      level: 1,
+      name: '今日异常考勤',
+    }))
+      .toBeInTheDocument();
+    const summary = within(screen.getByLabelText('今日异常汇总指标'));
+    expect(summary.getByText('未处理异常').nextElementSibling)
+      .toHaveTextContent('1');
+    expect(summary.getByText('影响员工').nextElementSibling)
+      .toHaveTextContent('1');
+    expect(summary.getByText('阻断异常').nextElementSibling)
+      .toHaveTextContent('1');
+    expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
+      .toHaveTextContent('张三');
+    expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
+      .toHaveTextContent('缺卡逾期');
+    expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
+      .toHaveTextContent('待复核');
+    fireEvent.click(screen.getByRole('button', { name: '查看异常报表' }));
+    expect(onOpenReports).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('button', { name: '打开考勤大屏' }))
+      .not.toBeInTheDocument();
+  });
+
+  it('shows a verified zero-anomaly result instead of a generic placeholder', () => {
+    renderWithRouter(
+      <DashboardView
+        projection={liveDashboard({
+          summary: {
+            unresolvedCount: 0,
+            affectedEmployeeCount: 0,
+            blockingCount: 0,
+          },
+          exceptions: [],
+        })}
+      />,
+      '/workbench',
+    );
+
+    const summary = within(screen.getByLabelText('今日异常汇总指标'));
+    expect(summary.getByText('未处理异常').nextElementSibling)
+      .toHaveTextContent('0');
+    expect(summary.getByText('影响员工').nextElementSibling)
+      .toHaveTextContent('0');
+    expect(summary.getByText('阻断异常').nextElementSibling)
+      .toHaveTextContent('0');
+    expect(screen.getByText('今日没有未处理的异常考勤'))
+      .toBeInTheDocument();
+    expect(screen.queryByText('当前授权范围内暂无可显示数据。'))
+      .not.toBeInTheDocument();
+  });
+
+  it('requires and reloads an explicit company on the dashboard', async () => {
+    const selection: DashboardLoadResult = {
+      kind: 'DASHBOARD_COMPANY_SELECTION',
+      title: '今日异常考勤',
+      businessDate: '2026-07-30',
+      selectedCompanyId: null,
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
+      ],
+      message: '请选择公司后查看今日异常考勤',
+    };
+    const loadDashboard = vi.fn(
+      async (companyId?: string): Promise<DashboardLoadResult> => (
+        companyId === undefined
+          ? selection
+          : liveDashboard({
+              selectedCompanyId: companyId,
+              metadata: {
+                ...liveDashboard().metadata,
+                scope: {
+                  type: 'COMPANY',
+                  reference: companyId,
+                  label: '神州科技',
+                },
+              },
+            })
+      ),
+    );
+    renderWithRouter(
+      <DashboardRoute gateway={gateway({ loadDashboard })} />,
+      '/workbench',
+    );
+
+    expect(await screen.findByText(/请选择公司后查看今日异常考勤/))
+      .toBeInTheDocument();
+    expect(loadDashboard).toHaveBeenCalledWith(undefined);
+    fireEvent.change(screen.getByLabelText('控制台公司'), {
+      target: { value: 'company-b' },
+    });
+
+    expect(await screen.findByRole('region', {
+      name: '今日异常考勤列表',
+    })).toHaveTextContent('张三');
+    expect(loadDashboard).toHaveBeenLastCalledWith('company-b');
   });
 
   it('creates an export request from the visible bound query and allowlist', async () => {
@@ -151,6 +280,113 @@ describe('Wave 7 fixture-driven pages', () => {
       ['scope', 'absence-hours'],
       '复核',
     )).toThrow(/白名单/);
+  });
+
+  it('omits backend-only report fields from the table and export request', async () => {
+    const onCreateExport = vi.fn();
+    const projection = {
+      ...reportFixture,
+      columns: [
+        ...reportFixture.columns,
+        { key: 'document-reference' as const, label: '单据引用' },
+        { key: 'rate-formula-version' as const, label: '出勤率公式版本' },
+      ],
+      exportFieldAllowlist: [
+        ...reportFixture.exportFieldAllowlist,
+        'document-reference' as const,
+        'rate-formula-version' as const,
+      ],
+      rows: reportFixture.rows.map((row) => ({
+        ...row,
+        values: {
+          ...row.values,
+          'document-reference': '550e8400-e29b-41d4-a716-446655440000',
+          'rate-formula-version': 'ATTENDANCE_RATE_FORMULA_V3',
+        },
+      })),
+    };
+
+    renderWithRouter(
+      <ReportView
+        projection={projection}
+        canCreateExport
+        onCreateExport={onCreateExport}
+      />,
+    );
+
+    expect(screen.queryByText('单据引用')).not.toBeInTheDocument();
+    expect(screen.queryByText('出勤率公式版本')).not.toBeInTheDocument();
+    expect(screen.queryByText('550e8400-e29b-41d4-a716-446655440000'))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText('ATTENDANCE_RATE_FORMULA_V3'))
+      .not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '创建受控导出' }));
+    fireEvent.change(await screen.findByLabelText('导出用途'), {
+      target: { value: '月度复核' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '创建导出' }));
+
+    await waitFor(() => {
+      expect(onCreateExport).toHaveBeenCalledWith(expect.objectContaining({
+        selectedFields: reportFixture.exportFieldAllowlist,
+      }));
+    });
+    expect(() => createReportExportRequest(
+      projection,
+      ['rate-formula-version'],
+      '复核',
+    )).toThrow(/白名单/);
+  });
+
+  it('uses fixed business headers and never echoes unknown enum codes', () => {
+    const projection = {
+      ...reportFixture,
+      columns: [
+        { key: 'employee-number' as const, label: 'employee_id' },
+        { key: 'exception-type' as const, label: 'exception_type' },
+        { key: 'exception-state' as const, label: 'exception_state' },
+      ],
+      exportFieldAllowlist: [
+        'employee-number' as const,
+        'exception-type' as const,
+        'exception-state' as const,
+      ],
+      rowCount: 1,
+      rows: [{
+        rowReference: 'report-row-1',
+        values: {
+          'employee-number': 'SZ-001',
+          'exception-type': 'FUTURE_INTERNAL_EXCEPTION',
+          'exception-state': 'FUTURE_INTERNAL_STATE',
+        },
+      }],
+    };
+
+    renderWithRouter(
+      <ReportView projection={projection} canCreateExport={false} />,
+    );
+
+    expect(screen.getByRole('columnheader', { name: '工号' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '异常类型' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '处理状态' }))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/employee_id|exception_type|exception_state/))
+      .not.toBeInTheDocument();
+    expect(screen.getAllByText('其他异常')).not.toHaveLength(0);
+    expect(screen.getAllByText('其他状态')).not.toHaveLength(0);
+
+    expect(reportColumnLabel('evidence-summary')).toBe('异常说明');
+    expect(reportCellDisplayValue(
+      'exception-type',
+      'NO_SHIFT_OR_CALENDAR',
+    )).toBe('未配置班次或日历');
+    expect(reportCellDisplayValue('account-type', 'FUTURE_ACCOUNT'))
+      .toBe('其他账户');
+    expect(reportTypeLabel('FUTURE_REPORT' as AttendanceReportType))
+      .toBe('其他报表');
   });
 
   it('validates the export purpose and applies the 50,000 row threshold', async () => {
@@ -206,7 +442,9 @@ describe('Wave 7 async states', () => {
 
   it('distinguishes loading, empty, and non-leaking 403 states', async () => {
     const pending = new Promise<never>(() => undefined);
-    const pendingGateway = gateway({ loadToday: () => pending });
+    const pendingGateway = gateway({
+      loadSelfDashboard: () => pending,
+    });
     const { unmount } = renderWithRouter(
       <EmployeeTodayRoute
         gateway={pendingGateway}
@@ -232,10 +470,12 @@ describe('Wave 7 async states', () => {
     renderWithRouter(
       <EmployeeTodayRoute
         gateway={gateway({
-          loadToday: async () => Promise.reject(new ApiRequestError(403, {
-            code: 'ACCESS_DENIED',
-            message: '不得显示敏感范围内容',
-          })),
+          loadSelfDashboard: async () => Promise.reject(
+            new ApiRequestError(403, {
+              code: 'ACCESS_DENIED',
+              message: '不得显示敏感范围内容',
+            }),
+          ),
         })}
         capabilities={['ATTENDANCE_SELF:READ']}
       />,
@@ -243,6 +483,33 @@ describe('Wave 7 async states', () => {
     );
     expect(await screen.findByText('当前账号无权访问该内容。')).toBeInTheDocument();
     expect(screen.queryByText('不得显示敏感范围内容')).not.toBeInTheDocument();
+  });
+
+  it('does not misreport a missing dashboard projection as zero anomalies', async () => {
+    renderWithRouter(
+      <DashboardRoute
+        gateway={gateway({
+          loadDashboard: async () => Promise.reject(
+            new ApiRequestError(409, {
+              code: 'ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY',
+              message: '服务端内部投影说明',
+              retryable: true,
+            }),
+          ),
+        })}
+      />,
+      '/workbench',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: '今日异常考勤尚未生成',
+    })).toBeInTheDocument();
+    expect(screen.getByText(/完成数据同步和考勤计算后再刷新/))
+      .toBeInTheDocument();
+    expect(screen.queryByText('服务端内部投影说明'))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /重\s*试/ }))
+      .toBeInTheDocument();
   });
 
   it('clears prior protected content before a changed loader resolves', async () => {
@@ -274,6 +541,77 @@ describe('Wave 7 async states', () => {
 describe('Wave 7 formal report route', () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it('initializes an authorized exception report from URL query parameters', async () => {
+    const loadReport = vi.fn(async (query?: ReportQuery) =>
+      formalReport(query));
+    const loadReportCompanies = vi.fn(async (period: string) => ({
+      period,
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
+      ],
+    }));
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({
+          loadReportCompanies,
+          loadReport,
+        })}
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports?reportType=EXCEPTIONS'
+        + '&period=2026-06&companyId=company-b'
+        + '&status=PENDING_REVIEW',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: 'EXCEPTIONS · 2026-06',
+    })).toBeInTheDocument();
+    expect(screen.getByLabelText('报表类型')).toHaveValue('EXCEPTIONS');
+    expect(screen.getByLabelText('月份')).toHaveValue('2026-06');
+    expect(screen.getByLabelText('公司')).toHaveValue('company-b');
+    expect(loadReportCompanies).toHaveBeenCalledWith('2026-06');
+    expect(loadReport).toHaveBeenCalledWith({
+      reportType: 'EXCEPTIONS',
+      period: '2026-06',
+      companyId: 'company-b',
+      status: 'PENDING_REVIEW',
+      page: 0,
+      size: 50,
+    });
+  });
+
+  it('ignores duplicated or malformed report URL conditions', async () => {
+    const loadReport = vi.fn(async (query?: ReportQuery) =>
+      formalReport(query));
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({
+          loadReportCompanies: async (period) => ({
+            period,
+            companies: [
+              { companyId: 'company-a', companyName: '神州半导体' },
+              { companyId: 'company-b', companyName: '神州科技' },
+            ],
+          }),
+          loadReport,
+        })}
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports?reportType=UNSUPPORTED'
+        + '&period=2026-06&period=2026-05'
+        + '&companyId=%20company-b&status=UNKNOWN',
+    );
+
+    expect(await screen.findByText('请选择公司后查询正式报表。'))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText('报表类型'))
+      .toHaveValue('ATTENDANCE_DETAIL');
+    expect(screen.getByLabelText('月份')).toHaveValue('2026-07');
+    expect(screen.getByLabelText('公司')).toHaveValue('');
+    expect(loadReport).not.toHaveBeenCalled();
   });
 
   it('switches across all nine server report types', async () => {
@@ -825,6 +1163,92 @@ function restoreUrlMethod(
     return;
   }
   Reflect.deleteProperty(URL, key);
+}
+
+function liveDashboard(
+  overrides: Partial<LiveDashboardProjection> = {},
+): LiveDashboardProjection {
+  const summary = overrides.summary ?? {
+    unresolvedCount: 1,
+    affectedEmployeeCount: 1,
+    blockingCount: 1,
+  };
+  return {
+    kind: 'DASHBOARD',
+    title: '今日异常考勤',
+    businessDate: '2026-07-30',
+    selectedCompanyId: 'company-a',
+    metadata: {
+      projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+      sourceVersions: ['ATTENDANCE-CALC-V1'],
+      dataAsOf: '2026-07-30T01:00:00Z',
+      timeZone: 'Asia/Shanghai',
+      periodLabel: '2026-07',
+      periodState: 'OPEN',
+      scope: {
+        type: 'COMPANY',
+        reference: 'company-a',
+        label: '神州半导体',
+      },
+      allowedActions: ['DASHBOARD_DRILL_DOWN'],
+    },
+    metrics: [],
+    summary,
+    exceptions: [{
+      exceptionReference: 'exception-1',
+      employeeNumber: 'SZ001',
+      employeeName: '张三',
+      organizationName: '制造一部',
+      businessDate: '2026-07-30',
+      exceptionType: 'MISSING_PUNCH_OVERDUE',
+      severity: 'ERROR',
+      state: 'PENDING_REVIEW',
+      exceptionMinutes: 480,
+      evidenceSummary: '下班卡缺失',
+    }],
+    analytics: overrides.analytics ?? liveDashboardAnalytics(summary),
+    companies: [
+      { companyId: 'company-a', companyName: '神州半导体' },
+      { companyId: 'company-b', companyName: '神州科技' },
+    ],
+    ...overrides,
+  };
+}
+
+function liveDashboardAnalytics(
+  summary: LiveDashboardProjection['summary'],
+): LiveDashboardProjection['analytics'] {
+  return {
+    dailyTrend: Array.from({ length: 7 }, (_, index) => ({
+      businessDate: `2026-07-${String(index + 24).padStart(2, '0')}`,
+      exceptionCount: index === 6 ? summary.unresolvedCount : 0,
+      blockingCount: index === 6 ? summary.blockingCount : 0,
+      affectedEmployeeCount: index === 6
+        ? summary.affectedEmployeeCount
+        : 0,
+    })),
+    severityDistribution: [
+      { severity: 'INFO', count: 0 },
+      {
+        severity: 'WARNING',
+        count: summary.unresolvedCount - summary.blockingCount,
+      },
+      { severity: 'ERROR', count: summary.blockingCount },
+    ],
+    typeDistribution: summary.unresolvedCount === 0
+      ? []
+      : [{
+          exceptionType: 'MISSING_PUNCH_OVERDUE',
+          count: summary.unresolvedCount,
+        }],
+    organizationRanking: summary.unresolvedCount === 0
+      ? []
+      : [{
+          organizationName: '制造一部',
+          exceptionCount: summary.unresolvedCount,
+          blockingCount: summary.blockingCount,
+        }],
+  };
 }
 
 function formalReport(

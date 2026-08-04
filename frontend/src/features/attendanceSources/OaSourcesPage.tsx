@@ -34,19 +34,19 @@ export function OaSourcesPage() {
     <>
       <PageHeader
         title="办公系统考勤单据"
-        description="保留办公系统单据源版本与半开区间；未知、草稿、驳回和撤销状态不会自动成为有效考勤证据。"
+        description="查看从办公系统同步的请假、加班、出差、外出和补签单据。"
         breadcrumbs={[{ label: '考勤来源' }, { label: '办公系统单据' }]}
       />
       <Alert
         showIcon
-        type="warning"
-        title="只读证据边界"
-        description="本页不写回办公系统，不同步组织主数据，也不以最后写入覆盖同级冲突。"
+        type="info"
+        title="数据仅供查看"
+        description="单据更新来自办公系统同步；草稿、驳回和撤销单据不会计入考勤。"
       />
       {result.resource.status === 'ready' ? (
         <Card
           className="content-card"
-          title={`${result.resource.data.oa?.displayName ?? '办公系统'} · 版本化单据`}
+          title={`${result.resource.data.oa?.displayName ?? '办公系统'} · 考勤单据`}
         >
           <DocumentTable documents={result.resource.data.documents.items} />
         </Card>
@@ -60,12 +60,11 @@ export function OaSourcesPage() {
 function DocumentTable({ documents }: { documents: OaDocumentView[] }) {
   const columns: Array<DataColumn<OaDocumentView>> = [
     { key: 'external-id', title: '外部单据编号', render: (document) => document.sourceDocumentId },
-    { key: 'version', title: '源版本', render: (document) => document.sourceVersion },
     { key: 'type', title: '单据类型', render: (document) => documentTypeLabel(document.documentType) },
-    { key: 'status', title: '源状态', render: (document) => <Tag>{statusLabel(document.sourceStatus)}</Tag> },
+    { key: 'status', title: '单据状态', render: (document) => <Tag>{statusLabel(document.sourceStatus)}</Tag> },
     {
       key: 'effective',
-      title: '有效候选',
+      title: '计入考勤',
       render: (document) => (
         <Tag color={document.effectiveCandidate ? 'green' : 'default'}>
           {document.effectiveCandidate ? '是' : '否'}
@@ -81,14 +80,14 @@ function DocumentTable({ documents }: { documents: OaDocumentView[] }) {
     },
   ];
   if (documents.length === 0) {
-    return <StatePanel state="empty" description="当前来源尚无可读取的办公系统单据版本。" />;
+    return <StatePanel state="empty" description="当前来源尚无可读取的办公系统考勤单据。" />;
   }
   return (
     <DataTable
       rows={documents}
       rowKey={(document) => document.documentId}
       columns={columns}
-      ariaLabel="办公系统版本化考勤单据"
+      ariaLabel="办公系统考勤单据"
     />
   );
 }
@@ -101,7 +100,7 @@ function AsyncState({
   onRetry: () => void;
 }) {
   if (resource.status === 'empty') {
-    return <StatePanel state="empty" description="当前作用域内没有办公系统考勤来源。" />;
+    return <StatePanel state="empty" description="当前可用范围内没有办公系统考勤来源。" />;
   }
   if (resource.status === 'loading' || resource.status === 'partial-loading') {
     return <StatePanel state={resource.status} />;
@@ -131,7 +130,7 @@ function documentTypeLabel(value: string): string {
 
 function formatTimestamp(value: string): string {
   const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return value;
+  if (!Number.isFinite(timestamp)) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
     timeStyle: 'short',

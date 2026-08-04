@@ -9,6 +9,12 @@ import { DataTable, type DataColumn } from '../../shared/components/DataTable';
 import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import type { AttendanceSourceView } from '../attendanceSources/attendanceSourceTypes';
+import {
+  listReferenceAttendanceSources,
+  listReferenceCompanies,
+  type CompanyReference,
+} from '../referenceData/referenceDataApi';
 import {
   getPunchImport,
   listPunchImportIssues,
@@ -17,6 +23,13 @@ import {
   publishPunchImport,
   voidOrReversePunchImport,
 } from './punchImportApi';
+import {
+  punchImportCreatedAtLabel,
+  punchImportCompanyName,
+  punchImportIssueDescription,
+  punchImportSourceName,
+  punchImportTaskLabel,
+} from './punchImportDisplay';
 import type {
   PunchImportBatchView,
   PunchImportIssueView,
@@ -35,10 +48,18 @@ export function PunchImportDetailPage({ capabilities }: { capabilities: string[]
       getPunchImport(batchId),
       listPunchImportIssues(batchId, 0, 100),
       listPunchImportRows(batchId, 0, 100),
+      listReferenceCompanies().catch((): CompanyReference[] => []),
+      listReferenceAttendanceSources().catch((): AttendanceSourceView[] => []),
     ]),
     [batchId],
   );
   const detail = useAsyncResource(loader, () => false, [batchId]);
+  const taskLabel = detail.resource.status === 'ready'
+    ? punchImportTaskLabel(
+      detail.resource.data[0].originalFilename,
+      detail.resource.data[0].createdAt,
+    )
+    : '导入任务详情';
 
   const applyAction = async () => {
     if (detail.resource.status !== 'ready' || !pendingAction) return;
@@ -54,11 +75,11 @@ export function PunchImportDetailPage({ capabilities }: { capabilities: string[]
       } else {
         await voidOrReversePunchImport(batch, '人工确认作废或冲正已发布证据');
       }
-      void messageApi.success('操作已提交，页面将重新读取服务端状态。');
+      void messageApi.success('操作已提交，任务状态即将更新。');
       setPendingAction(undefined);
       detail.reload();
     } catch {
-      void messageApi.error('操作未提交；请刷新状态、版本与期间保护结果。');
+      void messageApi.error('操作未提交；请刷新任务状态后重试。');
     } finally {
       setProcessing(false);
     }
@@ -68,11 +89,11 @@ export function PunchImportDetailPage({ capabilities }: { capabilities: string[]
     <>
       {messageContextHolder}
       <PageHeader
-        title="考勤电子表格批次详情"
-        description="所有预检、发布、部分发布和冲正都由服务端状态、校验令牌、权限、版本与期间保护共同决定。"
+        title="考勤电子表格导入任务"
+        description="查看文件预检结果，确认无误后发布有效打卡数据。"
         breadcrumbs={[
           { label: '电子表格导入', path: '/sources/attendance-excel' },
-          { label: batchId ? batchDisplayNumber(batchId) : '批次' },
+          { label: taskLabel },
         ]}
       />
       {detail.resource.status === 'ready' ? (
@@ -80,6 +101,14 @@ export function PunchImportDetailPage({ capabilities }: { capabilities: string[]
           batch={detail.resource.data[0]}
           issues={detail.resource.data[1].items}
           rows={detail.resource.data[2].items}
+          companyName={punchImportCompanyName(
+            detail.resource.data[0].companyId,
+            detail.resource.data[3],
+          )}
+          sourceName={punchImportSourceName(
+            detail.resource.data[0].sourceId,
+            detail.resource.data[4],
+          )}
           capabilities={capabilities}
           onAction={setPendingAction}
         />
@@ -104,12 +133,16 @@ function BatchDetail({
   batch,
   issues,
   rows,
+  companyName,
+  sourceName,
   capabilities,
   onAction,
 }: {
   batch: PunchImportBatchView;
   issues: PunchImportIssueView[];
   rows: PunchImportRowView[];
+  companyName: string;
+  sourceName: string;
   capabilities: string[];
   onAction: (action: PendingAction) => void;
 }) {
@@ -130,10 +163,13 @@ function BatchDetail({
         <Descriptions
           column={{ xs: 1, sm: 2, lg: 3 }}
           items={[
-            { key: 'batch', label: '批次编号', children: batchDisplayNumber(batch.batchId) },
-            { key: 'sha', label: '文件摘要', children: <code>{batch.fileSha256}</code> },
-            { key: 'scope', label: '公司', children: companyLabel(batch.companyId) },
-            { key: 'source', label: '来源', children: sourceLabel(batch.sourceId) },
+            { key: 'scope', label: '公司', children: companyName },
+            { key: 'source', label: '来源', children: sourceName },
+            {
+              key: 'created',
+              label: '创建时间',
+              children: punchImportCreatedAtLabel(batch.createdAt),
+            },
             {
               key: 'range',
               label: '影响日期',
@@ -141,7 +177,6 @@ function BatchDetail({
                 ? `${batch.affectedDateFrom} 至 ${batch.affectedDateTo}`
                 : '预检后确定',
             },
-            { key: 'version', label: '资源版本', children: String(batch.rowVersion) },
           ]}
         />
         <Space wrap>
@@ -187,7 +222,7 @@ function BatchDetail({
           {canVoid && ['PUBLISHED', 'PARTIALLY_PUBLISHED'].includes(batch.state) ? (
             <AccessibleButton
               danger
-              label="作废或冲正此批次"
+              label="作废或冲正此导入任务"
               icon={<IconTrash aria-hidden="true" stroke={2} />}
               onClick={() => onAction('void')}
             >
@@ -210,14 +245,14 @@ function BatchDetail({
 
 function BatchStateAlert({ batch }: { batch: PunchImportBatchView }) {
   const details: Partial<Record<PunchImportBatchView['state'], [string, string, 'info' | 'warning' | 'error' | 'success']>> = {
-    VALIDATING: ['正在预检', '请等待服务端完成逐行解析、匹配、重复与期间检查。', 'info'],
-    VALIDATION_FAILED: ['预检失败', '修正文件或字段映射后重新预检；没有发布任何证据。', 'error'],
-    BLOCKED_BY_FROZEN_PERIOD: ['期间已冻结', '期间重开后必须重新预检，旧校验令牌已失效。', 'warning'],
-    PUBLISHING: ['正在发布', '请等待事务完成，不要依据客户端状态推断成功。', 'info'],
-    PUBLISHED: ['严格发布成功', '所有发布对象与重算意图已在同一事务提交。', 'success'],
-    PARTIALLY_PUBLISHED: ['部分发布成功', '仅有效行已发布，未发布行和问题仍完整保留。', 'warning'],
-    PUBLISH_FAILED: ['发布失败', '发布事务未提交原始记录、生效记录与重算任务；刷新后按稳定原因重试。', 'error'],
-    VOIDED: ['已作废/冲正', '原文件、原始行、事实记录和事件均未删除，已追加冲正生命周期与重算任务。', 'warning'],
+    VALIDATING: ['正在预检', '正在逐行检查员工匹配、重复记录和考勤期间，请稍候。', 'info'],
+    VALIDATION_FAILED: ['预检失败', '请根据问题说明修正文件后重新预检；当前没有数据生效。', 'error'],
+    BLOCKED_BY_FROZEN_PERIOD: ['考勤期间已关闭', '请先处理考勤期间状态，再重新预检。', 'warning'],
+    PUBLISHING: ['正在发布', '数据正在生效，请稍候。', 'info'],
+    PUBLISHED: ['发布成功', '文件中的有效打卡记录已生效。', 'success'],
+    PARTIALLY_PUBLISHED: ['部分发布成功', '有效行已生效，未发布行和问题仍可继续查看。', 'warning'],
+    PUBLISH_FAILED: ['发布失败', '当前没有数据生效，请刷新后重试。', 'error'],
+    VOIDED: ['已作废或冲正', '原始文件和处理记录仍会保留，便于后续核对。', 'warning'],
   };
   const detail = details[batch.state];
   return detail
@@ -229,10 +264,14 @@ function IssueTable({ issues }: { issues: PunchImportIssueView[] }) {
   if (issues.length === 0) return <StatePanel state="empty" description="当前预检没有问题。" />;
   const columns: Array<DataColumn<PunchImportIssueView>> = [
     { key: 'row', title: '行号', render: (issue) => String(issue.rowNumber) },
-    { key: 'field', title: '字段', render: (issue) => issueFieldLabel(issue.field) },
+    { key: 'field', title: '业务字段', render: (issue) => issueFieldLabel(issue.field) },
     { key: 'severity', title: '级别', render: (issue) => issue.severity === 'BLOCKING' ? '阻断' : '警告' },
-    { key: 'code', title: '问题原因', render: (issue) => issueCodeLabel(issue.code) },
-    { key: 'message', title: '安全说明', render: (issue) => issue.safeMessage },
+    { key: 'reason', title: '问题原因', render: (issue) => issueReasonLabel(issue.code) },
+    {
+      key: 'message',
+      title: '问题说明',
+      render: (issue) => punchImportIssueDescription(issue.safeMessage),
+    },
   ];
   return (
     <DataTable
@@ -245,7 +284,7 @@ function IssueTable({ issues }: { issues: PunchImportIssueView[] }) {
 }
 
 function RowTable({ rows }: { rows: PunchImportRowView[] }) {
-  if (rows.length === 0) return <StatePanel state="empty" description="当前批次没有可读取的行。" />;
+  if (rows.length === 0) return <StatePanel state="empty" description="当前导入任务没有可读取的行。" />;
   const columns: Array<DataColumn<PunchImportRowView>> = [
     { key: 'number', title: '行号', render: (row) => String(row.rowNumber) },
     { key: 'employee', title: '员工号', render: (row) => row.employeeNumber ?? '—' },
@@ -284,41 +323,28 @@ function DetailState({
       />
     );
   }
-  return <StatePanel state="empty" description="批次详情不可用。" />;
+  return <StatePanel state="empty" description="导入任务详情不可用。" />;
 }
 
 function actionTitle(action?: PendingAction): string {
   if (action === 'precheck') return '执行完整预检';
   if (action === 'strict-publish') return '严格发布';
   if (action === 'partial-publish') return '仅发布有效行';
-  if (action === 'void') return '作废或冲正批次';
+  if (action === 'void') return '作废或冲正导入任务';
   return '确认操作';
 }
 
 function actionDescription(action?: PendingAction): string {
   if (action === 'partial-publish') {
-    return '这是独立授权的高风险动作。服务端只会发布有效行，并保留全部无效行和对账计数。';
+    return '仅让预检通过的记录生效，未通过的记录和问题仍会保留。';
   }
   if (action === 'void') {
-    return '不会删除任何原文件、行或证据；服务端将在开放期间追加冲正生命周期和重算意图。';
+    return '作废或冲正不会删除原始文件和处理记录。';
   }
   if (action === 'strict-publish') {
-    return '服务端将重新验证预检令牌、资源版本、权限、范围和期间状态后，在一个事务中发布全部行。';
+    return '系统会再次确认预检结果、权限和考勤期间状态后发布全部有效数据。';
   }
-  return '服务端将解析所有行并重新计算匹配、重复、配置、期间和影响范围。';
-}
-
-function companyLabel(value: string): string {
-  return value === 'LEGAL-JIANGSU' ? '江苏神州半导体科技有限公司' : value;
-}
-
-function batchDisplayNumber(value: string): string {
-  const demoMatch = /^ATT-XLS-DEMO-(\d+)$/.exec(value);
-  return demoMatch ? `导入批次 ${Number(demoMatch[1])}` : value;
-}
-
-function sourceLabel(value: string): string {
-  return value === 'SRC-XLS-OFFLINE-A' ? '离线考勤文件（一号厂区）' : value;
+  return '系统将逐行检查员工匹配、重复记录、考勤配置和影响日期。';
 }
 
 function issueFieldLabel(value: string | null): string {
@@ -330,7 +356,7 @@ function issueFieldLabel(value: string | null): string {
   } as Record<string, string>)[value] ?? '其他字段';
 }
 
-function issueCodeLabel(value: string): string {
+function issueReasonLabel(value: string): string {
   return ({
     EMPLOYEE_NOT_FOUND: '未找到有效员工',
     NEAR_DUPLICATE_PENDING: '疑似重复待确认',
@@ -339,7 +365,9 @@ function issueCodeLabel(value: string): string {
 
 function timeZoneLabel(value: string | null): string {
   if (!value) return '—';
-  return value === 'Asia/Shanghai' ? '中国标准时间（上海）' : value;
+  if (value === 'Asia/Shanghai') return '中国标准时间（上海）';
+  if (value === 'UTC') return '协调世界时';
+  return '其他来源时区';
 }
 
 function matchStateLabel(value: PunchImportRowView['matchState']): string {

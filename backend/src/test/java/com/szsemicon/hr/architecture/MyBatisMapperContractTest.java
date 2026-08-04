@@ -17,6 +17,7 @@ class MyBatisMapperContractTest {
         List<String> mapperResources = List.of(
                 "mappers/CapabilityMapper.xml",
                 "mappers/AuthenticationMapper.xml",
+                "mappers/CompanyReferenceMapper.xml",
                 "mappers/OrganizationReadMapper.xml",
                 "mappers/EmployeeReadMapper.xml",
                 "mappers/PeopleMapper.xml",
@@ -47,6 +48,7 @@ class MyBatisMapperContractTest {
         assertThat(configuration.getMappedStatementNames())
                 .contains(
                         "com.szsemicon.hr.authorization.infrastructure.persistence.CapabilityMapper.findActiveCodes",
+                        "com.szsemicon.hr.referencedata.infrastructure.persistence.CompanyReferenceMapper.findActive",
                         "com.szsemicon.hr.organization.infrastructure.persistence.OrganizationReadMapper.findCurrentVisibleTo",
                         "com.szsemicon.hr.employee.infrastructure.persistence.EmployeeReadMapper.countVisibleTo",
                         "com.szsemicon.hr.employee.infrastructure.persistence.EmployeeReadMapper.findVisibleTo",

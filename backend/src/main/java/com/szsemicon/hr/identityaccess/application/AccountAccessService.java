@@ -37,6 +37,9 @@ public class AccountAccessService {
     private static final String ACCOUNT_RESET_PASSWORD =
             "ACCOUNT:RESET_PASSWORD";
     private static final String ROLE_ASSIGN = "ROLE:ASSIGN";
+    private static final String DEFAULT_TEMPORARY_PASSWORD = "123456";
+    private static final Set<String> PRIVILEGED_ROLE_CODES =
+            Set.of("SYSTEM_ADMIN", "HR_ADMIN", "AUDITOR");
 
     private final AccountPersistence accountPersistence;
     private final AuthenticationPersistence authenticationPersistence;
@@ -62,19 +65,21 @@ public class AccountAccessService {
 
     @Transactional
     public AccountDetail createAccount(CreateAccountCommand command) {
-        validatePassword(command.temporaryPassword());
         validateAssignments(command.roleAssignments());
         String employeeId = normalizeEmployeeId(command.employeeId());
         validateEmployeeBinding(employeeId, command.roleAssignments());
         String actorId = principalId();
         Instant now = clock.instant();
-        List<ResolvedRoleAssignmentInput> authorizedAssignments =
+        AuthorizedRoleAssignments authorization =
                 authorizeRoleAssignments(
                         actorId,
                         null,
                         employeeId,
                         command.roleAssignments(),
                         now);
+        String temporaryPassword = creationTemporaryPassword(
+                authorization.privileged(),
+                command.temporaryPassword());
         String accountId;
         try {
             accountId = accountPersistence.createAccount(
@@ -82,7 +87,7 @@ public class AccountAccessService {
                     normalizeUsername(command.username()),
                     command.displayName().trim(),
                     employeeId,
-                    passwordCodec.encode(command.temporaryPassword()),
+                    passwordCodec.encode(temporaryPassword),
                     actorId,
                     now);
         } catch (EmployeeAccountConflictException exception) {
@@ -99,7 +104,7 @@ public class AccountAccessService {
         accountPersistence.replaceRoleAssignments(
                 accountId,
                 0,
-                authorizedAssignments,
+                authorization.assignments(),
                 actorId,
                 "CREATE_ACCOUNT",
                 now);
@@ -255,6 +260,54 @@ public class AccountAccessService {
     }
 
     @Transactional
+    public void resetTemporaryPassword(
+            String accountId,
+            String suppliedTemporaryPassword,
+            String reason) {
+        String actorId = principalId();
+        Instant now = clock.instant();
+        AccountRecord account = requireLockedVisible(
+                accountId,
+                ACCOUNT_RESET_PASSWORD,
+                actorId,
+                now);
+        boolean privileged = accountPersistence
+                .findVisibleRoleAssignments(
+                        actorId,
+                        account.principalId(),
+                        ACCOUNT_RESET_PASSWORD,
+                        now)
+                .stream()
+                .map(RoleAssignmentRecord::roleCode)
+                .anyMatch(PRIVILEGED_ROLE_CODES::contains);
+        String temporaryPassword = resetTemporaryPassword(
+                privileged,
+                suppliedTemporaryPassword);
+        authenticationPersistence.replaceCredential(
+                account.accountId(),
+                passwordCodec.encode(temporaryPassword),
+                false,
+                actorId,
+                now);
+        authenticationPersistence.invalidateUnusedResetGrants(
+                account.accountId(),
+                now);
+        authenticationPersistence.revokeAllSessions(
+                account.accountId(),
+                actorId,
+                "ADMIN_TEMPORARY_PASSWORD_RESET",
+                auditService.currentCorrelationId(),
+                now);
+        auditService.record(
+                actorId,
+                "TEMPORARY_PASSWORD_RESET",
+                "LOCAL_ACCOUNT",
+                account.accountId(),
+                "SUCCESS",
+                reason);
+    }
+
+    @Transactional
     public AccountDetail replaceRoleAssignments(
             String accountId,
             List<RoleAssignmentInput> assignments,
@@ -287,17 +340,20 @@ public class AccountAccessService {
                 now)) {
             throw unavailable();
         }
-        List<ResolvedRoleAssignmentInput> authorizedAssignments =
+        AuthorizedRoleAssignments authorization =
                 resolveAuthorizedRoleAssignments(
                         actorId,
                         account.principalId(),
                         null,
                         assignments,
                         now);
+        denyWeakDefaultPasswordPrivilegeEscalation(
+                account,
+                authorization.privileged());
         accountPersistence.replaceRoleAssignments(
                 account.accountId(),
                 expectedVersion,
-                authorizedAssignments,
+                authorization.assignments(),
                 actorId,
                 reason,
                 now);
@@ -490,7 +546,7 @@ public class AccountAccessService {
         return employeeId == null || employeeId.isBlank() ? null : employeeId;
     }
 
-    private List<ResolvedRoleAssignmentInput> authorizeRoleAssignments(
+    private AuthorizedRoleAssignments authorizeRoleAssignments(
             String actorPrincipalId,
             String targetPrincipalId,
             String targetEmployeeId,
@@ -528,7 +584,7 @@ public class AccountAccessService {
         }
     }
 
-    private List<ResolvedRoleAssignmentInput> resolveAuthorizedRoleAssignments(
+    private AuthorizedRoleAssignments resolveAuthorizedRoleAssignments(
             String actorPrincipalId,
             String targetPrincipalId,
             String targetEmployeeId,
@@ -552,12 +608,36 @@ public class AccountAccessService {
                 throw roleScopeNotAllowed();
             }
         }
-        return accountPersistence.resolveAuthorizedRoleAssignmentScopes(
-                actorPrincipalId,
-                targetPrincipalId,
-                targetEmployeeId,
-                assignments,
-                now);
+        return new AuthorizedRoleAssignments(
+                accountPersistence.resolveAuthorizedRoleAssignmentScopes(
+                        actorPrincipalId,
+                        targetPrincipalId,
+                        targetEmployeeId,
+                        assignments,
+                        now),
+                roleCodes.values().stream()
+                        .anyMatch(PRIVILEGED_ROLE_CODES::contains));
+    }
+
+    private void denyWeakDefaultPasswordPrivilegeEscalation(
+            AccountRecord account,
+            boolean privilegedAssignmentRequested) {
+        if (!privilegedAssignmentRequested
+                || !account.firstPasswordChangeRequired()) {
+            return;
+        }
+        boolean stillUsesDefaultTemporaryPassword = authenticationPersistence
+                .findCredential(account.accountId())
+                .map(credential -> passwordCodec.matches(
+                        DEFAULT_TEMPORARY_PASSWORD,
+                        credential.passwordHash()))
+                .orElse(true);
+        if (stillUsesDefaultTemporaryPassword) {
+            throw new ApiProblemException(
+                    HttpStatus.CONFLICT,
+                    "STRONG_TEMPORARY_PASSWORD_REQUIRED_FOR_PRIVILEGE_ELEVATION",
+                    "该账号仍使用普通临时密码，请先由账号本人完成首次改密再授予高权限");
+        }
     }
 
     private static void denySelfRoleAssignment(
@@ -592,13 +672,32 @@ public class AccountAccessService {
                 "当前授权范围不能授予请求的数据范围");
     }
 
-    private void validatePassword(String suppliedSecret) {
+    private String creationTemporaryPassword(
+            boolean privileged,
+            String suppliedSecret) {
+        if (!privileged) {
+            return DEFAULT_TEMPORARY_PASSWORD;
+        }
+        return requireStrongTemporaryPassword(suppliedSecret);
+    }
+
+    private String resetTemporaryPassword(
+            boolean privileged,
+            String suppliedSecret) {
+        if (!privileged) {
+            return DEFAULT_TEMPORARY_PASSWORD;
+        }
+        return requireStrongTemporaryPassword(suppliedSecret);
+    }
+
+    private String requireStrongTemporaryPassword(String suppliedSecret) {
         if (!passwordCodec.meetsPolicy(suppliedSecret)) {
             throw new ApiProblemException(
                     HttpStatus.BAD_REQUEST,
                     "PASSWORD_POLICY_VIOLATION",
-                    "临时密码不符合安全策略");
+                    "高权限或显式临时密码必须为 12 至 256 位，并包含大小写字母、数字和符号");
         }
+        return suppliedSecret;
     }
 
     private static String normalizeUsername(String username) {
@@ -623,6 +722,11 @@ public class AccountAccessService {
             String temporaryPassword,
             String employeeId,
             List<RoleAssignmentInput> roleAssignments) {
+    }
+
+    private record AuthorizedRoleAssignments(
+            List<ResolvedRoleAssignmentInput> assignments,
+            boolean privileged) {
     }
 
     public record AccountSummary(
@@ -654,7 +758,7 @@ public class AccountAccessService {
     public record SessionSummary(
             String sessionId,
             String status,
-            Instant issuedAt,
+            Instant createdAt,
             Instant lastSeenAt,
             Instant idleExpiresAt,
             Instant absoluteExpiresAt) {

@@ -36,7 +36,9 @@ import { DataTable } from '../../shared/components/DataTable';
 import { OperationFeedback } from '../../shared/components/FeedbackComponents';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { ApiErrorState } from '../people/PeopleCommon';
+import { CompanySelect } from '../referenceData';
 import { ImportActionDialog, type ImportDialogAction } from './ImportDialogs';
+import { importTaskLabel } from './importDisplay';
 import { ImportResults } from './ImportResults';
 import {
   createPeopleImportBatch,
@@ -247,7 +249,9 @@ export function ImportWizard({ templates, batch, capabilities, onBatchChange }: 
             </h2>
             <p>{t(`peopleImport.stepDescription.${activeStep}`)}</p>
           </div>
-          {batch ? <code>{batch.batchId}</code> : null}
+          {batch ? (
+            <span>{importTaskLabel(batch.createdAt, batch.file?.originalFileName)}</span>
+          ) : null}
         </header>
         {processing ? (
           <div aria-live="polite">
@@ -623,7 +627,7 @@ function TemplateStep({ templates, canCreate, onBatchChange, onExecute, mutation
             label={t('peopleImport.companyId')}
             rules={[{ required: true, message: t('peopleImport.companyRequired') }]}
           >
-            <Input />
+            <CompanySelect />
           </Form.Item>
           <Form.Item
             name="templateType"
@@ -672,10 +676,8 @@ function TemplateStep({ templates, canCreate, onBatchChange, onExecute, mutation
               rowKey={(row) => row.key}
               columns={[
                 { key: 'label', title: t('peopleImport.field'), render: (row) => row.label },
-                { key: 'key', title: t('peopleImport.systemField'), render: (row) => <code>{row.key}</code> },
                 { key: 'required', title: t('common.required'), render: (row) => row.required ? t('people.yes') : t('people.no') },
                 { key: 'match', title: t('peopleImport.matchKey'), render: (row) => row.matchKey ? t('people.yes') : t('people.no') },
-                { key: 'type', title: t('peopleImport.valueType'), render: (row) => row.valueType },
               ]}
             />
           </section>
@@ -754,7 +756,7 @@ function MappingStep({ template, batch, canMap, onSave }: {
               />
             ),
           },
-          { key: 'target', title: t('peopleImport.systemField'), render: (row) => <code>{row.key}</code> },
+          { key: 'target', title: t('peopleImport.importField'), render: (row) => row.label },
           { key: 'required', title: t('common.required'), render: (row) => row.required ? t('people.yes') : t('people.no') },
           { key: 'match', title: t('peopleImport.matchKey'), render: (row) => row.matchKey ? t('people.yes') : t('people.no') },
         ]}

@@ -2,6 +2,10 @@ import { Button, Checkbox, Descriptions } from 'antd';
 import { useTranslation } from 'react-i18next';
 
 import { StatusBadge } from '../../shared/components/FeedbackComponents';
+import {
+  CompanySelect,
+  OrganizationSelect,
+} from '../referenceData';
 import type { AccountDetail, RoleAssignmentView, RoleView } from './accessApi';
 
 export function AccountStatusPanel({ account }: { account: AccountDetail }) {
@@ -22,7 +26,6 @@ export function AccountStatusPanel({ account }: { account: AccountDetail }) {
           { key: 'reset', label: t('access.resetGrant'), children: account.resetPending ? t('access.pendingUse') : t('access.noResetGrant') },
           { key: 'locked', label: t('access.lockedUntil'), children: account.lockedUntil ? formatTime(account.lockedUntil) : t('common.none') },
           { key: 'login', label: t('access.lastLogin'), children: account.lastLoginAt ? formatTime(account.lastLoginAt) : t('access.neverLoggedIn') },
-          { key: 'version', label: t('policy.rowVersion'), children: account.rowVersion },
         ]}
       />
     </section>
@@ -41,14 +44,17 @@ export function SessionStatusPanel({ sessions, onRevoke }: {
         <p className="session-list__empty">{t('access.noSessions')}</p>
       ) : (
         <ul className="session-list">
-          {Array.from(sessions, (session) => (
+          {Array.from(sessions, (session, index) => (
             <li
               className="session-list__item"
               key={session.sessionId}
               data-state={session.status === 'REVOKED' ? 'session-revoked' : session.status.toLowerCase()}
             >
               <div className="session-list__content">
-                <div><code>{session.sessionId}</code> <StatusBadge status={session.status} /></div>
+                <div>
+                  <strong>{t('access.sessionNumber', { number: index + 1 })}</strong>{' '}
+                  <StatusBadge status={session.status} />
+                </div>
                 <p>{t('access.sessionDescription', { issued: formatTime(session.createdAt), idle: formatTime(session.idleExpiresAt), absolute: formatTime(session.absoluteExpiresAt) })}</p>
               </div>
               {session.status === 'ACTIVE' && onRevoke ? <Button danger size="small" onClick={() => onRevoke(session.sessionId)}>{t('access.revokeSession')}</Button> : null}
@@ -107,6 +113,7 @@ export function PermissionMatrix({ roles, selectedRoleIds, readOnly = false, onC
 }
 
 export function RoleScopeList({ assignments }: { assignments: RoleAssignmentView[] }) {
+  const { t } = useTranslation();
   if (assignments.length === 0) {
     return <p className="session-list__empty">当前账号尚未分配角色。</p>;
   }
@@ -117,13 +124,33 @@ export function RoleScopeList({ assignments }: { assignments: RoleAssignmentView
         key: assignment.assignmentId,
         label: assignment.roleName,
         children: (
-          <span>
-            {roleScopeLabel(assignment.scopeType)}
-            {assignment.scopeType !== 'SELF' && assignment.scopeResourceId
-              ? ` · 范围 ID ${assignment.scopeResourceId}`
-              : ''}
-            {` · ${formatDate(assignment.validFrom)} 至 ${assignment.validTo ? formatDate(assignment.validTo) : '长期有效'}`}
-          </span>
+          <div>
+            <div>{roleScopeLabel(assignment.scopeType)}</div>
+            {assignment.scopeType === 'COMPANY' && assignment.scopeResourceId ? (
+              <CompanySelect
+                aria-label={t('access.authorizedCompany')}
+                disabled
+                size="small"
+                value={assignment.scopeResourceId}
+              />
+            ) : null}
+            {assignment.scopeType === 'ORGANIZATION' && assignment.scopeResourceId ? (
+              <OrganizationSelect
+                aria-label={t('access.authorizedOrganization')}
+                disabled
+                size="small"
+                value={assignment.scopeResourceId}
+              />
+            ) : null}
+            {assignment.scopeType !== 'SELF' && !assignment.scopeResourceId ? (
+              <div>{t('access.scopeTargetUnset')}</div>
+            ) : null}
+            <div>
+              {`${formatDate(assignment.validFrom)} 至 ${
+                assignment.validTo ? formatDate(assignment.validTo) : '长期有效'
+              }`}
+            </div>
+          </div>
         ),
       }))}
     />
@@ -192,7 +219,7 @@ const capabilityActionLabels: Readonly<Record<string, string>> = {
 
 const roleScopeLabels: Readonly<Record<string, string>> = {
   COMPANY: '公司范围',
-  ORGANIZATION: '组织范围',
+  ORGANIZATION: '部门范围',
   SELF: '仅本人',
 };
 

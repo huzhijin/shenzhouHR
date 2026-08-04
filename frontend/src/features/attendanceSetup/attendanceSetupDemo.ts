@@ -458,7 +458,7 @@ export function demoSimulation(input: PolicySimulationInput): PolicySimulationBa
         matched: false,
         consumesAllowance: false,
         rawLateMinutes: null,
-        explanation: 'Demo 展示固定的服务端响应形状；正式结果未写入，浏览器不复制考勤算法。',
+        explanation: '当前条件没有命中用餐扣除规则。',
       },
       {
         ...common,
@@ -467,7 +467,7 @@ export function demoSimulation(input: PolicySimulationInput): PolicySimulationBa
         policyVersionId: requiredDemoItem(demoBindings, 1).policyVersionId,
         matched: false,
         consumesAllowance: false,
-        explanation: '服务端先判定迟到宽限候选。',
+        explanation: '本次迟到处于可宽限范围。',
       },
       {
         ...common,
@@ -477,7 +477,7 @@ export function demoSimulation(input: PolicySimulationInput): PolicySimulationBa
         matched: true,
         consumesAllowance: true,
         predictedMonthlyConsumption: 1,
-        explanation: '服务端预测消费一次月度迟到豁免，不写正式用量。',
+        explanation: '试算预计使用 1 次本月迟到宽限，正式用量不会变化。',
       },
     ],
   };

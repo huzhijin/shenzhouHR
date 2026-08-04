@@ -15,4 +15,8 @@ describe('statusLabel', () => {
     expect(statusLabel('ADJUSTMENT')).toBe('调整');
     expect(statusLabel('REVERSAL')).toBe('冲正');
   });
+
+  it('does not expose an unknown server enum to the interface', () => {
+    expect(statusLabel('NEW_INTERNAL_WORKFLOW_STATE')).toBe('其他状态');
+  });
 });

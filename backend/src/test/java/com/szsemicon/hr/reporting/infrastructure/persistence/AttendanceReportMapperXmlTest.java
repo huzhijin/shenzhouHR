@@ -26,6 +26,17 @@ class AttendanceReportMapperXmlTest {
 
         assertThat(configuration.getMappedStatementNames())
                 .contains(
+                        NAMESPACE + "listDashboardAuthorizedCompanies",
+                        NAMESPACE
+                                + "listLatestDashboardAuthorizedProjections",
+                        NAMESPACE + "listDashboardAuthorizedScopes",
+                        NAMESPACE + "summarizeDashboardExceptions",
+                        NAMESPACE + "listDashboardDailyTrend",
+                        NAMESPACE
+                                + "listDashboardSeverityDistribution",
+                        NAMESPACE + "listDashboardTypeDistribution",
+                        NAMESPACE + "listDashboardOrganizationRanking",
+                        NAMESPACE + "listDashboardExceptions",
                         NAMESPACE + "listAuthorizedCompanies",
                         NAMESPACE + "listLatestAuthorizedProjections",
                         NAMESPACE + "listAuthorizedScopes",
@@ -59,6 +70,43 @@ class AttendanceReportMapperXmlTest {
             }
             try (var statement = connection.prepareStatement(sql)) {
                 assertThat(statement).isNotNull();
+            }
+        }
+    }
+
+    @Test
+    void dashboardAnalyticsSqlCanBePreparedAfterVisibilityIncludesExpand()
+            throws Exception {
+        var parameters = Map.of(
+                "principalId", "principal-1",
+                "capabilityCode", "ATTENDANCE_DASHBOARD:READ",
+                "projectionId", "projection-1",
+                "companyId", "company-a",
+                "trendStart", LocalDate.of(2026, 7, 23),
+                "businessDate", LocalDate.of(2026, 7, 29),
+                "authorizationTime",
+                        Instant.parse("2026-07-29T00:00:00Z"));
+        var configuration = configuration();
+
+        try (var connection = DriverManager.getConnection(
+                "jdbc:h2:mem:attendance-dashboard-analytics-sql;"
+                        + "MODE=MySQL")) {
+            for (String ddl : PREPARE_SCHEMA) {
+                connection.createStatement().execute(ddl);
+            }
+            for (String statementName : java.util.List.of(
+                    "listDashboardDailyTrend",
+                    "listDashboardSeverityDistribution",
+                    "listDashboardTypeDistribution",
+                    "listDashboardOrganizationRanking")) {
+                String sql = configuration
+                        .getMappedStatement(NAMESPACE + statementName)
+                        .getBoundSql(parameters)
+                        .getSql();
+                try (var statement =
+                        connection.prepareStatement(sql)) {
+                    assertThat(statement).isNotNull();
+                }
             }
         }
     }
@@ -125,6 +173,7 @@ class AttendanceReportMapperXmlTest {
             scope_type VARCHAR(32),
             company_id VARCHAR(36),
             organization_id VARCHAR(36),
+            include_descendants BOOLEAN,
             valid_from TIMESTAMP,
             valid_to TIMESTAMP
         )
@@ -146,6 +195,7 @@ class AttendanceReportMapperXmlTest {
         CREATE TABLE organization_version (
             organization_version_id VARCHAR(36),
             organization_id VARCHAR(36),
+            name VARCHAR(200),
             status VARCHAR(32),
             effective_from TIMESTAMP,
             effective_to TIMESTAMP
@@ -155,6 +205,35 @@ class AttendanceReportMapperXmlTest {
         CREATE TABLE employee (
             employee_id VARCHAR(36),
             company_id VARCHAR(36)
+        )
+        """,
+        """
+        CREATE TABLE attendance_report_exception_fact (
+            attendance_report_projection_id VARCHAR(36),
+            company_id VARCHAR(36),
+            employee_id VARCHAR(36),
+            organization_id VARCHAR(36),
+            organization_version_id VARCHAR(36),
+            business_date DATE,
+            exception_type VARCHAR(64),
+            severity VARCHAR(16),
+            state VARCHAR(32)
+        )
+        """,
+        """
+        CREATE TABLE employment_assignment (
+            employee_id VARCHAR(36),
+            organization_id VARCHAR(36),
+            record_status VARCHAR(32),
+            version_valid_to TIMESTAMP,
+            effective_from TIMESTAMP,
+            effective_to TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE organization_current_closure (
+            ancestor_organization_id VARCHAR(36),
+            descendant_organization_id VARCHAR(36)
         )
         """
     };

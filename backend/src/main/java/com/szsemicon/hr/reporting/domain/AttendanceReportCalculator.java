@@ -126,7 +126,6 @@ public final class AttendanceReportCalculator {
                 ReportField.EMPLOYEE_NAME,
                 ReportField.ORGANIZATION,
                 ReportField.DOCUMENT_TYPE,
-                ReportField.DOCUMENT_REFERENCE,
                 ReportField.DOCUMENT_START,
                 ReportField.DOCUMENT_END,
                 ReportField.RECOGNIZED_HOURS,
@@ -149,8 +148,6 @@ public final class AttendanceReportCalculator {
                                         fact.leaveType() == null
                                                 ? fact.documentType()
                                                 : fact.leaveType()),
-                                entry(ReportField.DOCUMENT_REFERENCE,
-                                        fact.documentId()),
                                 entry(ReportField.DOCUMENT_START,
                                         fact.start().toString()),
                                 entry(ReportField.DOCUMENT_END,
@@ -372,8 +369,7 @@ public final class AttendanceReportCalculator {
                 ReportField.ORGANIZATION,
                 ReportField.SCHEDULED_HOURS,
                 ReportField.CONFIRMED_HOURS,
-                ReportField.ATTENDANCE_RATE,
-                ReportField.RATE_FORMULA_VERSION);
+                ReportField.ATTENDANCE_RATE);
         List<ReportRow> rows = aggregateDaily(visibleDaily(snapshot)).values()
                 .stream()
                 .map(value -> row(
@@ -390,9 +386,7 @@ public final class AttendanceReportCalculator {
                                 entry(ReportField.CONFIRMED_HOURS,
                                         hours(value.confirmed)),
                                 entry(ReportField.ATTENDANCE_RATE,
-                                        rate(value.confirmed, value.scheduled)),
-                                entry(ReportField.RATE_FORMULA_VERSION,
-                                        ATTENDANCE_RATE_FORMULA_VERSION)),
+                                        rate(value.confirmed, value.scheduled))),
                         "employee:" + value.reference()))
                 .toList();
         return dataSet(

@@ -10,9 +10,9 @@ import type {
   AttendanceRecordsProjection,
   FeedbackProjection,
   LeaveProjection,
-  TodayProjection,
 } from './wave7Contracts';
 import type { Wave7ProjectionGateway } from './wave7Gateway';
+import { PersonalAttendanceDashboard } from './PersonalAttendanceDashboard';
 import {
   formatDate,
   formatDateTime,
@@ -35,10 +35,13 @@ export function EmployeeTodayRoute({
   gateway = wave7ProjectionGateway,
 }: EmployeeRouteProps) {
   return (
-    <Wave7AsyncBoundary loader={gateway.loadToday} isEmpty={isTodayEmpty}>
+    <Wave7AsyncBoundary
+      loader={gateway.loadSelfDashboard}
+      isEmpty={() => false}
+    >
       {(projection) => (
         <EmployeeSelfLayout capabilities={capabilities}>
-          <EmployeeTodayView projection={projection} />
+          <PersonalAttendanceDashboard projection={projection} />
         </EmployeeSelfLayout>
       )}
     </Wave7AsyncBoundary>
@@ -105,31 +108,10 @@ export function EmployeeFeedbackRoute({
   );
 }
 
-export function EmployeeTodayView({ projection }: { projection: TodayProjection }) {
-  return (
-    <>
-      <PageHeader title="今日状态" description="班次、有效打卡与暂算结果均来自授权投影。" />
-      <ProjectionMetadata metadata={projection.metadata} />
-      <FrozenHistoryNotice metadata={projection.metadata} />
-      <section className="content-surface wave7-today" aria-labelledby="wave7-today-heading">
-        <h2 id="wave7-today-heading">{formatDate(projection.businessDate)}</h2>
-        <dl className="wave7-detail-grid">
-          <Detail label="班次" value={projection.shiftLabel ?? '未排班'} />
-          <Detail label="首次有效打卡" value={projection.firstEffectivePunch ?? '暂无'} />
-          <Detail label="末次有效打卡" value={projection.lastEffectivePunch ?? '暂无'} />
-          <Detail label="考勤状态" value={<StatusBadge status={projection.attendanceStatus} />} />
-          <Detail label="确认工时" value={formatHours(projection.confirmedMinutes)} />
-          <Detail label="异常提示" value={projection.issueLabels.join('、') || '无'} />
-        </dl>
-      </section>
-    </>
-  );
-}
-
 export function EmployeeRecordsView({ projection }: { projection: AttendanceRecordsProjection }) {
   return (
     <>
-      <PageHeader title="我的考勤" description="汇总和每日记录固定在同一投影版本。" />
+      <PageHeader title="我的考勤" description="查看本月汇总和每天的考勤记录。" />
       <ProjectionMetadata metadata={projection.metadata} />
       <FrozenHistoryNotice metadata={projection.metadata} />
       <dl className="wave7-metric-grid wave7-metric-grid--summary" aria-label="月度考勤汇总">
@@ -153,11 +135,7 @@ export function EmployeeRecordsView({ projection }: { projection: AttendanceReco
             {
               key: 'evidence',
               title: '计算依据',
-              render: (row) => row.explanationReference
-                ? isSyntheticMetadata(projection.metadata)
-                  ? '依据已生成'
-                  : <code>{row.explanationReference}</code>
-                : '无',
+              render: (row) => row.explanationReference ? '依据已生成' : '无',
             },
           ]}
         />
@@ -169,7 +147,7 @@ export function EmployeeRecordsView({ projection }: { projection: AttendanceReco
 export function EmployeeLeaveView({ projection }: { projection: LeaveProjection }) {
   return (
     <>
-      <PageHeader title="我的假期" description="余额由服务端台账投影提供，页面不自行重算。" />
+      <PageHeader title="我的假期" description="查看本人各类假期的发放、使用和剩余情况。" />
       <ProjectionMetadata metadata={projection.metadata} />
       <FrozenHistoryNotice metadata={projection.metadata} />
       <section className="wave7-account-grid" aria-label="本人假期与工时账户">
@@ -177,9 +155,7 @@ export function EmployeeLeaveView({ projection }: { projection: LeaveProjection 
           <article className="content-surface wave7-account" key={account.accountReference}>
             <header>
               <h2>{account.label}</h2>
-              {isSyntheticMetadata(projection.metadata)
-                ? <span>台账已核对</span>
-                : <code>{account.ledgerVersion}</code>}
+              <span>余额已更新</span>
             </header>
             <dl className="wave7-detail-grid">
               <Detail label="已发放" value={`${account.grantedHours.toFixed(2)} 小时`} />
@@ -234,9 +210,7 @@ export function EmployeeFeedbackView({
             <header>
               <div>
                 <h2>{formatDate(item.attendanceDate)} · {item.problemTypeLabel}</h2>
-                {isSyntheticMetadata(projection.metadata)
-                  ? <span>反馈单 {item.feedbackReference.slice(-12)}</span>
-                  : <code>{item.feedbackReference}</code>}
+                <span>本人反馈</span>
               </div>
               <StatusBadge status={item.state} />
             </header>
@@ -288,10 +262,4 @@ function Metric({ label, value }: { label: string; value: string }) {
       <dd>{value}</dd>
     </div>
   );
-}
-
-function isTodayEmpty(projection: TodayProjection): boolean {
-  return projection.shiftLabel === undefined
-    && projection.firstEffectivePunch === undefined
-    && projection.lastEffectivePunch === undefined;
 }

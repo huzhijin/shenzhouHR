@@ -1,7 +1,10 @@
 import { Form, Input, Modal, Select } from 'antd';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { listAttendanceGroups } from './attendanceSetupApi';
 import type {
+  AttendanceGroupView,
   AttendancePolicyKind,
   PolicyBindingPreviewInput,
   PolicyTemplateDefinition,
@@ -28,6 +31,23 @@ export function PolicyBindingDialog({
 }) {
   const { t } = useTranslation();
   const [form] = Form.useForm<PolicyBindingPreviewInput>();
+  const [groups, setGroups] = useState<AttendanceGroupView[]>([]);
+  useEffect(() => {
+    let active = true;
+    if (!open) return () => {
+      active = false;
+    };
+    void listAttendanceGroups(undefined, 0, 500)
+      .then((page) => {
+        if (active) setGroups(page.items);
+      })
+      .catch(() => {
+        if (active) setGroups([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open]);
   return (
     <Modal
       open={open}
@@ -57,22 +77,30 @@ export function PolicyBindingDialog({
             label: template.name,
           }))} />
         </Form.Item>
-        <Form.Item
-          label={t('attendanceSetup.policyVersionId')}
-          name="policyVersionId"
-          rules={[required()]}
-        >
-          <Input autoComplete="off" />
+        {/* The API needs immutable identifiers, but operators choose by business name. */}
+        <Form.Item name="policyVersionId" hidden rules={[required()]}>
+          <Input />
         </Form.Item>
-        <Form.Item label={t('attendanceSetup.groupId')} name="groupId" rules={[required()]}>
-          <Input autoComplete="off" />
+        <Form.Item label="考勤组" name="groupId" rules={[required()]}>
+          <Select
+            showSearch
+            optionFilterProp="label"
+            placeholder="请选择考勤组"
+            options={groups.map((group) => ({
+              value: group.groupId,
+              label: `${group.name}（${group.code}）· 修订 ${group.revisionNumber}`,
+            }))}
+            onChange={(groupId: string) => {
+              form.setFieldsValue({
+                groupId,
+                groupRevisionId: groups.find((group) => group.groupId === groupId)
+                  ?.groupRevisionId,
+              });
+            }}
+          />
         </Form.Item>
-        <Form.Item
-          label={t('attendanceSetup.groupRevisionId')}
-          name="groupRevisionId"
-          rules={[required()]}
-        >
-          <Input autoComplete="off" />
+        <Form.Item name="groupRevisionId" hidden rules={[required()]}>
+          <Input />
         </Form.Item>
         <div className="form-grid">
           <Form.Item label={t('attendanceSetup.effectiveFrom')} name="effectiveFrom" rules={[required()]}>

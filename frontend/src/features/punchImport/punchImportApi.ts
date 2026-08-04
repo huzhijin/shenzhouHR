@@ -173,7 +173,7 @@ export function publishPunchImport(
     if (mode === 'STRICT' && batch.invalidRows > 0) {
       return Promise.reject(new ApiRequestError(409, {
         code: 'STRICT_PUBLISH_BLOCKED_BY_INVALID_ROWS',
-        message: `当前批次仍有 ${batch.invalidRows} 条阻断行，请先修正或仅发布有效行。`,
+        message: `当前导入任务仍有 ${batch.invalidRows} 条阻断行，请先修正或仅发布有效行。`,
         retryable: false,
       }));
     }

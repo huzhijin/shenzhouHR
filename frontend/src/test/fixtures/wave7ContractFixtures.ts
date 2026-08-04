@@ -5,6 +5,7 @@ import type {
   LeaveProjection,
   ReportExportProjection,
   ReportProjection,
+  SelfAttendanceDashboardProjection,
   TodayProjection,
   Wave7ProjectionMetadata,
 } from '../../features/wave7/wave7Contracts';
@@ -39,6 +40,56 @@ export const todayFixture: TodayProjection = {
   attendanceStatus: '暂算正常',
   confirmedMinutes: 480,
   issueLabels: [],
+};
+
+export const selfDashboardFixture: SelfAttendanceDashboardProjection = {
+  kind: 'SELF_ATTENDANCE_DASHBOARD',
+  metadata: {
+    projectionVersion: 'SELF-DASHBOARD-2026-07-28-V1',
+    sourceVersions: ['SELF-ATTENDANCE-2026-07-28-V1'],
+    dataAsOf: '2026-07-28T01:30:00Z',
+    timeZone: 'Asia/Shanghai',
+    periodLabel: '2026-07',
+    periodState: 'OPEN',
+    scope: {
+      type: 'SELF',
+      reference: 'current-principal',
+      label: '本人',
+    },
+  },
+  businessDate: '2026-07-28',
+  summary: {
+    scheduledMinutes: 960,
+    confirmedMinutes: 930,
+    recognizedOvertimeMinutes: 30,
+    leaveMinutes: 0,
+    unresolvedExceptionCount: 1,
+  },
+  dailyTrend: [{
+    businessDate: '2026-07-28',
+    scheduledMinutes: 480,
+    confirmedMinutes: 450,
+    recognizedOvertimeMinutes: 0,
+    leaveMinutes: 0,
+    issueCount: 1,
+  }],
+  today: {
+    shiftLabel: '合成日班',
+    firstPunchAt: '2026-07-28T00:42:00Z',
+    lastPunchAt: null,
+    statusLabel: '存在未解决异常',
+    confirmedMinutes: 450,
+    issueLabels: ['迟到待确认'],
+  },
+  exceptionTypeDistribution: [{ type: 'LATE', count: 1 }],
+  recentExceptions: [{
+    businessDate: '2026-07-28',
+    type: 'LATE',
+    severity: 'WARNING',
+    state: 'PENDING_REVIEW',
+    minutes: 12,
+    safeEvidenceSummary: '首个有效打卡晚于班次开始时间。',
+  }],
 };
 
 export const recordsFixture: AttendanceRecordsProjection = {
@@ -228,6 +279,7 @@ export const queuedExportFixture: ReportExportProjection = {
 };
 
 export const wave7FixtureGateway: Wave7ProjectionGateway = {
+  loadSelfDashboard: async () => selfDashboardFixture,
   loadToday: async () => todayFixture,
   loadRecords: async () => recordsFixture,
   loadLeave: async () => leaveFixture,

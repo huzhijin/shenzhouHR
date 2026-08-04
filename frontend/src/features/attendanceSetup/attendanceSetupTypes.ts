@@ -1,7 +1,7 @@
 export type LifecycleStatus = 'ACTIVE' | 'INACTIVE';
 export type VersionStatus = 'DRAFT' | 'PUBLISHED' | 'INACTIVE';
 export type CalendarStatus = 'DRAFT' | 'PUBLISHED' | 'INACTIVE';
-export type PolicyVersionStatus = 'DRAFT' | 'VALIDATED' | 'PUBLISHED';
+export type PolicyVersionStatus = 'DRAFT' | 'VALIDATED' | 'PUBLISHED' | 'INACTIVE';
 export type PolicySimulationStatus =
   | 'MATCHED'
   | 'NOT_MATCHED'

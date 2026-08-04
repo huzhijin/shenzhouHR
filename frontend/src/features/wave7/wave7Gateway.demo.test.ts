@@ -9,6 +9,7 @@ vi.mock('../../shared/config/runtimeMode', () => ({
 describe('Wave 7 demo projection gateway', () => {
   it('serves the complete runtime-synthetic walkthrough instead of a 503', async () => {
     const [
+      selfDashboard,
       today,
       records,
       leave,
@@ -16,6 +17,7 @@ describe('Wave 7 demo projection gateway', () => {
       dashboard,
       report,
     ] = await Promise.all([
+      wave7ProjectionGateway.loadSelfDashboard(),
       wave7ProjectionGateway.loadToday(),
       wave7ProjectionGateway.loadRecords(),
       wave7ProjectionGateway.loadLeave(),
@@ -25,15 +27,34 @@ describe('Wave 7 demo projection gateway', () => {
     ]);
 
     expect([
+      selfDashboard.kind,
       today.kind,
       records.kind,
       leave.kind,
       feedback.kind,
       dashboard.kind,
       report.kind,
-    ]).toEqual(['TODAY', 'RECORDS', 'LEAVE', 'FEEDBACK', 'DASHBOARD', 'REPORT']);
-    expect(dashboard.title).toContain('考勤管理工作台');
+    ]).toEqual([
+      'SELF_ATTENDANCE_DASHBOARD',
+      'TODAY',
+      'RECORDS',
+      'LEAVE',
+      'FEEDBACK',
+      'DASHBOARD',
+      'REPORT',
+    ]);
+    if (
+      dashboard.kind !== 'DASHBOARD'
+      || dashboard.analytics === undefined
+      || dashboard.exceptions === undefined
+    ) {
+      throw new TypeError('demo dashboard must be ready');
+    }
+    expect(dashboard.title).toBe('今日异常考勤');
     expect(dashboard.metrics).toHaveLength(7);
+    expect(dashboard.analytics.dailyTrend.length).toBeGreaterThan(0);
+    expect(dashboard.analytics.dailyTrend.length).toBeLessThanOrEqual(7);
+    expect(dashboard.exceptions).toHaveLength(7);
     expect(report.reportTitle).toContain('部门考勤统计汇总');
     expect(report.columns.map((column) => column.key)).toEqual(expect.arrayContaining([
       'late-count',
@@ -54,6 +75,9 @@ describe('Wave 7 demo projection gateway', () => {
     const first = await wave7ProjectionGateway.loadDashboard();
     const second = await wave7ProjectionGateway.loadDashboard();
 
+    if (first.kind !== 'DASHBOARD' || second.kind !== 'DASHBOARD') {
+      throw new TypeError('demo dashboard must be ready');
+    }
     expect(second).not.toBe(first);
     expect(second.metrics).not.toBe(first.metrics);
     expect(second.metadata.dataAsOf).toEqual(expect.any(String));

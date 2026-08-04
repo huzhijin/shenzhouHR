@@ -44,6 +44,69 @@ describe('API network failure handling', () => {
     });
   });
 
+  it('does not expose server error messages or technical validation details', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        code: 'VALIDATION_FAILED',
+        correlationId: 'request-422-safe',
+        retryable: false,
+        message: '数据库约束 employee_id 失败，rowVersion=12',
+        fieldErrors: [
+          {
+            field: 'effectiveFrom',
+            code: 'FUTURE_REQUIRED',
+            message: '生效日必须在未来',
+          },
+          {
+            field: 'employeeId',
+            code: 'REFERENCE_INVALID',
+            message: 'employee_id=9b4ecb3d-2a44-48d5-9538-15f14b232691',
+          },
+        ],
+      }), {
+        status: 422,
+        headers: { 'Content-Type': 'application/json' },
+      })),
+    );
+
+    const caught = await requestJson('/api/v1/policy-templates')
+      .catch((error: unknown) => error);
+
+    expect(caught).toBeInstanceOf(ApiRequestError);
+    expect(caught).toMatchObject({
+      status: 422,
+      code: 'VALIDATION_FAILED',
+      correlationId: 'request-422-safe',
+      retryable: false,
+      message: '填写内容未通过校验，请检查后重试。',
+      fieldErrors: [
+        {
+          field: 'effectiveFrom',
+          code: 'FUTURE_REQUIRED',
+          message: '生效日必须在未来',
+        },
+        {
+          field: 'employeeId',
+          code: 'REFERENCE_INVALID',
+          message: '请检查相关填写内容。',
+        },
+      ],
+    });
+    expect(JSON.stringify(caught)).not.toContain('9b4ecb3d');
+    expect((caught as Error).message).not.toContain('数据库约束');
+  });
+
+  it('keeps explicitly authored client-side messages unchanged', () => {
+    const error = new ApiRequestError(400, {
+      code: 'INVALID_SELECTION',
+      message: '请选择有效的公司后重试。',
+      retryable: false,
+    });
+
+    expect(error.message).toBe('请选择有效的公司后重试。');
+  });
+
   it('captures the CSRF response header in memory and sends it on a write request', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ authenticated: true }), {

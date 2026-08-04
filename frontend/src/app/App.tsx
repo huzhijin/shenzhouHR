@@ -1,11 +1,10 @@
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { LoginPage } from '../features/auth/LoginPage';
 import type { CurrentCapabilities } from '../features/session/sessionApi';
-import { logout } from '../features/session/sessionApi';
 import { useSession } from '../features/session/useSession';
 import { AppErrorBoundary } from '../shared/components/AppErrorBoundary';
 import { AppShell } from '../shared/components/AppShell';
@@ -38,7 +37,10 @@ const SourceJobsPage = lazy(() => import('../features/attendanceSources/SourceJo
 const PunchImportsPage = lazy(() => import('../features/punchImport/PunchImportsPage'));
 const PunchImportDetailPage = lazy(() => import('../features/punchImport/PunchImportDetailPage'));
 const DashboardRoute = lazy(() => import('../features/wave7/DashboardPage'));
-const OpenDesignWorkbenchRoute = lazy(() => import('../features/wave7/OpenDesignWorkbenchPage'));
+const PersonalAttendanceDashboardRoute = lazy(
+  () => import('../features/wave7/PersonalAttendanceDashboard')
+    .then((module) => ({ default: module.PersonalAttendanceDashboardRoute })),
+);
 const CustomerReportsRoute = lazy(() => import('../features/reports/CustomerReportCenterPage'));
 const ProjectionReportsRoute = lazy(() => import('../features/wave7/ReportsPage'));
 const AttendanceScreenRoute = lazy(() => import('../features/wave7/AttendanceBigScreenPage'));
@@ -91,17 +93,16 @@ export function App() {
       >
         {state.status === 'loading' ? <StatePanel state="loading" /> : null}
         {state.status === 'error' ? (
-          state.error.status === 401 ? (
+          isUnauthenticatedSessionError(state.error.status) ? (
             <>
               <Navigate to="/login" replace />
               <LoginPage onAuthenticated={reload} />
             </>
           ) : (
+            // The request correlation stays on the error object for diagnostics; it is not business UI.
             <StatePanel
               state={state.error.status === 0 ? 'network-error' : 'error'}
-              description={state.error.correlationId
-                ? `${state.error.message}；${translate('error.correlationId', { correlationId: state.error.correlationId })}`
-                : state.error.message}
+              description={state.error.message}
               onRetry={state.error.retryable ? reload : undefined}
             />
           )
@@ -121,32 +122,26 @@ export function App() {
   );
 }
 
+function isUnauthenticatedSessionError(status: number): boolean {
+  // This branch only handles restoration through GET /auth/session. Some
+  // gateways represent an expired, revoked, or no-longer-visible session as
+  // 403/404 instead of 401. In all three cases there is no protected UI that
+  // can be rendered safely, so return the user to the login form.
+  return status === 401 || status === 403 || status === 404;
+}
+
 function AuthorizedApplication({ session, reloadSession }: { session: CurrentCapabilities; reloadSession: () => void }) {
   const menu = authorizedMenu(session);
   const defaultPath = menu[0]?.path;
   const demoMode = isDemoMode();
   const location = useLocation();
-  const navigate = useNavigate();
   const canReadDashboard = session.capabilities.includes('ATTENDANCE_DASHBOARD:READ');
+  const canReadSelfAttendance = session.capabilities.includes('ATTENDANCE_SELF:READ');
   const rulesLanding = session.capabilities.includes('POLICY:READ')
     ? <RulesHomePage />
     : session.capabilities.includes('ATTENDANCE_SETUP:READ')
       ? <Navigate to="/rules/attendance-groups" replace />
       : <AccessDenied />;
-
-  const signOutOfDemo = async () => {
-    await logout();
-    navigate('/login', { replace: true });
-    reloadSession();
-  };
-
-  if (demoMode && canReadDashboard && location.pathname === '/workbench') {
-    return (
-      <Suspense fallback={<StatePanel state="loading" />}>
-        <OpenDesignWorkbenchRoute onLogout={() => void signOutOfDemo()} />
-      </Suspense>
-    );
-  }
 
   if (
     demoMode
@@ -256,9 +251,14 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
               <Route path="/access/audit/:auditEventId" element={<AccessDenied />} />
             </>
           )}
-          {session.capabilities.includes('ATTENDANCE_DASHBOARD:READ')
-            ? <Route path="/workbench" element={<DashboardRoute />} />
-            : <Route path="/workbench" element={<AccessDenied />} />}
+          <Route
+            path="/workbench"
+            element={canReadDashboard
+              ? <DashboardRoute />
+              : canReadSelfAttendance
+                ? <PersonalAttendanceDashboardRoute />
+                : <AccessDenied />}
+          />
           {demoMode && session.capabilities.includes('ATTENDANCE_DASHBOARD:READ')
             ? <Route path="/attendance/screen" element={<AttendanceScreenRoute />} />
             : <Route path="/attendance/screen" element={<AccessDenied />} />}

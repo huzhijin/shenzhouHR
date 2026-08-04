@@ -30,7 +30,7 @@ const fieldsByType: Record<PeopleImportTemplateType, PeopleImportTemplateField[]
   EMPLOYEE: [
     field('employeeNumber', '合成员工编号', true, true, 'TEXT'),
     field('displayName', '合成姓名', true, false, 'TEXT'),
-    field('externalEmployeeId', '外部精确 ID', false, true, 'PRECISE_ID'),
+    field('externalEmployeeId', '外部员工编号', false, true, 'PRECISE_ID'),
     field('effectiveFrom', '生效日', true, false, 'DATE'),
   ],
   EMPLOYMENT: [

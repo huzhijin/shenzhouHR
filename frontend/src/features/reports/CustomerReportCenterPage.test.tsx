@@ -213,7 +213,7 @@ describe('customer report center demo', () => {
       reportKey: 'attendance-detail',
       month: '2026-06',
     }));
-    expect(screen.getByRole('status')).toHaveTextContent('已生成“月度考勤明细矩阵”演示导出任务');
+    expect(screen.getByRole('status')).toHaveTextContent('“月度考勤明细矩阵”已按当前筛选条件导出');
   });
 
   it('disables export without create permission and never invokes the export callback', () => {

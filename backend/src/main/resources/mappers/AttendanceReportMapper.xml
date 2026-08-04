@@ -239,6 +239,553 @@
         )
     </sql>
 
+    <sql id="dashboardProjectionVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN auth_principal_role_assignment role_assignment
+              ON role_assignment.principal_id = principal.principal_id
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capabilityCode}
+             AND capability.capability_code =
+                'ATTENDANCE_DASHBOARD:READ'
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+            WHERE principal.principal_id = #{principalId}
+              AND principal.status = 'ACTIVE'
+              AND role_assignment.valid_from &lt;= #{authorizationTime}
+              AND (
+                    role_assignment.valid_to IS NULL
+                    OR role_assignment.valid_to &gt; #{authorizationTime}
+              )
+              AND data_scope.valid_from &lt;= #{authorizationTime}
+              AND (
+                    data_scope.valid_to IS NULL
+                    OR data_scope.valid_to &gt; #{authorizationTime}
+              )
+              AND (
+                    (
+                        data_scope.scope_type = 'COMPANY'
+                        AND data_scope.company_id =
+                            projection.company_id
+                    )
+                    OR (
+                        data_scope.scope_type = 'ORGANIZATION'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM organization_identity scoped_organization
+                            JOIN organization_current_projection
+                                scoped_projection
+                              ON scoped_projection.organization_id =
+                                 scoped_organization.organization_id
+                            JOIN organization_version scoped_version
+                              ON scoped_version.organization_version_id =
+                                 scoped_projection.current_version_id
+                             AND scoped_version.organization_id =
+                                 scoped_organization.organization_id
+                            WHERE scoped_organization.organization_id =
+                                data_scope.organization_id
+                              AND scoped_organization.company_id =
+                                projection.company_id
+                              AND scoped_organization.identity_status =
+                                  'ACTIVE'
+                              AND scoped_version.status = 'ACTIVE'
+                              AND scoped_version.effective_from
+                                  &lt;= #{authorizationTime}
+                              AND (
+                                    scoped_version.effective_to IS NULL
+                                    OR scoped_version.effective_to
+                                        &gt; #{authorizationTime}
+                              )
+                        )
+                    )
+                    OR (
+                        data_scope.scope_type = 'SELF'
+                        AND principal.employee_id IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employee self_employee
+                            WHERE self_employee.employee_id =
+                                principal.employee_id
+                              AND self_employee.company_id =
+                                projection.company_id
+                        )
+                    )
+              )
+        )
+    </sql>
+
+    <sql id="dashboardFactVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN auth_principal_role_assignment role_assignment
+              ON role_assignment.principal_id = principal.principal_id
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capabilityCode}
+             AND capability.capability_code =
+                'ATTENDANCE_DASHBOARD:READ'
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+            WHERE principal.principal_id = #{principalId}
+              AND principal.status = 'ACTIVE'
+              AND role_assignment.valid_from &lt;= #{authorizationTime}
+              AND (
+                    role_assignment.valid_to IS NULL
+                    OR role_assignment.valid_to &gt; #{authorizationTime}
+              )
+              AND data_scope.valid_from &lt;= #{authorizationTime}
+              AND (
+                    data_scope.valid_to IS NULL
+                    OR data_scope.valid_to &gt; #{authorizationTime}
+              )
+              AND projection.attendance_report_projection_id =
+                  fact.attendance_report_projection_id
+              AND projection.company_id = fact.company_id
+              AND projection.status = 'PUBLISHED'
+              AND EXISTS (
+                    SELECT 1
+                    FROM organization_identity fact_organization
+                    WHERE fact_organization.organization_id =
+                        fact.organization_id
+                      AND fact_organization.company_id =
+                        fact.company_id
+              )
+              AND EXISTS (
+                    SELECT 1
+                    FROM employee fact_employee
+                    WHERE fact_employee.employee_id = fact.employee_id
+                      AND fact_employee.company_id =
+                        fact.company_id
+              )
+              AND (
+                    (
+                        data_scope.scope_type = 'COMPANY'
+                        AND data_scope.company_id =
+                            fact.company_id
+                    )
+                    OR (
+                        data_scope.scope_type = 'ORGANIZATION'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM organization_identity scoped_organization
+                            JOIN organization_current_projection
+                                scoped_projection
+                              ON scoped_projection.organization_id =
+                                 scoped_organization.organization_id
+                            JOIN organization_version scoped_version
+                              ON scoped_version.organization_version_id =
+                                 scoped_projection.current_version_id
+                             AND scoped_version.organization_id =
+                                 scoped_organization.organization_id
+                            WHERE scoped_organization.organization_id =
+                                data_scope.organization_id
+                              AND scoped_organization.company_id =
+                                fact.company_id
+                              AND scoped_organization.identity_status =
+                                  'ACTIVE'
+                              AND scoped_version.status = 'ACTIVE'
+                              AND scoped_version.effective_from
+                                  &lt;= #{authorizationTime}
+                              AND (
+                                    scoped_version.effective_to IS NULL
+                                    OR scoped_version.effective_to
+                                        &gt; #{authorizationTime}
+                              )
+                        )
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employment_assignment current_assignment
+                            JOIN organization_identity
+                                current_assignment_organization
+                              ON current_assignment_organization.organization_id =
+                                 current_assignment.organization_id
+                             AND current_assignment_organization.company_id =
+                                 fact.company_id
+                             AND current_assignment_organization.identity_status =
+                                 'ACTIVE'
+                            JOIN organization_current_projection
+                                current_assignment_projection
+                              ON current_assignment_projection.organization_id =
+                                 current_assignment_organization.organization_id
+                            JOIN organization_version
+                                current_assignment_version
+                              ON current_assignment_version.organization_version_id =
+                                 current_assignment_projection.current_version_id
+                             AND current_assignment_version.organization_id =
+                                 current_assignment_organization.organization_id
+                             AND current_assignment_version.status = 'ACTIVE'
+                             AND current_assignment_version.effective_from
+                                 &lt;= #{authorizationTime}
+                             AND (
+                                    current_assignment_version.effective_to
+                                        IS NULL
+                                    OR current_assignment_version.effective_to
+                                        &gt; #{authorizationTime}
+                             )
+                            WHERE current_assignment.employee_id =
+                                fact.employee_id
+                              AND current_assignment.record_status = 'ACTIVE'
+                              AND current_assignment.version_valid_to IS NULL
+                              AND current_assignment.effective_from
+                                  &lt;= #{authorizationTime}
+                              AND (
+                                    current_assignment.effective_to IS NULL
+                                    OR current_assignment.effective_to
+                                        &gt; #{authorizationTime}
+                              )
+                              AND (
+                                    (
+                                        data_scope.include_descendants = FALSE
+                                        AND data_scope.organization_id =
+                                            current_assignment.organization_id
+                                    )
+                                    OR (
+                                        data_scope.include_descendants = TRUE
+                                        AND EXISTS (
+                                            SELECT 1
+                                            FROM organization_current_closure
+                                                closure
+                                            WHERE
+                                                closure.ancestor_organization_id =
+                                                    data_scope.organization_id
+                                              AND
+                                                closure.descendant_organization_id =
+                                                    current_assignment.organization_id
+                                        )
+                                    )
+                              )
+                        )
+                    )
+                    OR (
+                        data_scope.scope_type = 'SELF'
+                        AND principal.employee_id = fact.employee_id
+                    )
+              )
+        )
+    </sql>
+
+    <select id="listDashboardAuthorizedCompanies"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$CompanyRow">
+        SELECT DISTINCT projection.company_id,
+               company.name AS company_name
+        FROM attendance_report_projection projection
+        JOIN company company
+          ON company.company_id = projection.company_id
+         AND company.status = 'ACTIVE'
+        WHERE projection.period_start = #{periodStart}
+          AND projection.period_end_exclusive = #{periodEndExclusive}
+          AND projection.status = 'PUBLISHED'
+          AND projection.published_at &lt;= #{authorizationTime}
+          AND <include refid="dashboardProjectionVisibility"/>
+        ORDER BY company.name, projection.company_id
+    </select>
+
+    <select id="listLatestDashboardAuthorizedProjections"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$ProjectionRow">
+        SELECT projection.attendance_report_projection_id AS projection_id,
+               projection.company_id,
+               projection.projection_version,
+               projection.period_state,
+               projection.source_versions_json,
+               projection.data_as_of
+        FROM attendance_report_projection projection
+        WHERE projection.period_start = #{periodStart}
+          AND projection.period_end_exclusive = #{periodEndExclusive}
+          AND projection.company_id = #{companyId}
+          AND projection.status = 'PUBLISHED'
+          AND projection.published_at &lt;= #{authorizationTime}
+          AND <include refid="dashboardProjectionVisibility"/>
+          AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_report_projection newer_projection
+                WHERE newer_projection.company_id =
+                    projection.company_id
+                  AND newer_projection.period_start = #{periodStart}
+                  AND newer_projection.period_end_exclusive =
+                    #{periodEndExclusive}
+                  AND newer_projection.status = 'PUBLISHED'
+                  AND newer_projection.published_at &lt;=
+                    #{authorizationTime}
+                  AND (
+                        newer_projection.published_at &gt;
+                            projection.published_at
+                        OR (
+                            newer_projection.published_at =
+                                projection.published_at
+                            AND
+                            newer_projection.attendance_report_projection_id
+                                &gt;
+                                projection.attendance_report_projection_id
+                        )
+                  )
+          )
+        ORDER BY projection.published_at DESC,
+                 projection.attendance_report_projection_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="listDashboardAuthorizedScopes"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$ScopeRow">
+        SELECT DISTINCT data_scope.scope_id,
+               data_scope.scope_type,
+               data_scope.company_id,
+               data_scope.organization_id,
+               data_scope.include_descendants,
+               principal.employee_id AS principal_employee_id
+        FROM attendance_report_projection projection
+        JOIN auth_principal principal
+          ON principal.principal_id = #{principalId}
+         AND principal.status = 'ACTIVE'
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = principal.principal_id
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capabilityCode}
+         AND capability.capability_code =
+            'ATTENDANCE_DASHBOARD:READ'
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+        WHERE projection.attendance_report_projection_id = #{projectionId}
+          AND projection.company_id = #{companyId}
+          AND projection.status = 'PUBLISHED'
+          AND role_assignment.valid_from &lt;= #{authorizationTime}
+          AND (
+                role_assignment.valid_to IS NULL
+                OR role_assignment.valid_to &gt; #{authorizationTime}
+          )
+          AND data_scope.valid_from &lt;= #{authorizationTime}
+          AND (
+                data_scope.valid_to IS NULL
+                OR data_scope.valid_to &gt; #{authorizationTime}
+          )
+          AND (
+                (
+                    data_scope.scope_type = 'COMPANY'
+                    AND data_scope.company_id =
+                        projection.company_id
+                )
+                OR (
+                    data_scope.scope_type = 'ORGANIZATION'
+                    AND EXISTS (
+                        SELECT 1
+                        FROM organization_identity scoped_organization
+                        JOIN organization_current_projection
+                            scoped_projection
+                          ON scoped_projection.organization_id =
+                             scoped_organization.organization_id
+                        JOIN organization_version scoped_version
+                          ON scoped_version.organization_version_id =
+                             scoped_projection.current_version_id
+                         AND scoped_version.organization_id =
+                             scoped_organization.organization_id
+                        WHERE scoped_organization.organization_id =
+                            data_scope.organization_id
+                          AND scoped_organization.company_id =
+                            projection.company_id
+                          AND scoped_organization.identity_status = 'ACTIVE'
+                          AND scoped_version.status = 'ACTIVE'
+                          AND scoped_version.effective_from
+                              &lt;= #{authorizationTime}
+                          AND (
+                                scoped_version.effective_to IS NULL
+                                OR scoped_version.effective_to
+                                    &gt; #{authorizationTime}
+                          )
+                    )
+                )
+                OR (
+                    data_scope.scope_type = 'SELF'
+                    AND principal.employee_id IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM employee self_employee
+                        WHERE self_employee.employee_id =
+                            principal.employee_id
+                          AND self_employee.company_id =
+                            projection.company_id
+                    )
+                )
+          )
+        ORDER BY data_scope.scope_type, data_scope.scope_id
+    </select>
+
+    <select id="summarizeDashboardExceptions"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$SummaryRow">
+        SELECT COUNT(*) AS unresolved_count,
+               COUNT(DISTINCT fact.employee_id) AS affected_employee_count,
+               COALESCE(SUM(
+                   CASE WHEN fact.severity = 'ERROR' THEN 1 ELSE 0 END
+               ), 0) AS blocking_count
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date = #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="dashboardFactVisibility"/>
+    </select>
+
+    <select id="listDashboardDailyTrend"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$DailyTrendRow">
+        SELECT fact.business_date,
+               COUNT(*) AS exception_count,
+               COALESCE(SUM(
+                   CASE WHEN fact.severity = 'ERROR' THEN 1 ELSE 0 END
+               ), 0) AS blocking_count,
+               COUNT(DISTINCT fact.employee_id)
+                   AS affected_employee_count
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date &gt;= #{trendStart}
+          AND fact.business_date &lt;= #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="dashboardFactVisibility"/>
+        GROUP BY fact.business_date
+        ORDER BY fact.business_date
+    </select>
+
+    <select id="listDashboardSeverityDistribution"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$SeverityDistributionRow">
+        SELECT fact.severity,
+               COUNT(*) AS count
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date = #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="dashboardFactVisibility"/>
+        GROUP BY fact.severity
+        ORDER BY CASE fact.severity
+                     WHEN 'INFO' THEN 0
+                     WHEN 'WARNING' THEN 1
+                     ELSE 2
+                 END
+    </select>
+
+    <select id="listDashboardTypeDistribution"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$TypeDistributionRow">
+        SELECT fact.exception_type,
+               COUNT(*) AS count
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date = #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="dashboardFactVisibility"/>
+        GROUP BY fact.exception_type
+        ORDER BY count DESC, fact.exception_type
+        LIMIT 10
+    </select>
+
+    <select id="listDashboardOrganizationRanking"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$OrganizationRankingRow">
+        SELECT organization_version.name AS organization_name,
+               COUNT(*) AS exception_count,
+               COALESCE(SUM(
+                   CASE WHEN fact.severity = 'ERROR' THEN 1 ELSE 0 END
+               ), 0) AS blocking_count
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+         AND organization_version.organization_id = fact.organization_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date = #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="dashboardFactVisibility"/>
+        GROUP BY organization_version.name
+        ORDER BY exception_count DESC,
+                 blocking_count DESC,
+                 organization_version.name
+        LIMIT 5
+    </select>
+
+    <select id="listDashboardExceptions"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$ExceptionRow">
+        SELECT fact.exception_case_id AS exception_reference,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               organization_version.name AS organization_name,
+               fact.business_date,
+               fact.exception_type,
+               fact.severity,
+               fact.state,
+               fact.exception_minutes,
+               fact.safe_evidence_summary AS evidence_summary
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+         AND employee_version.employee_id = fact.employee_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+         AND organization_version.organization_id = fact.organization_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date = #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="dashboardFactVisibility"/>
+        ORDER BY CASE fact.severity
+                     WHEN 'ERROR' THEN 0
+                     WHEN 'WARNING' THEN 1
+                     ELSE 2
+                 END,
+                 CASE fact.state
+                     WHEN 'OPEN' THEN 0
+                     WHEN 'PENDING_REVIEW' THEN 1
+                     ELSE 2
+                 END,
+                 employee_version.employee_number,
+                 fact.exception_case_id
+        LIMIT 10
+    </select>
+
     <select id="listAuthorizedCompanies"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$CompanyRow">
         SELECT DISTINCT projection.company_id,

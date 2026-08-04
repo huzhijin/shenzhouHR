@@ -73,4 +73,38 @@
 - 浏览器控制台无应用错误。
 - Git diff 空白错误检查。
 
+## 2026-07-30 真实考勤工作台增量验收
+
+### 验收范围
+
+- 管理端真实工作台：`frontend/src/features/dashboard/DashboardPage.tsx`
+- 员工本人工作台：`frontend/src/features/self/PersonalAttendanceDashboard.tsx`
+- 员工本人路由：`/me/today`
+- 员工本人接口：`GET /api/v1/me/attendance-dashboard`
+
+### 同输入视觉比对
+
+- 参考与实现统一使用 1280 × 720 视口。
+- 参考图：`/var/folders/tk/5gwscs1s47s6dfbtl0q272cw0000gn/T/shenzhouhr-attendance-big-screen-reference.png`
+- 管理端实现图：`/var/folders/tk/5gwscs1s47s6dfbtl0q272cw0000gn/T/shenzhouhr-workbench-prototype-v2.png`
+- 员工端实现图：`/var/folders/tk/5gwscs1s47s6dfbtl0q272cw0000gn/T/shenzhouhr-personal-dashboard-v2.png`
+- 将参考图与员工端实现图放入同一比较输入检查：深蓝标题区、白色图表面板、紧凑圆角与信息密度一致；员工端按权限边界改为本人 KPI、本人趋势、今日状态和本人异常，不出现组织分布。
+
+### 设计迭代
+
+- 第 1 轮：管理端标题区存在重复元数据且高度偏大；压缩标题区并合并范围、数据日期、版本信息。
+- 第 2 轮：员工端部分 KPI 数值换行；收紧字号并保持数值单行展示，复查后无可见截断或重叠。
+- 管理端严重程度筛选、异常抽屉和安全报表穿透入口均完成浏览器交互验证。
+- 员工端 DOM 与接口响应不包含公司、组织、其他员工身份或异常案件标识；普通员工菜单不包含管理工作台。
+- 浏览器控制台应用错误：`[]`。
+- 管理端已在 390 × 844 视口完成移动端视觉检查；员工端响应式断点与自动化测试通过，未将本次无效的浏览器视口切换误记为视觉证据。
+
+### 自动化与真实服务验证
+
+- 后端：599 项测试通过，0 失败、0 错误。
+- 前端：386 项测试通过，4 项跳过；类型检查、ESLint 与生产构建通过。
+- 真实 MySQL、后端与前端均在不执行迁移、不注入演示数据的前提下启动。
+- 后端健康检查为 `UP`；真实前端登录页返回 200；通过前端代理访问未登录会话返回预期 401。
+- 使用真实技术管理员初始凭据验证登录成功，并进入首次登录强制修改密码流程。
+
 final result: passed

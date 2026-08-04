@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import {
   ApiRequestError,
@@ -39,6 +40,7 @@ import {
 } from './wave7Contracts';
 import {
   isReportExceptionState,
+  type ReportExceptionState,
   type Wave7ProjectionGateway,
 } from './wave7Gateway';
 import {
@@ -60,10 +62,21 @@ export function ReportsRoute({
   initialReportType?: AttendanceReportType;
   initialPeriod?: string;
 }) {
+  const [searchParameters] = useSearchParams();
   const [reportType, setReportType] =
-    useState<AttendanceReportType>(initialReportType);
-  const [period, setPeriod] = useState(initialPeriod);
-  const [companyId, setCompanyId] = useState('');
+    useState<AttendanceReportType>(() => initialReportTypeFromSearch(
+      searchParameters,
+      initialReportType,
+    ));
+  const [period, setPeriod] = useState(() => initialPeriodFromSearch(
+    searchParameters,
+    initialPeriod,
+  ));
+  const [companyId, setCompanyId] = useState(() =>
+    initialCompanyIdFromSearch(searchParameters));
+  const [exceptionStatus] = useState<ReportExceptionState | undefined>(
+    () => initialExceptionStatusFromSearch(searchParameters),
+  );
   const loadCompanies = useCallback(
     () => gateway.loadReportCompanies(period),
     [gateway, period],
@@ -104,7 +117,7 @@ export function ReportsRoute({
             />
           </label>
         </div>
-        <p>切换月份后会先清空上一条件的数据，再读取当前账号可见且已有正式投影的公司。</p>
+        <p>切换月份后会重新读取当前账号可查看的公司和考勤数据。</p>
       </section>
       <Wave7AsyncBoundary
         key={`companies:${period}`}
@@ -118,6 +131,7 @@ export function ReportsRoute({
             onSelectCompany={setCompanyId}
             reportType={reportType}
             period={period}
+            exceptionStatus={exceptionStatus}
             capabilities={capabilities}
             gateway={gateway}
           />
@@ -133,6 +147,7 @@ function AuthorizedCompanyReport({
   onSelectCompany,
   reportType,
   period,
+  exceptionStatus,
   capabilities,
   gateway,
 }: {
@@ -141,6 +156,7 @@ function AuthorizedCompanyReport({
   onSelectCompany: (companyId: string) => void;
   reportType: AttendanceReportType;
   period: string;
+  exceptionStatus?: ReportExceptionState;
   capabilities: readonly string[];
   gateway: Wave7ProjectionGateway;
 }) {
@@ -157,13 +173,24 @@ function AuthorizedCompanyReport({
       reportType,
       period,
       companyId: effectiveCompanyId,
+      ...(reportType === 'EXCEPTIONS' && exceptionStatus !== undefined
+        ? { status: exceptionStatus }
+        : {}),
       page: 0,
       size: 50,
     }),
-    [effectiveCompanyId, gateway, period, reportType],
+    [
+      effectiveCompanyId,
+      exceptionStatus,
+      gateway,
+      period,
+      reportType,
+    ],
   );
   const queryKey =
-    `${reportType}:${period}:${effectiveCompanyId}`;
+    `${reportType}:${period}:${effectiveCompanyId}:${
+      reportType === 'EXCEPTIONS' ? exceptionStatus ?? '' : ''
+    }`;
 
   return (
     <>
@@ -198,8 +225,8 @@ function AuthorizedCompanyReport({
         </div>
         <p>
           {directory.companies.length > 1
-            ? '当前账号可查看多个公司，请显式选择后查询；公司条件只会缩小服务端授权范围。'
-            : '已按当前月份唯一可见且已有正式投影的公司查询。'}
+            ? '当前账号可查看多个公司，请选择公司后查询；结果不会超出账号的数据权限。'
+            : '已按当前月份唯一可见的公司查询。'}
         </p>
       </section>
       {effectiveCompanyId === '' ? (
@@ -252,6 +279,68 @@ export const reportTypeOptions: ReadonlyArray<{
   { value: 'ATTENDANCE_RATE', label: '出勤率统计' },
   { value: 'ANNUAL_LEAVE', label: '年假统计' },
 ];
+
+function initialReportTypeFromSearch(
+  parameters: URLSearchParams,
+  fallback: AttendanceReportType,
+): AttendanceReportType {
+  const value = singleSearchParameter(parameters, 'reportType');
+  return reportTypeOptions.some((option) => option.value === value)
+    ? value as AttendanceReportType
+    : fallback;
+}
+
+function initialPeriodFromSearch(
+  parameters: URLSearchParams,
+  fallback: string,
+): string {
+  const value = singleSearchParameter(parameters, 'period');
+  return value !== undefined
+    && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
+    ? value
+    : fallback;
+}
+
+function initialCompanyIdFromSearch(
+  parameters: URLSearchParams,
+): string {
+  const value = singleSearchParameter(parameters, 'companyId');
+  return value !== undefined
+    && value === value.trim()
+    && value.length >= 1
+    && value.length <= 36
+    && !hasControlCharacter(value)
+    ? value
+    : '';
+}
+
+function initialExceptionStatusFromSearch(
+  parameters: URLSearchParams,
+): ReportExceptionState | undefined {
+  const value = singleSearchParameter(parameters, 'status');
+  return value !== undefined && isReportExceptionState(value)
+    ? value
+    : undefined;
+}
+
+function singleSearchParameter(
+  parameters: URLSearchParams,
+  name: string,
+): string | undefined {
+  const values = parameters.getAll(name);
+  return values.length === 1 ? values[0] : undefined;
+}
+
+function hasControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined
+      && (
+        codePoint <= 0x1f
+        || (codePoint >= 0x7f && codePoint <= 0x9f)
+      );
+  });
+}
 
 export const reportExportPollIntervalMs = 3_000;
 
@@ -471,11 +560,23 @@ export function ReportView({
   const projectionAllowsExport = projection.metadata.allowedActions.includes('REPORT_EXPORT_CREATE');
   const exportEnabled = canCreateExport && projectionAllowsExport && onCreateExport !== undefined;
   const liveMetadata = hasLiveReportMetadata(projection) ? projection : null;
-  const reportColumns: Array<DataColumn<ReportRowProjection>> = projection.columns.map((column) => ({
-    key: column.key,
-    title: column.label,
-    render: (row) => row.values[column.key] ?? '—',
-  }));
+  const businessColumns = projection.columns.filter((column) =>
+    isBusinessReportColumn(column.key));
+  const businessExportFields = projection.exportFieldAllowlist.filter(
+    isBusinessReportColumn,
+  );
+  const reportColumns: Array<DataColumn<ReportRowProjection>> =
+    businessColumns.map((column) => ({
+      key: column.key,
+      // The API label is metadata for compatibility only. Keeping the visible
+      // header keyed here prevents backend field names or future internal copy
+      // from leaking into the business report.
+      title: reportColumnLabel(column.key),
+      render: (row) => reportCellDisplayValue(
+        column.key,
+        row.values[column.key],
+      ),
+    }));
 
   const confirmExport = async () => {
     if (exportSubmitting) return;
@@ -483,7 +584,7 @@ export function ReportView({
     try {
       request = createReportExportRequest(
         projection,
-        projection.exportFieldAllowlist,
+        businessExportFields,
         purpose,
       );
     } catch (caught: unknown) {
@@ -545,7 +646,7 @@ export function ReportView({
     <>
       <PageHeader
         title={projection.reportTitle}
-        description="汇总、明细和导出固定使用当前范围、筛选与版本。"
+        description="按当前范围和筛选条件展示汇总明细，并支持受控导出。"
         actions={(
           <Button type="primary" disabled={!exportEnabled} onClick={() => setExportOpen(true)}>
             创建受控导出
@@ -566,29 +667,22 @@ export function ReportView({
             </div>
           ) : null}
           <div><dt>筛选期间</dt><dd>{projection.filters.period}</dd></div>
-          {projection.filters.companyId ? (
-            <div>
-              <dt>公司绑定</dt>
-              <dd><code>{projection.filters.companyId}</code></dd>
-            </div>
-          ) : null}
-          <div><dt>状态</dt><dd>{projection.filters.status ?? '全部'}</dd></div>
           <div>
-            <dt>授权 scope</dt>
+            <dt>状态</dt>
             <dd>
-              {projection.metadata.scope.label}
-              {' · '}
-              {projection.metadata.scope.type}
+              {typeof projection.filters.status === 'string'
+                ? reportCellDisplayValue(
+                    'exception-state',
+                    projection.filters.status,
+                  )
+                : '全部'}
             </dd>
           </div>
-          {liveMetadata ? (
-            <div>
-              <dt>公式版本</dt>
-              <dd><code>{liveMetadata.formulaVersion}</code></dd>
-            </div>
-          ) : null}
-          <div><dt>查询指纹</dt><dd><code>{projection.queryFingerprint}</code></dd></div>
-          <div><dt>授权行数</dt><dd>{projection.rowCount}</dd></div>
+          <div>
+            <dt>数据范围</dt>
+            <dd>{projection.metadata.scope.label}</dd>
+          </div>
+          <div><dt>记录数</dt><dd>{projection.rowCount}</dd></div>
           {liveMetadata ? (
             <div>
               <dt>分页</dt>
@@ -604,7 +698,7 @@ export function ReportView({
         </dl>
       </section>
       <section className="content-surface" aria-labelledby="wave7-report-table-heading">
-        <h2 id="wave7-report-table-heading">同版本汇总明细</h2>
+        <h2 id="wave7-report-table-heading">汇总明细</h2>
         <DataTable
           ariaLabel={projection.reportTitle}
           rows={projection.rows}
@@ -623,11 +717,10 @@ export function ReportView({
         onCancel={closeExportDialog}
         description={(
           <div className="wave7-export-confirmation">
-            <p>导出将固定使用当前范围、筛选、字段白名单和投影版本，并记录审计。</p>
+            <p>导出将使用当前范围和筛选条件，并记录操作日志。</p>
             <dl>
               <div><dt>范围</dt><dd>{projection.metadata.scope.label}</dd></div>
-              <div><dt>版本</dt><dd><code>{projection.metadata.projectionVersion}</code></dd></div>
-              <div><dt>字段数</dt><dd>{projection.exportFieldAllowlist.length}</dd></div>
+              <div><dt>导出字段</dt><dd>{businessExportFields.length} 项</dd></div>
             </dl>
             <label htmlFor="wave7-export-purpose">导出用途</label>
             <Input.TextArea
@@ -778,7 +871,6 @@ export function FormalReportExportStatus({
             <dd>{formatDateTime(job.completedAt)}</dd>
           </div>
         ) : null}
-        <div><dt>任务引用</dt><dd><code>{job.exportId}</code></dd></div>
       </dl>
       {job.status === 'QUEUED' || job.status === 'BUILDING' ? (
         <p role="status">
@@ -835,7 +927,7 @@ export function FormalReportExportStatus({
         description={(
           <div className="wave7-export-confirmation">
             <p>
-              下载前服务端会重新校验当前密码、授权范围、投影版本和文件摘要。
+              下载前会重新校验当前密码和数据访问权限。
             </p>
             <label htmlFor="wave7-download-current-password">
               当前密码
@@ -894,8 +986,6 @@ export function ReportExportStatus({
         <div><dt>用途</dt><dd>{job.purpose}</dd></div>
         <div><dt>申请人</dt><dd>{job.requesterLabel}</dd></div>
         <div><dt>创建时间</dt><dd>{formatDateTime(job.createdAt)}</dd></div>
-        <div><dt>审计引用</dt><dd><code>{job.auditReference}</code></dd></div>
-        <div><dt>任务引用</dt><dd><code>{job.exportReference}</code></dd></div>
       </dl>
       <Button
         disabled={!downloadEnabled}
@@ -914,7 +1004,9 @@ export function createReportExportRequest(
 ): ReportExportRequest {
   const normalizedPurpose = normalizeReportExportPurpose(purpose);
   const allowlist = new Set(projection.exportFieldAllowlist);
-  if (!selectedFields.every((field) => allowlist.has(field))) {
+  if (!selectedFields.every((field) => (
+    allowlist.has(field) && isBusinessReportColumn(field)
+  ))) {
     throw new TypeError('导出字段超出当前报表白名单');
   }
   return {
@@ -927,6 +1019,178 @@ export function createReportExportRequest(
   };
 }
 
+const internalReportColumns = new Set<ReportColumnKey>([
+  // These fields remain available to backend reconciliation and audit logic.
+  // The UI and interactive export deliberately omit their opaque values.
+  'document-reference',
+  'rate-formula-version',
+]);
+
+export function isBusinessReportColumn(key: ReportColumnKey): boolean {
+  return !internalReportColumns.has(key);
+}
+
+const reportColumnLabels = {
+  'business-date': '考勤日期',
+  'employee-number': '工号',
+  'employee-name': '姓名',
+  organization: '部门',
+  shift: '班次',
+  'scheduled-hours': '应出勤工时',
+  'confirmed-hours': '确认工时',
+  'recognized-overtime-hours': '认可加班',
+  'leave-hours': '请假/调休',
+  'absence-hours': '旷工',
+  'actual-work-hours': '实际工时',
+  'late-minutes': '迟到分钟',
+  'penalized-late-minutes': '计罚迟到分钟',
+  'early-minutes': '早退分钟',
+  'missing-punch-count': '缺卡次数',
+  'first-punch': '首次有效打卡',
+  'last-punch': '末次有效打卡',
+  'document-type': '单据类型',
+  'document-reference': '单据记录',
+  'document-start': '开始时间',
+  'document-end': '结束时间',
+  'approval-state': '审批状态',
+  'recognized-hours': '认定小时',
+  'weekday-overtime-hours': '工作日加班',
+  'saturday-overtime-hours': '周六加班',
+  'sunday-overtime-hours': '周日加班',
+  'holiday-overtime-hours': '法定节假日加班',
+  'exception-type': '异常类型',
+  'exception-severity': '异常级别',
+  'exception-state': '处理状态',
+  'exception-minutes': '异常分钟',
+  'evidence-summary': '异常说明',
+  'late-event-count': '迟到次数',
+  'attendance-rate': '出勤率',
+  'rate-formula-version': '计算规则',
+  'account-type': '账户类型',
+  'opening-hours': '期初',
+  'granted-hours': '系统发放',
+  'overtime-credit-hours': '加班转入',
+  'manual-increase-hours': '人工增加',
+  'used-hours': '请假/调休使用',
+  'expired-hours': '到期失效',
+  'returned-hours': '销假/撤销返还',
+  'manual-deduction-hours': '人工扣减',
+  'balance-hours': '当前余额',
+  'equivalent-days': '折合天数（8 小时/天）',
+  scope: '范围',
+  'late-count': '迟到次数',
+  'early-count': '早退次数',
+  'missing-count': '缺卡次数',
+} satisfies Readonly<Record<ReportColumnKey, string>>;
+
+export function reportColumnLabel(key: ReportColumnKey): string {
+  return reportColumnLabels[key] ?? '其他字段';
+}
+
+export function reportCellDisplayValue(
+  key: ReportColumnKey,
+  value: string | number | undefined,
+): string | number {
+  if (value === undefined || value === '') return '—';
+  if (typeof value === 'number') return value;
+  const normalized = value.trim().toUpperCase();
+  if (key === 'exception-type') {
+    return ({
+      LATE: '迟到',
+      EARLY_DEPARTURE: '早退',
+      MISSING_PUNCH_PENDING: '缺卡待补正',
+      MISSING_PUNCH_OVERDUE: '缺卡逾期',
+      ABSENCE: '旷工',
+      EVIDENCE_CONFLICT: '考勤依据冲突',
+      LEAVE_PUNCH_CONFLICT: '请假与打卡冲突',
+      OUTING_OR_TRIP_INCOMPLETE: '外出或出差信息不完整',
+      OA_APPROVAL_STATUS_UNKNOWN: '审批状态待确认',
+      OA_PERSON_REFERENCE_INVALID: '单据人员信息待确认',
+      EMPLOYEE_UNMATCHED: '员工信息未匹配',
+      DUPLICATE_SOURCE_RECORD: '来源记录重复',
+      SOURCE_SCHEMA_CHANGED: '来源数据格式变化',
+      SOURCE_SYNC_STALE: '来源数据未及时更新',
+      NO_ATTENDANCE_GROUP: '未配置考勤组',
+      NO_SHIFT_OR_CALENDAR: '未配置班次或日历',
+      AMBIGUOUS_PUNCH_MATCH: '打卡匹配待确认',
+      CROSS_MIDNIGHT_REVIEW_REQUIRED: '跨日考勤待复核',
+      OVERTIME_DOCUMENT_MISSING_OR_LATE: '加班单据缺失或提交较晚',
+      EARLY_RETURN_CANDIDATE: '可能提前返岗',
+      POST_CLOSE_SOURCE_CHANGE: '结算后来源数据发生变化',
+      INPUT_INTEGRITY_ERROR: '考勤数据不完整',
+    } as Readonly<Record<string, string>>)[normalized]
+      ?? unknownReportEnumLabel(value, normalized, '其他异常');
+  }
+  if (key === 'exception-severity') {
+    return ({
+      INFO: '提示',
+      WARNING: '警告',
+      ERROR: '错误',
+    } as Readonly<Record<string, string>>)[normalized]
+      ?? unknownReportEnumLabel(value, normalized, '其他级别');
+  }
+  if (key === 'exception-state') {
+    return ({
+      OPEN: '待处理',
+      PENDING: '待确认',
+      PENDING_EVIDENCE: '待补充依据',
+      PENDING_REVIEW: '待复核',
+      RESOLVED: '已解决',
+      CLOSED: '已完成',
+    } as Readonly<Record<string, string>>)[normalized]
+      ?? unknownReportEnumLabel(value, normalized, '其他状态');
+  }
+  if (key === 'approval-state') {
+    return ({
+      OPEN: '待处理',
+      PENDING: '待审批',
+      APPROVED: '已通过',
+      REJECTED: '已驳回',
+      DRAFT: '草稿',
+      MODIFIED: '已修改',
+      SUPPLEMENTED: '已补充',
+      REVOKED: '已撤销',
+      UNKNOWN: '待确认',
+    } as Readonly<Record<string, string>>)[normalized]
+      ?? unknownReportEnumLabel(value, normalized, '其他状态');
+  }
+  if (key === 'account-type') {
+    return ({
+      ANNUAL_LEAVE: '年假',
+      COMP_TIME: '调休',
+      RECOGNIZED_OVERTIME: '认可加班',
+    } as Readonly<Record<string, string>>)[normalized]
+      ?? unknownReportEnumLabel(value, normalized, '其他账户');
+  }
+  if (key === 'document-type') {
+    const label = ({
+      LEAVE: '请假',
+      LEAVE_REVOCATION: '销假',
+      OVERTIME: '加班',
+      TRIP: '出差',
+      OUTING: '外出',
+      PUNCH_CORRECTION: '补卡',
+      TIME_OFF: '调休',
+      EXEMPT_PUNCH: '免打卡',
+      ANNUAL_LEAVE: '年假',
+      PERSONAL_LEAVE: '事假',
+      SICK_LEAVE: '病假',
+      MATERNITY_LEAVE: '产假',
+    } as Readonly<Record<string, string>>)[normalized];
+    if (label) return label;
+    return /^[A-Z][A-Z0-9_:-]*$/.test(normalized) ? '其他单据' : value;
+  }
+  return value;
+}
+
+function unknownReportEnumLabel(
+  value: string,
+  normalized: string,
+  fallback: string,
+): string {
+  return /^[A-Z][A-Z0-9_:-]*$/.test(normalized) ? fallback : value;
+}
+
 export function exportDeliveryForRowCount(
   rowCount: number,
 ): ReportExportProjection['delivery'] {
@@ -936,9 +1200,9 @@ export function exportDeliveryForRowCount(
   return rowCount <= 50_000 ? 'SYNCHRONOUS' : 'ASYNCHRONOUS';
 }
 
-function reportTypeLabel(reportType: AttendanceReportType): string {
+export function reportTypeLabel(reportType: AttendanceReportType): string {
   return reportTypeOptions.find((option) => option.value === reportType)?.label
-    ?? reportType;
+    ?? '其他报表';
 }
 
 function isAuthorizationFailure(caught: unknown): boolean {

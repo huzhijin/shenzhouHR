@@ -11,6 +11,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ApiRequestError } from '../../shared/api/apiClient';
 import { BrandLogo } from '../../shared/components/BrandLogo';
 import { isDemoMode } from '../../shared/config/runtimeMode';
+import { passwordMeetsPolicy } from '../../shared/security/passwordPolicy';
 import {
   DEMO_PASSWORD,
   DEMO_USERNAME,
@@ -26,6 +27,7 @@ type LoginState =
   | 'wrong-password'
   | 'locked'
   | 'first-password-change'
+  | 'password-changed-login-required'
   | 'session-expired'
   | 'network-error'
   | 'success';
@@ -33,7 +35,10 @@ type LoginState =
 export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
   const { t } = useTranslation();
   const [form] = Form.useForm();
+  const [firstChangeUsername, setFirstChangeUsername] = useState('');
   const [firstChangeCurrentPassword, setFirstChangeCurrentPassword] = useState('');
+  const [firstChangeSubmitting, setFirstChangeSubmitting] = useState(false);
+  const [firstChangeError, setFirstChangeError] = useState<string>();
   const [state, setState] = useState<LoginState>(
     useLocation().state === 'SESSION_EXPIRED' ? 'session-expired' : 'idle',
   );
@@ -47,12 +52,16 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
     try {
       const result = await login(values.username, values.password);
       if ('code' in result && result.code === 'FIRST_PASSWORD_CHANGE_REQUIRED') {
+        setFirstChangeUsername(values.username);
         setFirstChangeCurrentPassword(values.password);
+        setFirstChangeError(undefined);
         setState('first-password-change');
         return;
       }
       if (!('code' in result) && result.firstPasswordChangeRequired) {
+        setFirstChangeUsername(values.username);
         setFirstChangeCurrentPassword(values.password);
+        setFirstChangeError(undefined);
         setState('first-password-change');
         return;
       }
@@ -65,15 +74,68 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
   };
 
   const submitFirstChange = async (values: { newPassword: string }) => {
-    setState('processing');
+    setFirstChangeSubmitting(true);
+    setFirstChangeError(undefined);
+    let passwordChanged = false;
     try {
       await completeFirstPasswordChange(firstChangeCurrentPassword, values.newPassword);
+      passwordChanged = true;
+      const result = await login(firstChangeUsername, values.newPassword);
+      if (
+        ('code' in result && result.code === 'FIRST_PASSWORD_CHANGE_REQUIRED')
+        || (!('code' in result) && result.firstPasswordChangeRequired)
+      ) {
+        throw new ApiRequestError(409, {
+          code: 'FIRST_PASSWORD_CHANGE_RELOGIN_REQUIRED',
+          message: t('login.passwordChangedReloginRequired'),
+          retryable: false,
+        });
+      }
+      setFirstChangeUsername('');
       setFirstChangeCurrentPassword('');
       setState('success');
       onAuthenticated();
       navigate('/', { replace: true });
     } catch (caught: unknown) {
-      handleLoginError(caught, setState, setErrorDescription, t);
+      if (passwordChanged) {
+        form.setFieldsValue({
+          username: firstChangeUsername,
+          password: '',
+        });
+        setFirstChangeUsername('');
+        setFirstChangeCurrentPassword('');
+        setErrorDescription(t('login.passwordChangedReloginRequired'));
+        setState('password-changed-login-required');
+      } else if (
+        caught instanceof ApiRequestError
+        && caught.code === 'PASSWORD_POLICY_VIOLATION'
+      ) {
+        setFirstChangeError(t('app.newPasswordPolicy'));
+        setState('first-password-change');
+      } else if (
+        caught instanceof ApiRequestError
+        && (
+          caught.code === 'AUTHENTICATION_REQUIRED'
+          || caught.code === 'SESSION_EXPIRED'
+          || caught.code === 'INVALID_CREDENTIALS'
+          || caught.status === 401
+        )
+      ) {
+        form.setFieldsValue({
+          username: firstChangeUsername,
+          password: '',
+        });
+        setFirstChangeUsername('');
+        setFirstChangeCurrentPassword('');
+        // Correlation metadata remains on ApiRequestError for logs, never in the login UI.
+        setErrorDescription(undefined);
+        setState('session-expired');
+      } else {
+        setFirstChangeError(t('login.connectionFailed'));
+        setState('first-password-change');
+      }
+    } finally {
+      setFirstChangeSubmitting(false);
     }
   };
 
@@ -105,12 +167,27 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
           {state === 'session-expired' ? <Alert showIcon type="warning" title={t('login.sessionExpired')} /> : null}
           {state === 'wrong-password' ? <Alert id="login-error" showIcon type="error" title={t('login.invalidCredentials')} description={errorDescription} /> : null}
           {state === 'locked' ? <Alert id="login-error" showIcon type="error" title={t('login.locked')} description={errorDescription ?? t('login.lockedDescription')} /> : null}
+          {state === 'password-changed-login-required' ? <Alert id="login-error" showIcon type="warning" title={t('login.passwordChanged')} description={errorDescription} /> : null}
           {state === 'network-error' ? <Alert id="login-error" showIcon type="error" title={t('login.networkError')} description={errorDescription} action={<Button size="small" icon={<IconRefresh stroke={2} />} onClick={() => setState('idle')}>{t('state.retry')}</Button>} /> : null}
           {state === 'success' ? <Alert showIcon type="success" title={t('login.success')} /> : null}
           {state === 'first-password-change' ? (
             <Form layout="vertical" onFinish={(values) => void submitFirstChange(values)}>
               <Alert showIcon type="info" icon={<IconAlertTriangle stroke={2} />} title={t('login.firstChangeNotice')} />
-              <Form.Item label={t('app.newPassword')} name="newPassword" rules={[{ required: true, min: 12, message: t('app.newPasswordLength') }]}>
+              {firstChangeError ? <Alert id="first-change-error" showIcon type="error" title={t('login.firstChangeFailed')} description={firstChangeError} /> : null}
+              <Form.Item
+                label={t('app.newPassword')}
+                name="newPassword"
+                rules={[
+                  { required: true, message: t('app.newPasswordPolicy') },
+                  {
+                    validator: (_rule, value) => (
+                      value === undefined || passwordMeetsPolicy(value)
+                        ? Promise.resolve()
+                        : Promise.reject(new Error(t('app.newPasswordPolicy')))
+                    ),
+                  },
+                ]}
+              >
                 <Input.Password autoComplete="new-password" aria-describedby="first-change-help" />
               </Form.Item>
               <p id="first-change-help" className="form-help">{t('login.passwordHelp')}</p>
@@ -125,7 +202,7 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
               >
                 <Input.Password autoComplete="new-password" />
               </Form.Item>
-              <Button block type="primary" htmlType="submit">{t('login.completeFirstChange')}</Button>
+              <Button block type="primary" htmlType="submit" loading={firstChangeSubmitting} disabled={firstChangeSubmitting}>{t('login.completeFirstChange')}</Button>
             </Form>
           ) : (
             <Form
@@ -192,5 +269,6 @@ function handleLoginError(
   } else {
     setState('wrong-password');
   }
-  setDescription(caught.correlationId ? t('error.correlationId', { correlationId: caught.correlationId }) : undefined);
+  // Keep request metadata available to diagnostics without exposing internal identifiers to employees.
+  setDescription(undefined);
 }

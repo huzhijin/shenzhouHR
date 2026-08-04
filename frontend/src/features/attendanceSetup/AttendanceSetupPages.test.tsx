@@ -17,6 +17,7 @@ import { CalendarsPage } from './CalendarsPage';
 import { PolicySimulationPanel } from './PolicySimulationPanel';
 import { ShiftVersionDialog } from './ShiftDialogs';
 import { ShiftsPage } from './ShiftsPage';
+import type * as referenceData from '../referenceData';
 import type {
   AttendancePolicyKind,
   CalendarDayView,
@@ -28,6 +29,71 @@ vi.mock('../../shared/config/runtimeMode', () => ({
   isDemoMode: () => true,
 }));
 
+// These page tests exercise the form contract while the shared business selector
+// has its own integration coverage. Keeping a native select here makes the
+// directory boundaries deterministic and preserves the user-facing labels.
+vi.mock('../referenceData', async (importOriginal) => {
+  const actual = await importOriginal<typeof referenceData>();
+  const { createElement } = await import('react');
+  return {
+    ...actual,
+    CompanySelect: ({
+      value,
+      onChange,
+      id,
+      disabled,
+    }: {
+      value?: string;
+      onChange?: (value: string | undefined) => void;
+      id?: string;
+      disabled?: boolean;
+    }) => createElement(
+      'select',
+      {
+        id,
+        disabled,
+        value: value ?? '',
+        onChange: (event: { target: { value: string } }) => {
+          onChange?.(event.target.value || undefined);
+        },
+      },
+      createElement('option', { value: '' }, '请选择公司'),
+      createElement(
+        'option',
+        { value: '9700000000000000001' },
+        '江苏神州半导体科技股份有限公司',
+      ),
+    ),
+    EmployeeSelect: ({
+      value,
+      onChange,
+      id,
+      disabled,
+    }: {
+      value?: string;
+      onChange?: (value: string | undefined) => void;
+      id?: string;
+      disabled?: boolean;
+    }) => createElement(
+      'select',
+      {
+        id,
+        disabled,
+        value: value ?? '',
+        onChange: (event: { target: { value: string } }) => {
+          onChange?.(event.target.value || undefined);
+        },
+      },
+      createElement('option', { value: '' }, '请选择员工'),
+      createElement(
+        'option',
+        { value: 'd0000000-0000-0000-0000-000000000001' },
+        '周明（SYN-0001）· 人力资源部',
+      ),
+    ),
+  };
+});
+
 const capabilities = [
   'ATTENDANCE_SETUP:READ',
   'ATTENDANCE_SETUP:MANAGE_GROUP',
@@ -38,7 +104,6 @@ const capabilities = [
 ];
 const mealPolicyVersionId = '25200000-0000-0000-0000-000000000001';
 const lateGracePolicyVersionId = '25200000-0000-0000-0000-000000000002';
-const monthlyExemptionPolicyVersionId = '25200000-0000-0000-0000-000000000003';
 
 describe('attendance setup demo pages', () => {
   beforeEach(() => {
@@ -50,11 +115,14 @@ describe('attendance setup demo pages', () => {
     cleanup();
   });
 
-  it('renders effective attendance assignments with natural-month continuity', async () => {
+  it('renders effective attendance assignments with business labels only', async () => {
     renderPage(<AttendanceGroupsPage capabilities={capabilities} />);
 
     expect((await screen.findAllByText('苏州一号晶圆厂')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('9200000000000000001:2026-07')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('已归档员工')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('暑期产线轮班安排').length).toBeGreaterThan(0);
+    expect(screen.queryByText('9200000000000000001:2026-07')).not.toBeInTheDocument();
+    expect(screen.queryByText('9200000000000000001')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '分配人员' })).toBeEnabled();
   });
 
@@ -160,14 +228,15 @@ describe('attendance setup demo pages', () => {
     });
   });
 
-  it('renders a year-boundary warning and the selected annual calendar', async () => {
+  it('renders the selected annual calendar without technical boundary hints', async () => {
     renderPage(<CalendarsPage capabilities={capabilities} />);
 
     expect((await screen.findAllByText(/苏州一号厂 2026 工作日历/)).length).toBeGreaterThan(0);
-    expect(screen.getByRole('region', { name: '工作日历族' })).toBeInTheDocument();
-    expect(await screen.findByRole('region', { name: '不可变日历版本' }))
+    expect(await screen.findByRole('region', { name: '工作日历族' }))
       .toBeInTheDocument();
-    expect(screen.getByText('跨年边界独立解析')).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: '日历版本' })).toBeInTheDocument();
+    expect(screen.queryByText('跨年边界独立解析')).not.toBeInTheDocument();
+    expect(screen.queryByText('[start_date, end_exclusive)')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存日期覆盖' })).toBeDisabled();
   });
 
@@ -307,14 +376,16 @@ describe('attendance setup demo pages', () => {
     expect(screen.getByRole('button', { name: '保存日期覆盖' })).toBeEnabled();
   });
 
-  it('keeps every WAVE-3 setup page read-only while exposing immutable history to AUDITOR', async () => {
+  it('keeps every setup page read-only while exposing business-readable history to AUDITOR', async () => {
     const readOnlyCapabilities = ['ATTENDANCE_SETUP:READ', 'AUDIT:READ'];
     const groupsView = renderPage(
       <AttendanceGroupsPage capabilities={readOnlyCapabilities} />,
     );
 
-    expect((await screen.findAllByText('a'.repeat(64))).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('c'.repeat(64)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('苏州一号晶圆厂')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('一号厂 A 班四班两倒').length).toBeGreaterThan(0);
+    expect(screen.queryByText('a'.repeat(64))).not.toBeInTheDocument();
+    expect(screen.queryByText('c'.repeat(64))).not.toBeInTheDocument();
     expect(await screen.findByRole(
       'region',
       { name: '地点修订历史' },
@@ -327,7 +398,7 @@ describe('attendance setup demo pages', () => {
     )).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '考勤设置' }))
       .toHaveAttribute('href', '/rules/attendance-groups');
-    expect(screen.queryByRole('button', { name: '新建考勤地点' }))
+    expect(screen.queryByRole('button', { name: '新建地点' }))
       .not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '新建考勤组' }))
       .not.toBeInTheDocument();
@@ -338,11 +409,11 @@ describe('attendance setup demo pages', () => {
     groupsView.unmount();
 
     const shiftsView = renderPage(<ShiftsPage capabilities={readOnlyCapabilities} />);
-    expect((await screen.findAllByText(
+    expect(await screen.findByText('冬春季白班', {}, { timeout: 10_000 }))
+      .toBeInTheDocument();
+    expect(screen.queryByText(
       '7f5dd34ba0f08fe28c835f45a8f4354c7f5dd34ba0f08fe28c835f45a8f4354c',
-      {},
-      { timeout: 10_000 },
-    )).length).toBeGreaterThan(0);
+    )).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '考勤设置' }))
       .toHaveAttribute('href', '/rules/attendance-groups');
     expect(screen.queryByRole('button', { name: '新建班次模板' }))
@@ -354,7 +425,9 @@ describe('attendance setup demo pages', () => {
     shiftsView.unmount();
 
     renderPage(<CalendarsPage capabilities={readOnlyCapabilities} />);
-    expect((await screen.findAllByText('d'.repeat(64))).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/苏州一号厂 2026 工作日历/)).length)
+      .toBeGreaterThan(0);
+    expect(screen.queryByText('d'.repeat(64))).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: '考勤设置' }))
       .toHaveAttribute('href', '/rules/attendance-groups');
     expect(screen.queryByRole('button', { name: '新建年度日历' }))
@@ -436,26 +509,32 @@ describe('attendance setup demo pages', () => {
   });
 
   it('runs a server-shaped policy simulation without writing a formal result', async () => {
-    renderPolicyPage();
+    const simulationSpy = vi.spyOn(attendanceSetupApi, 'simulateAttendancePolicy');
+    const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '运行试算' }));
+    await submitSimulationForm(view.container);
 
     await waitFor(() => {
-      expect(screen.getByText(/正式结果未写入/)).toBeInTheDocument();
+      expect(simulationSpy).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getAllByText('否').length).toBeGreaterThan(0);
+    expect(screen.getByText('试算仅用于预览，不会修改正式考勤结果。'))
+      .toBeInTheDocument();
+    expect(screen.getByText('判定状态')).toBeInTheDocument();
+    expect(screen.queryByText(/configurationDigest|writesFormalResult|策略版本 ID/))
+      .not.toBeInTheDocument();
   });
 
   it('resolves a deep-linked non-meal policy from its exact server context', async () => {
     renderPolicyPage(lateGracePolicyVersionId);
 
     expect(await screen.findByText('迟到分钟宽限')).toBeInTheDocument();
-    expect(screen.getByLabelText('已发布策略版本 ID')).toHaveValue(
-      lateGracePolicyVersionId,
-    );
+    expect(await screen.findByText('江苏神州半导体科技股份有限公司'))
+      .toBeInTheDocument();
+    expect(screen.getByText('当前策略版本：V1')).toBeInTheDocument();
     expect(await screen.findByText('策略版本生命周期')).toBeInTheDocument();
-    expect(screen.getByText('graceMinutes')).toBeInTheDocument();
+    expect(screen.queryByText(lateGracePolicyVersionId)).not.toBeInTheDocument();
+    expect(screen.queryByText('graceMinutes')).not.toBeInTheDocument();
     expect(screen.queryByText('晚餐窗口开始')).not.toBeInTheDocument();
   });
 
@@ -471,7 +550,7 @@ describe('attendance setup demo pages', () => {
     expect(screen.getByRole('button', { name: '新建策略绑定' })).toBeDisabled();
   });
 
-  it('submits a local-current-day simulation payload with a strict knowledge cutoff and no default punches', async () => {
+  it('submits a local-current-day simulation using a selected employee and no default punches', async () => {
     const onSimulate = vi.fn();
     const beforeRender = new Date();
     const view = render(
@@ -484,14 +563,17 @@ describe('attendance setup demo pages', () => {
     );
 
     const businessDate = (screen.getByLabelText('开始日期') as HTMLInputElement).value;
-    const correctionAsOf = (screen.getByLabelText('补正判断日') as HTMLInputElement).value;
+    const correctionAsOf = (screen.getByLabelText('数据截至时间') as HTMLInputElement).value;
 
-    submitSimulationForm(view.container);
+    expect(screen.getByLabelText('数据截至时间')).toHaveAttribute('type', 'datetime-local');
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(onSimulate).toHaveBeenCalledWith({
-        employeeId: '9200000000000000001',
+        employeeId: 'd0000000-0000-0000-0000-000000000001',
         businessDate,
-        correctionAsOf,
+        correctionAsOf: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/,
+        ),
         punches: [],
       });
     });
@@ -499,16 +581,16 @@ describe('attendance setup demo pages', () => {
 
     expect([localDate(beforeRender), localDate(after)]).toContain(businessDate);
     expect(correctionAsOf).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/,
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?$/,
     );
-    expect(Date.parse(correctionAsOf)).toBeGreaterThanOrEqual(beforeRender.getTime() - 1_000);
-    expect(Date.parse(correctionAsOf)).toBeLessThanOrEqual(after.getTime());
+    const submitted = onSimulate.mock.calls[0]?.[0] as { correctionAsOf: string };
+    expect(Date.parse(submitted.correctionAsOf)).toBeGreaterThanOrEqual(
+      beforeRender.getTime() - 1_000,
+    );
+    expect(Date.parse(submitted.correctionAsOf)).toBeLessThanOrEqual(after.getTime());
   });
 
-  it.each([
-    ['missing seconds', '2026-07-27T12:00+08:00'],
-    ['missing Z/offset suffix', '2026-07-27T12:00:00'],
-  ])('rejects a simulation correction instant %s', async (_caseName, correctionAsOf) => {
+  it('requires the user-friendly data cutoff field without exposing RFC3339 rules', async () => {
     const onSimulate = vi.fn();
     const view = render(
       <PolicySimulationPanel
@@ -518,15 +600,16 @@ describe('attendance setup demo pages', () => {
         onSimulate={onSimulate}
       />,
     );
-    const correctionInput = screen.getByLabelText('补正判断日');
+    const correctionInput = screen.getByLabelText('数据截至时间');
 
-    fireEvent.change(correctionInput, { target: { value: correctionAsOf } });
-    submitSimulationForm(view.container);
-    expect(await screen.findByText('必须填写带时区偏移的 RFC3339 时间')).toBeInTheDocument();
+    fireEvent.change(correctionInput, { target: { value: '' } });
+    await submitSimulationForm(view.container);
+    expect(await screen.findByText('请选择数据截至时间')).toBeInTheDocument();
+    expect(screen.queryByText(/RFC3339|时区偏移/)).not.toBeInTheDocument();
     expect(onSimulate).toHaveBeenCalledTimes(0);
   });
 
-  it('submits a simulation correction instant with a Z suffix as an exact authoritative payload', async () => {
+  it('converts a local data cutoff selection into the offset-bearing API payload', async () => {
     const onSimulate = vi.fn();
     const view = render(
       <PolicySimulationPanel
@@ -537,17 +620,19 @@ describe('attendance setup demo pages', () => {
       />,
     );
     const businessDate = (screen.getByLabelText('开始日期') as HTMLInputElement).value;
-    const correctionInput = screen.getByLabelText('补正判断日');
+    const correctionInput = screen.getByLabelText('数据截至时间');
 
-    fireEvent.change(correctionInput, { target: { value: '2026-07-27T12:00:00Z' } });
-    submitSimulationForm(view.container);
+    fireEvent.change(correctionInput, { target: { value: '2026-07-27T12:00:00' } });
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(onSimulate).toHaveBeenCalledTimes(1);
     });
     expect(onSimulate).toHaveBeenCalledWith({
-      employeeId: '9200000000000000001',
+      employeeId: 'd0000000-0000-0000-0000-000000000001',
       businessDate,
-      correctionAsOf: '2026-07-27T12:00:00Z',
+      correctionAsOf: expect.stringMatching(
+        /^2026-07-27T12:00:00[+-]\d{2}:\d{2}$/,
+      ),
       punches: [],
     });
   });
@@ -560,10 +645,10 @@ describe('attendance setup demo pages', () => {
     const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '运行试算' }));
+    await submitSimulationForm(view.container);
     expect(await screen.findByText('旧试算结果')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '运行试算' }));
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(2);
     });
@@ -580,10 +665,10 @@ describe('attendance setup demo pages', () => {
     const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '运行试算' }));
+    await submitSimulationForm(view.container);
     expect(await screen.findByText('旧试算结果')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '运行试算' }));
+    await submitSimulationForm(view.container);
 
     const resultRegion = requiredElement(view.container, '.policy-simulation-result');
     await waitFor(() => {
@@ -601,11 +686,11 @@ describe('attendance setup demo pages', () => {
     const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(1);
     });
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(2);
     });
@@ -635,11 +720,11 @@ describe('attendance setup demo pages', () => {
     const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(1);
     });
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(2);
     });
@@ -666,14 +751,14 @@ describe('attendance setup demo pages', () => {
     const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     expect(await screen.findByText('切换 kind 前的结果')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('迟到宽限'));
+    selectPolicyKind('迟到宽限');
     await waitFor(() => {
       expect(screen.queryByText('切换 kind 前的结果')).not.toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText('晚餐扣除'));
+    selectPolicyKind('晚餐扣除');
     expect(screen.queryByText('切换 kind 前的结果')).not.toBeInTheDocument();
   });
 
@@ -683,10 +768,10 @@ describe('attendance setup demo pages', () => {
     const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     expect(await screen.findByText('服务暂时不可用，请稍后重试。')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('迟到宽限'));
+    selectPolicyKind('迟到宽限');
     await waitFor(() => {
       expect(screen.queryByText('服务暂时不可用，请稍后重试。')).not.toBeInTheDocument();
     });
@@ -698,7 +783,7 @@ describe('attendance setup demo pages', () => {
     const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(1);
     });
@@ -706,7 +791,7 @@ describe('attendance setup demo pages', () => {
       within(requiredElement(view.container, '.policy-simulation-result')).getByLabelText('正在加载'),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('迟到宽限'));
+    selectPolicyKind('迟到宽限');
     await waitFor(() => {
       expect(
         within(requiredElement(view.container, '.policy-simulation-result'))
@@ -748,30 +833,30 @@ describe('attendance setup demo pages', () => {
     const view = renderPolicyPage();
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     expect(await screen.findByText('旧 route 结果')).toBeInTheDocument();
-    changePolicyRoute(lateGracePolicyVersionId);
+    await changePolicyRoute('LATE_GRACE');
     await waitFor(() => {
       expect(screen.queryByText('旧 route 结果')).not.toBeInTheDocument();
     });
     expect(await screen.findByText('迟到分钟宽限')).toBeInTheDocument();
 
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     expect(await screen.findByText('服务暂时不可用，请稍后重试。')).toBeInTheDocument();
-    changePolicyRoute(monthlyExemptionPolicyVersionId);
+    await changePolicyRoute('MONTHLY_LATE_EXEMPTION');
     await waitFor(() => {
       expect(screen.queryByText('服务暂时不可用，请稍后重试。')).not.toBeInTheDocument();
     });
     expect(await screen.findByRole('heading', { name: '自然月迟到豁免' }))
       .toBeInTheDocument();
 
-    submitSimulationForm(view.container);
+    await submitSimulationForm(view.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(3);
     });
     const resultRegion = requiredElement(view.container, '.policy-simulation-result');
     expect(within(resultRegion).getByLabelText('正在加载')).toBeInTheDocument();
-    changePolicyRoute(mealPolicyVersionId);
+    await changePolicyRoute('MEAL_DEDUCTION');
     await waitFor(() => {
       expect(within(resultRegion).queryByLabelText('正在加载')).not.toBeInTheDocument();
     });
@@ -792,7 +877,7 @@ describe('attendance setup demo pages', () => {
 
     const successView = renderPolicyPage();
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    submitSimulationForm(successView.container);
+    await submitSimulationForm(successView.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(1);
     });
@@ -803,7 +888,7 @@ describe('attendance setup demo pages', () => {
 
     const rejectionView = renderPolicyPage();
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
-    submitSimulationForm(rejectionView.container);
+    await submitSimulationForm(rejectionView.container);
     await waitFor(() => {
       expect(attendanceSetupApi.simulateAttendancePolicy).toHaveBeenCalledTimes(2);
     });
@@ -861,9 +946,38 @@ describe('attendance setup demo pages', () => {
 
     expect(within(resultRegion).getByText('105')).toBeInTheDocument();
     expect(within(resultRegion).getByText(
-      'SATURDAY_LUNCH [12:00, 13:00) · 60 分钟；'
-      + 'SATURDAY_DINNER [17:00, 19:00) · 45 分钟',
+      '午餐 12:00–13:00 · 60 分钟；晚餐 17:00–19:00 · 45 分钟',
     )).toBeInTheDocument();
+    expect(within(resultRegion).queryByText(/SATURDAY_|\[12:00/))
+      .not.toBeInTheDocument();
+  });
+
+  it('does not expose structured backend details in a simulation explanation', () => {
+    const result = simulationResult(
+      '{"policyVersionId":"550e8400-e29b-41d4-a716-446655440000","rowVersion":3}',
+    );
+    result.results[0] = {
+      ...requiredItem(result.results, 0),
+      usageKnowledgeTime: 'INTERNAL_INVALID_TIMESTAMP',
+    };
+
+    render(
+      <PolicySimulationPanel
+        policyKind="MEAL_DEDUCTION"
+        policyVersionId="meal-version"
+        processing={false}
+        result={result}
+        onSimulate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('当前结果请结合规则配置确认。'))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/policyVersionId|rowVersion|550e8400/))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText('INTERNAL_INVALID_TIMESTAMP'))
+      .not.toBeInTheDocument();
+    expect(screen.getAllByText('—')).not.toHaveLength(0);
   });
 
   it('does not render a different policy kind as a fallback result', () => {
@@ -894,7 +1008,8 @@ describe('attendance setup demo pages', () => {
 
     expect(await screen.findByText('晚餐窗口开始')).toBeInTheDocument();
     expect(await screen.findByText('策略版本生命周期')).toBeInTheDocument();
-    expect(screen.getAllByText('1'.repeat(64)).length).toBeGreaterThan(0);
+    expect(screen.queryByText('1'.repeat(64))).not.toBeInTheDocument();
+    expect(screen.getByText('当前策略版本：V1')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '运行试算' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '预览影响' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '新建策略绑定' })).not.toBeInTheDocument();
@@ -923,15 +1038,45 @@ function renderPolicyPage(versionId = mealPolicyVersionId) {
   );
 }
 
-function submitSimulationForm(container: HTMLElement) {
+async function submitSimulationForm(container: HTMLElement) {
+  await selectSimulationEmployee(container);
   fireEvent.submit(requiredElement(container, '.policy-simulation-workbench form'));
 }
 
-function changePolicyRoute(versionId: string) {
-  fireEvent.change(screen.getByLabelText('已发布策略版本 ID'), {
-    target: { value: versionId },
+async function selectSimulationEmployee(container: HTMLElement) {
+  const input = within(container).getByLabelText('员工') as HTMLSelectElement;
+  const employeeId = 'd0000000-0000-0000-0000-000000000001';
+  if (input.value === employeeId) return;
+
+  fireEvent.change(input, { target: { value: employeeId } });
+  await waitFor(() => {
+    expect(input).toHaveValue(employeeId);
   });
-  fireEvent.click(screen.getByRole('button', { name: '选择' }));
+}
+
+async function changePolicyRoute(policyKind: AttendancePolicyKind) {
+  const labels: Record<AttendancePolicyKind, string> = {
+    MEAL_DEDUCTION: '晚餐扣除',
+    LATE_GRACE: '迟到宽限',
+    MONTHLY_LATE_EXEMPTION: '自然月迟到豁免',
+  };
+  selectPolicyKind(labels[policyKind]);
+  const company = await screen.findByLabelText('公司') as HTMLSelectElement;
+  if (!company.value) {
+    fireEvent.change(company, { target: { value: '9700000000000000001' } });
+  }
+
+  const versionTable = await screen.findByRole(
+    'region',
+    { name: '策略版本生命周期' },
+  );
+  fireEvent.click(within(versionTable).getByRole('button', { name: '版本 1' }));
+  await screen.findByText('当前策略版本：V1');
+}
+
+function selectPolicyKind(label: string) {
+  const control = screen.getByRole('radiogroup', { name: 'segmented control' });
+  fireEvent.click(within(control).getByTitle(label));
 }
 
 function localDate(value: Date): string {

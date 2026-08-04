@@ -88,7 +88,7 @@ const overviewMetrics: WorkbenchMetric[] = [
     path: '/attendance/reports',
   },
   {
-    label: '规则版本',
+    label: '当前规则',
     value: '第三版草稿',
     meta: '2026-08-01 拟生效',
     path: '/rules/attendance-policy',
@@ -128,7 +128,7 @@ const tasks: WorkbenchTask[] = [
 
 const searchItems = [
   { label: '考勤工作台', description: '查看优先事项与数据新鲜度', path: '/workbench' },
-  { label: '在线考勤来源', description: '查看设备、办公系统与数据水位', path: '/sources/online' },
+  { label: '在线考勤来源', description: '查看设备、办公系统与最近同步时间', path: '/sources/online' },
   { label: '考勤电子表格导入', description: '上传、预检并发布离线打卡', path: '/sources/attendance-excel' },
   { label: '考勤报表中心', description: '查询并导出八张独立报表', path: '/attendance/reports' },
   { label: '考勤运行大屏', description: '查看公司与部门聚合指标', path: '/attendance/screen' },
@@ -174,8 +174,8 @@ function WorkbenchSidebar() {
         </section>
       ))}
       <div className="odw-sidebar-note">
-        <strong>演示版本 1.9 · 项目内置</strong>
-        <span>角色与数据范围必须由服务端重新校验。</span>
+        <strong>考勤工作台预览</strong>
+        <span>当前账号的数据权限已生效。</span>
       </div>
     </aside>
   );
@@ -445,7 +445,7 @@ export function OpenDesignWorkbenchPage({ onLogout }: OpenDesignWorkbenchPagePro
         </header>
 
         <div className="odw-context-strip" aria-label="当前工作台上下文">
-          <span className="odw-prototype-label">合成数据</span>
+          <span className="odw-prototype-label">示例数据</span>
           <span>角色：<strong>考勤管理员</strong></span>
           <span>范围：<strong>江苏公司 · 授权考勤组</strong></span>
           <span>期间：<strong>2026-07</strong></span>

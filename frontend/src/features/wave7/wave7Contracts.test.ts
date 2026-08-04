@@ -10,6 +10,7 @@ import {
   assertAttendanceReportCompanyDirectory,
   assertLiveReportProjection,
   assertWave7Projection,
+  parseAttendanceDashboardResponse,
 } from './wave7Contracts';
 import { wave7ProjectionGateway } from './wave7Gateway';
 
@@ -245,6 +246,187 @@ describe('Wave 7 projection contracts', () => {
     })).toThrow(/completedAt/);
   });
 
+  it('accepts ready and multi-company attendance dashboard responses', () => {
+    const ready = parseAttendanceDashboardResponse(
+      attendanceDashboardResponse(),
+    );
+    expect(ready.kind).toBe('DASHBOARD');
+    if (ready.kind !== 'DASHBOARD') {
+      throw new TypeError('dashboard response must be ready');
+    }
+    expect(ready.metrics).toEqual([]);
+    expect(ready.summary).toEqual({
+      unresolvedCount: 1,
+      affectedEmployeeCount: 1,
+      blockingCount: 1,
+    });
+    expect(ready.analytics.dailyTrend).toHaveLength(7);
+    expect(ready.analytics.severityDistribution.map((item) =>
+      item.severity)).toEqual(['INFO', 'WARNING', 'ERROR']);
+
+    expect(parseAttendanceDashboardResponse({
+      kind: 'DASHBOARD_COMPANY_SELECTION',
+      title: '今日异常考勤',
+      businessDate: '2026-07-30',
+      selectedCompanyId: null,
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
+      ],
+      message: '请选择公司后查看今日异常考勤',
+    })).toMatchObject({
+      kind: 'DASHBOARD_COMPANY_SELECTION',
+      selectedCompanyId: null,
+    });
+  });
+
+  it('rejects unsafe or inconsistent attendance dashboard responses', () => {
+    const ready = attendanceDashboardResponse();
+    const firstException = ready.exceptions[0]!;
+    const elevenExceptions = Array.from({ length: 11 }, (_, index) => ({
+      ...firstException,
+      exceptionReference: `exception-${index}`,
+    }));
+
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      summary: {
+        unresolvedCount: 11,
+        affectedEmployeeCount: 1,
+        blockingCount: 1,
+      },
+      exceptions: elevenExceptions,
+    })).toThrow(/at most 10/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      summary: {
+        unresolvedCount: 1,
+        affectedEmployeeCount: 2,
+        blockingCount: 1,
+      },
+    })).toThrow(/internally inconsistent/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      currentPassword: 'must-not-pass-through',
+    })).toThrow(/unsupported property/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      businessDate: '2026-02-31',
+    })).toThrow(/YYYY-MM-DD/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      exceptions: [{
+        ...firstException,
+        businessDate: '2026-07-29',
+      }],
+    })).toThrow(/must match/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      exceptions: [{
+        ...firstException,
+        state: 'RESOLVED',
+      }],
+    })).toThrow(/state is invalid/);
+  });
+
+  it('rejects missing, malformed, or misordered dashboard analytics', () => {
+    const ready = attendanceDashboardResponse();
+    const { analytics: omitted, ...missingAnalytics } = ready;
+    void omitted;
+
+    expect(() => parseAttendanceDashboardResponse(missingAnalytics))
+      .toThrow(/incomplete/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      analytics: {
+        ...ready.analytics,
+        internalScopeId: 'must-not-pass-through',
+      },
+    })).toThrow(/unsupported property/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      analytics: {
+        ...ready.analytics,
+        dailyTrend: ready.analytics.dailyTrend.slice(1),
+      },
+    })).toThrow(/window is incomplete/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      analytics: {
+        ...ready.analytics,
+        severityDistribution: [
+          ready.analytics.severityDistribution[1],
+          ready.analytics.severityDistribution[0],
+          ready.analytics.severityDistribution[2],
+        ],
+      },
+    })).toThrow(/order is invalid/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      analytics: {
+        ...ready.analytics,
+        typeDistribution: [
+          { exceptionType: 'ZZZ', count: 1 },
+          { exceptionType: 'AAA', count: 1 },
+        ],
+      },
+    })).toThrow(/order is invalid/);
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      analytics: {
+        ...ready.analytics,
+        organizationRanking: Array.from(
+          { length: 6 },
+          (_, index) => ({
+            organizationName: `组织${index}`,
+            exceptionCount: 1,
+            blockingCount: 0,
+          }),
+        ),
+      },
+    })).toThrow(/at most 5/);
+  });
+
+  it('accepts explicit zero-valued dashboard analytics', () => {
+    const ready = attendanceDashboardResponse();
+    const analytics = attendanceDashboardAnalytics();
+    const parsed = parseAttendanceDashboardResponse({
+      ...ready,
+      summary: {
+        unresolvedCount: 0,
+        affectedEmployeeCount: 0,
+        blockingCount: 0,
+      },
+      exceptions: [],
+      analytics: {
+        dailyTrend: analytics.dailyTrend.map((item) => ({
+          ...item,
+          exceptionCount: 0,
+          blockingCount: 0,
+          affectedEmployeeCount: 0,
+        })),
+        severityDistribution: [
+          { severity: 'INFO', count: 0 },
+          { severity: 'WARNING', count: 0 },
+          { severity: 'ERROR', count: 0 },
+        ],
+        typeDistribution: [],
+        organizationRanking: [],
+      },
+    });
+
+    expect(parsed.kind).toBe('DASHBOARD');
+    if (parsed.kind !== 'DASHBOARD') {
+      throw new TypeError('dashboard response must be ready');
+    }
+    expect(parsed.analytics.dailyTrend.at(-1)).toMatchObject({
+      businessDate: '2026-07-30',
+      exceptionCount: 0,
+    });
+    expect(parsed.analytics.typeDistribution).toEqual([]);
+    expect(parsed.analytics.organizationRanking).toEqual([]);
+  });
+
   it('fails closed before the upstream projections are synchronized', async () => {
     await expect(wave7ProjectionGateway.loadToday()).rejects.toMatchObject({
       status: 503,
@@ -253,3 +435,111 @@ describe('Wave 7 projection contracts', () => {
     });
   });
 });
+
+function attendanceDashboardResponse() {
+  return {
+    kind: 'DASHBOARD',
+    title: '今日异常考勤',
+    businessDate: '2026-07-30',
+    selectedCompanyId: 'company-a',
+    metadata: {
+      projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+      sourceVersions: ['ATTENDANCE-CALC-V1'],
+      dataAsOf: '2026-07-30T01:00:00Z',
+      timeZone: 'Asia/Shanghai',
+      periodLabel: '2026-07',
+      periodState: 'OPEN',
+      scope: {
+        type: 'COMPANY',
+        reference: 'company-a',
+        label: '神州半导体',
+      },
+      allowedActions: ['DASHBOARD_DRILL_DOWN'],
+    },
+    summary: {
+      unresolvedCount: 1,
+      affectedEmployeeCount: 1,
+      blockingCount: 1,
+    },
+    exceptions: [{
+      exceptionReference: 'exception-1',
+      employeeNumber: 'SZ001',
+      employeeName: '张三',
+      organizationName: '制造一部',
+      businessDate: '2026-07-30',
+      exceptionType: 'MISSING_PUNCH_OVERDUE',
+      severity: 'ERROR',
+      state: 'PENDING_REVIEW',
+      exceptionMinutes: 480,
+      evidenceSummary: '下班卡缺失',
+    }],
+    analytics: attendanceDashboardAnalytics(),
+    companies: [
+      { companyId: 'company-a', companyName: '神州半导体' },
+      { companyId: 'company-b', companyName: '神州科技' },
+    ],
+  };
+}
+
+function attendanceDashboardAnalytics() {
+  return {
+    dailyTrend: [
+      {
+        businessDate: '2026-07-24',
+        exceptionCount: 0,
+        blockingCount: 0,
+        affectedEmployeeCount: 0,
+      },
+      {
+        businessDate: '2026-07-25',
+        exceptionCount: 0,
+        blockingCount: 0,
+        affectedEmployeeCount: 0,
+      },
+      {
+        businessDate: '2026-07-26',
+        exceptionCount: 0,
+        blockingCount: 0,
+        affectedEmployeeCount: 0,
+      },
+      {
+        businessDate: '2026-07-27',
+        exceptionCount: 0,
+        blockingCount: 0,
+        affectedEmployeeCount: 0,
+      },
+      {
+        businessDate: '2026-07-28',
+        exceptionCount: 0,
+        blockingCount: 0,
+        affectedEmployeeCount: 0,
+      },
+      {
+        businessDate: '2026-07-29',
+        exceptionCount: 0,
+        blockingCount: 0,
+        affectedEmployeeCount: 0,
+      },
+      {
+        businessDate: '2026-07-30',
+        exceptionCount: 1,
+        blockingCount: 1,
+        affectedEmployeeCount: 1,
+      },
+    ],
+    severityDistribution: [
+      { severity: 'INFO', count: 0 },
+      { severity: 'WARNING', count: 0 },
+      { severity: 'ERROR', count: 1 },
+    ],
+    typeDistribution: [{
+      exceptionType: 'MISSING_PUNCH_OVERDUE',
+      count: 1,
+    }],
+    organizationRanking: [{
+      organizationName: '制造一部',
+      exceptionCount: 1,
+      blockingCount: 1,
+    }],
+  };
+}

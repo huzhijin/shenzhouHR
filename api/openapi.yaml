@@ -265,11 +265,12 @@ x-delivery-contract:
         - { method: POST, path: /attendance-reports/exports, requestSchema: AttendanceReportExportCreateRequest, responseSchema: AttendanceReportExportView, errors: [400, 401, 403, 409] }
         - { method: GET, path: '/attendance-reports/exports/{exportId}', responseSchema: AttendanceReportExportView, errors: [401, 403, 404] }
         - { method: POST, path: '/attendance-reports/exports/{exportId}/download', requestSchema: ReportExportReauthenticationRequest, responseSchema: binary, errors: [400, 401, 403, 404, 409, 410] }
-        - { method: GET, path: /attendance-dashboards, responseSchema: AttendanceDashboardView, errors: [401, 403] }
         - { method: GET, path: /display/attendance, responseSchema: AttendanceDisplaySnapshotView, errors: [401, 403] }
 tags:
   - name: Authentication
     description: 本地账号登录、密码生命周期与服务端会话。
+  - name: ReferenceData
+    description: 管理表单使用的只读名称引用目录。
   - name: Access
     description: 账号、角色授权与服务端能力管理。
   - name: Audit
@@ -493,6 +494,70 @@ paths:
                 $ref: '#/components/schemas/CurrentCapabilities'
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
+  /me/attendance-dashboard:
+    get:
+      tags: [AttendanceReports]
+      operationId: getSelfAttendanceDashboard
+      summary: 获取当前登录员工本人的考勤工作台
+      x-capability: ATTENDANCE_SELF:READ
+      description: |
+        仅从当前主体绑定员工、有效 SELF 数据范围及当月最新已发布投影读取。
+        服务端再次按 principal.employee_id 过滤所有日事实和异常事实，不接受公司、
+        组织或员工选择参数，也不返回组织分布或其他员工标识。投影未发布或当天数据
+        尚未就绪时返回 409，不将缺失数据伪装为真实零值。
+      responses:
+        '200':
+          description: 当前登录员工本人的月度指标、近七日趋势和未解决异常
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfAttendanceDashboardView'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /reference-data/companies:
+    get:
+      tags: [ReferenceData]
+      operationId: listReferenceCompanies
+      summary: 获取启用公司的名称引用目录
+      description: |
+        返回状态为 ACTIVE 的公司稳定标识、编码和名称，供管理端选择器显示名称并提交 companyId。
+        不返回停用公司或其他公司业务数据。
+      x-capabilities-any:
+        - ACCOUNT:READ
+        - ROLE:READ
+        - MASTER_DATA:READ
+        - ORGANIZATION:READ
+        - EMPLOYEE:READ
+        - ATTENDANCE_SETUP:READ
+      responses:
+        '200':
+          description: 按公司编码、名称和稳定标识排序的启用公司目录
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CompanyReference'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
   /access/accounts:
     get:
       tags: [Access]
@@ -524,7 +589,7 @@ paths:
     post:
       tags: [Access]
       operationId: createAccount
-      summary: 创建本地账号
+      summary: 创建本地账号；普通账号默认临时密码为 123456
       x-capability: ACCOUNT:CREATE
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
@@ -666,6 +731,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AcceptedOperation'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+        '404':
+          $ref: '#/components/responses/ResourceNotAvailable'
+  /access/accounts/{accountId}/temporary-password-reset:
+    post:
+      tags: [Access]
+      operationId: resetAccountTemporaryPassword
+      summary: 管理员直接重置临时密码并强制账号下次登录改密
+      description: |
+        普通账号由服务端固定重置为临时密码 123456，忽略请求中的 temporaryPassword；
+        SYSTEM_ADMIN、HR_ADMIN、AUDITOR 高权限账号必须提供符合强密码策略的临时密码。
+        成功后撤销该账号全部会话、作废未使用的密码重置授权，并记录不含密码的审计事件。
+      x-capability: ACCOUNT:RESET_PASSWORD
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemporaryPasswordResetRequest'
+      responses:
+        '204':
+          description: 临时密码已重置，账号下次登录必须修改密码
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
         '403':
           $ref: '#/components/responses/AccessDenied'
         '404':
@@ -4441,6 +4536,42 @@ paths:
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-dashboards:
+    get:
+      tags: [AttendanceReports]
+      operationId: getAttendanceDashboard
+      x-capability: ATTENDANCE_DASHBOARD:READ
+      description: |
+        按 Asia/Shanghai 当前业务日，从当前公司最新已发布的不可变考勤报表投影中，
+        在服务端应用公司、组织后代或本人数据范围后汇总未解决异常、趋势、严重级别、
+        异常类型和组织排行。未发布投影不能伪装为零异常；多公司授权且未指定
+        companyId 时返回显式公司选择状态。
+      parameters:
+        - name: companyId
+          in: query
+          required: false
+          description: 单公司授权可省略；多公司授权必须从本响应的授权公司目录显式选择。
+          schema:
+            type: string
+            maxLength: 36
+      responses:
+        '200':
+          description: 今日异常看板，或多公司授权下的显式公司选择状态
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/AttendanceDashboardView' }
+                  - { $ref: '#/components/schemas/AttendanceDashboardCompanySelection' }
+                discriminator:
+                  propertyName: kind
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /attendance-reports:
     get:
       tags: [AttendanceReports]
@@ -5737,6 +5868,14 @@ components:
     ScopeType:
       type: string
       enum: [COMPANY, LOCATION, ATTENDANCE_GROUP, POLICY_GROUP]
+    CompanyReference:
+      type: object
+      additionalProperties: false
+      required: [companyId, code, name]
+      properties:
+        companyId: { $ref: '#/components/schemas/ResourceId' }
+        code: { type: string, minLength: 1, maxLength: 64 }
+        name: { type: string, minLength: 1, maxLength: 200 }
     MenuItem:
       type: object
       additionalProperties: false
@@ -5823,6 +5962,19 @@ components:
       required: [reason]
       properties:
         reason: { type: string, minLength: 2, maxLength: 500 }
+    TemporaryPasswordResetRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 2, maxLength: 500 }
+        temporaryPassword:
+          type: string
+          maxLength: 256
+          writeOnly: true
+          description: |
+            仅高权限账号使用，须为 12–256 位且同时包含大小写字母、数字和符号；
+            普通账号即使传入也会被忽略并固定重置为 123456。
     AccountSummary:
       type: object
       additionalProperties: false
@@ -5866,11 +6018,17 @@ components:
     AccountCreateRequest:
       type: object
       additionalProperties: false
-      required: [username, displayName, temporaryPassword, roleAssignments]
+      required: [username, displayName, roleAssignments]
       properties:
         username: { type: string, minLength: 3, maxLength: 128 }
         displayName: { type: string, minLength: 1, maxLength: 100 }
-        temporaryPassword: { type: string, minLength: 12, maxLength: 256, writeOnly: true }
+        temporaryPassword:
+          type: string
+          maxLength: 256
+          writeOnly: true
+          description: |
+            SYSTEM_ADMIN、HR_ADMIN、AUDITOR 账号必填并须符合强密码策略；
+            普通账号无需传入，服务端固定使用临时密码 123456。
         employeeId:
           oneOf:
             - $ref: '#/components/schemas/ResourceId'
@@ -7502,6 +7660,535 @@ components:
         size: { type: integer, minimum: 1, maximum: 100 }
         totalElements: { type: integer, format: int64, minimum: 0 }
         totalPages: { type: integer, minimum: 0 }
+    SelfAttendanceDashboardScope:
+      type: object
+      additionalProperties: false
+      required: [type, reference, label]
+      properties:
+        type: { type: string, const: SELF }
+        reference: { type: string, const: current-principal }
+        label: { type: string, const: 本人 }
+    SelfAttendanceDashboardMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - projectionVersion
+        - sourceVersions
+        - dataAsOf
+        - timeZone
+        - periodLabel
+        - periodState
+        - scope
+      properties:
+        projectionVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+        sourceVersions:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+        dataAsOf: { type: string, format: date-time }
+        timeZone: { type: string, const: Asia/Shanghai }
+        periodLabel:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        periodState:
+          type: string
+          enum: [OPEN, FROZEN, CLOSED, REOPENED]
+        scope:
+          $ref: '#/components/schemas/SelfAttendanceDashboardScope'
+    SelfAttendanceDashboardSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - scheduledMinutes
+        - confirmedMinutes
+        - recognizedOvertimeMinutes
+        - leaveMinutes
+        - unresolvedExceptionCount
+      properties:
+        scheduledMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        confirmedMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        recognizedOvertimeMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        leaveMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        unresolvedExceptionCount:
+          type: integer
+          format: int64
+          minimum: 0
+    SelfAttendanceDashboardDailyTrendPoint:
+      type: object
+      additionalProperties: false
+      required:
+        - businessDate
+        - scheduledMinutes
+        - confirmedMinutes
+        - recognizedOvertimeMinutes
+        - leaveMinutes
+        - issueCount
+      properties:
+        businessDate: { type: string, format: date }
+        scheduledMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        confirmedMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        recognizedOvertimeMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        leaveMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        issueCount:
+          type: integer
+          format: int64
+          minimum: 0
+    SelfAttendanceDashboardToday:
+      type: object
+      additionalProperties: false
+      required:
+        - shiftLabel
+        - firstPunchAt
+        - lastPunchAt
+        - statusLabel
+        - confirmedMinutes
+        - issueLabels
+      properties:
+        shiftLabel:
+          type: string
+          minLength: 1
+          maxLength: 200
+        firstPunchAt:
+          type: [string, 'null']
+          format: date-time
+        lastPunchAt:
+          type: [string, 'null']
+          format: date-time
+        statusLabel:
+          type: string
+          enum: [正常, 无需出勤, 存在未解决异常]
+        confirmedMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        issueLabels:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+    SelfAttendanceDashboardExceptionTypeCount:
+      type: object
+      additionalProperties: false
+      required: [type, count]
+      properties:
+        type:
+          type: string
+          minLength: 1
+          maxLength: 64
+        count:
+          type: integer
+          format: int64
+          minimum: 1
+    SelfAttendanceDashboardRecentException:
+      type: object
+      additionalProperties: false
+      required:
+        - businessDate
+        - type
+        - severity
+        - state
+        - minutes
+        - safeEvidenceSummary
+      properties:
+        businessDate: { type: string, format: date }
+        type:
+          type: string
+          minLength: 1
+          maxLength: 64
+        severity:
+          type: string
+          enum: [INFO, WARNING, ERROR]
+        state:
+          type: string
+          enum: [OPEN, PENDING_EVIDENCE, PENDING_REVIEW]
+        minutes:
+          type: integer
+          format: int64
+          minimum: 0
+        safeEvidenceSummary:
+          type: string
+          minLength: 1
+          maxLength: 500
+    SelfAttendanceDashboardView:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - businessDate
+        - metadata
+        - summary
+        - dailyTrend
+        - today
+        - exceptionTypeDistribution
+        - recentExceptions
+      properties:
+        kind:
+          type: string
+          const: SELF_ATTENDANCE_DASHBOARD
+        businessDate: { type: string, format: date }
+        metadata:
+          $ref: '#/components/schemas/SelfAttendanceDashboardMetadata'
+        summary:
+          $ref: '#/components/schemas/SelfAttendanceDashboardSummary'
+        dailyTrend:
+          type: array
+          minItems: 1
+          maxItems: 7
+          uniqueItems: true
+          description: |
+            当前月最新已发布投影内，以 businessDate 结尾的连续自然日；
+            月初不跨月，无日事实的覆盖日由服务端明确补零。
+          items:
+            $ref: '#/components/schemas/SelfAttendanceDashboardDailyTrendPoint'
+        today:
+          oneOf:
+            - $ref: '#/components/schemas/SelfAttendanceDashboardToday'
+            - type: 'null'
+        exceptionTypeDistribution:
+          type: array
+          uniqueItems: true
+          description: |
+            本月截至 businessDate 的本人未解决异常，按 count 降序、
+            type 升序返回。
+          items:
+            $ref: '#/components/schemas/SelfAttendanceDashboardExceptionTypeCount'
+        recentExceptions:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/SelfAttendanceDashboardRecentException'
+    AttendanceDashboardScope:
+      type: object
+      additionalProperties: false
+      required: [type, reference, label]
+      properties:
+        type:
+          type: string
+          enum: [COMPANY, ORGANIZATION, SELF]
+        reference:
+          type: string
+          minLength: 1
+          maxLength: 128
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+    AttendanceDashboardProjectionMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - projectionVersion
+        - sourceVersions
+        - dataAsOf
+        - timeZone
+        - periodLabel
+        - periodState
+        - scope
+        - allowedActions
+      properties:
+        projectionVersion: { type: string, minLength: 1, maxLength: 128 }
+        sourceVersions:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 256 }
+        dataAsOf: { type: string, format: date-time }
+        timeZone: { type: string, const: Asia/Shanghai }
+        periodLabel:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        periodState:
+          type: string
+          enum: [OPEN, FROZEN, CLOSED, REOPENED]
+        scope:
+          $ref: '#/components/schemas/AttendanceDashboardScope'
+        allowedActions:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [DASHBOARD_DRILL_DOWN]
+    AttendanceDashboardSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - unresolvedCount
+        - affectedEmployeeCount
+        - blockingCount
+      properties:
+        unresolvedCount:
+          type: integer
+          format: int64
+          minimum: 0
+        affectedEmployeeCount:
+          type: integer
+          format: int64
+          minimum: 0
+        blockingCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 当前业务日未解决异常中 severity=ERROR 的数量。
+    AttendanceDashboardDailyTrendPoint:
+      type: object
+      additionalProperties: false
+      required:
+        - businessDate
+        - exceptionCount
+        - blockingCount
+        - affectedEmployeeCount
+      properties:
+        businessDate: { type: string, format: date }
+        exceptionCount:
+          type: integer
+          format: int64
+          minimum: 0
+        blockingCount:
+          type: integer
+          format: int64
+          minimum: 0
+        affectedEmployeeCount:
+          type: integer
+          format: int64
+          minimum: 0
+    AttendanceDashboardSeverityDistributionItem:
+      type: object
+      additionalProperties: false
+      required: [severity, count]
+      properties:
+        severity:
+          type: string
+          enum: [INFO, WARNING, ERROR]
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+    AttendanceDashboardTypeDistributionItem:
+      type: object
+      additionalProperties: false
+      required: [exceptionType, count]
+      properties:
+        exceptionType:
+          type: string
+          minLength: 1
+          maxLength: 64
+        count:
+          type: integer
+          format: int64
+          minimum: 1
+    AttendanceDashboardOrganizationRankingItem:
+      type: object
+      additionalProperties: false
+      required: [organizationName, exceptionCount, blockingCount]
+      properties:
+        organizationName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        exceptionCount:
+          type: integer
+          format: int64
+          minimum: 1
+        blockingCount:
+          type: integer
+          format: int64
+          minimum: 0
+    AttendanceDashboardAnalytics:
+      type: object
+      additionalProperties: false
+      required:
+        - dailyTrend
+        - severityDistribution
+        - typeDistribution
+        - organizationRanking
+      properties:
+        dailyTrend:
+          type: array
+          minItems: 1
+          maxItems: 7
+          uniqueItems: true
+          description: |
+            当前最新已发布月投影覆盖区间内，以 businessDate 结尾的最近七个
+            自然日；按日期升序并显式补零，月初不跨入上月投影。
+          items:
+            $ref: '#/components/schemas/AttendanceDashboardDailyTrendPoint'
+        severityDistribution:
+          type: array
+          minItems: 3
+          maxItems: 3
+          uniqueItems: true
+          description: 当前业务日未解决异常，固定按 INFO、WARNING、ERROR 顺序返回。
+          items:
+            $ref: '#/components/schemas/AttendanceDashboardSeverityDistributionItem'
+        typeDistribution:
+          type: array
+          maxItems: 10
+          uniqueItems: true
+          description: |
+            当前业务日未解决异常的前十个类型，按 count 降序、
+            exceptionType 升序返回。
+          items:
+            $ref: '#/components/schemas/AttendanceDashboardTypeDistributionItem'
+        organizationRanking:
+          type: array
+          maxItems: 5
+          uniqueItems: true
+          description: |
+            当前业务日未解决异常组织排行，按 exceptionCount、blockingCount
+            降序及 organizationName 升序返回，最多五项。
+          items:
+            $ref: '#/components/schemas/AttendanceDashboardOrganizationRankingItem'
+    AttendanceDashboardException:
+      type: object
+      additionalProperties: false
+      required:
+        - exceptionReference
+        - employeeNumber
+        - employeeName
+        - organizationName
+        - businessDate
+        - exceptionType
+        - severity
+        - state
+        - exceptionMinutes
+        - evidenceSummary
+      properties:
+        exceptionReference:
+          type: string
+          minLength: 1
+          maxLength: 128
+        employeeNumber:
+          type: string
+          minLength: 1
+          maxLength: 128
+        employeeName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        organizationName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        businessDate: { type: string, format: date }
+        exceptionType:
+          type: string
+          minLength: 1
+          maxLength: 64
+        severity:
+          type: string
+          enum: [INFO, WARNING, ERROR]
+        state:
+          type: string
+          enum: [OPEN, PENDING_EVIDENCE, PENDING_REVIEW]
+        exceptionMinutes:
+          type: integer
+          format: int64
+          minimum: 0
+        evidenceSummary:
+          type: string
+          minLength: 1
+          maxLength: 500
+    AttendanceDashboardCompanyOption:
+      type: object
+      additionalProperties: false
+      required: [companyId, companyName]
+      properties:
+        companyId: { type: string, minLength: 1, maxLength: 36 }
+        companyName: { type: string, minLength: 1, maxLength: 200 }
+    AttendanceDashboardView:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - title
+        - businessDate
+        - selectedCompanyId
+        - metadata
+        - summary
+        - analytics
+        - exceptions
+        - companies
+      properties:
+        kind: { type: string, const: DASHBOARD }
+        title: { type: string, const: 今日异常考勤 }
+        businessDate: { type: string, format: date }
+        selectedCompanyId:
+          type: string
+          minLength: 1
+          maxLength: 36
+        metadata:
+          $ref: '#/components/schemas/AttendanceDashboardProjectionMetadata'
+        summary:
+          $ref: '#/components/schemas/AttendanceDashboardSummary'
+        analytics:
+          $ref: '#/components/schemas/AttendanceDashboardAnalytics'
+        exceptions:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/AttendanceDashboardException'
+        companies:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AttendanceDashboardCompanyOption'
+    AttendanceDashboardCompanySelection:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - title
+        - businessDate
+        - selectedCompanyId
+        - companies
+        - message
+      properties:
+        kind:
+          type: string
+          const: DASHBOARD_COMPANY_SELECTION
+        title: { type: string, const: 今日异常考勤 }
+        businessDate: { type: string, format: date }
+        selectedCompanyId: { type: 'null' }
+        companies:
+          type: array
+          minItems: 2
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AttendanceDashboardCompanyOption'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 100
     AttendanceReportType:
       type: string
       enum:

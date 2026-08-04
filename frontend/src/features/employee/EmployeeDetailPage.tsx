@@ -13,6 +13,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Select,
   Space,
   Timeline,
 } from 'antd';
@@ -32,17 +33,17 @@ import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import {
   ApiErrorState,
-  PeopleContextStrip,
-  SourceAuthority,
-  VersionAuditPanel,
   formatDate,
   formatDateTime,
 } from '../people/PeopleCommon';
 import {
+  getCurrentOrganizationTree,
+  type OrganizationNode,
+} from '../organization/organizationApi';
+import {
   createEmploymentPeriod,
   createPriorServiceAdjustment,
   getEmployee,
-  listEmployeeVersions,
   listEmploymentPeriods,
   listPriorServiceRecords,
   recalculatePriorService,
@@ -51,7 +52,6 @@ import {
   type EmployeeDetail,
   type EmployeeStatus,
   type EmployeeUpdateRequest,
-  type EmployeeVersionSummary,
   type EmploymentPeriodCreateRequest,
   type EmploymentPeriodView,
   type PriorServiceAdjustmentRequest,
@@ -64,7 +64,7 @@ type DetailState =
   | {
       status: 'ready';
       detail: EmployeeDetail;
-      versions: EmployeeVersionSummary[];
+      organizations: OrganizationNode[];
       periods?: EmploymentPeriodView[];
       priorService?: PriorServiceRecordPage;
     }
@@ -95,6 +95,12 @@ type PriorServiceFormValues = {
   reason: string;
 };
 
+export type EmployeeOrganizationOption = {
+  label: string;
+  value: string;
+  disabled?: boolean;
+};
+
 export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: string[] }) {
   const { t } = useTranslation();
   const { employeeId = '' } = useParams();
@@ -118,14 +124,14 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
       : { status: 'loading' });
     void Promise.all([
       getEmployee(employeeId),
-      listEmployeeVersions(employeeId),
       canReadEmployment ? listEmploymentPeriods(employeeId) : Promise.resolve(undefined),
       canReadPriorService ? listPriorServiceRecords(employeeId) : Promise.resolve(undefined),
+      getCurrentOrganizationTree(true),
     ])
-      .then(([detail, versionPage, periodPage, priorService]) => setState({
+      .then(([detail, periodPage, priorService, organizations]) => setState({
         status: 'ready',
         detail,
-        versions: versionPage.items,
+        organizations,
         periods: periodPage?.items,
         priorService,
       }))
@@ -142,7 +148,12 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
   if (state.status === 'error') return <ApiErrorState error={state.error} onRetry={load} />;
   if (state.status !== 'ready') return <StatePanel state={state.status} />;
 
-  const { detail, versions, periods, priorService } = state;
+  const { detail, organizations, periods, priorService } = state;
+  const organizationOptions = employeeOrganizationOptions(
+    organizations,
+    periods?.map((period) => period.organizationId) ?? [],
+    t('employee.organizationUnavailable'),
+  );
 
   const openEdit = () => {
     employeeForm.setFieldsValue({
@@ -327,19 +338,17 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
           </Space>
         )}
       />
-      <PeopleContextStrip
-        items={[
-          { label: t('employee.number'), value: detail.employeeNumber, mono: true },
-          { label: t('people.rowVersion'), value: `V${detail.rowVersion}`, mono: true },
-          { label: t('people.periodSemantics'), value: '[start_date, end_exclusive)', mono: true },
-        ]}
-      />
       {feedback ? <OperationFeedback kind="success" message={feedback} /> : null}
       {writeError ? (
         <div className="section-spaced">
           <ApiErrorState error={writeError} onRetry={load} />
           {writeError.code === 'EMPLOYMENT_PERIOD_OVERLAP' ? (
-            <Alert type="error" showIcon title={t('employee.overlapRejected')} description="EMPLOYMENT_PERIOD_OVERLAP" />
+            <Alert
+              type="error"
+              showIcon
+              title={t('employee.overlapRejected')}
+              description={t('employee.overlapRejectedDescription')}
+            />
           ) : null}
         </div>
       ) : null}
@@ -353,7 +362,6 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
           </div>
           <Space wrap className="people-badge-row">
             <StatusBadge status={detail.status} />
-            <SourceAuthority authority={detail.sourceAuthority} />
           </Space>
           <Descriptions
             className="people-descriptions"
@@ -361,9 +369,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
             items={[
               { key: 'name', label: t('employee.name'), children: detail.displayName },
               { key: 'number', label: t('employee.number'), children: <code>{detail.employeeNumber}</code> },
-              { key: 'external', label: t('employee.externalId'), children: detail.externalEmployeeId ? <code>{detail.externalEmployeeId}</code> : t('common.none') },
               { key: 'effective', label: t('people.effectivePeriod'), children: `${formatDate(detail.effectiveFrom)} — ${detail.effectiveTo ? formatDate(detail.effectiveTo) : t('people.longTerm')}` },
-              { key: 'source', label: t('organization.sourceBatch'), children: detail.sourceBatchId ? <code>{detail.sourceBatchId}</code> : t('organization.localMaintenance') },
             ]}
           />
         </section>
@@ -395,15 +401,10 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
             </Space>
           </div>
           {priorService ? (
-            <>
-              <div className="prior-service-total">
-                <strong>{priorService.totalDays}</strong>
-                <span>{t('employee.days')}</span>
-              </div>
-              <p className="replay-digest">
-                {t('employee.replayDigest')} <code>{priorService.replayDigest}</code>
-              </p>
-            </>
+            <div className="prior-service-total">
+              <strong>{priorService.totalDays}</strong>
+              <span>{t('employee.days')}</span>
+            </div>
           ) : <StatePanel state="403" />}
         </section>
       </div>
@@ -427,11 +428,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
                   <div className="section-heading">
                     <div>
                       <h3>{t('employee.employmentPeriod', { start: formatDate(period.startDate) })}</h3>
-                      <p>
-                        <code>{period.organizationId}</code>
-                        {' · '}
-                        {period.positionId ? <code>{period.positionId}</code> : t('employee.noPosition')}
-                      </p>
+                      <p>{employeeOrganizationName(organizations, period.organizationId) ?? t('employee.organizationUnavailable')}</p>
                     </div>
                     {capabilities.includes('EMPLOYMENT:EDIT') ? (
                       <AccessibleButton
@@ -446,11 +443,10 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
                   </div>
                   <Descriptions
                     size="small"
-                    column={{ xs: 1, sm: 3 }}
+                    column={{ xs: 1, sm: 2 }}
                     items={[
                       { key: 'start', label: t('employee.startDate'), children: formatDate(period.startDate) },
                       { key: 'termination', label: t('employee.terminationDate'), children: period.terminationDate ? formatDate(period.terminationDate) : t('employee.currentEmployment') },
-                      { key: 'end', label: t('employee.endExclusive'), children: period.endExclusive ? formatDate(period.endExclusive) : t('people.longTerm') },
                     ]}
                   />
                 </article>
@@ -478,19 +474,10 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
               { key: 'total', title: t('employee.resultingTotal'), render: (row) => row.resultingTotalDays },
               { key: 'date', title: t('employee.businessDate'), render: (row) => formatDate(row.businessDate) },
               { key: 'reason', title: t('people.reason'), render: (row) => row.reason },
-              { key: 'actor', title: t('people.actor'), render: (row) => <code>{row.actorId}</code> },
               { key: 'time', title: t('people.changedAt'), render: (row) => formatDateTime(row.occurredAt) },
             ]}
           />
         )}
-      </section>
-      <section className="content-surface section-spaced">
-        <VersionAuditPanel
-          versions={versions}
-          resourceType="EMPLOYEE"
-          resourceId={detail.auditResourceId}
-          canReadAudit={capabilities.includes('AUDIT:READ')}
-        />
       </section>
       <EmployeeDialogs
         dialog={dialog}
@@ -500,6 +487,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
         reasonForm={reasonForm}
         processing={processing}
         error={writeError}
+        organizationOptions={organizationOptions}
         onCancel={closeEmployeeDialog}
         onSaveEmployee={submitEmployee}
         onSavePeriod={submitPeriod}
@@ -520,6 +508,7 @@ function EmployeeDialogs({
   reasonForm,
   processing,
   error,
+  organizationOptions,
   onCancel,
   onSaveEmployee,
   onSavePeriod,
@@ -533,6 +522,7 @@ function EmployeeDialogs({
   reasonForm: ReturnType<typeof Form.useForm<{ reason: string }>>[0];
   processing: boolean;
   error?: ApiRequestError;
+  organizationOptions: EmployeeOrganizationOption[];
   onCancel: () => void;
   onSaveEmployee: () => void;
   onSavePeriod: () => void;
@@ -598,10 +588,16 @@ function EmployeeDialogs({
       {dialog === 'period-create' || dialog === 'period-edit' ? (
         <Form form={periodForm} layout="vertical">
           <Form.Item name="organizationId" label={t('employee.organizationId')} rules={[{ required: true }]}>
-            <Input />
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={organizationOptions}
+              placeholder={t('employee.organizationPlaceholder')}
+            />
           </Form.Item>
-          <Form.Item name="positionId" label={t('employee.positionId')}>
-            <Input />
+          {/* 岗位主数据尚未接入；编辑任职时保留原值，避免把已存岗位意外清空。 */}
+          <Form.Item name="positionId" hidden>
+            <Input type="hidden" />
           </Form.Item>
           <div className="form-grid">
             <Form.Item name="startDate" label={t('employee.startDate')} rules={[{ required: true }]}>
@@ -671,7 +667,7 @@ function toEmployeeRequest(values: EmployeeFormValues): EmployeeUpdateRequest {
   };
 }
 
-function toPeriodRequest(values: PeriodFormValues): EmploymentPeriodCreateRequest {
+export function toPeriodRequest(values: PeriodFormValues): EmploymentPeriodCreateRequest {
   return {
     organizationId: values.organizationId.trim(),
     positionId: values.positionId?.trim() || null,
@@ -687,6 +683,47 @@ function toPriorRequest(values: PriorServiceFormValues): PriorServiceAdjustmentR
     businessDate: values.businessDate.format('YYYY-MM-DD'),
     reason: values.reason.trim(),
   };
+}
+
+export function employeeOrganizationOptions(
+  nodes: OrganizationNode[],
+  selectedOrganizationIds: string[] = [],
+  unavailableLabel = '部门信息暂不可用',
+): EmployeeOrganizationOption[] {
+  const selected = new Set(selectedOrganizationIds);
+  const options = flattenEmployeeOrganizations(nodes)
+    .filter(({ node }) => node.organizationType !== 'COMPANY' || selected.has(node.organizationId))
+    .map(({ node, depth }) => ({
+      label: `${'—'.repeat(depth)} ${node.name}`,
+      value: node.organizationId,
+      disabled: node.status !== 'ACTIVE' || node.organizationType === 'COMPANY',
+    }));
+  const knownIds = new Set(options.map((option) => option.value));
+  for (const organizationId of selected) {
+    if (!knownIds.has(organizationId)) {
+      options.push({ label: unavailableLabel, value: organizationId, disabled: true });
+    }
+  }
+  return options;
+}
+
+export function employeeOrganizationName(
+  nodes: OrganizationNode[],
+  organizationId: string,
+): string | undefined {
+  return flattenEmployeeOrganizations(nodes)
+    .find(({ node }) => node.organizationId === organizationId)
+    ?.node.name;
+}
+
+function flattenEmployeeOrganizations(
+  nodes: OrganizationNode[],
+  depth = 0,
+): Array<{ node: OrganizationNode; depth: number }> {
+  return nodes.flatMap((node) => [
+    { node, depth },
+    ...flattenEmployeeOrganizations(node.children, depth + 1),
+  ]);
 }
 
 function asApiError(error: unknown, code: string): ApiRequestError {

@@ -9,10 +9,11 @@ import type {
   AttendanceReportCompanyDirectory,
   AttendanceReportType,
   AttendanceRecordsProjection,
-  DashboardProjection,
+  DashboardLoadResult,
   FeedbackProjection,
   LeaveProjection,
   ReportProjection,
+  SelfAttendanceDashboardProjection,
   TodayProjection,
 } from './wave7Contracts';
 import {
@@ -21,6 +22,8 @@ import {
   assertLiveReportProjection,
   attendanceReportTypes,
   normalizeReportExportPurpose,
+  parseAttendanceDashboardResponse,
+  parseSelfAttendanceDashboardResponse,
 } from './wave7Contracts';
 
 export interface ReportQuery {
@@ -48,11 +51,12 @@ export type ReportExceptionState =
   | 'RESOLVED';
 
 export interface Wave7ProjectionGateway {
+  loadSelfDashboard(): Promise<SelfAttendanceDashboardProjection>;
   loadToday(): Promise<TodayProjection>;
   loadRecords(): Promise<AttendanceRecordsProjection>;
   loadLeave(): Promise<LeaveProjection>;
   loadFeedback(): Promise<FeedbackProjection>;
-  loadDashboard(): Promise<DashboardProjection>;
+  loadDashboard(companyId?: string): Promise<DashboardLoadResult>;
   loadReportCompanies(
     period: string,
   ): Promise<AttendanceReportCompanyDirectory>;
@@ -75,16 +79,61 @@ const xlsxMediaType =
 
 const upstreamPending = (): Promise<never> => Promise.reject(new ApiRequestError(503, {
   code: 'WAVE7_UPSTREAM_PENDING',
-  message: '上游考勤与工时投影接口尚未就绪。',
+  message: '该功能的数据尚未准备好，请稍后再试。',
   retryable: false,
 }));
 
 export const wave7ProjectionGateway: Wave7ProjectionGateway = {
+  loadSelfDashboard: async () => {
+    const response = await requestJson<unknown>(
+      '/api/v1/me/attendance-dashboard',
+    );
+    try {
+      return parseSelfAttendanceDashboardResponse(response);
+    } catch (error: unknown) {
+      void error;
+      throw invalidSelfAttendanceDashboardResponse();
+    }
+  },
   loadToday: upstreamPending,
   loadRecords: upstreamPending,
   loadLeave: upstreamPending,
   loadFeedback: upstreamPending,
-  loadDashboard: upstreamPending,
+  loadDashboard: async (companyId) => {
+    const normalizedCompanyId = normalizeDashboardCompanyId(companyId);
+    const parameters = new URLSearchParams();
+    if (normalizedCompanyId !== undefined) {
+      parameters.set('companyId', normalizedCompanyId);
+    }
+    const query = parameters.size > 0
+      ? `?${parameters.toString()}`
+      : '';
+    const response = await requestJson<unknown>(
+      `/api/v1/attendance-dashboards${query}`,
+    );
+    try {
+      const result = parseAttendanceDashboardResponse(response);
+      if (
+        normalizedCompanyId !== undefined
+        && (
+          result.kind !== 'DASHBOARD'
+          || result.selectedCompanyId !== normalizedCompanyId
+        )
+      ) {
+        throw invalidDashboardResponse();
+      }
+      return result;
+    } catch (error: unknown) {
+      if (
+        error instanceof ApiRequestError
+        && error.code === 'INVALID_DASHBOARD_RESPONSE'
+      ) {
+        throw error;
+      }
+      void error;
+      throw invalidDashboardResponse();
+    }
+  },
   loadReportCompanies: async (period) => {
     if (!isYearMonth(period)) {
       throw invalidReportQuery();
@@ -216,7 +265,7 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     ) {
       throw new ApiRequestError(502, {
         code: 'INVALID_REPORT_EXPORT_FILE',
-        message: '报表导出文件响应无效。',
+        message: '导出文件暂时无法使用，请重新导出。',
         retryable: true,
       });
     }
@@ -299,7 +348,43 @@ function invalidReportQuery(): ApiRequestError {
 function invalidReportResponse(): ApiRequestError {
   return new ApiRequestError(502, {
     code: 'INVALID_RESPONSE_BODY',
-    message: '报表响应不符合约定。',
+    message: '报表数据暂时无法显示，请刷新后重试。',
+    retryable: true,
+  });
+}
+
+function normalizeDashboardCompanyId(
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== 'string'
+    || value.length > 36
+    || value.trim() === ''
+    || value !== value.trim()
+    || hasC0OrC1ControlCharacter(value)
+  ) {
+    throw new ApiRequestError(400, {
+      code: 'INVALID_DASHBOARD_QUERY',
+      message: '控制台公司条件无效。',
+      retryable: false,
+    });
+  }
+  return value;
+}
+
+function invalidDashboardResponse(): ApiRequestError {
+  return new ApiRequestError(502, {
+    code: 'INVALID_DASHBOARD_RESPONSE',
+    message: '考勤工作台数据暂时无法显示，请刷新后重试。',
+    retryable: true,
+  });
+}
+
+function invalidSelfAttendanceDashboardResponse(): ApiRequestError {
+  return new ApiRequestError(502, {
+    code: 'INVALID_SELF_ATTENDANCE_DASHBOARD_RESPONSE',
+    message: '个人考勤数据暂时无法显示，请刷新后重试。',
     retryable: true,
   });
 }
@@ -506,7 +591,7 @@ function invalidReportExportRequest(): ApiRequestError {
 function invalidReportExportResponse(): ApiRequestError {
   return new ApiRequestError(502, {
     code: 'INVALID_REPORT_EXPORT_RESPONSE',
-    message: '报表导出响应不符合约定。',
+    message: '导出状态暂时无法读取，请刷新后重试。',
     retryable: true,
   });
 }

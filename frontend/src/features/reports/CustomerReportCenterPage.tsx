@@ -166,7 +166,7 @@ export function CustomerReportCenterPage({
     onExport?.(request);
     setSpecificFeedback('');
     setExportFeedback(
-      `已生成“${activeTab.label}”演示导出任务并下载 CSV，筛选条件和生成时间已锁定。`,
+      `“${activeTab.label}”已按当前筛选条件导出。`,
     );
   };
 
@@ -250,7 +250,7 @@ export function CustomerReportCenterPage({
           </p>
         </div>
         <div className="customer-report__hero-action">
-          <span className="customer-report__version">演示快照 · 版本 2026.06.3</span>
+          <span className="customer-report__version">统计月份 · 2026 年 6 月</span>
           <Button
             type="primary"
             size="large"
@@ -258,7 +258,7 @@ export function CustomerReportCenterPage({
             onClick={handleExport}
             data-capability-mode={capabilityMode}
             disabled={!canExport}
-            title={canExport ? undefined : '缺少 ATTENDANCE_REPORT:EXPORT_CREATE 权限'}
+            title={canExport ? undefined : '当前账号没有导出权限'}
           >
             导出当前报表
           </Button>
@@ -269,7 +269,7 @@ export function CustomerReportCenterPage({
         <IconInfoCircle aria-hidden="true" stroke={2} />
         <p>
           <strong>演示说明：</strong>
-          页面使用脱敏合成数据，不连接生产接口；字段、颜色和汇总口径按客户现有电子表格样表呈现。
+          当前页面使用脱敏示例数据，字段、颜色和统计方式按现有电子表格样表呈现。
         </p>
       </section>
 
@@ -281,8 +281,7 @@ export function CustomerReportCenterPage({
           <span>数据权限已生效</span>
           <strong>{activeDataScope.actorLabel} · {activeDataScope.label}</strong>
           <p>
-            {scopeTypeLabel(activeDataScope.type)}先于查询、汇总与分页执行；
-            页面筛选、明细下钻和导出复用同一范围。
+            系统已按{scopeTypeLabel(activeDataScope.type)}限制查询、明细和导出范围。
           </p>
         </div>
         <label className="customer-report__scope-selector">
@@ -298,7 +297,7 @@ export function CustomerReportCenterPage({
             popupMatchSelectWidth={false}
           />
         </label>
-        <span className="customer-report__scope-lock">服务端范围 · 已锁定</span>
+        <span className="customer-report__scope-lock">数据范围 · 已锁定</span>
       </section>
 
       <section className="customer-report__filter-card" aria-label="报表筛选">
@@ -1343,7 +1342,7 @@ function ReportSheet({
         </div>
         <div className="customer-report__sheet-meta">
           <strong>{meta}</strong>
-          <span>演示快照 · 已脱敏</span>
+          <span>示例数据 · 已脱敏</span>
         </div>
       </header>
       {children}
@@ -1386,7 +1385,7 @@ function EmptyTableRow({ colSpan }: { colSpan: number }) {
   return (
     <tr>
       <td colSpan={colSpan} className="customer-report__empty">
-        当前筛选条件下暂无演示记录，请调整部门或员工。
+        当前筛选条件下暂无记录，请调整部门或员工。
       </td>
     </tr>
   );

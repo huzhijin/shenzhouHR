@@ -36,7 +36,7 @@ export function SourceJobsPage({ capabilities }: { capabilities: string[] }) {
     setRetrying(true);
     try {
       await retryAttendanceSourceJob(retryTarget, '人工确认从最后已提交水位重试');
-      void messageApi.success('已提交安全重试；不会越过最后已提交水位。');
+      void messageApi.success('已提交重试，将从上次成功位置继续。');
       setRetryTarget(undefined);
       jobs.reload();
     } catch {
@@ -50,8 +50,8 @@ export function SourceJobsPage({ capabilities }: { capabilities: string[] }) {
     <>
       {messageContextHolder}
       <PageHeader
-        title="来源作业与水位"
-        description="作业重试只从最后完整提交的水位继续；传输、整页解析或数据库失败不会推进水位。"
+        title="来源同步任务"
+        description="查看各考勤来源的同步进度和失败原因，并可从上次成功位置重试。"
         breadcrumbs={[{ label: '考勤来源' }, { label: '同步作业' }]}
       />
       {jobs.resource.status === 'ready' ? (
@@ -79,8 +79,8 @@ export function SourceJobsPage({ capabilities }: { capabilities: string[] }) {
       )}
       <ConfirmationDialog
         open={retryTarget !== undefined}
-        title="从已提交水位重试"
-        description="将创建新的幂等重试请求；不会重写原作业、原始证据或失败记录。"
+        title="确认重试同步"
+        description="系统会从上次成功位置继续同步，已成功的数据不会重复处理。"
         confirmText="确认重试"
         processing={retrying}
         onConfirm={() => void retry()}
@@ -100,13 +100,12 @@ function JobsTable({
   onRetry: (job: AttendanceSourceJobView) => void;
 }) {
   const columns: Array<DataColumn<AttendanceSourceJobView>> = [
-    { key: 'id', title: '作业编号', render: (job) => jobDisplayNumber(job.jobId) },
     { key: 'source', title: '来源', render: (job) => job.sourceDisplayName },
     { key: 'status', title: '状态', render: (job) => <StatusBadge status={job.state} /> },
-    { key: 'pages', title: '已提交页', render: (job) => String(job.committedPages) },
-    { key: 'facts', title: '原始事实', render: (job) => String(job.rawFactCount) },
-    { key: 'quarantine', title: '隔离', render: (job) => String(job.quarantinedCount) },
-    { key: 'summary', title: '安全摘要', render: (job) => job.safeErrorSummary ?? '—' },
+    { key: 'pages', title: '已同步批次', render: (job) => String(job.committedPages) },
+    { key: 'facts', title: '打卡记录', render: (job) => String(job.rawFactCount) },
+    { key: 'quarantine', title: '待处理记录', render: (job) => String(job.quarantinedCount) },
+    { key: 'summary', title: '失败原因', render: (job) => job.safeErrorSummary ?? '—' },
     {
       key: 'action',
       title: '操作',
@@ -114,7 +113,7 @@ function JobsTable({
         ? (
           <AccessibleButton
             size="small"
-            label={`重试${jobDisplayNumber(job.jobId)}`}
+            label={`重试${job.sourceDisplayName}同步任务`}
             icon={<IconRefresh aria-hidden="true" stroke={2} />}
             onClick={() => onRetry(job)}
           >
@@ -129,7 +128,7 @@ function JobsTable({
       rows={jobs}
       rowKey={(job) => job.jobId}
       columns={columns}
-      ariaLabel="来源同步作业、隔离计数与安全重试"
+      ariaLabel="来源同步任务、待处理记录与重试"
     />
   );
 }
@@ -142,7 +141,7 @@ function JobsState({
   onRetry: () => void;
 }) {
   if (resource.status === 'empty') {
-    return <StatePanel state="empty" description="当前作用域内没有来源同步作业。" />;
+    return <StatePanel state="empty" description="当前可用范围内没有来源同步任务。" />;
   }
   if (resource.status === 'loading' || resource.status === 'partial-loading') {
     return <StatePanel state={resource.status} />;
@@ -157,11 +156,6 @@ function JobsState({
     );
   }
   return null;
-}
-
-function jobDisplayNumber(value: string): string {
-  const demoMatch = /^JOB-\d{8}-(\d+)$/.exec(value);
-  return demoMatch ? `同步作业 ${Number(demoMatch[1])}` : value;
 }
 
 export default SourceJobsPage;

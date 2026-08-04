@@ -5,10 +5,14 @@ import {
   createDemoFeedbackProjection,
   createDemoLeaveProjection,
   createDemoReportProjection,
+  createDemoSelfAttendanceDashboardProjection,
   createDemoTodayProjection,
 } from './wave7Demo';
 
 export const demoWave7ProjectionGateway: Wave7ProjectionGateway = {
+  loadSelfDashboard: () => Promise.resolve(
+    createDemoSelfAttendanceDashboardProjection(),
+  ),
   loadToday: () => Promise.resolve(createDemoTodayProjection()),
   loadRecords: () => Promise.resolve(createDemoAttendanceRecordsProjection()),
   loadLeave: () => Promise.resolve(createDemoLeaveProjection()),

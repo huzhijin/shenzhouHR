@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../shared/api/apiClient';
 import { translate } from '../shared/i18n/messages';
-import { reportFixture } from '../test/fixtures/wave7ContractFixtures';
+import {
+  reportFixture,
+  selfDashboardFixture,
+} from '../test/fixtures/wave7ContractFixtures';
 import { App } from './App';
 
 const sessionHook = vi.hoisted(() => ({
@@ -62,6 +65,33 @@ describe('App session and route authorization', () => {
     expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument();
   });
 
+  it.each([
+    [403, 'SESSION_REVOKED'],
+    [404, 'SESSION_NOT_FOUND'],
+  ])(
+    'returns a session restoration failure (%s) to the login form',
+    (status, code) => {
+      sessionHook.useSession.mockReturnValue({
+        state: {
+          status: 'error',
+          error: new ApiRequestError(status, {
+            code,
+            retryable: false,
+          }),
+        },
+        reload: vi.fn(),
+      });
+
+      renderApp('/workbench');
+
+      expect(screen.getByTestId('current-location')).toHaveTextContent('/login');
+      expect(screen.getByRole('textbox', { name: '用户名' })).toBeInTheDocument();
+      expect(screen.getByLabelText('密码')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: translate('error.requestFailed') }))
+        .not.toBeInTheDocument();
+    },
+  );
+
   it('connects a retryable session failure to reload', () => {
     const reload = vi.fn();
     sessionHook.useSession.mockReturnValue({
@@ -69,6 +99,7 @@ describe('App session and route authorization', () => {
         status: 'error',
         error: new ApiRequestError(503, {
           code: 'SESSION_UNAVAILABLE',
+          correlationId: 'session-request-internal-503',
           retryable: true,
         }),
       },
@@ -79,6 +110,7 @@ describe('App session and route authorization', () => {
     fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }));
 
     expect(reload).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/session-request-internal-503/)).not.toBeInTheDocument();
   });
 
   it('returns a first-change session to login instead of rendering protected routes', () => {
@@ -322,8 +354,6 @@ describe('App session and route authorization', () => {
   });
 
   it.each([
-    ['/workbench', 'ATTENDANCE_DASHBOARD:READ'],
-    ['/me/today', 'ATTENDANCE_SELF:READ'],
     ['/me/leave', 'LEAVE_SELF:READ'],
     ['/me/feedback', 'ATTENDANCE_FEEDBACK:READ'],
   ])('fails closed at authorized WAVE-7 direct route %s until upstream wiring is available', async (path, capability) => {
@@ -341,7 +371,7 @@ describe('App session and route authorization', () => {
     renderApp(path);
 
     expect(await screen.findByText(
-      '上游考勤与工时投影接口尚未就绪。',
+      '该功能的数据尚未准备好，请稍后再试。',
       {},
       { timeout: 5_000 },
     ))
@@ -349,6 +379,135 @@ describe('App session and route authorization', () => {
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();
     expect(screen.getByTestId('current-location')).toHaveTextContent(path);
+  });
+
+  it('loads the self dashboard API on the authorized employee home', async () => {
+    sessionHook.useSession.mockReturnValue({
+      state: {
+        status: 'ready',
+        session: {
+          capabilities: ['ATTENDANCE_SELF:READ'],
+          menu: [],
+        },
+      },
+      reload: vi.fn(),
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify(selfDashboardFixture),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp('/me/today');
+
+    expect(await screen.findByRole(
+      'heading',
+      { level: 1, name: '我的考勤工作台' },
+      { timeout: 5_000 },
+    )).toBeInTheDocument();
+    expect(screen.getByLabelText('本人考勤关键指标'))
+      .toHaveTextContent('待处理异常');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0])
+      .toBe('/api/v1/me/attendance-dashboard');
+    expect(screen.queryByRole('heading', {
+      name: translate('state.forbiddenTitle'),
+    })).not.toBeInTheDocument();
+    expect(screen.getByTestId('current-location'))
+      .toHaveTextContent('/me/today');
+  });
+
+  it('lands a personal account on the strictly self-scoped /workbench dashboard', async () => {
+    sessionHook.useSession.mockReturnValue({
+      state: {
+        status: 'ready',
+        session: {
+          capabilities: ['ATTENDANCE_SELF:READ'],
+          menu: [{
+            key: 'personal-workbench',
+            label: '我的考勤工作台',
+            path: '/workbench',
+          }],
+        },
+      },
+      reload: vi.fn(),
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify(selfDashboardFixture),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp('/');
+
+    expect(await screen.findByRole(
+      'heading',
+      { level: 1, name: '我的考勤工作台' },
+      { timeout: 5_000 },
+    )).toBeInTheDocument();
+    expect(screen.getByText('个人专属 · 仅本人可见')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '今日异常考勤列表' }))
+      .not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0])
+      .toBe('/api/v1/me/attendance-dashboard');
+    expect(screen.getByTestId('current-location'))
+      .toHaveTextContent('/workbench');
+  });
+
+  it('loads the daily attendance dashboard API on the authorized workbench', async () => {
+    sessionHook.useSession.mockReturnValue({
+      state: {
+        status: 'ready',
+        session: {
+          capabilities: [
+            'ATTENDANCE_DASHBOARD:READ',
+            'ATTENDANCE_SELF:READ',
+          ],
+          menu: [],
+        },
+      },
+      reload: vi.fn(),
+    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL) => {
+        void input;
+        return new Response(
+          JSON.stringify(attendanceDashboardResponse()),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderApp('/workbench');
+
+    expect(await screen.findByRole(
+      'heading',
+      { level: 1, name: '今日异常考勤' },
+      { timeout: 5_000 },
+    )).toBeInTheDocument();
+    expect(screen.getByLabelText('今日异常汇总指标'))
+      .toHaveTextContent('未处理异常');
+    expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
+      .toHaveTextContent('张三');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0])
+      .toBe('/api/v1/attendance-dashboards');
+    expect(screen.queryByRole('heading', {
+      name: translate('state.forbiddenTitle'),
+    })).not.toBeInTheDocument();
+    expect(screen.getByTestId('current-location'))
+      .toHaveTextContent('/workbench');
   });
 
   it('loads the formal attendance report API on the authorized production route', async () => {
@@ -411,8 +570,8 @@ describe('App session and route authorization', () => {
       { name: reportFixture.reportTitle },
       { timeout: 5_000 },
     )).toBeInTheDocument();
-    expect(screen.getByText('ATTENDANCE_DETAIL_FORMULA_V1'))
-      .toBeInTheDocument();
+    expect(screen.queryByText('ATTENDANCE_DETAIL_FORMULA_V1'))
+      .not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();
@@ -528,4 +687,70 @@ function renderApp(initialPath = '/') {
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="current-location">{location.pathname}</output>;
+}
+
+function attendanceDashboardResponse() {
+  return {
+    kind: 'DASHBOARD',
+    title: '今日异常考勤',
+    businessDate: '2026-07-30',
+    selectedCompanyId: 'company-a',
+    metadata: {
+      projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+      sourceVersions: ['ATTENDANCE-CALC-V1'],
+      dataAsOf: '2026-07-30T01:00:00Z',
+      timeZone: 'Asia/Shanghai',
+      periodLabel: '2026-07',
+      periodState: 'OPEN',
+      scope: {
+        type: 'COMPANY',
+        reference: 'authorized-scope-set:app-test',
+        label: '公司授权范围',
+      },
+      allowedActions: [],
+    },
+    summary: {
+      unresolvedCount: 1,
+      affectedEmployeeCount: 1,
+      blockingCount: 1,
+    },
+    exceptions: [{
+      exceptionReference: 'exception-1',
+      employeeNumber: 'SZ001',
+      employeeName: '张三',
+      organizationName: '制造一部',
+      businessDate: '2026-07-30',
+      exceptionType: 'MISSING_PUNCH_OVERDUE',
+      severity: 'ERROR',
+      state: 'PENDING_REVIEW',
+      exceptionMinutes: 480,
+      evidenceSummary: '下班卡缺失',
+    }],
+    analytics: {
+      dailyTrend: Array.from({ length: 7 }, (_, index) => ({
+        businessDate: `2026-07-${String(index + 24).padStart(2, '0')}`,
+        exceptionCount: index === 6 ? 1 : 0,
+        blockingCount: index === 6 ? 1 : 0,
+        affectedEmployeeCount: index === 6 ? 1 : 0,
+      })),
+      severityDistribution: [
+        { severity: 'INFO', count: 0 },
+        { severity: 'WARNING', count: 0 },
+        { severity: 'ERROR', count: 1 },
+      ],
+      typeDistribution: [{
+        exceptionType: 'MISSING_PUNCH_OVERDUE',
+        count: 1,
+      }],
+      organizationRanking: [{
+        organizationName: '制造一部',
+        exceptionCount: 1,
+        blockingCount: 1,
+      }],
+    },
+    companies: [{
+      companyId: 'company-a',
+      companyName: '神州半导体',
+    }],
+  };
 }

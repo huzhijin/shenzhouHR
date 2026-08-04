@@ -103,9 +103,9 @@ const metricDefinitions = [
   ['出勤率', '正常出勤计划工作段数 ÷ 应出勤计划工作段数。待补正、冻结保护和无有效排班记录分别处理，不按自然日粗算。'],
   ['异常结构', '按员工、日期、计划工作段去重后的待处理异常。大屏只展示类型和数量，不展示人员、位置或原因。'],
   ['确认加班', '仅统计已确认且落入授权范围的加班时长；待审批、撤销或冲突记录不计入。'],
-  ['月结进度', '已通过检查项 ÷ 全部月结检查项。未发布导入、未解决异常和未确认重算均形成阻断。'],
-  ['数据新鲜度', '分别展示源系统水位和大屏刷新时间。刷新展示不会改变源系统水位，也不会补推缺失事实。'],
-  ['离线地点最近成功导入', '最近一个已发布离线原始打卡批次的发布时间；待预检或待发布批次单独列示。'],
+  ['月结进度', '已通过检查项 ÷ 全部月结检查项。未发布导入、未解决异常和待重新计算数据均会阻止月结。'],
+  ['数据更新时间', '分别展示各考勤来源的最近同步时间和大屏刷新时间。'],
+  ['离线地点最近成功导入', '展示最近一次已发布考勤文件的时间；待检查或待发布文件会单独列示。'],
 ] as const;
 
 export function AttendanceBigScreenPage() {
@@ -211,7 +211,7 @@ export function AttendanceBigScreenPage() {
               end={<span className="od15-delta">{data.delta}</span>}
             />
             <Kpi
-              label="授权范围人数"
+              label="当前范围人数"
               value={String(data.headcount)}
               suffix=" 人"
               meta={data.departmentLabel}
@@ -378,24 +378,24 @@ export function AttendanceBigScreenPage() {
 
             <Panel
               title="数据新鲜度与离线接入"
-              subtitle="源系统水位与展示刷新时间分开"
+              subtitle="查看各考勤来源的最近更新时间"
               meta={<Status tone="success">3 类来源</Status>}
               odId="data-freshness-panel"
             >
               <div className="od15-source-list">
-                <Source icon={<IconDatabase />} name="在线考勤机 · 演示设备 01" detail="源数据截至 2026-07-22 14:18" status="正常" />
-                <Source icon={<IconFileSpreadsheet />} name="办公系统考勤业务单据 · 只读" detail="源数据截至 2026-07-22 14:12" status="正常" />
+                <Source icon={<IconDatabase />} name="在线考勤机 · 演示设备 01" detail="更新于 2026-07-22 14:18" status="正常" />
+                <Source icon={<IconFileSpreadsheet />} name="办公系统考勤业务单据 · 只读" detail="更新于 2026-07-22 14:12" status="正常" />
                 <Source
                   icon={<IconFileSpreadsheet />}
                   name="离线一号厂区 · 电子表格"
                   detail="最近成功 2026-07-21 23:42"
-                  status={data.pending ? '待发布 1 批' : '无待发布'}
+                  status={data.pending ? '1 个任务待发布' : '无待发布任务'}
                   warning={Boolean(data.pending)}
                 />
                 <Source
                   icon={<IconFileSpreadsheet />}
-                  name="演示导入批次 001"
-                  detail={data.pending ? '428 行 · 412 可发布 · 重复 8 · 疑似 4' : '当前授权范围无待处理离线批次'}
+                  name="演示导入任务"
+                  detail={data.pending ? '428 行 · 412 可发布 · 重复 8 · 待确认 4' : '当前范围无待处理离线任务'}
                   status={data.pending ? '待确认' : '无待处理'}
                   warning={Boolean(data.pending)}
                 />
@@ -405,16 +405,16 @@ export function AttendanceBigScreenPage() {
 
           <footer className="od15-footer" data-od-id="screen-footnote">
             <span><strong>口径摘要：</strong>出勤率按计划工作段统计；异常按员工-日期-工作段去重；加班仅含已确认时长。</span>
-            <span className="od15-footer-right">开放设计大屏 · 项目内置 · 合成演示数据</span>
+            <span className="od15-footer-right">考勤运行大屏</span>
           </footer>
         </div>
 
         <div className={`od15-scope-banner${state === 'stale' || state === 'partial' ? ' show' : ''}`} role="status">
-          <span><strong>部分来源延迟：</strong>当前展示保留最近成功水位，不使用缺失来源推算个人结果。</span>
+          <span><strong>部分来源延迟：</strong>当前展示保留最近一次成功同步的数据。</span>
           <span>刷新时间 14:20</span>
         </div>
         <div className={`od15-toast${toastVisible ? ' show' : ''}`} role="status" aria-live="polite">
-          展示已刷新；源系统水位保持不变。
+          展示已刷新。
         </div>
 
         {methodOpen ? (
@@ -434,9 +434,6 @@ export function AttendanceBigScreenPage() {
                   <article className="od15-definition" key={title}><strong>{title}</strong><p>{description}</p></article>
                 ))}
               </div>
-              <footer className="od15-method-foot">
-                工程边界：当前演示使用合成数据，仅证明只读展示、口径和状态表达。
-              </footer>
             </div>
           </section>
         ) : null}

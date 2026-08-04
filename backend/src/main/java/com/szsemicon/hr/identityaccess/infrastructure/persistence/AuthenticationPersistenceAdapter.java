@@ -349,6 +349,18 @@ public class AuthenticationPersistenceAdapter implements AuthenticationPersisten
                 Timestamp.from(now));
     }
 
+    @Override
+    public void invalidateUnusedResetGrants(String accountId, Instant at) {
+        jdbc.update(
+                """
+                UPDATE password_reset_grant
+                SET used_at = ?, row_version = row_version + 1
+                WHERE account_id = ? AND used_at IS NULL
+                """,
+                Timestamp.from(at),
+                accountId);
+    }
+
     private static AccountRecord toAccount(AccountRow row) {
         return new AccountRecord(
                 row.accountId(),

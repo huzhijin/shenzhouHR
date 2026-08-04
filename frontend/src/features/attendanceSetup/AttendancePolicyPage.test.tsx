@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
@@ -7,6 +7,7 @@ import '../../shared/i18n/i18n';
 import * as attendanceSetupApi from './attendanceSetupApi';
 import {
   demoBindings,
+  demoGroups,
   demoPolicyImpact,
   demoPolicyVersions,
   requiredDemoItem,
@@ -50,11 +51,14 @@ describe('attendance policy route and impact isolation', () => {
 
     renderPolicyPage(mealVersion.scopedVersionId);
 
-    const versionCells = await screen.findAllByText(selectedBinding.policyVersionId);
-    const row = versionCells
-      .map((cell) => cell.closest('tr'))
+    const row = (await screen.findAllByText(selectedBinding.changeReason))
+      .map((label) => label.closest('tr'))
       .find((candidate) => candidate !== null) ?? null;
     expect(row).not.toBeNull();
+    expect(requiredElement(row)).toHaveTextContent('迟到宽限');
+    expect(requiredElement(row)).toHaveTextContent('一号厂 A 班四班两倒（FAB-A-4D2N）');
+    expect(requiredElement(row)).not.toHaveTextContent(selectedBinding.policyVersionId);
+    expect(requiredElement(row)).not.toHaveTextContent(selectedBinding.groupId);
     const impactSection = screen.getByRole(
       'heading',
       { name: '真实范围影响预览' },
@@ -75,9 +79,12 @@ describe('attendance policy route and impact isolation', () => {
         reason: selectedBinding.changeReason,
       });
     });
-    expect(screen.getByText(
-      `${selectedBinding.policyVersionId} · ${selectedBinding.groupId}`,
+    const group = requiredDemoItem(demoGroups);
+    expect(within(requiredElement(impactSection)).getByText(
+      `${group.name}（${group.code}）`,
     )).toBeInTheDocument();
+    expect(screen.queryByText(selectedBinding.policyVersionId)).not.toBeInTheDocument();
+    expect(screen.queryByText(selectedBinding.groupId)).not.toBeInTheDocument();
     expect(within(requiredElement(impactSection)).getByText('23')).toBeInTheDocument();
   });
 
@@ -93,7 +100,7 @@ describe('attendance policy route and impact isolation', () => {
     renderPolicyPage(mealVersion.scopedVersionId);
     expect(await screen.findByText('策略版本生命周期')).toBeInTheDocument();
 
-    changePolicyRoute(lateVersion.scopedVersionId);
+    await chooseVisiblePolicyVersion(lateVersion);
     await waitFor(() => {
       expect(attendanceSetupApi.getAttendancePolicyVersionContext)
         .toHaveBeenCalledWith(lateVersion.scopedVersionId);
@@ -106,7 +113,8 @@ describe('attendance policy route and impact isolation', () => {
       routeB.resolve(lateVersion);
     });
     expect(await screen.findByText('策略版本生命周期')).toBeInTheDocument();
-    expect(screen.getByText('迟到分钟宽限')).toBeInTheDocument();
+    expect(screen.getAllByText('迟到分钟宽限').length).toBeGreaterThan(0);
+    expect(screen.queryByText(lateVersion.scopedVersionId)).not.toBeInTheDocument();
   }, 30_000);
 
   it('fails route A to a missing version closed without restoring A controls', async () => {
@@ -116,10 +124,10 @@ describe('attendance policy route and impact isolation', () => {
         ? Promise.resolve(mealVersion)
         : missing.promise);
 
-    const view = renderPolicyPage(mealVersion.scopedVersionId);
+    const view = renderPolicyPage(mealVersion.scopedVersionId, 'missing-policy-version');
     expect(await screen.findByText('策略版本生命周期')).toBeInTheDocument();
 
-    changePolicyRoute('missing-policy-version');
+    fireEvent.click(screen.getByRole('link', { name: '打开失效的策略链接' }));
     await waitFor(() => {
       expect(attendanceSetupApi.getAttendancePolicyVersionContext)
         .toHaveBeenCalledWith('missing-policy-version');
@@ -142,9 +150,14 @@ describe('attendance policy route and impact isolation', () => {
   }, 30_000);
 });
 
-function renderPolicyPage(versionId: string) {
+function renderPolicyPage(versionId: string, directLinkTarget?: string) {
   return render(
     <MemoryRouter initialEntries={[`/rules/attendance-policy/${versionId}`]}>
+      {directLinkTarget ? (
+        <Link to={`/rules/attendance-policy/${directLinkTarget}`}>
+          打开失效的策略链接
+        </Link>
+      ) : null}
       <Routes>
         <Route
           path="/rules/attendance-policy"
@@ -159,11 +172,24 @@ function renderPolicyPage(versionId: string) {
   );
 }
 
-function changePolicyRoute(versionId: string) {
-  fireEvent.change(screen.getByLabelText('已发布策略版本 ID'), {
-    target: { value: versionId },
-  });
-  fireEvent.click(screen.getByRole('button', { name: '选择' }));
+async function chooseVisiblePolicyVersion(version: AttendancePolicyVersionView) {
+  const tabLabel = {
+    MEAL_DEDUCTION: '晚餐扣除',
+    LATE_GRACE: '迟到宽限',
+    MONTHLY_LATE_EXEMPTION: '自然月迟到豁免',
+  }[version.policyKind];
+  fireEvent.click(screen.getByTitle(tabLabel));
+
+  const lifecycleHeading = await screen.findByRole(
+    'heading',
+    { name: '策略版本生命周期' },
+  );
+  const lifecycle = requiredElement(lifecycleHeading.closest('section'));
+  const versionButton = (await within(lifecycle).findAllByRole(
+    'button',
+    { name: `版本 ${version.versionNumber}` },
+  )).find((button) => button.closest('tr') !== null);
+  fireEvent.click(requiredElement(versionButton ?? null));
 }
 
 function deferred<T>() {

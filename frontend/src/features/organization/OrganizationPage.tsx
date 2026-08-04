@@ -26,25 +26,17 @@ import {
 import { OperationFeedback, StatusBadge } from '../../shared/components/FeedbackComponents';
 import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
-import { isDemoMode } from '../../shared/config/runtimeMode';
-import {
-  ApiErrorState,
-  PeopleContextStrip,
-  SourceAuthority,
-  VersionAuditPanel,
-  formatDate,
-} from '../people/PeopleCommon';
+import { ApiErrorState, formatDate } from '../people/PeopleCommon';
+import { CompanySelect } from '../referenceData';
 import {
   createLocalOrganization,
   getCurrentOrganizationTree,
   getOrganization,
-  listOrganizationVersions,
   updateLocalOrganization,
   type OrganizationCreateRequest,
   type OrganizationDetail,
   type OrganizationNode,
   type OrganizationUpdateRequest,
-  type OrganizationVersionSummary,
 } from './organizationApi';
 import { toOrganizationTreeData, type OrganizationTreeDataNode } from './organizationTree';
 
@@ -70,7 +62,6 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
   const [state, setState] = useState<OrganizationState>({ status: 'loading' });
   const [selectedId, setSelectedId] = useState<string>();
   const [detail, setDetail] = useState<OrganizationDetail>();
-  const [versions, setVersions] = useState<OrganizationVersionSummary[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<ApiRequestError>();
   const [formMode, setFormMode] = useState<'create' | 'edit'>();
@@ -95,13 +86,9 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
   const loadDetail = useCallback((organizationId: string) => {
     setDetailLoading(true);
     setDetailError(undefined);
-    void Promise.all([
-      getOrganization(organizationId),
-      listOrganizationVersions(organizationId),
-    ])
-      .then(([nextDetail, versionPage]) => {
+    void getOrganization(organizationId)
+      .then((nextDetail) => {
         setDetail(nextDetail);
-        setVersions(versionPage.items);
       })
       .catch((error: unknown) => {
         setDetail(undefined);
@@ -193,9 +180,6 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
         breadcrumbs={[{ label: t('people.section') }, { label: t('organization.title') }]}
         actions={(
           <Space wrap>
-            <span className="status-label">
-              {isDemoMode() ? t('organization.demoScope') : t('organization.serverScope')}
-            </span>
             <Button icon={<IconRefresh aria-hidden="true" stroke={2} />} onClick={load}>
               {t('common.refresh')}
             </Button>
@@ -206,12 +190,6 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
             ) : null}
           </Space>
         )}
-      />
-      <PeopleContextStrip
-        items={[
-          { label: t('people.sourceAuthority'), value: t('people.source.local') },
-          { label: t('people.periodSemantics'), value: '[start_date, end_exclusive)', mono: true },
-        ]}
       />
       {feedback ? <OperationFeedback kind="success" message={feedback} /> : null}
       <div className="organization-workbench">
@@ -250,7 +228,6 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
               <div className="section-heading">
                 <div>
                   <h2 id="organization-detail-title">{detail.name}</h2>
-                  <p><code>{detail.code}</code></p>
                 </div>
                 {capabilities.includes('ORGANIZATION:EDIT') ? (
                   <Button icon={<IconEdit aria-hidden="true" stroke={2} />} onClick={openEdit}>
@@ -260,7 +237,6 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
               </div>
               <Space wrap className="people-badge-row">
                 <StatusBadge status={detail.status} />
-                <SourceAuthority authority={detail.sourceAuthority} />
               </Space>
               <Descriptions
                 className="people-descriptions"
@@ -270,15 +246,7 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
                   { key: 'children', label: t('organization.childCount'), children: detail.childCount },
                   { key: 'effective', label: t('people.effectiveFrom'), children: formatDate(detail.effectiveFrom) },
                   { key: 'to', label: t('people.effectiveTo'), children: detail.effectiveTo ? formatDate(detail.effectiveTo) : t('people.longTerm') },
-                  { key: 'source', label: t('organization.sourceBatch'), children: detail.sourceBatchId ? <code>{detail.sourceBatchId}</code> : t('organization.localMaintenance') },
-                  { key: 'version', label: t('people.rowVersion'), children: <code>V{detail.rowVersion}</code> },
                 ]}
-              />
-              <VersionAuditPanel
-                versions={versions}
-                resourceType="ORGANIZATION"
-                resourceId={detail.auditResourceId}
-                canReadAudit={capabilities.includes('AUDIT:READ')}
               />
             </>
           ) : null}
@@ -301,18 +269,11 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
 export default OrganizationPage;
 
 function OrganizationTreeTitle({ node }: { node: OrganizationTreeDataNode }) {
-  const { t } = useTranslation();
   return (
     <span className="organization-node">
       <IconBuilding aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
       <strong>{node.unit.name}</strong>
-      <span className="organization-node__code">{node.unit.code}</span>
       <StatusBadge status={node.unit.status} />
-      {node.unit.sourceOrganizationId ? (
-        <span className="organization-node__source">
-          {t('organization.sourceId', { sourceId: node.unit.sourceOrganizationId })}
-        </span>
-      ) : null}
     </span>
   );
 }
@@ -352,7 +313,7 @@ function OrganizationFormDialog({
       <Form form={form} layout="vertical">
         {mode === 'create' ? (
           <Form.Item name="companyId" label={t('people.company')} rules={[{ required: true }]}>
-            <Input />
+            <CompanySelect placeholder="请选择公司" />
           </Form.Item>
         ) : null}
         <Form.Item name="parentOrganizationId" label={t('organization.parent')}>
@@ -395,7 +356,7 @@ function flattenOrganizations(
   depth = 0,
 ): Array<{ label: string; value: string }> {
   return nodes.flatMap((node) => [
-    { label: `${'—'.repeat(depth)} ${node.name} · ${node.code}`, value: node.organizationId },
+    { label: `${'—'.repeat(depth)} ${node.name}`, value: node.organizationId },
     ...flattenOrganizations(node.children, depth + 1),
   ]);
 }

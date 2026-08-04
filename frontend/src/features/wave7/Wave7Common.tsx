@@ -38,7 +38,7 @@ export function Wave7AsyncBoundary<T>({
 
 export function ProjectionMetadata({ metadata }: { metadata: Wave7ProjectionMetadata }) {
   return (
-    <dl className="wave7-context" aria-label="投影上下文">
+    <dl className="wave7-context" aria-label="数据概览">
       <div>
         <dt>范围</dt>
         <dd>{metadata.scope.label}</dd>
@@ -50,10 +50,6 @@ export function ProjectionMetadata({ metadata }: { metadata: Wave7ProjectionMeta
       <div>
         <dt>数据截至</dt>
         <dd><time dateTime={metadata.dataAsOf}>{formatDateTime(metadata.dataAsOf)}</time></dd>
-      </div>
-      <div>
-        <dt>投影版本</dt>
-        <dd>{isSyntheticMetadata(metadata) ? '演示固定版本' : <code>{metadata.projectionVersion}</code>}</dd>
       </div>
     </dl>
   );
@@ -68,11 +64,10 @@ export function FrozenHistoryNotice({ metadata }: { metadata: Wave7ProjectionMet
       <IconSnowflake aria-hidden="true" stroke={2} />
       <div>
         <h2 id="wave7-frozen-title">
-          {metadata.periodState === 'CLOSED' ? '已月结版本' : '冻结版本'}
+          {metadata.periodState === 'CLOSED' ? '本月已月结' : '本月数据已冻结'}
         </h2>
         <p>
-          当前显示 {metadata.periodLabel} 的不可变历史版本
-          {isSyntheticMetadata(metadata) ? null : <code>{metadata.projectionVersion}</code>}；后续变化不会静默覆盖本版本。
+          当前显示 {metadata.periodLabel} 的历史结果；如需调整，请按考勤复核流程处理。
         </p>
       </div>
     </section>
@@ -114,7 +109,7 @@ export function DashboardMetricGrid({
               data-drill-down-reference={metric.drillDownReference}
               onClick={() => onDrillDown?.(metric.drillDownReference!, projectionVersion)}
             >
-              查看同版本明细
+              查看明细
             </button>
           ) : null}
         </div>
@@ -162,7 +157,7 @@ export function formatHours(minutes: number): string {
 
 export function formatDate(value: string): string {
   const timestamp = Date.parse(`${value.slice(0, 10)}T00:00:00+08:00`);
-  if (!Number.isFinite(timestamp)) return value;
+  if (!Number.isFinite(timestamp)) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
     timeZone: 'Asia/Shanghai',
@@ -171,7 +166,7 @@ export function formatDate(value: string): string {
 
 export function formatDateTime(value: string): string {
   const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return value;
+  if (!Number.isFinite(timestamp)) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -183,18 +178,43 @@ function Wave7ErrorState({ error, onRetry }: {
   error: ApiRequestError;
   onRetry: () => void;
 }) {
+  if (
+    error.status === 409
+    && error.code === 'ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY'
+  ) {
+    return (
+      <StatePanel
+        state="empty"
+        title="今日异常考勤尚未生成"
+        description="当前公司的今日考勤结果尚未生成。完成数据同步和考勤计算后再刷新。"
+        onRetry={error.retryable ? onRetry : undefined}
+      />
+    );
+  }
+  if (
+    error.status === 409
+    && error.code === 'SELF_ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY'
+  ) {
+    return (
+      <StatePanel
+        state="empty"
+        title="本人考勤工作台尚未生成"
+        description="本人的当月考勤结果尚未生成或尚未发布，请稍后刷新。"
+        onRetry={error.retryable ? onRetry : undefined}
+      />
+    );
+  }
   if (error.status === 401) {
     return <StatePanel state="401" description="会话已失效，请重新登录。" />;
   }
   if (error.status === 403 || error.status === 404) {
     return <StatePanel state="403" description="当前账号无权访问该内容。" />;
   }
+  // Correlation metadata remains on the gateway error for diagnostics, not end-user display.
   return (
     <StatePanel
       state={error.status === 0 ? 'network-error' : 'error'}
-      description={error.correlationId
-        ? `${error.message}；关联标识 ${error.correlationId}`
-        : error.message}
+      description={error.message}
       onRetry={error.retryable ? onRetry : undefined}
     />
   );

@@ -1323,7 +1323,7 @@ function demoDeactivationBoundaryError(
   if (effectiveTo && boundary > effectiveTo) {
     return new ApiRequestError(409, {
       code: `${resource}_DEACTIVATION_OUT_OF_RANGE`,
-      message: '停用边界不得晚于版本的半开期间终点',
+      message: '停用日期不能晚于当前版本的失效日期',
       retryable: false,
     });
   }

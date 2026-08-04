@@ -1,5 +1,6 @@
 import { requestJson } from '../../shared/api/apiClient';
 import { isDemoMode } from '../../shared/config/runtimeMode';
+import { passwordMeetsPolicy } from '../../shared/security/passwordPolicy';
 
 export type AccountStatus = 'ACTIVE' | 'DISABLED' | 'LOCKED';
 
@@ -57,6 +58,22 @@ export interface RoleView {
   roleCode: string;
   roleName: string;
   capabilities: string[];
+}
+
+const privilegedRoleCodes = new Set(['SYSTEM_ADMIN', 'HR_ADMIN', 'AUDITOR']);
+
+export function requiresStrongTemporaryPassword(roleCode?: string): boolean {
+  return Boolean(roleCode && privilegedRoleCodes.has(roleCode));
+}
+
+export function accountRequiresStrongTemporaryPassword(
+  roles: Array<Pick<RoleAssignmentView, 'roleCode'>>,
+): boolean {
+  return roles.some((role) => requiresStrongTemporaryPassword(role.roleCode));
+}
+
+export function isStrongTemporaryPassword(value: string): boolean {
+  return passwordMeetsPolicy(value);
 }
 
 export interface AccountFilters {
@@ -159,7 +176,7 @@ export function getAccount(accountId: string): Promise<AccountDetail> {
 export function createAccount(input: {
   username: string;
   displayName: string;
-  temporaryPassword: string;
+  temporaryPassword?: string;
   employeeId?: string | null;
   roleAssignments: RoleAssignmentRequest[];
 }): Promise<AccountDetail> {
@@ -205,6 +222,24 @@ export function issuePasswordReset(accountId: string, reason: string): Promise<v
     method: 'POST',
     body: JSON.stringify({ reason }),
   });
+}
+
+export function resetTemporaryPassword(
+  accountId: string,
+  reason: string,
+  temporaryPassword?: string,
+): Promise<void> {
+  if (isDemoMode()) return Promise.resolve();
+  return requestJson<void>(
+    `/api/v1/access/accounts/${encodeURIComponent(accountId)}/temporary-password-reset`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        reason,
+        ...(temporaryPassword ? { temporaryPassword } : {}),
+      }),
+    },
+  );
 }
 
 export function listRoles(): Promise<RoleView[]> {

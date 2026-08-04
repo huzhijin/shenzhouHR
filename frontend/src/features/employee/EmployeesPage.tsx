@@ -25,12 +25,8 @@ import { DataTable } from '../../shared/components/DataTable';
 import { OperationFeedback, StatusBadge } from '../../shared/components/FeedbackComponents';
 import { PageHeader, QueryFilterBar } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
-import { isDemoMode } from '../../shared/config/runtimeMode';
-import {
-  ApiErrorState,
-  PeopleContextStrip,
-  SourceAuthority,
-} from '../people/PeopleCommon';
+import { ApiErrorState } from '../people/PeopleCommon';
+import { CompanySelect } from '../referenceData';
 import {
   createLocalEmployee,
   getEmployees,
@@ -50,7 +46,6 @@ type CreateEmployeeValues = {
   companyId: string;
   employeeNumber: string;
   displayName: string;
-  externalEmployeeId?: string;
   effectiveFrom: dayjs.Dayjs;
   reason: string;
 };
@@ -127,9 +122,6 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
         breadcrumbs={[{ label: t('people.section') }, { label: t('employee.title') }]}
         actions={(
           <Space wrap>
-            <span className="status-label">
-              {isDemoMode() ? t('organization.demoScope') : t('employee.serverScope')}
-            </span>
             <Button icon={<IconRefresh aria-hidden="true" stroke={2} />} onClick={load}>
               {t('common.refresh')}
             </Button>
@@ -140,13 +132,6 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
             ) : null}
           </Space>
         )}
-      />
-      <PeopleContextStrip
-        items={[
-          { label: t('people.sourceAuthority'), value: t('people.source.local') },
-          { label: t('people.matchKey'), value: t('people.preciseMatchOnly') },
-          { label: t('people.periodSemantics'), value: '[start_date, end_exclusive)', mono: true },
-        ]}
       />
       {feedback ? <OperationFeedback kind="success" message={feedback} /> : null}
       <section className="content-surface">
@@ -195,8 +180,6 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
                 { key: 'number', title: t('employee.number'), render: (row) => <code>{row.employeeNumber}</code> },
                 { key: 'organization', title: t('employee.column.organization'), render: (row) => row.organizationName ?? t('employee.unassigned') },
                 { key: 'status', title: t('employee.column.employmentStatus'), render: (row) => <StatusBadge status={row.employmentStatus} /> },
-                { key: 'source', title: t('people.sourceAuthority'), render: (row) => <SourceAuthority authority={row.sourceAuthority} /> },
-                { key: 'version', title: t('people.rowVersion'), render: (row) => <code>V{row.rowVersion}</code> },
               ]}
             />
             <Pagination
@@ -228,16 +211,13 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
         {writeError ? <ApiErrorState error={writeError} /> : null}
         <Form form={form} layout="vertical">
           <Form.Item name="companyId" label={t('people.company')} rules={[{ required: true }]}>
-            <Input />
+            <CompanySelect placeholder="请选择公司" />
           </Form.Item>
           <div className="form-grid">
             <Form.Item name="employeeNumber" label={t('employee.number')} rules={[{ required: true }, { max: 64 }]}>
               <Input />
             </Form.Item>
             <Form.Item name="displayName" label={t('employee.name')} rules={[{ required: true }, { max: 100 }]}>
-              <Input />
-            </Form.Item>
-            <Form.Item name="externalEmployeeId" label={t('employee.externalId')}>
               <Input />
             </Form.Item>
             <Form.Item name="effectiveFrom" label={t('people.effectiveFrom')} rules={[{ required: true }]}>
@@ -260,7 +240,6 @@ function toCreateRequest(values: CreateEmployeeValues): EmployeeCreateRequest {
     companyId: values.companyId.trim(),
     employeeNumber: values.employeeNumber.trim(),
     displayName: values.displayName.trim(),
-    externalEmployeeId: values.externalEmployeeId?.trim() || null,
     effectiveFrom: values.effectiveFrom.format('YYYY-MM-DD'),
     reason: values.reason.trim(),
   };

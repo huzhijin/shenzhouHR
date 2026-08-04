@@ -1,0 +1,168 @@
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { DashboardView } from './DashboardPage';
+import type { LiveDashboardProjection } from './wave7Contracts';
+
+describe('attendance dashboard visualization and drill-through', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('filters the authorized priority list and opens a safe detail drawer', () => {
+    const onOpenReports = vi.fn();
+    render(
+      <MemoryRouter>
+        <DashboardView
+          projection={dashboardProjection()}
+          onOpenReports={onOpenReports}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('region', {
+      name: '异常趋势与严重程度',
+    })).toBeInTheDocument();
+    expect(screen.getByRole('region', {
+      name: '异常类型与组织排行',
+    })).toBeInTheDocument();
+    expect(screen.getByRole('img', {
+      name: /2026-07-30：异常 2 条/,
+    })).toBeInTheDocument();
+
+    const anomalyList = screen.getByRole('region', {
+      name: '今日异常考勤列表',
+    });
+    expect(anomalyList).toHaveTextContent('张三');
+    expect(anomalyList).toHaveTextContent('李四');
+
+    fireEvent.click(screen.getByRole('button', {
+      name: '筛选错误级别异常 1 条',
+    }));
+    const filteredList = screen.getByRole('region', {
+      name: '今日异常考勤列表',
+    });
+    expect(filteredList).toHaveTextContent('张三');
+    expect(filteredList).not.toHaveTextContent('李四');
+    expect(screen.getByRole('status')).toHaveTextContent('当前筛选：错误级别');
+
+    fireEvent.click(screen.getAllByRole('button', {
+      name: '查看张三的异常详情',
+    })[0]!);
+    const drawer = screen.getByRole('dialog');
+    expect(within(drawer).getByText('异常考勤详情')).toBeInTheDocument();
+    expect(within(drawer).getByText('下班卡缺失')).toBeInTheDocument();
+    expect(within(drawer).queryByText('exception-1')).not.toBeInTheDocument();
+
+    fireEvent.click(within(drawer).getByRole('button', {
+      name: '进入异常报表',
+    }));
+    expect(onOpenReports).toHaveBeenCalledWith({
+      reportType: 'EXCEPTIONS',
+      period: '2026-07',
+      companyId: 'company-a',
+    });
+  });
+});
+
+function dashboardProjection(): LiveDashboardProjection {
+  return {
+    kind: 'DASHBOARD',
+    title: '今日异常考勤',
+    businessDate: '2026-07-30',
+    selectedCompanyId: 'company-a',
+    metadata: {
+      projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+      sourceVersions: ['ATTENDANCE-CALC-V1'],
+      dataAsOf: '2026-07-30T01:00:00Z',
+      timeZone: 'Asia/Shanghai',
+      periodLabel: '2026-07',
+      periodState: 'OPEN',
+      scope: {
+        type: 'COMPANY',
+        reference: 'company-a',
+        label: '神州半导体',
+      },
+      allowedActions: ['DASHBOARD_DRILL_DOWN'],
+    },
+    metrics: [],
+    summary: {
+      unresolvedCount: 2,
+      affectedEmployeeCount: 2,
+      blockingCount: 1,
+    },
+    analytics: {
+      dailyTrend: [
+        {
+          businessDate: '2026-07-29',
+          exceptionCount: 1,
+          blockingCount: 0,
+          affectedEmployeeCount: 1,
+        },
+        {
+          businessDate: '2026-07-30',
+          exceptionCount: 2,
+          blockingCount: 1,
+          affectedEmployeeCount: 2,
+        },
+      ],
+      severityDistribution: [
+        { severity: 'INFO', count: 0 },
+        { severity: 'WARNING', count: 1 },
+        { severity: 'ERROR', count: 1 },
+      ],
+      typeDistribution: [
+        { exceptionType: 'MISSING_PUNCH_OVERDUE', count: 1 },
+        { exceptionType: 'LATE', count: 1 },
+      ],
+      organizationRanking: [
+        {
+          organizationName: '制造一部',
+          exceptionCount: 1,
+          blockingCount: 1,
+        },
+        {
+          organizationName: '研发一部',
+          exceptionCount: 1,
+          blockingCount: 0,
+        },
+      ],
+    },
+    exceptions: [
+      {
+        exceptionReference: 'exception-1',
+        employeeNumber: 'SZ001',
+        employeeName: '张三',
+        organizationName: '制造一部',
+        businessDate: '2026-07-30',
+        exceptionType: 'MISSING_PUNCH_OVERDUE',
+        severity: 'ERROR',
+        state: 'PENDING_REVIEW',
+        exceptionMinutes: 480,
+        evidenceSummary: '下班卡缺失',
+      },
+      {
+        exceptionReference: 'exception-2',
+        employeeNumber: 'SZ002',
+        employeeName: '李四',
+        organizationName: '研发一部',
+        businessDate: '2026-07-30',
+        exceptionType: 'LATE',
+        severity: 'WARNING',
+        state: 'OPEN',
+        exceptionMinutes: 12,
+        evidenceSummary: '首次有效打卡晚于计划开始时间',
+      },
+    ],
+    companies: [
+      { companyId: 'company-a', companyName: '神州半导体' },
+    ],
+  };
+}

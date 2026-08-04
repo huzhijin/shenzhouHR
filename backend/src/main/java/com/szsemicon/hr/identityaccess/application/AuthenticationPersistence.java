@@ -77,4 +77,6 @@ public interface AuthenticationPersistence {
             String requestId,
             Instant expiresAt,
             Instant now);
+
+    void invalidateUnusedResetGrants(String accountId, Instant at);
 }

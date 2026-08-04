@@ -196,7 +196,7 @@ async function readErrorBody(response: Response): Promise<Partial<ApiErrorBody> 
   try {
     const value: unknown = await response.json();
     if (isErrorBody(value)) {
-      return value;
+      return sanitizeServerErrorBody(value);
     }
   } catch (caught: unknown) {
     void caught;
@@ -208,6 +208,10 @@ async function readErrorBody(response: Response): Promise<Partial<ApiErrorBody> 
 function safeMessage(status: number): string {
   if (status === 401) return translate('organization.sessionInvalid');
   if (status === 403 || status === 404) return translate('organization.notAvailable');
+  if (status === 400) return translate('error.invalidRequest');
+  if (status === 409 || status === 412) return translate('error.dataChanged');
+  if (status === 422) return translate('error.validationFailed');
+  if (status === 429) return translate('error.tooManyRequests');
   return translate('error.serviceUnavailable');
 }
 
@@ -219,6 +223,120 @@ function isErrorBody(value: unknown): value is ApiErrorBody {
   return typeof candidate.code === 'string'
     && (candidate.correlationId === undefined || typeof candidate.correlationId === 'string')
     && (candidate.retryable === undefined || typeof candidate.retryable === 'boolean');
+}
+
+function sanitizeServerErrorBody(body: ApiErrorBody): Partial<ApiErrorBody> {
+  const correlationId = safeCorrelationId(body.correlationId);
+  const fieldErrors = safeFieldErrors(body.fieldErrors);
+
+  // Server messages can contain implementation details. Keep only metadata
+  // needed for client-side branching and support lookup; the constructor will
+  // select a status-based, user-facing message.
+  return {
+    code: safeErrorCode(body.code),
+    ...(correlationId ? { correlationId } : {}),
+    ...(typeof body.retryable === 'boolean'
+      ? { retryable: body.retryable }
+      : {}),
+    ...(fieldErrors ? { fieldErrors } : {}),
+  };
+}
+
+function safeErrorCode(value: string): string {
+  return /^[A-Z][A-Z0-9_]{0,127}$/u.test(value)
+    ? value
+    : 'REQUEST_FAILED';
+}
+
+function safeCorrelationId(value: string | undefined): string | undefined {
+  if (
+    value === undefined
+    || !/^[A-Za-z0-9._:-]{1,128}$/u.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
+function safeFieldErrors(
+  value: ApiErrorBody['fieldErrors'],
+): ApiErrorBody['fieldErrors'] {
+  if (!Array.isArray(value)) return undefined;
+  const errors: NonNullable<ApiErrorBody['fieldErrors']> = [];
+  let genericIssueAdded = false;
+
+  for (const issue of value.slice(0, 20)) {
+    if (typeof issue !== 'object' || issue === null) continue;
+    const candidate = issue as Record<string, unknown>;
+    const message = safeValidationMessage(candidate.message);
+    const isGeneric = message === genericValidationMessage;
+    if (isGeneric && genericIssueAdded) continue;
+
+    errors.push({
+      field: safeFieldName(candidate.field),
+      code: safeFieldErrorCode(candidate.code),
+      message,
+    });
+    genericIssueAdded ||= isGeneric;
+  }
+
+  return errors.length > 0 ? errors : undefined;
+}
+
+const genericValidationMessage = '请检查相关填写内容。';
+
+function safeValidationMessage(value: unknown): string {
+  if (typeof value !== 'string') return genericValidationMessage;
+  const message = value.trim();
+  if (
+    message.length === 0
+    || message.length > 160
+    || hasUnsafeValidationDetail(message)
+  ) {
+    return genericValidationMessage;
+  }
+  return message;
+}
+
+function hasUnsafeValidationDetail(message: string): boolean {
+  if (hasControlCharacter(message)) return true;
+  const technicalPatterns = [
+    /\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/iu,
+    /\b\d{16,}\b/u,
+    /\b[a-z][a-z0-9]*_[a-z0-9_]+\b/iu,
+    /\b(?:rowVersion|queryFingerprint|projectionVersion|scopeResourceId|versionId)\b/iu,
+    /\b(?:id|uuid|sql|exception|constraint|credential|secret|token)\b/iu,
+    /(?:服务端|后端|数据库|投影|接口响应|响应体|技术字段|堆栈|外键|约束名)/u,
+    /(?:https?:\/\/|[\\/](?:api|src|main|java|node_modules)[\\/])/iu,
+    /[{}[\]<>]/u,
+    /(?:[A-Za-z]{3,}\s+){2,}[A-Za-z]{3,}/u,
+  ];
+  return technicalPatterns.some((pattern) => pattern.test(message));
+}
+
+function hasControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined
+      && (
+        codePoint <= 0x1f
+        || (codePoint >= 0x7f && codePoint <= 0x9f)
+      );
+  });
+}
+
+function safeFieldName(value: unknown): string {
+  return typeof value === 'string'
+    && /^[A-Za-z][A-Za-z0-9.]{0,127}$/u.test(value)
+    ? value
+    : 'input';
+}
+
+function safeFieldErrorCode(value: unknown): string {
+  return typeof value === 'string'
+    && /^[A-Z][A-Z0-9_]{0,127}$/u.test(value)
+    ? value
+    : 'INVALID_INPUT';
 }
 
 function responseFileName(contentDisposition: string | null): string {

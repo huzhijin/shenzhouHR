@@ -10,6 +10,7 @@ import { DataTable } from '../../shared/components/DataTable';
 import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { ApiErrorState, formatDateTime, PeopleContextStrip } from '../people/PeopleCommon';
+import { importTaskLabel } from './importDisplay';
 import { ImportWizard } from './ImportWizard';
 import {
   getPeopleImportBatch,
@@ -139,8 +140,9 @@ export function PeopleImportPage({ capabilities }: { capabilities: string[] }) {
           <PeopleContextStrip items={[
             {
               label: t('peopleImport.batchId'),
-              value: state.batch?.batchId ?? t('peopleImport.noActiveBatch'),
-              mono: true,
+              value: state.batch
+                ? importTaskLabel(state.batch.createdAt, state.batch.file?.originalFileName)
+                : t('peopleImport.noActiveBatch'),
             },
             {
               label: t('peopleImport.batchStatus'),
@@ -203,14 +205,14 @@ export function PeopleImportPage({ capabilities }: { capabilities: string[] }) {
             columns={[
               {
                 key: 'batch',
-                title: t('peopleImport.batchId'),
+                title: t('peopleImport.history'),
                 render: (row) => (
                   <AccessibleButton
-                    label={`${t('peopleImport.batchId')} ${row.batchId}`}
+                    label={`${t('common.view')} ${importTaskLabel(row.createdAt)}`}
                     type="link"
                     onClick={() => chooseBatch(row.batchId)}
                   >
-                    <code>{row.batchId}</code>
+                    {importTaskLabel(row.createdAt)}
                   </AccessibleButton>
                 ),
               },

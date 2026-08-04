@@ -20,6 +20,7 @@ import {
   createShiftVersion,
   changeShiftStatus,
   changeShiftVersionStatus,
+  listLocations,
   listShifts,
   listShiftVersions,
   publishShiftVersion,
@@ -86,6 +87,17 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
     (page) => page.total === 0,
     [effectiveShiftId, versionPage, versionPageSize],
   );
+  const locations = useAsyncResource(
+    () => listLocations(0, 500),
+    () => false,
+    [],
+  );
+  const locationLabels = locations.resource.status === 'ready'
+    ? new Map(locations.resource.data.items.map((location) => [
+      location.locationId,
+      `${location.name}（${location.code}）`,
+    ]))
+    : new Map<string, string>();
   useEffect(() => {
     if (!selectedShiftId && firstShiftId) {
       setSelectedShiftId(firstShiftId);
@@ -350,7 +362,7 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
                     </AccessibleButton>
                   ),
                 },
-                { key: 'location', title: t('attendanceSetup.locationId'), render: (shift) => <code>{shift.locationId}</code> },
+                { key: 'location', title: '地点', render: (shift) => locationLabels.get(shift.locationId) ?? '已归档地点' },
                 { key: 'status', title: t('attendanceSetup.status'), render: (shift) => <StatusBadge status={shift.status} /> },
                 { key: 'reason', title: t('attendanceSetup.reason'), render: (shift) => shift.changeReason },
                 ...(canManage ? [{
@@ -400,7 +412,7 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
             <div className="section-heading">
               <div>
                 <h2>{t('attendanceSetup.seasonalTimeline')}</h2>
-                <p>{t('attendanceSetup.seasonalTimelineDescription')}</p>
+                <p>按生效日期查看每个班次版本及其工作、休息和用餐时段。</p>
               </div>
               <AccessibleButton
                 label={t('common.refresh')}
@@ -447,7 +459,7 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
                               className={`shift-segment shift-segment--${segment.segmentType.toLowerCase()}`}
                               key={`${version.shiftVersionId}-${segment.segmentType}-${segment.startDayOffset}-${segment.startLocalTime}-${segment.endDayOffset}-${segment.endLocalTime}`}
                             >
-                              <strong>{segment.segmentType}</strong>
+                              <strong>{segmentTypeLabel(segment.segmentType)}</strong>
                               {segment.startDayOffset === 1 ? `${t('attendanceSetup.nextDay')} ` : ''}
                               {segment.startLocalTime.slice(0, 5)}–{segment.endLocalTime.slice(0, 5)}
                               {segment.endDayOffset === 1 ? ` · ${t('attendanceSetup.nextDay')}` : ''}
@@ -458,10 +470,6 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
                           <div>
                             <dt>{t('attendanceSetup.timeZone')}</dt>
                             <dd>{version.timeZone}</dd>
-                          </div>
-                          <div>
-                            <dt>{t('attendanceSetup.snapshotDigest')}</dt>
-                            <dd><code className="attendance-digest">{version.snapshotDigest}</code></dd>
                           </div>
                         </dl>
                         <footer>
@@ -628,6 +636,14 @@ function formatPeriod(
   longTerm: string,
 ): string {
   return `${effectiveFrom} → ${effectiveTo ?? longTerm}`;
+}
+
+function segmentTypeLabel(value: string): string {
+  return ({
+    WORK: '工作',
+    BREAK: '休息',
+    MEAL: '用餐',
+  } as Readonly<Record<string, string>>)[value] ?? '其他';
 }
 
 function deactivationBoundary(effectiveFrom: string): string {

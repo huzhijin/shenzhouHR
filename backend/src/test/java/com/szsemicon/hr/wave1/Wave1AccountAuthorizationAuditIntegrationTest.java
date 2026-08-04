@@ -16,12 +16,15 @@ import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MvcResult;
 
 class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTestSupport {
 
     private static final String SYSTEM_ADMIN_ROLE =
             "10000000-0000-0000-0000-000000000002";
+    private static final String EXECUTIVE_ROLE =
+            "10000000-0000-0000-0000-000000000004";
 
     @Test
     void accountCreationHashesTheTemporaryPasswordAndNeverReturnsSecrets() throws Exception {
@@ -74,6 +77,90 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
                 .isNotEqualTo(temporaryPassword);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event", Long.class))
                 .isGreaterThan(auditBefore);
+    }
+
+    @Test
+    void ordinaryAccountCreationUsesServerDefaultAndPrivilegedCreationRequiresStrongPassword()
+            throws Exception {
+        jdbc.update(
+                """
+                INSERT INTO auth_role (
+                    role_id, role_code, role_name, permission_domain
+                ) VALUES (?, 'EXECUTIVE', '高管', 'HR')
+                """,
+                EXECUTIVE_ROLE);
+        String ordinaryUsername =
+                "wave1_ordinary_" + UUID.randomUUID().toString().replace("-", "");
+
+        MvcResult ordinary = mockMvc.perform(post("/api/v1/access/accounts")
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {
+                                   "username":"%s",
+                                   "displayName":"WAVE-1 普通账号",
+                                   "roleAssignments":[{
+                                     "roleId":"%s",
+                                     "scopeType":"COMPANY",
+                                     "scopeResourceId":"30000000-0000-0000-0000-000000000001",
+                                     "validFrom":"2026-07-20T00:00:00Z",
+                                     "validTo":null
+                                   }]
+                                 }
+                                 """.formatted(ordinaryUsername, EXECUTIVE_ROLE)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.firstPasswordChangeRequired").value(true))
+                .andReturn();
+
+        assertThat(ordinary.getResponse().getContentAsString().toLowerCase())
+                .doesNotContain("123456", "temporarypassword", "passwordhash");
+        String ordinaryHash = jdbc.queryForObject(
+                """
+                SELECT credential.password_hash
+                FROM password_credential credential
+                JOIN local_account account ON account.account_id = credential.account_id
+                WHERE account.normalized_username = ?
+                """,
+                String.class,
+                ordinaryUsername);
+        assertThat(new BCryptPasswordEncoder().matches("123456", ordinaryHash))
+                .isTrue();
+
+        String privilegedBody = """
+                {
+                  "username":"%s",
+                  "displayName":"WAVE-1 高权限账号",
+                  %s
+                  "roleAssignments":[{
+                    "roleId":"%s",
+                    "scopeType":"COMPANY",
+                    "scopeResourceId":"30000000-0000-0000-0000-000000000001",
+                    "validFrom":"2026-07-20T00:00:00Z",
+                    "validTo":null
+                  }]
+                }
+                """;
+        mockMvc.perform(post("/api/v1/access/accounts")
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(privilegedBody.formatted(
+                                "wave1_privileged_missing_" + UUID.randomUUID(),
+                                "",
+                                SYSTEM_ADMIN_ROLE)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_POLICY_VIOLATION"));
+        mockMvc.perform(post("/api/v1/access/accounts")
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(privilegedBody.formatted(
+                                "wave1_privileged_weak_" + UUID.randomUUID(),
+                                "\"temporaryPassword\":\"123456\",",
+                                SYSTEM_ADMIN_ROLE)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_POLICY_VIOLATION"));
     }
 
     @Test
@@ -247,6 +334,167 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
     }
 
     @Test
+    void administratorDirectResetUsesDefaultRevokesSessionsAndInvalidatesGrants()
+            throws Exception {
+        AuthenticatedSession oldSession = login(STANDARD_USERNAME, standardPassword);
+        jdbc.update(
+                """
+                INSERT INTO password_reset_grant (
+                    grant_id, account_id, token_digest, expires_at, used_at,
+                    issued_by, request_id, created_at, row_version
+                ) VALUES (?, ?, ?, ?, NULL, ?, ?, CURRENT_TIMESTAMP, 0)
+                """,
+                "86000000-0000-0000-0000-000000000011",
+                STANDARD_ACCOUNT,
+                sha256("unused-direct-reset-grant"),
+                Timestamp.from(Instant.now().plusSeconds(600)),
+                ADMIN_PRINCIPAL,
+                "direct-reset-test");
+
+        MvcResult result = mockMvc.perform(post(
+                                "/api/v1/access/accounts/{accountId}/temporary-password-reset",
+                                STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"管理员直接重置\"}"))
+                .andExpect(status().isNoContent())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).isEmpty();
+        mockMvc.perform(post(
+                                "/api/v1/access/accounts/{accountId}/temporary-password-reset",
+                                STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {
+                                   "temporaryPassword":"123456",
+                                   "reason":"普通账号显式携带默认密码"
+                                 }
+                                 """))
+                .andExpect(status().isNoContent());
+        String storedHash = jdbc.queryForObject(
+                "SELECT password_hash FROM password_credential WHERE account_id = ?",
+                String.class,
+                STANDARD_ACCOUNT);
+        assertThat(new BCryptPasswordEncoder().matches("123456", storedHash)).isTrue();
+        assertThat(jdbc.queryForObject(
+                "SELECT first_password_change_required FROM local_account WHERE account_id = ?",
+                Boolean.class,
+                STANDARD_ACCOUNT)).isTrue();
+        assertThat(jdbc.queryForObject(
+                "SELECT used_at FROM password_reset_grant WHERE grant_id = ?",
+                Timestamp.class,
+                "86000000-0000-0000-0000-000000000011")).isNotNull();
+        mockMvc.perform(withSessionWithoutCsrf(get("/api/v1/auth/session"), oldSession))
+                .andExpect(status().isUnauthorized());
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT reason_code FROM audit_event
+                WHERE resource_id_ref = ? AND action_code = 'TEMPORARY_PASSWORD_RESET'
+                ORDER BY occurred_at DESC LIMIT 1
+                """,
+                String.class,
+                STANDARD_ACCOUNT)).isEqualTo("普通账号显式携带默认密码");
+    }
+
+    @Test
+    void defaultPasswordAccountCannotBeElevatedUntilAStrongTemporaryPasswordIsSet()
+            throws Exception {
+        jdbc.update(
+                """
+                UPDATE password_credential
+                SET password_hash = ?, row_version = row_version + 1
+                WHERE account_id = ?
+                """,
+                new BCryptPasswordEncoder(4).encode("123456"),
+                STANDARD_ACCOUNT);
+        jdbc.update(
+                """
+                UPDATE local_account
+                SET first_password_change_required = TRUE
+                WHERE account_id = ?
+                """,
+                STANDARD_ACCOUNT);
+
+        mockMvc.perform(put(
+                                "/api/v1/access/accounts/{accountId}/role-assignments",
+                                STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(roleAssignmentBody(0)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(
+                        "STRONG_TEMPORARY_PASSWORD_REQUIRED_FOR_PRIVILEGE_ELEVATION"));
+
+        AuthenticatedSession firstChangeSession = login(STANDARD_USERNAME, "123456");
+        String userPassword = newTestSecret();
+        mockMvc.perform(withSession(
+                        post("/api/v1/auth/password/first-change")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {
+                                   "currentPassword":"123456",
+                                   "newPassword":"%s"
+                                 }
+                                 """.formatted(userPassword)),
+                        firstChangeSession))
+                .andExpect(status().isNoContent());
+        long rowVersion = jdbc.queryForObject(
+                "SELECT row_version FROM local_account WHERE account_id = ?",
+                Long.class,
+                STANDARD_ACCOUNT);
+        mockMvc.perform(put(
+                                "/api/v1/access/accounts/{accountId}/role-assignments",
+                                STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(roleAssignmentBody(rowVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roles[0].roleId").value(SYSTEM_ADMIN_ROLE));
+
+        mockMvc.perform(post(
+                                "/api/v1/access/accounts/{accountId}/temporary-password-reset",
+                                STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"高权限账号禁止弱临时密码\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_POLICY_VIOLATION"));
+
+        String strongTemporaryPassword = newTestSecret();
+        mockMvc.perform(post(
+                                "/api/v1/access/accounts/{accountId}/temporary-password-reset",
+                                STANDARD_ACCOUNT)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                 {
+                                   "temporaryPassword":"%s",
+                                   "reason":"高权限账号强临时密码重置"
+                                 }
+                                 """.formatted(strongTemporaryPassword)))
+                .andExpect(status().isNoContent());
+        String privilegedHash = jdbc.queryForObject(
+                "SELECT password_hash FROM password_credential WHERE account_id = ?",
+                String.class,
+                STANDARD_ACCOUNT);
+        assertThat(new BCryptPasswordEncoder().matches(
+                strongTemporaryPassword,
+                privilegedHash)).isTrue();
+        assertThat(jdbc.queryForObject(
+                "SELECT first_password_change_required FROM local_account WHERE account_id = ?",
+                Boolean.class,
+                STANDARD_ACCOUNT)).isTrue();
+    }
+
+    @Test
     void auditIsCapabilityProtectedReadOnlyAndKeepsCorrelationAndRequestIds() throws Exception {
         jdbc.update(
                 """
@@ -303,5 +551,21 @@ class Wave1AccountAuthorizationAuditIntegrationTest extends Wave1IntegrationTest
         mockMvc.perform(get("/api/v1/payroll/runs")
                         .with(user(ADMIN_PRINCIPAL)))
                 .andExpect(status().isNotFound());
+    }
+
+    private String roleAssignmentBody(long expectedVersion) {
+        return """
+                {
+                  "assignments":[{
+                    "roleId":"%s",
+                    "scopeType":"COMPANY",
+                    "scopeResourceId":"30000000-0000-0000-0000-000000000001",
+                    "validFrom":"2026-07-20T00:00:00Z",
+                    "validTo":null
+                  }],
+                  "reason":"高权限晋升验证",
+                  "expectedVersion":%d
+                }
+                """.formatted(SYSTEM_ADMIN_ROLE, expectedVersion);
     }
 }

@@ -15,6 +15,7 @@ import {
   IconFileDescription,
   IconUsers,
   IconUsersGroup,
+  IconUser,
 } from '@tabler/icons-react';
 import { Drawer, Form, Input, Layout, Menu, Modal, message } from 'antd';
 import { useMemo, useState, type ReactNode } from 'react';
@@ -29,6 +30,7 @@ import { BrandLogo } from './BrandLogo';
 import { AccessibleButton } from './AccessibleButton';
 import { isDemoMode } from '../config/runtimeMode';
 import { translate } from '../i18n/messages';
+import { passwordMeetsPolicy } from '../security/passwordPolicy';
 
 const { Header, Sider, Content } = Layout;
 
@@ -55,6 +57,7 @@ const menuIcons = {
   'attendance-source-jobs': IconRefresh,
   'attendance-punch-imports': IconFileSpreadsheet,
   workbench: IconFileAnalytics,
+  'personal-workbench': IconUser,
   'attendance-screen': IconFileAnalytics,
   'attendance-reports': IconFileAnalytics,
   'self-today': IconClock,
@@ -146,9 +149,11 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
             {translate('app.openNavigation')}
           </span>
           <span className="app-topbar__title">{translate('app.companyName')}</span>
-          <span className={`app-environment${demoMode ? ' app-environment--demo' : ''}`}>
-            {demoMode ? translate('app.demoEnvironment') : t('app.localDevelopment')}
-          </span>
+          {demoMode ? (
+            <span className="app-environment app-environment--demo">
+              {translate('app.demoEnvironment')}
+            </span>
+          ) : null}
           <AccessibleButton
             type="text"
             label={t('app.changePassword')}
@@ -189,7 +194,23 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
       >
         <Form form={passwordForm} layout="vertical" onFinish={(values) => void submitPasswordChange(values)}>
           <Form.Item label={t('app.currentPassword')} name="currentPassword" rules={[{ required: true, message: t('app.currentPasswordRequired') }]}><Input.Password autoComplete="current-password" /></Form.Item>
-          <Form.Item label={t('app.newPassword')} name="newPassword" rules={[{ required: true, min: 12, message: t('app.newPasswordLength') }]}><Input.Password autoComplete="new-password" /></Form.Item>
+          <Form.Item
+            label={t('app.newPassword')}
+            name="newPassword"
+            extra={t('app.newPasswordPolicy')}
+            rules={[
+              { required: true, message: t('app.newPasswordPolicy') },
+              {
+                validator: (_rule, value) => (
+                  value === undefined || passwordMeetsPolicy(value)
+                    ? Promise.resolve()
+                    : Promise.reject(new Error(t('app.newPasswordPolicy')))
+                ),
+              },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
           <Form.Item
             label={t('app.confirmPassword')}
             name="confirmation"

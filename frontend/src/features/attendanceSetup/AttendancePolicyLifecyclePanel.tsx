@@ -30,6 +30,7 @@ import {
   policyLifecycleMinimumDate,
   utcDateAfter,
 } from './attendancePolicyLifecycleDates';
+import { policyResultText } from '../policy/PolicyComponents';
 import type {
   PolicyFieldDefinition,
   PolicyParameterValue,
@@ -243,9 +244,7 @@ export function AttendancePolicyLifecyclePanel({
   const changeActionEffectiveFrom = (event: ChangeEvent<HTMLInputElement>) => {
     setActionEffectiveFrom(event.target.value);
   };
-  const changeRollbackTarget = (event: ChangeEvent<HTMLInputElement>) => {
-    setRollbackTarget(event.target.value);
-  };
+  const changeRollbackTarget = (value: string) => setRollbackTarget(value);
   const chooseLifecycleAction = (action: LifecycleAction) => () => {
     executeLifecycle(action);
   };
@@ -261,7 +260,7 @@ export function AttendancePolicyLifecyclePanel({
       <div className="section-heading">
         <div>
           <h2>{t('attendanceSetup.policyLifecycle')}</h2>
-          <p>{t('attendanceSetup.policyLifecycleDescription')}</p>
+          <p>查看策略的历史版本，并完成校验、发布、停用或恢复操作。</p>
         </div>
         <AccessibleButton
           label={t('common.refresh')}
@@ -343,18 +342,17 @@ export function AttendancePolicyLifecyclePanel({
             <IconGitBranch aria-hidden="true" stroke={2} />
             <div>
               <strong>{t('attendanceSetup.version')} {selected.versionNumber}</strong>
-              <span>{selected.scopedVersionId}</span>
+              <span>{selected.effectiveFrom} → {selected.effectiveTo ?? t('attendanceSetup.longTerm')}</span>
             </div>
             <StatusBadge status={selected.status} />
           </header>
           <dl className="metric-list">
-            <div><dt>{t('attendanceSetup.rowVersion')}</dt><dd>{selected.rowVersion}</dd></div>
-            <div><dt>{t('attendanceSetup.companyId')}</dt><dd>{selected.companyId}</dd></div>
-            <div><dt>{t('attendanceSetup.policyKind')}</dt><dd>{selected.policyKind}</dd></div>
-            <div><dt>{t('attendanceSetup.scopeId')}</dt><dd>{selected.scopeId}</dd></div>
+            <div><dt>{t('attendanceSetup.policyKind')}</dt><dd>{policyKindLabel(selected.policyKind)}</dd></div>
             <div><dt>{t('attendanceSetup.validation')}</dt><dd>{selected.validation.valid ? t('attendanceSetup.yes') : t('attendanceSetup.no')}</dd></div>
-            <div><dt>{t('attendanceSetup.configurationDigest')}</dt><dd>{selected.snapshotDigest ?? t('common.none')}</dd></div>
-            <div><dt>{t('attendanceSetup.rollbackTarget')}</dt><dd>{selected.rollbackOfScopedVersionId ?? t('common.none')}</dd></div>
+            <div>
+              <dt>版本来源</dt>
+              <dd>{selected.rollbackOfScopedVersionId ? '由历史版本恢复' : '正常创建'}</dd>
+            </div>
             <div><dt>{t('attendanceSetup.deactivationEffectiveFrom')}</dt><dd>{selected.deactivationEffectiveFrom ?? t('common.none')}</dd></div>
           </dl>
           <section
@@ -368,8 +366,8 @@ export function AttendancePolicyLifecyclePanel({
                 key={`${issue.code}-${issue.field}`}
                 showIcon
                 type="error"
-                title={issue.message}
-                description={`${issue.field} · ${issue.code}`}
+                title={policyResultText(issue.message)}
+                description={fields.find((field) => field.key === issue.field)?.label}
               />
             ))}
           </section>
@@ -448,10 +446,24 @@ export function AttendancePolicyLifecyclePanel({
                     />
                   </label>
                   <label>
-                    <span>{t('attendanceSetup.rollbackTarget')}</span>
-                    <Input
+                    <span>恢复到历史版本</span>
+                    <Select
+                      placeholder="请选择历史版本"
                       value={rollbackTarget}
                       onChange={changeRollbackTarget}
+                      options={(versions.resource.status === 'ready'
+                        ? versions.resource.data.items
+                        : [])
+                        .filter((version) => (
+                          version.scopedVersionId !== selected.scopedVersionId
+                          && ['PUBLISHED', 'INACTIVE'].includes(version.status)
+                        ))
+                        .map((version) => ({
+                          value: version.scopedVersionId,
+                          label: `V${version.versionNumber} · ${version.effectiveFrom} · ${
+                            version.status === 'PUBLISHED' ? '已发布' : '已停用'
+                          }`,
+                        }))}
                     />
                   </label>
                 </div>
@@ -566,6 +578,14 @@ export function policyParametersForSave(
 
 function displayParameterValue(value: unknown): string {
   return Array.isArray(value) ? value.join(', ') : String(value);
+}
+
+function policyKindLabel(value: string): string {
+  return ({
+    MEAL_DEDUCTION: '餐时扣除',
+    LATE_GRACE: '迟到宽限',
+    MONTHLY_LATE_EXEMPTION: '月度迟到豁免',
+  } as Readonly<Record<string, string>>)[value] ?? '考勤策略';
 }
 
 function futureDate(days: number): string {

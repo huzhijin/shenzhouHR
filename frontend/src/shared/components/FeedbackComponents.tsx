@@ -107,7 +107,7 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'info' |
 
 export function statusLabel(status: string): string {
   const normalized = status.trim().toUpperCase();
-  return ({
+  const label = ({
     ACTIVE: i18n.t('status.active'),
     DISABLED: i18n.t('status.disabled'),
     LOCKED: i18n.t('status.locked'),
@@ -179,6 +179,10 @@ export function statusLabel(status: string): string {
     ADJUSTMENT: '调整',
     REVERSAL: '冲正',
     INITIAL_EXCEL: '期初电子表格',
-    LOCAL: '本地维护',
-  } as Record<string, string>)[normalized] ?? status;
+    LOCAL: '系统内录入',
+  } as Record<string, string>)[normalized];
+  if (label) return label;
+  // Unknown server enums are implementation details, so do not leak their
+  // machine-code spelling into a business-facing status badge.
+  return /^[A-Z][A-Z0-9_]*$/.test(normalized) ? '其他状态' : status;
 }

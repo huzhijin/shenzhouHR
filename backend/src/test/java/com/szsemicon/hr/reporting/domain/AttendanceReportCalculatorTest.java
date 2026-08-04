@@ -79,7 +79,7 @@ class AttendanceReportCalculatorTest {
     }
 
     @Test
-    void attendanceRateUsesVersionedConfirmedOverScheduledFormula() {
+    void attendanceRateUsesVersionedFormulaWithoutExposingItsInternalName() {
         var report = calculator.calculate(
                 ReportType.ATTENDANCE_RATE,
                 snapshot(null, "employee-a"));
@@ -87,8 +87,9 @@ class AttendanceReportCalculatorTest {
 
         assertThat(row.values())
                 .containsEntry(ReportField.ATTENDANCE_RATE, "87.50")
-                .containsEntry(
-                        ReportField.RATE_FORMULA_VERSION,
+                .doesNotContainKey(ReportField.RATE_FORMULA_VERSION);
+        assertThat(report.calculationFormulaVersion())
+                .isEqualTo(
                         AttendanceReportModels.ATTENDANCE_RATE_FORMULA_VERSION);
     }
 
@@ -98,9 +99,11 @@ class AttendanceReportCalculatorTest {
                 ReportType.LEAVE, snapshot(null, null));
 
         assertThat(report.rows())
-                .extracting(row ->
-                        row.values().get(ReportField.DOCUMENT_REFERENCE))
-                .containsExactly("oa-approved");
+                .extracting(AttendanceReportModels.ReportRow::rowReference)
+                .containsExactly("leave:oa-approved");
+        assertThat(report.columns())
+                .extracting(AttendanceReportModels.ReportColumn::field)
+                .doesNotContain(ReportField.DOCUMENT_REFERENCE);
     }
 
     @Test
@@ -161,9 +164,8 @@ class AttendanceReportCalculatorTest {
         var report = calculator.calculate(ReportType.LEAVE, snapshot);
 
         assertThat(report.rows())
-                .extracting(row ->
-                        row.values().get(ReportField.DOCUMENT_REFERENCE))
-                .contains("oa-cross-month");
+                .extracting(AttendanceReportModels.ReportRow::rowReference)
+                .contains("leave:oa-cross-month");
     }
 
     @Test

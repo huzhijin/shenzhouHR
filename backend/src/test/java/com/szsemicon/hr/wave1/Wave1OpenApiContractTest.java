@@ -30,6 +30,7 @@ class Wave1OpenApiContractTest {
                 "/access/accounts/{accountId}/lock:",
                 "/access/accounts/{accountId}/unlock:",
                 "/access/accounts/{accountId}/password-reset-grants:",
+                "/access/accounts/{accountId}/temporary-password-reset:",
                 "/access/accounts/{accountId}/role-assignments:",
                 "/access/roles:",
                 "/access/audit-events:",

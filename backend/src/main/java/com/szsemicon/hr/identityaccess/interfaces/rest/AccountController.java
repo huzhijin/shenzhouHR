@@ -115,6 +115,18 @@ public class AccountController {
                 .body(new AcceptedOperation(true, auditService.currentCorrelationId()));
     }
 
+    @PostMapping("/accounts/{accountId}/temporary-password-reset")
+    @PreAuthorize("hasAuthority('ACCOUNT:RESET_PASSWORD')")
+    ResponseEntity<Void> resetTemporaryPassword(
+            @PathVariable String accountId,
+            @Valid @RequestBody TemporaryPasswordResetRequest request) {
+        accountService.resetTemporaryPassword(
+                accountId,
+                request.temporaryPassword(),
+                request.reason());
+        return ResponseEntity.noContent().build();
+    }
+
     @PutMapping("/accounts/{accountId}/role-assignments")
     @PreAuthorize("hasAuthority('ROLE:ASSIGN')")
     AccountDetail replaceRoleAssignments(
@@ -136,10 +148,15 @@ public class AccountController {
     public record AccountCreateRequest(
             @NotBlank @Size(min = 3, max = 128) String username,
             @NotBlank @Size(max = 100) String displayName,
-            @NotBlank @Size(min = 12, max = 256) String temporaryPassword,
+            @Size(max = 256) String temporaryPassword,
             @Size(max = 36) String employeeId,
             @NotEmpty @Size(max = 100)
             List<@Valid RoleAssignmentRequest> roleAssignments) {
+    }
+
+    public record TemporaryPasswordResetRequest(
+            @Size(max = 256) String temporaryPassword,
+            @NotBlank @Size(min = 2, max = 500) String reason) {
     }
 
     public record AccountStatusUpdateRequest(

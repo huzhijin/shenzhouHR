@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { ApiRequestError } from '../../shared/api/apiClient';
 import { ApiErrorState } from '../people/PeopleCommon';
+import { importTaskLabel } from './importDisplay';
 import type { PeopleImportBatchDetail } from './peopleImportTypes';
 
 export type ImportDialogAction = 'publish' | 'void' | 'rollback';
@@ -51,7 +52,11 @@ export function ImportActionDialog({ action, batch, processing, error, onCancel,
         className="dialog-summary"
         column={2}
         items={[
-          { key: 'batch', label: t('peopleImport.batchId'), children: <code>{batch.batchId}</code> },
+          {
+            key: 'batch',
+            label: t('peopleImport.batchId'),
+            children: importTaskLabel(batch.createdAt, batch.file?.originalFileName),
+          },
           { key: 'type', label: t('peopleImport.importType'), children: t(`peopleImport.type.${batch.templateType}`) },
           { key: 'version', label: t('peopleImport.templateVersion'), children: batch.templateVersion },
           { key: 'state', label: t('peopleImport.batchStatus'), children: t(`peopleImport.status.${batch.status}`) },

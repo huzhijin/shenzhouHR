@@ -1,5 +1,5 @@
 import { IconLock, IconPlus, IconSearch } from '@tabler/icons-react';
-import { Button, Form, Input, Modal, Select } from 'antd';
+import { Alert, Button, Form, Input, Modal, Select } from 'antd';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -9,7 +9,22 @@ import { ConfirmationDialog, OperationFeedback, StatusBadge } from '../../shared
 import { PageHeader, QueryFilterBar } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
-import { createAccount, listAccounts, listRoles, lockAccount, type AccountStatus, type AccountSummary, type RoleView } from './accessApi';
+import {
+  CompanySelect,
+  EmployeeSelect,
+  OrganizationSelect,
+} from '../referenceData';
+import {
+  createAccount,
+  isStrongTemporaryPassword,
+  listAccounts,
+  listRoles,
+  lockAccount,
+  requiresStrongTemporaryPassword,
+  type AccountStatus,
+  type AccountSummary,
+  type RoleView,
+} from './accessApi';
 import { allowedScopeTypes, type RoleScopeType } from './roleScopePolicy';
 
 export function AccountsPage({ capabilities }: { capabilities: string[] }) {
@@ -26,6 +41,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const selectedScopeType = Form.useWatch<RoleScopeType>('scopeType', form);
   const selectedRole = roles.find((role) => role.roleId === selectedRoleId);
   const allowedScopes = selectedRole ? allowedScopeTypes(selectedRole) : [];
+  const privilegedRoleSelected = requiresStrongTemporaryPassword(selectedRole?.roleCode);
   const loader = useMemo(() => () => listAccounts({ q: query, status }), [query, status]);
   const { resource, reload } = useAsyncResource(loader, (page) => page.items.length === 0, [query, status]);
 
@@ -37,7 +53,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const create = async (values: {
     username: string;
     displayName: string;
-    temporaryPassword: string;
+    temporaryPassword?: string;
     employeeId?: string;
     roleId: string;
     scopeType: RoleScopeType;
@@ -45,10 +61,13 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   }) => {
     setProcessing(true);
     try {
+      const role = roles.find((candidate) => candidate.roleId === values.roleId);
       await createAccount({
         username: values.username,
         displayName: values.displayName,
-        temporaryPassword: values.temporaryPassword,
+        temporaryPassword: requiresStrongTemporaryPassword(role?.roleCode)
+          ? values.temporaryPassword
+          : undefined,
         employeeId: values.scopeType === 'SELF' ? values.employeeId ?? null : null,
         roleAssignments: [{
           roleId: values.roleId,
@@ -65,6 +84,11 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
     } finally {
       setProcessing(false);
     }
+  };
+
+  const closeCreate = () => {
+    setCreateOpen(false);
+    form.resetFields();
   };
 
   const confirmLock = async () => {
@@ -130,11 +154,10 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
           />
         ) : null}
       </section>
-      <Modal open={createOpen} title={t('access.createLocalAccount')} okText={t('policy.create')} cancelText={t('common.cancel')} confirmLoading={processing} onOk={() => void form.submit()} onCancel={() => setCreateOpen(false)}>
+      <Modal open={createOpen} title={t('access.createLocalAccount')} okText={t('policy.create')} cancelText={t('common.cancel')} confirmLoading={processing} onOk={() => void form.submit()} onCancel={closeCreate}>
         <Form form={form} layout="vertical" onFinish={(values) => void create(values)}>
           <Form.Item label={t('access.username')} name="username" rules={[{ required: true, pattern: /^[a-z0-9._-]{3,64}$/, message: t('access.usernameRule') }]}><Input autoComplete="off" /></Form.Item>
           <Form.Item label={t('access.displayName')} name="displayName" rules={[{ required: true, message: t('access.displayNameRequired') }]}><Input /></Form.Item>
-          <Form.Item label={t('access.initialPassword')} name="temporaryPassword" rules={[{ required: true, min: 12, message: t('access.initialPasswordRule') }]}><Input.Password autoComplete="new-password" /></Form.Item>
           <Form.Item label={t('access.initialRole')} name="roleId" rules={[{ required: true, message: t('access.roleRequired') }]}>
             <Select
               options={Array.from(roles, (role) => ({ value: role.roleId, label: role.roleName }))}
@@ -145,10 +168,36 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
                   scopeType: defaultScope,
                   scopeResourceId: undefined,
                   employeeId: undefined,
+                  temporaryPassword: undefined,
                 });
               }}
             />
           </Form.Item>
+          {selectedRole ? (
+            privilegedRoleSelected ? (
+              <Form.Item
+                label={t('access.initialPassword')}
+                name="temporaryPassword"
+                extra={t('access.initialPasswordRule')}
+                rules={[
+                  { required: true, message: t('access.privilegedPasswordRequired') },
+                  {
+                    validator: (_rule, value) => !value || isStrongTemporaryPassword(value)
+                      ? Promise.resolve()
+                      : Promise.reject(new Error(t('access.initialPasswordRule'))),
+                  },
+                ]}
+              >
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+            ) : (
+              <Alert
+                showIcon
+                type="info"
+                title={t('access.defaultTemporaryPasswordNotice')}
+              />
+            )
+          ) : null}
           <Form.Item label={t('access.scopeType')} name="scopeType" rules={[{ required: true }]}>
             <Select
               disabled={allowedScopes.length <= 1}
@@ -160,6 +209,12 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
                     ? t('access.organization')
                     : t('access.self'),
               }))}
+              onChange={() => {
+                form.setFieldsValue({
+                  scopeResourceId: undefined,
+                  employeeId: undefined,
+                });
+              }}
             />
           </Form.Item>
           {selectedScopeType === 'SELF' ? (
@@ -168,13 +223,27 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
               name="employeeId"
               rules={[{ required: true, message: t('access.employeeIdRequired') }]}
             >
-              <Input />
+              <EmployeeSelect />
             </Form.Item>
-          ) : (
-            <Form.Item label={t('access.scopeResource')} name="scopeResourceId" dependencies={['scopeType']} rules={[
-              ({ getFieldValue }) => ({ validator: (_rule, value) => getFieldValue('scopeType') === 'SELF' || value ? Promise.resolve() : Promise.reject(new Error(t('access.scopeResourceRequired'))) }),
-            ]}><Input /></Form.Item>
-          )}
+          ) : null}
+          {selectedScopeType === 'COMPANY' ? (
+            <Form.Item
+              label={t('access.company')}
+              name="scopeResourceId"
+              rules={[{ required: true, message: t('access.companyRequired') }]}
+            >
+              <CompanySelect />
+            </Form.Item>
+          ) : null}
+          {selectedScopeType === 'ORGANIZATION' ? (
+            <Form.Item
+              label={t('access.organization')}
+              name="scopeResourceId"
+              rules={[{ required: true, message: t('access.organizationRequired') }]}
+            >
+              <OrganizationSelect />
+            </Form.Item>
+          ) : null}
         </Form>
       </Modal>
       <ConfirmationDialog

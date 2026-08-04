@@ -1132,7 +1132,50 @@ a:hover {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-0) var(--space-4);
+  gap: var(--space-2) var(--space-4);
+  align-items: start;
+}
+
+.form-grid .ant-picker,
+.form-grid .ant-input-number,
+.form-grid .ant-select,
+.form-grid .ant-input,
+.form-grid .ant-input-affix-wrapper {
+  width: 100%;
+}
+
+.role-assignment-group {
+  display: grid;
+  gap: var(--space-3);
+  margin-block: var(--space-4);
+  padding: var(--space-4);
+  border: var(--border-width-default) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-subtle);
+}
+
+.role-assignment-row {
+  display: grid;
+  grid-template-columns:
+    minmax(9rem, 0.8fr)
+    minmax(14rem, 1.4fr)
+    minmax(12rem, 1fr)
+    minmax(12rem, 1fr)
+    auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding-block: var(--space-2);
+  border-top: var(--border-width-default) solid var(--color-border);
+}
+
+.role-assignment-row .ant-picker,
+.role-assignment-row .ant-select {
+  width: 100%;
+}
+
+.role-assignment-row > .ant-btn {
+  align-self: end;
+  margin-bottom: var(--space-6);
 }
 
 .scope-selector {
@@ -1807,8 +1850,16 @@ a:hover {
   align-items: start;
 }
 
+.simulation-punch-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.7fr) minmax(16rem, 1.3fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+}
+
 .attendance-row-action {
-  margin-top: var(--space-6);
+  align-self: end;
+  margin-bottom: var(--space-6);
 }
 
 .rule-effective-timeline {
@@ -2013,8 +2064,10 @@ a:hover {
 @media (max-width: 1024px) {
   .attendance-segment-row,
   .attendance-calendar-row,
+  .simulation-punch-row,
   .policy-simulation-workbench,
-  .attendance-lifecycle-workbench > header {
+  .attendance-lifecycle-workbench > header,
+  .role-assignment-row {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -2047,14 +2100,17 @@ a:hover {
 
   .attendance-segment-row,
   .attendance-calendar-row,
+  .simulation-punch-row,
   .controlled-policy-fields,
   .policy-simulation-workbench,
-  .attendance-lifecycle-workbench > header {
+  .attendance-lifecycle-workbench > header,
+  .role-assignment-row {
     grid-template-columns: 1fr;
   }
 
-  .attendance-row-action {
-    margin-top: var(--space-0);
+  .attendance-row-action,
+  .role-assignment-row > .ant-btn {
+    margin-bottom: var(--space-0);
   }
 
   .rule-effective-timeline__item {

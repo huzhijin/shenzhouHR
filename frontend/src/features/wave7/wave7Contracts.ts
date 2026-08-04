@@ -78,6 +78,71 @@ export interface LeaveProjection {
   accounts: TimeAccountProjection[];
 }
 
+export interface SelfAttendanceDashboardMetadata {
+  projectionVersion: string;
+  sourceVersions: string[];
+  dataAsOf: string;
+  timeZone: 'Asia/Shanghai';
+  periodLabel: string;
+  periodState: Wave7PeriodState;
+  scope: {
+    type: 'SELF';
+    reference: 'current-principal';
+    label: '本人';
+  };
+}
+
+export interface SelfAttendanceDashboardSummary {
+  scheduledMinutes: number;
+  confirmedMinutes: number;
+  recognizedOvertimeMinutes: number;
+  leaveMinutes: number;
+  unresolvedExceptionCount: number;
+}
+
+export interface SelfAttendanceDashboardTrendPoint {
+  businessDate: string;
+  scheduledMinutes: number;
+  confirmedMinutes: number;
+  recognizedOvertimeMinutes: number;
+  leaveMinutes: number;
+  issueCount: number;
+}
+
+export interface SelfAttendanceDashboardToday {
+  shiftLabel: string | null;
+  firstPunchAt: string | null;
+  lastPunchAt: string | null;
+  statusLabel: string;
+  confirmedMinutes: number;
+  issueLabels: string[];
+}
+
+export interface SelfAttendanceExceptionTypeDistribution {
+  type: string;
+  count: number;
+}
+
+export interface SelfAttendanceRecentException {
+  businessDate: string;
+  type: string;
+  severity: DashboardAnomalySeverity;
+  state: DashboardAnomalyState;
+  minutes: number;
+  safeEvidenceSummary: string;
+}
+
+export interface SelfAttendanceDashboardProjection {
+  kind: 'SELF_ATTENDANCE_DASHBOARD';
+  metadata: SelfAttendanceDashboardMetadata;
+  businessDate: string;
+  summary: SelfAttendanceDashboardSummary;
+  dailyTrend: SelfAttendanceDashboardTrendPoint[];
+  today: SelfAttendanceDashboardToday | null;
+  exceptionTypeDistribution: SelfAttendanceExceptionTypeDistribution[];
+  recentExceptions: SelfAttendanceRecentException[];
+}
+
 export type FeedbackState = 'SUBMITTED' | 'IN_PROGRESS' | 'RESOLVED';
 
 export interface FeedbackProgressProjection {
@@ -119,12 +184,100 @@ export interface DashboardMetricProjection {
   drillDownReference?: string;
 }
 
+export interface DashboardCompanyOption {
+  companyId: string;
+  companyName: string;
+}
+
+export interface DashboardAnomalySummaryProjection {
+  unresolvedCount: number;
+  affectedEmployeeCount: number;
+  blockingCount: number;
+}
+
+export type DashboardAnomalySeverity = 'INFO' | 'WARNING' | 'ERROR';
+export type DashboardAnomalyState =
+  | 'OPEN'
+  | 'PENDING_EVIDENCE'
+  | 'PENDING_REVIEW';
+
+export interface DashboardAnomalyProjection {
+  exceptionReference: string;
+  employeeNumber: string;
+  employeeName: string;
+  organizationName: string;
+  businessDate: string;
+  exceptionType: string;
+  severity: DashboardAnomalySeverity;
+  state: DashboardAnomalyState;
+  exceptionMinutes: number;
+  evidenceSummary: string;
+}
+
+export interface DashboardDailyTrendProjection {
+  businessDate: string;
+  exceptionCount: number;
+  blockingCount: number;
+  affectedEmployeeCount: number;
+}
+
+export interface DashboardSeverityDistributionProjection {
+  severity: DashboardAnomalySeverity;
+  count: number;
+}
+
+export interface DashboardTypeDistributionProjection {
+  exceptionType: string;
+  count: number;
+}
+
+export interface DashboardOrganizationRankingProjection {
+  organizationName: string;
+  exceptionCount: number;
+  blockingCount: number;
+}
+
+export interface DashboardAnalyticsProjection {
+  dailyTrend: DashboardDailyTrendProjection[];
+  severityDistribution: DashboardSeverityDistributionProjection[];
+  typeDistribution: DashboardTypeDistributionProjection[];
+  organizationRanking: DashboardOrganizationRankingProjection[];
+}
+
 export interface DashboardProjection {
   kind: 'DASHBOARD';
   metadata: Wave7ProjectionMetadata;
   title: string;
   metrics: DashboardMetricProjection[];
+  businessDate?: string;
+  selectedCompanyId?: string;
+  summary?: DashboardAnomalySummaryProjection;
+  exceptions?: DashboardAnomalyProjection[];
+  companies?: DashboardCompanyOption[];
+  analytics?: DashboardAnalyticsProjection;
 }
+
+export interface LiveDashboardProjection extends DashboardProjection {
+  businessDate: string;
+  selectedCompanyId: string;
+  summary: DashboardAnomalySummaryProjection;
+  exceptions: DashboardAnomalyProjection[];
+  companies: DashboardCompanyOption[];
+  analytics: DashboardAnalyticsProjection;
+}
+
+export interface DashboardCompanySelectionProjection {
+  kind: 'DASHBOARD_COMPANY_SELECTION';
+  title: string;
+  businessDate: string;
+  selectedCompanyId: null;
+  companies: DashboardCompanyOption[];
+  message: string;
+}
+
+export type DashboardLoadResult =
+  | DashboardProjection
+  | DashboardCompanySelectionProjection;
 
 export const attendanceReportTypes = [
   'ATTENDANCE_DETAIL',
@@ -396,13 +549,7 @@ export function assertWave7Projection(value: unknown): asserts value is Wave7Pro
     return;
   }
   if (candidate.kind === 'DASHBOARD') {
-    assertOnlyKeys(
-      candidate,
-      ['kind', 'metadata', 'title', 'metrics'],
-      'dashboard projection',
-    );
-    assertString(candidate.title, 'dashboard.title');
-    assertArray(candidate.metrics, 'dashboard.metrics');
+    assertDashboardProjection(candidate);
     return;
   }
   if (candidate.kind === 'REPORT') {
@@ -410,6 +557,162 @@ export function assertWave7Projection(value: unknown): asserts value is Wave7Pro
     return;
   }
   throw new TypeError(`Unsupported Wave 7 projection kind: ${candidate.kind}`);
+}
+
+export function parseAttendanceDashboardResponse(
+  value: unknown,
+): LiveDashboardProjection | DashboardCompanySelectionProjection {
+  const candidate = asRecord(value, 'attendance dashboard response');
+  if (candidate.kind === 'DASHBOARD_COMPANY_SELECTION') {
+    assertOnlyKeys(
+      candidate,
+      [
+        'kind',
+        'title',
+        'businessDate',
+        'selectedCompanyId',
+        'companies',
+        'message',
+      ],
+      'dashboard company selection',
+    );
+    assertString(candidate.title, 'dashboard selection.title');
+    assertDate(candidate.businessDate, 'dashboard selection.businessDate');
+    if (candidate.selectedCompanyId !== null) {
+      throw new TypeError(
+        'dashboard selection.selectedCompanyId must be null',
+      );
+    }
+    assertDashboardCompanies(
+      candidate.companies,
+      'dashboard selection.companies',
+      true,
+    );
+    if ((candidate.companies as unknown[]).length < 2) {
+      throw new TypeError(
+        'dashboard company selection requires multiple companies',
+      );
+    }
+    assertBoundedString(
+      candidate.message,
+      'dashboard selection.message',
+      500,
+    );
+    return candidate as unknown as DashboardCompanySelectionProjection;
+  }
+
+  assertString(candidate.kind, 'dashboard.kind');
+  if (candidate.kind !== 'DASHBOARD') {
+    throw new TypeError('attendance dashboard response kind is invalid');
+  }
+  assertProjectionMetadata(candidate.metadata);
+  assertDashboardProjection(candidate, false);
+  assertLiveDashboardFields(candidate);
+  return {
+    ...(candidate as unknown as Omit<LiveDashboardProjection, 'metrics'>),
+    metrics: Array.isArray(candidate.metrics)
+      ? candidate.metrics as DashboardMetricProjection[]
+      : [],
+  };
+}
+
+export function parseSelfAttendanceDashboardResponse(
+  value: unknown,
+): SelfAttendanceDashboardProjection {
+  const candidate = asRecord(
+    value,
+    'self attendance dashboard response',
+  );
+  assertOnlyKeys(
+    candidate,
+    [
+      'kind',
+      'metadata',
+      'businessDate',
+      'summary',
+      'dailyTrend',
+      'today',
+      'exceptionTypeDistribution',
+      'recentExceptions',
+    ],
+    'self attendance dashboard response',
+  );
+  if (candidate.kind !== 'SELF_ATTENDANCE_DASHBOARD') {
+    throw new TypeError(
+      'self attendance dashboard response kind is invalid',
+    );
+  }
+
+  const metadata = assertSelfAttendanceDashboardMetadata(
+    candidate.metadata,
+  );
+  assertDate(
+    candidate.businessDate,
+    'self attendance dashboard.businessDate',
+  );
+  if (!(candidate.businessDate as string).startsWith(metadata.periodLabel)) {
+    throw new TypeError(
+      'self attendance dashboard businessDate is outside the period',
+    );
+  }
+
+  const summary = asRecord(
+    candidate.summary,
+    'self attendance dashboard.summary',
+  );
+  assertOnlyKeys(
+    summary,
+    [
+      'scheduledMinutes',
+      'confirmedMinutes',
+      'recognizedOvertimeMinutes',
+      'leaveMinutes',
+      'unresolvedExceptionCount',
+    ],
+    'self attendance dashboard.summary',
+  );
+  for (const key of [
+    'scheduledMinutes',
+    'confirmedMinutes',
+    'recognizedOvertimeMinutes',
+    'leaveMinutes',
+    'unresolvedExceptionCount',
+  ] as const) {
+    assertNonNegativeSafeInteger(
+      summary[key],
+      `self attendance dashboard.summary.${key}`,
+    );
+  }
+
+  assertSelfAttendanceDashboardTrend(
+    candidate.dailyTrend,
+    metadata.periodLabel,
+    candidate.businessDate as string,
+  );
+  assertSelfAttendanceDashboardToday(candidate.today);
+  assertSelfAttendanceExceptionTypeDistribution(
+    candidate.exceptionTypeDistribution,
+    summary.unresolvedExceptionCount as number,
+  );
+  assertSelfAttendanceRecentExceptions(
+    candidate.recentExceptions,
+    metadata.periodLabel,
+    candidate.businessDate as string,
+    summary.unresolvedExceptionCount as number,
+  );
+
+  return candidate as unknown as SelfAttendanceDashboardProjection;
+}
+
+export function hasLiveDashboardProjection(
+  projection: DashboardProjection,
+): projection is LiveDashboardProjection {
+  return projection.businessDate !== undefined
+    && projection.selectedCompanyId !== undefined
+    && projection.summary !== undefined
+    && projection.exceptions !== undefined
+    && projection.companies !== undefined
+    && projection.analytics !== undefined;
 }
 
 export function assertLiveReportProjection(
@@ -717,6 +1020,1049 @@ function assertReportProjection(candidate: Record<string, unknown>): void {
   }
 }
 
+function assertDashboardProjection(
+  candidate: Record<string, unknown>,
+  requireMetrics = true,
+): void {
+  assertOnlyKeys(
+    candidate,
+    [
+      'kind',
+      'metadata',
+      'title',
+      'metrics',
+      'businessDate',
+      'selectedCompanyId',
+      'summary',
+      'exceptions',
+      'companies',
+      'analytics',
+    ],
+    'dashboard projection',
+  );
+  assertString(candidate.title, 'dashboard.title');
+  if (requireMetrics || candidate.metrics !== undefined) {
+    assertDashboardMetrics(candidate.metrics);
+  }
+  const liveKeys = [
+    'businessDate',
+    'selectedCompanyId',
+    'summary',
+    'exceptions',
+    'companies',
+    'analytics',
+  ] as const;
+  const presentLiveKeys = liveKeys.filter(
+    (key) => candidate[key] !== undefined,
+  );
+  if (
+    presentLiveKeys.length !== 0
+    && presentLiveKeys.length !== liveKeys.length
+  ) {
+    throw new TypeError(
+      'dashboard live anomaly projection is incomplete',
+    );
+  }
+  if (presentLiveKeys.length === liveKeys.length) {
+    assertLiveDashboardFields(candidate);
+  }
+}
+
+function assertDashboardMetrics(value: unknown): void {
+  assertArray(value, 'dashboard.metrics');
+  for (const [index, metricValue] of value.entries()) {
+    const metric = asRecord(
+      metricValue,
+      `dashboard.metrics[${index}]`,
+    );
+    assertOnlyKeys(
+      metric,
+      [
+        'key',
+        'label',
+        'displayValue',
+        'suppressed',
+        'suppressionLabel',
+        'drillDownReference',
+      ],
+      `dashboard.metrics[${index}]`,
+    );
+    if (![
+      'attendance-rate',
+      'exception-rate',
+      'confirmed-work',
+      'recognized-overtime',
+      'leave',
+      'unsettled-periods',
+      'freshness',
+    ].includes(metric.key as string)) {
+      throw new TypeError(`dashboard.metrics[${index}].key is invalid`);
+    }
+    assertString(metric.label, `dashboard.metrics[${index}].label`);
+    if (typeof metric.suppressed !== 'boolean') {
+      throw new TypeError(
+        `dashboard.metrics[${index}].suppressed must be boolean`,
+      );
+    }
+    if (metric.displayValue !== undefined) {
+      assertBoundedString(
+        metric.displayValue,
+        `dashboard.metrics[${index}].displayValue`,
+        200,
+      );
+    }
+    if (metric.suppressionLabel !== undefined) {
+      assertBoundedString(
+        metric.suppressionLabel,
+        `dashboard.metrics[${index}].suppressionLabel`,
+        200,
+      );
+    }
+    if (metric.drillDownReference !== undefined) {
+      assertBoundedString(
+        metric.drillDownReference,
+        `dashboard.metrics[${index}].drillDownReference`,
+        500,
+      );
+    }
+  }
+}
+
+function assertLiveDashboardFields(
+  candidate: Record<string, unknown>,
+): void {
+  assertDate(candidate.businessDate, 'dashboard.businessDate');
+  assertBoundedString(
+    candidate.selectedCompanyId,
+    'dashboard.selectedCompanyId',
+    36,
+  );
+  const summary = asRecord(candidate.summary, 'dashboard.summary');
+  assertOnlyKeys(
+    summary,
+    ['unresolvedCount', 'affectedEmployeeCount', 'blockingCount'],
+    'dashboard.summary',
+  );
+  assertNonNegativeSafeInteger(
+    summary.unresolvedCount,
+    'dashboard.summary.unresolvedCount',
+  );
+  assertNonNegativeSafeInteger(
+    summary.affectedEmployeeCount,
+    'dashboard.summary.affectedEmployeeCount',
+  );
+  assertNonNegativeSafeInteger(
+    summary.blockingCount,
+    'dashboard.summary.blockingCount',
+  );
+  if (
+    (summary.affectedEmployeeCount as number)
+      > (summary.unresolvedCount as number)
+    || (summary.blockingCount as number)
+      > (summary.unresolvedCount as number)
+  ) {
+    throw new TypeError(
+      'dashboard.summary counts are internally inconsistent',
+    );
+  }
+
+  assertArray(candidate.exceptions, 'dashboard.exceptions');
+  if (candidate.exceptions.length > 10) {
+    throw new TypeError(
+      'dashboard.exceptions must contain at most 10 items',
+    );
+  }
+  if (
+    candidate.exceptions.length
+      > (summary.unresolvedCount as number)
+  ) {
+    throw new TypeError(
+      'dashboard.exceptions cannot exceed the unresolved count',
+    );
+  }
+  const exceptionReferences = new Set<string>();
+  for (const [index, value] of candidate.exceptions.entries()) {
+    const exception = asRecord(
+      value,
+      `dashboard.exceptions[${index}]`,
+    );
+    assertOnlyKeys(
+      exception,
+      [
+        'exceptionReference',
+        'employeeNumber',
+        'employeeName',
+        'organizationName',
+        'businessDate',
+        'exceptionType',
+        'severity',
+        'state',
+        'exceptionMinutes',
+        'evidenceSummary',
+      ],
+      `dashboard.exceptions[${index}]`,
+    );
+    assertBoundedString(
+      exception.exceptionReference,
+      `dashboard.exceptions[${index}].exceptionReference`,
+      128,
+    );
+    if (exceptionReferences.has(exception.exceptionReference)) {
+      throw new TypeError(
+        'dashboard.exceptions contains duplicate references',
+      );
+    }
+    exceptionReferences.add(exception.exceptionReference);
+    assertBoundedString(
+      exception.employeeNumber,
+      `dashboard.exceptions[${index}].employeeNumber`,
+      128,
+    );
+    assertBoundedString(
+      exception.employeeName,
+      `dashboard.exceptions[${index}].employeeName`,
+      200,
+    );
+    assertBoundedString(
+      exception.organizationName,
+      `dashboard.exceptions[${index}].organizationName`,
+      200,
+    );
+    assertDate(
+      exception.businessDate,
+      `dashboard.exceptions[${index}].businessDate`,
+    );
+    if (exception.businessDate !== candidate.businessDate) {
+      throw new TypeError(
+        'dashboard exception date must match dashboard business date',
+      );
+    }
+    assertBoundedString(
+      exception.exceptionType,
+      `dashboard.exceptions[${index}].exceptionType`,
+      64,
+    );
+    if (!['INFO', 'WARNING', 'ERROR'].includes(
+      exception.severity as string,
+    )) {
+      throw new TypeError(
+        `dashboard.exceptions[${index}].severity is invalid`,
+      );
+    }
+    if (![
+      'OPEN',
+      'PENDING_EVIDENCE',
+      'PENDING_REVIEW',
+    ].includes(exception.state as string)) {
+      throw new TypeError(
+        `dashboard.exceptions[${index}].state is invalid`,
+      );
+    }
+    assertNonNegativeSafeInteger(
+      exception.exceptionMinutes,
+      `dashboard.exceptions[${index}].exceptionMinutes`,
+    );
+    assertBoundedString(
+      exception.evidenceSummary,
+      `dashboard.exceptions[${index}].evidenceSummary`,
+      500,
+    );
+  }
+
+  const metadata = asRecord(candidate.metadata, 'dashboard.metadata');
+  assertYearMonth(
+    metadata.periodLabel,
+    'dashboard.metadata.periodLabel',
+  );
+  if (
+    (candidate.businessDate as string).slice(0, 7)
+      !== metadata.periodLabel
+  ) {
+    throw new TypeError(
+      'dashboard business date must match the projection period',
+    );
+  }
+  assertDashboardAnalytics(
+    candidate.analytics,
+    candidate.businessDate as string,
+    metadata.periodLabel as string,
+    summary,
+  );
+
+  assertDashboardCompanies(
+    candidate.companies,
+    'dashboard.companies',
+    true,
+  );
+  const companyIds = new Set(
+    (candidate.companies as DashboardCompanyOption[])
+      .map((company) => company.companyId),
+  );
+  if (!companyIds.has(candidate.selectedCompanyId as string)) {
+    throw new TypeError(
+      'dashboard.selectedCompanyId is not in dashboard.companies',
+    );
+  }
+}
+
+function assertDashboardAnalytics(
+  value: unknown,
+  businessDate: string,
+  period: string,
+  summary: Record<string, unknown>,
+): void {
+  const analytics = asRecord(value, 'dashboard.analytics');
+  assertOnlyKeys(
+    analytics,
+    [
+      'dailyTrend',
+      'severityDistribution',
+      'typeDistribution',
+      'organizationRanking',
+    ],
+    'dashboard.analytics',
+  );
+  assertDashboardDailyTrend(
+    analytics.dailyTrend,
+    businessDate,
+    period,
+    summary,
+  );
+  assertDashboardSeverityDistribution(
+    analytics.severityDistribution,
+    summary,
+  );
+  assertDashboardTypeDistribution(
+    analytics.typeDistribution,
+    summary,
+  );
+  assertDashboardOrganizationRanking(
+    analytics.organizationRanking,
+    summary,
+  );
+}
+
+function assertDashboardDailyTrend(
+  value: unknown,
+  businessDate: string,
+  period: string,
+  summary: Record<string, unknown>,
+): void {
+  assertArray(value, 'dashboard.analytics.dailyTrend');
+  if (value.length < 1 || value.length > 7) {
+    throw new TypeError(
+      'dashboard.analytics.dailyTrend must contain 1 to 7 items',
+    );
+  }
+  const businessDay = dateOrdinal(businessDate);
+  const periodStart = dateOrdinal(`${period}-01`);
+  const expectedStart = Math.max(periodStart, businessDay - 6);
+  if (value.length !== businessDay - expectedStart + 1) {
+    throw new TypeError(
+      'dashboard.analytics.dailyTrend window is incomplete',
+    );
+  }
+
+  for (const [index, itemValue] of value.entries()) {
+    const item = asRecord(
+      itemValue,
+      `dashboard.analytics.dailyTrend[${index}]`,
+    );
+    assertOnlyKeys(
+      item,
+      [
+        'businessDate',
+        'exceptionCount',
+        'blockingCount',
+        'affectedEmployeeCount',
+      ],
+      `dashboard.analytics.dailyTrend[${index}]`,
+    );
+    assertDate(
+      item.businessDate,
+      `dashboard.analytics.dailyTrend[${index}].businessDate`,
+    );
+    if (dateOrdinal(item.businessDate) !== expectedStart + index) {
+      throw new TypeError(
+        'dashboard.analytics.dailyTrend must be consecutive and ascending',
+      );
+    }
+    assertNonNegativeSafeInteger(
+      item.exceptionCount,
+      `dashboard.analytics.dailyTrend[${index}].exceptionCount`,
+    );
+    assertNonNegativeSafeInteger(
+      item.blockingCount,
+      `dashboard.analytics.dailyTrend[${index}].blockingCount`,
+    );
+    assertNonNegativeSafeInteger(
+      item.affectedEmployeeCount,
+      `dashboard.analytics.dailyTrend[${index}].affectedEmployeeCount`,
+    );
+    if (
+      (item.blockingCount as number) > (item.exceptionCount as number)
+      || (item.affectedEmployeeCount as number)
+        > (item.exceptionCount as number)
+    ) {
+      throw new TypeError(
+        'dashboard.analytics.dailyTrend counts are inconsistent',
+      );
+    }
+  }
+
+  const today = asRecord(
+    value[value.length - 1],
+    'dashboard.analytics.dailyTrend current day',
+  );
+  if (
+    today.businessDate !== businessDate
+    || today.exceptionCount !== summary.unresolvedCount
+    || today.blockingCount !== summary.blockingCount
+    || today.affectedEmployeeCount !== summary.affectedEmployeeCount
+  ) {
+    throw new TypeError(
+      'dashboard.analytics.dailyTrend current day must match summary',
+    );
+  }
+}
+
+function assertDashboardSeverityDistribution(
+  value: unknown,
+  summary: Record<string, unknown>,
+): void {
+  assertArray(value, 'dashboard.analytics.severityDistribution');
+  const expectedSeverities: readonly DashboardAnomalySeverity[] = [
+    'INFO',
+    'WARNING',
+    'ERROR',
+  ];
+  if (value.length !== expectedSeverities.length) {
+    throw new TypeError(
+      'dashboard.analytics.severityDistribution must contain all severities',
+    );
+  }
+  let total = 0;
+  for (const [index, itemValue] of value.entries()) {
+    const item = asRecord(
+      itemValue,
+      `dashboard.analytics.severityDistribution[${index}]`,
+    );
+    assertOnlyKeys(
+      item,
+      ['severity', 'count'],
+      `dashboard.analytics.severityDistribution[${index}]`,
+    );
+    if (item.severity !== expectedSeverities[index]) {
+      throw new TypeError(
+        'dashboard.analytics.severityDistribution order is invalid',
+      );
+    }
+    assertNonNegativeSafeInteger(
+      item.count,
+      `dashboard.analytics.severityDistribution[${index}].count`,
+    );
+    total += item.count;
+  }
+  const errorCount = asRecord(
+    value[2],
+    'dashboard.analytics.severityDistribution[2]',
+  ).count;
+  if (
+    total !== summary.unresolvedCount
+    || errorCount !== summary.blockingCount
+  ) {
+    throw new TypeError(
+      'dashboard.analytics.severityDistribution must match summary',
+    );
+  }
+}
+
+function assertDashboardTypeDistribution(
+  value: unknown,
+  summary: Record<string, unknown>,
+): void {
+  assertArray(value, 'dashboard.analytics.typeDistribution');
+  if (value.length > 10) {
+    throw new TypeError(
+      'dashboard.analytics.typeDistribution must contain at most 10 items',
+    );
+  }
+  if (
+    ((summary.unresolvedCount as number) === 0) !== (value.length === 0)
+  ) {
+    throw new TypeError(
+      'dashboard.analytics.typeDistribution emptiness is inconsistent',
+    );
+  }
+  const types = new Set<string>();
+  let total = 0;
+  let previous:
+    | { exceptionType: string; count: number }
+    | undefined;
+  for (const [index, itemValue] of value.entries()) {
+    const item = asRecord(
+      itemValue,
+      `dashboard.analytics.typeDistribution[${index}]`,
+    );
+    assertOnlyKeys(
+      item,
+      ['exceptionType', 'count'],
+      `dashboard.analytics.typeDistribution[${index}]`,
+    );
+    assertBoundedString(
+      item.exceptionType,
+      `dashboard.analytics.typeDistribution[${index}].exceptionType`,
+      64,
+    );
+    assertNonNegativeSafeInteger(
+      item.count,
+      `dashboard.analytics.typeDistribution[${index}].count`,
+    );
+    if ((item.count as number) === 0) {
+      throw new TypeError(
+        'dashboard.analytics.typeDistribution counts must be positive',
+      );
+    }
+    if (types.has(item.exceptionType)) {
+      throw new TypeError(
+        'dashboard.analytics.typeDistribution contains duplicate types',
+      );
+    }
+    const current = {
+      exceptionType: item.exceptionType,
+      count: item.count as number,
+    };
+    if (
+      previous !== undefined
+      && (
+        previous.count < current.count
+        || (
+          previous.count === current.count
+          && previous.exceptionType > current.exceptionType
+        )
+      )
+    ) {
+      throw new TypeError(
+        'dashboard.analytics.typeDistribution order is invalid',
+      );
+    }
+    types.add(item.exceptionType);
+    total += current.count;
+    previous = current;
+  }
+  if (total > (summary.unresolvedCount as number)) {
+    throw new TypeError(
+      'dashboard.analytics.typeDistribution exceeds summary',
+    );
+  }
+}
+
+function assertDashboardOrganizationRanking(
+  value: unknown,
+  summary: Record<string, unknown>,
+): void {
+  assertArray(value, 'dashboard.analytics.organizationRanking');
+  if (value.length > 5) {
+    throw new TypeError(
+      'dashboard.analytics.organizationRanking must contain at most 5 items',
+    );
+  }
+  if (
+    ((summary.unresolvedCount as number) === 0) !== (value.length === 0)
+  ) {
+    throw new TypeError(
+      'dashboard.analytics.organizationRanking emptiness is inconsistent',
+    );
+  }
+  const rankingItems = new Set<string>();
+  let total = 0;
+  let previous:
+    | {
+        organizationName: string;
+        exceptionCount: number;
+        blockingCount: number;
+      }
+    | undefined;
+  for (const [index, itemValue] of value.entries()) {
+    const item = asRecord(
+      itemValue,
+      `dashboard.analytics.organizationRanking[${index}]`,
+    );
+    assertOnlyKeys(
+      item,
+      ['organizationName', 'exceptionCount', 'blockingCount'],
+      `dashboard.analytics.organizationRanking[${index}]`,
+    );
+    assertBoundedString(
+      item.organizationName,
+      `dashboard.analytics.organizationRanking[${index}].organizationName`,
+      200,
+    );
+    assertNonNegativeSafeInteger(
+      item.exceptionCount,
+      `dashboard.analytics.organizationRanking[${index}].exceptionCount`,
+    );
+    assertNonNegativeSafeInteger(
+      item.blockingCount,
+      `dashboard.analytics.organizationRanking[${index}].blockingCount`,
+    );
+    if (
+      (item.exceptionCount as number) === 0
+      || (item.blockingCount as number)
+        > (item.exceptionCount as number)
+    ) {
+      throw new TypeError(
+        'dashboard.analytics.organizationRanking counts are inconsistent',
+      );
+    }
+    const current = {
+      organizationName: item.organizationName,
+      exceptionCount: item.exceptionCount as number,
+      blockingCount: item.blockingCount as number,
+    };
+    const itemKey = JSON.stringify(current);
+    if (rankingItems.has(itemKey)) {
+      throw new TypeError(
+        'dashboard.analytics.organizationRanking contains duplicate items',
+      );
+    }
+    if (
+      previous !== undefined
+      && (
+        previous.exceptionCount < current.exceptionCount
+        || (
+          previous.exceptionCount === current.exceptionCount
+          && previous.blockingCount < current.blockingCount
+        )
+        || (
+          previous.exceptionCount === current.exceptionCount
+          && previous.blockingCount === current.blockingCount
+          && previous.organizationName > current.organizationName
+        )
+      )
+    ) {
+      throw new TypeError(
+        'dashboard.analytics.organizationRanking order is invalid',
+      );
+    }
+    rankingItems.add(itemKey);
+    total += current.exceptionCount;
+    previous = current;
+  }
+  if (total > (summary.unresolvedCount as number)) {
+    throw new TypeError(
+      'dashboard.analytics.organizationRanking exceeds summary',
+    );
+  }
+}
+
+function assertDashboardCompanies(
+  value: unknown,
+  label: string,
+  requireNonEmpty: boolean,
+): asserts value is DashboardCompanyOption[] {
+  assertArray(value, label);
+  if (requireNonEmpty && value.length === 0) {
+    throw new TypeError(`${label} must not be empty`);
+  }
+  const identifiers = new Set<string>();
+  for (const [index, companyValue] of value.entries()) {
+    const company = asRecord(companyValue, `${label}[${index}]`);
+    assertOnlyKeys(
+      company,
+      ['companyId', 'companyName'],
+      `${label}[${index}]`,
+    );
+    assertBoundedString(
+      company.companyId,
+      `${label}[${index}].companyId`,
+      36,
+    );
+    assertBoundedString(
+      company.companyName,
+      `${label}[${index}].companyName`,
+      200,
+    );
+    if (identifiers.has(company.companyId as string)) {
+      throw new TypeError(`${label} contains duplicate ids`);
+    }
+    identifiers.add(company.companyId as string);
+  }
+}
+
+function assertSelfAttendanceDashboardMetadata(
+  value: unknown,
+): SelfAttendanceDashboardMetadata {
+  const metadata = asRecord(
+    value,
+    'self attendance dashboard.metadata',
+  );
+  assertOnlyKeys(
+    metadata,
+    [
+      'projectionVersion',
+      'sourceVersions',
+      'dataAsOf',
+      'timeZone',
+      'periodLabel',
+      'periodState',
+      'scope',
+    ],
+    'self attendance dashboard.metadata',
+  );
+  assertBoundedString(
+    metadata.projectionVersion,
+    'self attendance dashboard.metadata.projectionVersion',
+    128,
+  );
+  assertArray(
+    metadata.sourceVersions,
+    'self attendance dashboard.metadata.sourceVersions',
+  );
+  if (metadata.sourceVersions.length > 50) {
+    throw new TypeError(
+      'self attendance dashboard.metadata.sourceVersions is too large',
+    );
+  }
+  const sourceVersions = new Set<string>();
+  for (const [index, sourceVersion] of metadata.sourceVersions.entries()) {
+    assertBoundedString(
+      sourceVersion,
+      `self attendance dashboard.metadata.sourceVersions[${index}]`,
+      256,
+    );
+    if (sourceVersions.has(sourceVersion)) {
+      throw new TypeError(
+        'self attendance dashboard.metadata.sourceVersions contains duplicates',
+      );
+    }
+    sourceVersions.add(sourceVersion);
+  }
+  assertInstant(
+    metadata.dataAsOf,
+    'self attendance dashboard.metadata.dataAsOf',
+  );
+  if (metadata.timeZone !== 'Asia/Shanghai') {
+    throw new TypeError(
+      'self attendance dashboard.metadata.timeZone must be Asia/Shanghai',
+    );
+  }
+  assertYearMonth(
+    metadata.periodLabel,
+    'self attendance dashboard.metadata.periodLabel',
+  );
+  if (!periodStates.includes(metadata.periodState as Wave7PeriodState)) {
+    throw new TypeError(
+      'self attendance dashboard.metadata.periodState is invalid',
+    );
+  }
+  const scope = asRecord(
+    metadata.scope,
+    'self attendance dashboard.metadata.scope',
+  );
+  assertOnlyKeys(
+    scope,
+    ['type', 'reference', 'label'],
+    'self attendance dashboard.metadata.scope',
+  );
+  if (
+    scope.type !== 'SELF'
+    || scope.reference !== 'current-principal'
+    || scope.label !== '本人'
+  ) {
+    throw new TypeError(
+      'self attendance dashboard.metadata.scope must identify the current principal',
+    );
+  }
+  assertBoundedString(
+    scope.reference,
+    'self attendance dashboard.metadata.scope.reference',
+    128,
+  );
+  assertBoundedString(
+    scope.label,
+    'self attendance dashboard.metadata.scope.label',
+    200,
+  );
+  return metadata as unknown as SelfAttendanceDashboardMetadata;
+}
+
+function assertSelfAttendanceDashboardTrend(
+  value: unknown,
+  period: string,
+  businessDate: string,
+): void {
+  assertArray(value, 'self attendance dashboard.dailyTrend');
+  if (value.length > 31) {
+    throw new TypeError(
+      'self attendance dashboard.dailyTrend is too large',
+    );
+  }
+  let previousDate = '';
+  for (const [index, pointValue] of value.entries()) {
+    const point = asRecord(
+      pointValue,
+      `self attendance dashboard.dailyTrend[${index}]`,
+    );
+    assertOnlyKeys(
+      point,
+      [
+        'businessDate',
+        'scheduledMinutes',
+        'confirmedMinutes',
+        'recognizedOvertimeMinutes',
+        'leaveMinutes',
+        'issueCount',
+      ],
+      `self attendance dashboard.dailyTrend[${index}]`,
+    );
+    assertDate(
+      point.businessDate,
+      `self attendance dashboard.dailyTrend[${index}].businessDate`,
+    );
+    if (
+      !(point.businessDate as string).startsWith(period)
+      || (point.businessDate as string) > businessDate
+      || (point.businessDate as string) <= previousDate
+    ) {
+      throw new TypeError(
+        'self attendance dashboard.dailyTrend dates are invalid',
+      );
+    }
+    previousDate = point.businessDate as string;
+    for (const key of [
+      'scheduledMinutes',
+      'confirmedMinutes',
+      'recognizedOvertimeMinutes',
+      'leaveMinutes',
+      'issueCount',
+    ] as const) {
+      assertNonNegativeSafeInteger(
+        point[key],
+        `self attendance dashboard.dailyTrend[${index}].${key}`,
+      );
+    }
+  }
+}
+
+function assertSelfAttendanceDashboardToday(value: unknown): void {
+  if (value === null) return;
+  const today = asRecord(value, 'self attendance dashboard.today');
+  assertOnlyKeys(
+    today,
+    [
+      'shiftLabel',
+      'firstPunchAt',
+      'lastPunchAt',
+      'statusLabel',
+      'confirmedMinutes',
+      'issueLabels',
+    ],
+    'self attendance dashboard.today',
+  );
+  assertNullableString(
+    today.shiftLabel,
+    'self attendance dashboard.today.shiftLabel',
+  );
+  if (typeof today.shiftLabel === 'string') {
+    assertBoundedString(
+      today.shiftLabel,
+      'self attendance dashboard.today.shiftLabel',
+      200,
+    );
+  }
+  for (const key of ['firstPunchAt', 'lastPunchAt'] as const) {
+    assertNullableString(
+      today[key],
+      `self attendance dashboard.today.${key}`,
+    );
+    if (typeof today[key] === 'string') {
+      assertInstant(
+        today[key],
+        `self attendance dashboard.today.${key}`,
+      );
+    }
+  }
+  assertBoundedString(
+    today.statusLabel,
+    'self attendance dashboard.today.statusLabel',
+    64,
+  );
+  assertNonNegativeSafeInteger(
+    today.confirmedMinutes,
+    'self attendance dashboard.today.confirmedMinutes',
+  );
+  assertArray(
+    today.issueLabels,
+    'self attendance dashboard.today.issueLabels',
+  );
+  if (today.issueLabels.length > 50) {
+    throw new TypeError(
+      'self attendance dashboard.today.issueLabels is too large',
+    );
+  }
+  const issueLabels = new Set<string>();
+  for (const [index, issueLabel] of today.issueLabels.entries()) {
+    assertBoundedString(
+      issueLabel,
+      `self attendance dashboard.today.issueLabels[${index}]`,
+      64,
+    );
+    if (issueLabels.has(issueLabel)) {
+      throw new TypeError(
+        'self attendance dashboard.today.issueLabels contains duplicates',
+      );
+    }
+    issueLabels.add(issueLabel);
+  }
+}
+
+function assertSelfAttendanceExceptionTypeDistribution(
+  value: unknown,
+  unresolvedExceptionCount: number,
+): void {
+  assertArray(
+    value,
+    'self attendance dashboard.exceptionTypeDistribution',
+  );
+  if (value.length > 50) {
+    throw new TypeError(
+      'self attendance dashboard.exceptionTypeDistribution is too large',
+    );
+  }
+  let total = 0;
+  let previous: { type: string; count: number } | undefined;
+  const types = new Set<string>();
+  for (const [index, itemValue] of value.entries()) {
+    const item = asRecord(
+      itemValue,
+      `self attendance dashboard.exceptionTypeDistribution[${index}]`,
+    );
+    assertOnlyKeys(
+      item,
+      ['type', 'count'],
+      `self attendance dashboard.exceptionTypeDistribution[${index}]`,
+    );
+    assertBoundedString(
+      item.type,
+      `self attendance dashboard.exceptionTypeDistribution[${index}].type`,
+      64,
+    );
+    assertPositiveInteger(
+      item.count,
+      `self attendance dashboard.exceptionTypeDistribution[${index}].count`,
+    );
+    const current = {
+      type: item.type as string,
+      count: item.count as number,
+    };
+    if (
+      types.has(current.type)
+      || (
+        previous !== undefined
+        && (
+          previous.count < current.count
+          || (
+            previous.count === current.count
+            && previous.type > current.type
+          )
+        )
+      )
+    ) {
+      throw new TypeError(
+        'self attendance dashboard.exceptionTypeDistribution is inconsistent',
+      );
+    }
+    types.add(current.type);
+    total += current.count;
+    previous = current;
+  }
+  if (total !== unresolvedExceptionCount) {
+    throw new TypeError(
+      'self attendance dashboard exception totals are inconsistent',
+    );
+  }
+}
+
+function assertSelfAttendanceRecentExceptions(
+  value: unknown,
+  period: string,
+  businessDate: string,
+  unresolvedExceptionCount: number,
+): void {
+  assertArray(value, 'self attendance dashboard.recentExceptions');
+  if (
+    value.length > 10
+    || value.length > unresolvedExceptionCount
+  ) {
+    throw new TypeError(
+      'self attendance dashboard.recentExceptions is too large',
+    );
+  }
+  for (const [index, exceptionValue] of value.entries()) {
+    const exception = asRecord(
+      exceptionValue,
+      `self attendance dashboard.recentExceptions[${index}]`,
+    );
+    assertOnlyKeys(
+      exception,
+      [
+        'businessDate',
+        'type',
+        'severity',
+        'state',
+        'minutes',
+        'safeEvidenceSummary',
+      ],
+      `self attendance dashboard.recentExceptions[${index}]`,
+    );
+    assertDate(
+      exception.businessDate,
+      `self attendance dashboard.recentExceptions[${index}].businessDate`,
+    );
+    if (
+      !(exception.businessDate as string).startsWith(period)
+      || (exception.businessDate as string) > businessDate
+    ) {
+      throw new TypeError(
+        'self attendance dashboard.recentExceptions date is invalid',
+      );
+    }
+    assertBoundedString(
+      exception.type,
+      `self attendance dashboard.recentExceptions[${index}].type`,
+      64,
+    );
+    if (
+      exception.severity !== 'INFO'
+      && exception.severity !== 'WARNING'
+      && exception.severity !== 'ERROR'
+    ) {
+      throw new TypeError(
+        'self attendance dashboard recent exception severity is invalid',
+      );
+    }
+    if (
+      exception.state !== 'OPEN'
+      && exception.state !== 'PENDING_EVIDENCE'
+      && exception.state !== 'PENDING_REVIEW'
+    ) {
+      throw new TypeError(
+        'self attendance dashboard recent exception state is invalid',
+      );
+    }
+    assertNonNegativeSafeInteger(
+      exception.minutes,
+      `self attendance dashboard.recentExceptions[${index}].minutes`,
+    );
+    assertBoundedString(
+      exception.safeEvidenceSummary,
+      `self attendance dashboard.recentExceptions[${index}].safeEvidenceSummary`,
+      500,
+    );
+  }
+}
+
 function assertProjectionMetadata(value: unknown): asserts value is Wave7ProjectionMetadata {
   const metadata = asRecord(value, 'projection.metadata');
   assertOnlyKeys(
@@ -859,6 +2205,34 @@ function assertYearMonth(value: unknown, label: string): asserts value is string
   ) {
     throw new TypeError(`${label} must use YYYY-MM`);
   }
+}
+
+function assertDate(value: unknown, label: string): asserts value is string {
+  if (typeof value !== 'string') {
+    throw new TypeError(`${label} must use YYYY-MM-DD`);
+  }
+  const match = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
+    .exec(value);
+  if (match === null) {
+    throw new TypeError(`${label} must use YYYY-MM-DD`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year
+    || parsed.getUTCMonth() !== month - 1
+    || parsed.getUTCDate() !== day
+  ) {
+    throw new TypeError(`${label} must use YYYY-MM-DD`);
+  }
+}
+
+function dateOrdinal(value: string): number {
+  return Math.floor(
+    Date.parse(`${value}T00:00:00Z`) / 86_400_000,
+  );
 }
 
 function assertInstant(value: unknown, label: string): asserts value is string {

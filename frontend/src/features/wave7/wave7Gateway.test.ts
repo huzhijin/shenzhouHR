@@ -10,10 +10,146 @@ import {
 const retiredBoundaryIdKey = ['legal', 'EntityId'].join('');
 const retiredDirectoryKey = ['legal', 'Entities'].join('');
 
-describe('Wave 7 production report gateway', () => {
+describe('Wave 7 production gateway', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('loads the same-origin attendance dashboard without a company query', async () => {
+    const response = attendanceDashboardResponse();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(response));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await wave7ProjectionGateway.loadDashboard();
+
+    expect(result).toMatchObject({
+      kind: 'DASHBOARD',
+      businessDate: '2026-07-30',
+      selectedCompanyId: 'company-a',
+      metrics: [],
+      analytics: {
+        severityDistribution: [
+          { severity: 'INFO', count: 0 },
+          { severity: 'WARNING', count: 0 },
+          { severity: 'ERROR', count: 1 },
+        ],
+      },
+    });
+    const [requestTarget, init] = fetchMock.mock.calls[0]!;
+    const target = new URL(String(requestTarget), window.location.origin);
+    expect(target.origin).toBe(window.location.origin);
+    expect(target.pathname).toBe('/api/v1/attendance-dashboards');
+    expect(target.search).toBe('');
+    expect(init).toMatchObject({ credentials: 'same-origin' });
+  });
+
+  it('encodes and verifies an explicitly selected dashboard company', async () => {
+    const companyId = 'company/a?view=1';
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(
+      attendanceDashboardResponse({
+        selectedCompanyId: companyId,
+        metadata: {
+          ...attendanceDashboardResponse().metadata,
+          scope: {
+            type: 'COMPANY',
+            reference: companyId,
+            label: '已选公司',
+          },
+        },
+        companies: [{ companyId, companyName: '已选公司' }],
+      }),
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadDashboard(companyId))
+      .resolves.toMatchObject({
+        kind: 'DASHBOARD',
+        selectedCompanyId: companyId,
+      });
+    const target = new URL(
+      String(fetchMock.mock.calls[0]?.[0]),
+      window.location.origin,
+    );
+    expect(target.pathname).toBe('/api/v1/attendance-dashboards');
+    expect(target.searchParams.get('companyId')).toBe(companyId);
+    expect(target.searchParams.size).toBe(1);
+  });
+
+  it('accepts a server-driven dashboard company selection', async () => {
+    const selection = {
+      kind: 'DASHBOARD_COMPANY_SELECTION',
+      title: '今日异常考勤',
+      businessDate: '2026-07-30',
+      selectedCompanyId: null,
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
+      ],
+      message: '请选择公司后查看今日异常考勤',
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(selection));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadDashboard())
+      .resolves.toEqual(selection);
+  });
+
+  it('rejects malformed or cross-company dashboard responses', async () => {
+    const malformed = {
+      ...attendanceDashboardResponse(),
+      internalEmployeeId: 'must-not-pass-through',
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(malformed))
+      .mockResolvedValueOnce(jsonResponse(attendanceDashboardResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadDashboard())
+      .rejects.toMatchObject({
+        status: 502,
+        code: 'INVALID_DASHBOARD_RESPONSE',
+        message: '考勤工作台数据暂时无法显示，请刷新后重试。',
+      });
+    await expect(wave7ProjectionGateway.loadDashboard('company-b'))
+      .rejects.toMatchObject({
+        status: 502,
+        code: 'INVALID_DASHBOARD_RESPONSE',
+      });
+  });
+
+  it('fails closed on malformed dashboard analytics', async () => {
+    const response = attendanceDashboardResponse();
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      ...response,
+      analytics: {
+        ...response.analytics,
+        severityDistribution: [
+          { severity: 'ERROR', count: 1 },
+          { severity: 'WARNING', count: 0 },
+          { severity: 'INFO', count: 0 },
+        ],
+      },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadDashboard())
+      .rejects.toMatchObject({
+        status: 502,
+        code: 'INVALID_DASHBOARD_RESPONSE',
+      });
+  });
+
+  it('rejects invalid dashboard company input before issuing a request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadDashboard(' company-a'))
+      .rejects.toMatchObject({
+        status: 400,
+        code: 'INVALID_DASHBOARD_QUERY',
+      });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('uses requestJson with an encoded same-origin query', async () => {
@@ -93,6 +229,7 @@ describe('Wave 7 production report gateway', () => {
     ).rejects.toMatchObject({
       status: 502,
       code: 'INVALID_RESPONSE_BODY',
+      message: '报表数据暂时无法显示，请刷新后重试。',
     });
   });
 
@@ -278,6 +415,7 @@ describe('Wave 7 production report gateway', () => {
     })).rejects.toMatchObject({
       status: 502,
       code: 'INVALID_REPORT_EXPORT_RESPONSE',
+      message: '导出状态暂时无法读取，请刷新后重试。',
     });
   });
 
@@ -346,6 +484,7 @@ describe('Wave 7 production report gateway', () => {
     )).rejects.toMatchObject({
       status: 502,
       code: 'INVALID_REPORT_EXPORT_FILE',
+      message: '导出文件暂时无法使用，请重新导出。',
     });
   });
 
@@ -471,6 +610,79 @@ function exportResponse(overrides: Record<string, unknown> = {}) {
     expiresAt: '2026-07-30T01:00:00Z',
     completedAt: '2026-07-29T01:00:00Z',
     ...overrides,
+  };
+}
+
+function attendanceDashboardResponse(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    kind: 'DASHBOARD',
+    title: '今日异常考勤',
+    businessDate: '2026-07-30',
+    selectedCompanyId: 'company-a',
+    metadata: {
+      projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+      sourceVersions: ['ATTENDANCE-CALC-V1'],
+      dataAsOf: '2026-07-30T01:00:00Z',
+      timeZone: 'Asia/Shanghai',
+      periodLabel: '2026-07',
+      periodState: 'OPEN',
+      scope: {
+        type: 'COMPANY',
+        reference: 'company-a',
+        label: '神州半导体',
+      },
+      allowedActions: ['DASHBOARD_DRILL_DOWN'],
+    },
+    summary: {
+      unresolvedCount: 1,
+      affectedEmployeeCount: 1,
+      blockingCount: 1,
+    },
+    exceptions: [{
+      exceptionReference: 'exception-1',
+      employeeNumber: 'SZ001',
+      employeeName: '张三',
+      organizationName: '制造一部',
+      businessDate: '2026-07-30',
+      exceptionType: 'MISSING_PUNCH_OVERDUE',
+      severity: 'ERROR',
+      state: 'PENDING_REVIEW',
+      exceptionMinutes: 480,
+      evidenceSummary: '下班卡缺失',
+    }],
+    analytics: attendanceDashboardAnalytics(),
+    companies: [
+      { companyId: 'company-a', companyName: '神州半导体' },
+      { companyId: 'company-b', companyName: '神州科技' },
+    ],
+    ...overrides,
+  };
+}
+
+function attendanceDashboardAnalytics() {
+  return {
+    dailyTrend: Array.from({ length: 7 }, (_, index) => ({
+      businessDate: `2026-07-${String(index + 24).padStart(2, '0')}`,
+      exceptionCount: index === 6 ? 1 : 0,
+      blockingCount: index === 6 ? 1 : 0,
+      affectedEmployeeCount: index === 6 ? 1 : 0,
+    })),
+    severityDistribution: [
+      { severity: 'INFO', count: 0 },
+      { severity: 'WARNING', count: 0 },
+      { severity: 'ERROR', count: 1 },
+    ],
+    typeDistribution: [{
+      exceptionType: 'MISSING_PUNCH_OVERDUE',
+      count: 1,
+    }],
+    organizationRanking: [{
+      organizationName: '制造一部',
+      exceptionCount: 1,
+      blockingCount: 1,
+    }],
   };
 }
 

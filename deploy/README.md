@@ -1,5 +1,7 @@
 # Ubuntu 原生部署与 W9 发布模板
 
+如果客户使用宝塔面板，请直接使用 [deploy/baota/README.md](baota/README.md) 及其一键发布脚本；本页仍保留给 Ubuntu 原生发布流程。
+
 目标环境为 Ubuntu Server 24.04 LTS，不使用 Docker、Kubernetes、Redis 或消息队列。
 
 本目录是发布合同，不是已完成的生产部署。当前 W9 worktree 禁止连接生产、安装服务或切流；`scripts/release/native_preflight.py` 默认只做静态和 artifact 计划检查，真实 Ubuntu 命令保持 `NOT_VERIFIED`。

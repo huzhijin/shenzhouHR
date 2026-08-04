@@ -27,6 +27,9 @@ import {
   listCalendarVersionDays,
   listCalendarVersions,
   listCalendars,
+  listLocations,
+  listShifts,
+  listShiftVersions,
   patchCalendarVersionDays,
   publishCalendar,
   publishCalendarVersion,
@@ -165,6 +168,46 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
     range.from,
     range.to,
   ]);
+  const businessLabelsLoader = useMemo(
+    () => async () => {
+      const [locationPage, shiftPage] = await Promise.all([
+        listLocations(0, 500),
+        listShifts(0, 500),
+      ]);
+      const versionPages = await Promise.all(
+        shiftPage.items.map((shift) => listShiftVersions(shift.shiftId, 0, 500)),
+      );
+      return {
+        locations: locationPage.items,
+        shifts: shiftPage.items,
+        versions: versionPages.flatMap((page) => page.items),
+      };
+    },
+    [],
+  );
+  const businessLabels = useAsyncResource(
+    businessLabelsLoader,
+    () => false,
+    [],
+  );
+  const locationLabels = businessLabels.resource.status === 'ready'
+    ? new Map(businessLabels.resource.data.locations.map((location) => [
+      location.locationId,
+      `${location.name}（${location.code}）`,
+    ]))
+    : new Map<string, string>();
+  const shiftNameById = businessLabels.resource.status === 'ready'
+    ? new Map(businessLabels.resource.data.shifts.map((shift) => [
+      shift.shiftId,
+      shift.name,
+    ]))
+    : new Map<string, string>();
+  const shiftVersionLabels = businessLabels.resource.status === 'ready'
+    ? new Map(businessLabels.resource.data.versions.map((version) => [
+      version.shiftVersionId,
+      `${shiftNameById.get(version.shiftId) ?? '班次'} · V${version.versionNumber}`,
+    ]))
+    : new Map<string, string>();
   useEffect(() => {
     if (!selectedCalendarId && firstCalendarId) {
       setSelectedCalendarId(firstCalendarId);
@@ -454,13 +497,6 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
         ) : undefined}
       />
       <AttendanceSetupNotice notice={notice} />
-      <Alert
-        className="attendance-boundary-note"
-        showIcon
-        type="info"
-        title={t('attendanceSetup.yearBoundaryTitle')}
-        description={t('attendanceSetup.yearBoundaryDescription')}
-      />
       <section className="attendance-context-bar" aria-label={t('attendanceSetup.queryAsOf')}>
         <IconCalendarStats aria-hidden="true" stroke={2} />
         <label htmlFor="attendance-calendar-year">{t('attendanceSetup.calendarYear')}</label>
@@ -516,7 +552,7 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
                 },
                 { key: 'versionNumber', title: t('attendanceSetup.version'), render: (calendar) => calendar.versionNumber },
                 { key: 'year', title: t('attendanceSetup.calendarYear'), render: (calendar) => calendar.calendarYear },
-                { key: 'location', title: t('attendanceSetup.locationId'), render: (calendar) => <code>{calendar.locationId}</code> },
+                { key: 'location', title: '地点', render: (calendar) => locationLabels.get(calendar.locationId) ?? '已归档地点' },
                 { key: 'status', title: t('attendanceSetup.status'), render: (calendar) => <StatusBadge status={calendar.status} /> },
                 ...(canManage ? [{
                   key: 'actions',
@@ -614,9 +650,7 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
                     { key: 'year', title: t('attendanceSetup.calendarYear'), render: (calendar) => calendar.calendarYear },
                     { key: 'timezone', title: t('attendanceSetup.timeZone'), render: (calendar) => calendar.timeZone },
                     { key: 'period', title: t('attendanceSetup.period'), render: (calendar) => `${calendar.effectiveFrom} → ${calendar.effectiveTo}` },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (calendar) => <code className="attendance-digest">{calendar.snapshotDigest}</code> },
                     { key: 'status', title: t('attendanceSetup.status'), render: (calendar) => <StatusBadge status={calendar.status} /> },
-                    { key: 'rowVersion', title: t('attendanceSetup.rowVersion'), render: (calendar) => calendar.rowVersion },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (calendar) => calendar.changeReason },
                     ...(canManage ? [{
                       key: 'actions',
@@ -721,13 +755,8 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
                   showIcon
                   type={coverage?.complete ? 'success' : 'warning'}
                   title={coverage?.complete
-                    ? t('attendanceSetup.calendarCoverageComplete', {
-                      count: coverage.expected,
-                    })
-                    : t('attendanceSetup.calendarCoverageIncomplete', {
-                      expected: coverage?.expected ?? 0,
-                      actual: coverage?.actual ?? 0,
-                    })}
+                    ? `所选区间 ${coverage.expected} 天均已设置`
+                    : `所选区间应设置 ${coverage?.expected ?? 0} 天，当前已设置 ${coverage?.actual ?? 0} 天`}
                 />
                 <DataTable
                   rows={days.resource.data.items}
@@ -738,10 +767,10 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
                     { key: 'type', title: t('attendanceSetup.dayType'), render: (day) => dayTypeLabel(day.dayType, t) },
                     {
                       key: 'shift',
-                      title: t('attendanceSetup.shiftVersionId'),
+                      title: '临时班次',
                       render: (day) => day.shiftVersionOverrideId
-                        ? <code>{day.shiftVersionOverrideId}</code>
-                        : t('common.none'),
+                        ? shiftVersionLabels.get(day.shiftVersionOverrideId) ?? '已设置临时班次'
+                        : '沿用考勤组班次',
                     },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (day) => day.changeReason },
                   ]}

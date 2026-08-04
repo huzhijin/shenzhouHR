@@ -71,11 +71,6 @@ public final class XlsxAttendanceReportExportEncoder
                     .setCellValue("期间");
             metadata.getRow(1).createCell(1)
                     .setCellValue(period.toString());
-            metadata.createRow(2).createCell(0)
-                    .setCellValue("公式版本");
-            metadata.getRow(2).createCell(1)
-                    .setCellValue(safeCellText(
-                            dataSet.calculationFormulaVersion()));
             metadata.setColumnWidth(0, 16 * 256);
             metadata.setColumnWidth(1, 60 * 256);
 

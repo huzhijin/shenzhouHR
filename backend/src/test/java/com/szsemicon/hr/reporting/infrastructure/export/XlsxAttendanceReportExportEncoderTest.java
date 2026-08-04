@@ -48,6 +48,8 @@ class XlsxAttendanceReportExportEncoderTest {
             assertThat(cell.getCellType()).isEqualTo(CellType.STRING);
             assertThat(cell.getStringCellValue())
                     .isEqualTo(formulaLikeValue);
+            assertThat(workbook.getSheet("口径说明").getLastRowNum())
+                    .isEqualTo(1);
         }
     }
 }

@@ -16,6 +16,7 @@ import { DataTable } from '../../shared/components/DataTable';
 import { PageHeader, ResourcePagination } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import { getEmployees } from '../employee/employeeApi';
 import {
   changeAttendanceGroupStatus,
   changeLocationStatus,
@@ -25,8 +26,10 @@ import {
   listAssignments,
   listAttendanceGroupRevisions,
   listAttendanceGroups,
+  listCalendars,
   listLocationRevisions,
   listLocations,
+  listShifts,
   updateAssignment,
   updateAttendanceGroup,
   updateLocation,
@@ -161,6 +164,43 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
     (page) => page.total === 0,
     [assignmentPage, assignmentPageSize, effectiveGroupId, asOf],
   );
+  const businessLabelsLoader = useMemo(
+    () => () => Promise.all([
+      listCalendars(undefined, 0, 500),
+      listShifts(0, 500),
+      getEmployees(0, 500, { sort: 'employeeNumber' }),
+    ]),
+    [],
+  );
+  const businessLabels = useAsyncResource(
+    businessLabelsLoader,
+    () => false,
+    [],
+  );
+  const calendarLabels = businessLabels.resource.status === 'ready'
+    ? new Map(businessLabels.resource.data[0].items.map((calendar) => [
+      calendar.calendarId,
+      `${calendar.name}（${calendar.code}）`,
+    ]))
+    : new Map<string, string>();
+  const shiftLabels = businessLabels.resource.status === 'ready'
+    ? new Map(businessLabels.resource.data[1].items.map((shift) => [
+      shift.shiftId,
+      `${shift.name}（${shift.code}）`,
+    ]))
+    : new Map<string, string>();
+  const employeeLabels = businessLabels.resource.status === 'ready'
+    ? new Map(businessLabels.resource.data[2].items.map((employee) => [
+      employee.employeeId,
+      `${employee.displayName}（${employee.employeeNumber}）`,
+    ]))
+    : new Map<string, string>();
+  const locationLabels = overview.resource.status === 'ready'
+    ? new Map(overview.resource.data[0].items.map((location) => [
+      location.locationId,
+      `${location.name}（${location.code}）`,
+    ]))
+    : new Map<string, string>();
   useEffect(() => {
     if (!selectedLocationId && firstLocationId) {
       setSelectedLocationId(firstLocationId);
@@ -465,9 +505,7 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'timezone', title: t('attendanceSetup.timeZone'), render: (location) => location.timeZone },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (location) => location.revisionNumber },
                     { key: 'period', title: t('attendanceSetup.period'), render: (location) => formatPeriod(location.effectiveFrom, location.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (location) => <code className="attendance-digest">{location.snapshotDigest}</code> },
                     { key: 'status', title: t('attendanceSetup.status'), render: (location) => <StatusBadge status={location.status} /> },
-                    { key: 'version', title: t('attendanceSetup.rowVersion'), render: (location) => location.rowVersion },
                     ...(canManageGroups ? [{
                       key: 'actions',
                       title: t('common.actions'),
@@ -555,9 +593,7 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'timezone', title: t('attendanceSetup.timeZone'), render: (location) => location.timeZone },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (location) => location.revisionNumber },
                     { key: 'period', title: t('attendanceSetup.period'), render: (location) => formatPeriod(location.effectiveFrom, location.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (location) => <code className="attendance-digest">{location.snapshotDigest}</code> },
                     { key: 'status', title: t('attendanceSetup.status'), render: (location) => <StatusBadge status={location.status} /> },
-                    { key: 'version', title: t('attendanceSetup.rowVersion'), render: (location) => location.rowVersion },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (location) => location.changeReason },
                   ]}
                 />
@@ -608,12 +644,11 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'period', title: t('attendanceSetup.period'), render: (group) => formatPeriod(group.effectiveFrom, group.effectiveTo, t('attendanceSetup.longTerm')) },
                     {
                       key: 'location',
-                      title: t('attendanceSetup.locationRevisionId'),
-                      render: (group) => <code>{group.locationRevisionId}</code>,
+                      title: '地点',
+                      render: (group) => locationLabels.get(group.locationId) ?? '已归档地点',
                     },
-                    { key: 'calendar', title: t('attendanceSetup.calendarId'), render: (group) => <code>{group.calendarId}</code> },
-                    { key: 'shift', title: t('attendanceSetup.shiftTemplateId'), render: (group) => <code>{group.shiftTemplateId}</code> },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (group) => <code className="attendance-digest">{group.snapshotDigest}</code> },
+                    { key: 'calendar', title: '工作日历', render: (group) => calendarLabels.get(group.calendarId) ?? '已归档日历' },
+                    { key: 'shift', title: '班次', render: (group) => shiftLabels.get(group.shiftTemplateId) ?? '已归档班次' },
                     { key: 'status', title: t('attendanceSetup.status'), render: (group) => <StatusBadge status={group.status} /> },
                     ...(canManageGroups ? [{
                       key: 'actions',
@@ -701,12 +736,10 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'name', title: t('attendanceSetup.name'), render: (group) => group.name },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (group) => group.revisionNumber },
                     { key: 'period', title: t('attendanceSetup.period'), render: (group) => formatPeriod(group.effectiveFrom, group.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'location', title: t('attendanceSetup.locationRevisionId'), render: (group) => <code>{group.locationRevisionId}</code> },
-                    { key: 'calendar', title: t('attendanceSetup.calendarId'), render: (group) => <code>{group.calendarId}</code> },
-                    { key: 'shift', title: t('attendanceSetup.shiftTemplateId'), render: (group) => <code>{group.shiftTemplateId}</code> },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (group) => <code className="attendance-digest">{group.snapshotDigest}</code> },
+                    { key: 'location', title: '地点', render: (group) => locationLabels.get(group.locationId) ?? '已归档地点' },
+                    { key: 'calendar', title: '工作日历', render: (group) => calendarLabels.get(group.calendarId) ?? '已归档日历' },
+                    { key: 'shift', title: '班次', render: (group) => shiftLabels.get(group.shiftTemplateId) ?? '已归档班次' },
                     { key: 'status', title: t('attendanceSetup.status'), render: (group) => <StatusBadge status={group.status} /> },
-                    { key: 'version', title: t('attendanceSetup.rowVersion'), render: (group) => group.rowVersion },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (group) => group.changeReason },
                   ]}
                 />
@@ -763,16 +796,15 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                   rowKey={(assignment) => assignment.assignmentId}
                   ariaLabel={t('attendanceSetup.assignmentSection')}
                   columns={[
-                    { key: 'employee', title: t('attendanceSetup.employeeId'), render: (assignment) => <code>{assignment.employeeId}</code> },
+                    { key: 'employee', title: '员工', render: (assignment) => employeeLabels.get(assignment.employeeId) ?? '已归档员工' },
                     { key: 'period', title: t('attendanceSetup.period'), render: (assignment) => formatPeriod(assignment.effectiveFrom, assignment.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'month', title: t('attendanceSetup.monthlyContext'), render: (assignment) => <code>{assignment.monthlyContextKey}</code> },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (assignment) => assignment.changeReason },
                     ...(canAssign ? [{
                       key: 'actions',
                       title: t('common.actions'),
                       render: (assignment: AssignmentView) => (
                         <AccessibleButton
-                          label={`${t('attendanceSetup.rolloverAssignment')} ${assignment.employeeId}`}
+                          label={`${t('attendanceSetup.rolloverAssignment')} ${employeeLabels.get(assignment.employeeId) ?? '员工'}`}
                           type="text"
                           icon={<IconGitBranch aria-hidden="true" stroke={2} />}
                           onClick={editAssignment(assignment)}

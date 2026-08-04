@@ -113,34 +113,97 @@ const auditFieldLabels: Readonly<Record<string, string>> = {
   displayName: '显示名称',
   employeeNumber: '员工编号',
   organizationId: '所属组织',
-  rowVersion: '并发版本',
+  rowVersion: '数据版本',
 };
+
+const hiddenAuditFields = new Set([
+  'actorId',
+  'correlationId',
+  'eventId',
+  'requestId',
+  'resourceId',
+  'rowVersion',
+]);
 
 export function auditActionLabel(action: string): string {
   const normalized = action.trim().toUpperCase();
   if (!normalized) return '未记录动作';
   return auditActionLabels[normalized]
-    ?? (isMachineCode(normalized) ? '其他审计操作' : action);
+    ?? (isMachineCode(normalized) || containsOpaqueIdentifier(action)
+      ? '其他审计操作'
+      : action);
 }
 
 export function auditResourceLabel(resourceType: string): string {
   const normalized = resourceType.trim().toUpperCase();
   if (!normalized) return '未记录对象';
   return auditResourceLabels[normalized]
-    ?? (isMachineCode(normalized) ? '其他业务对象' : resourceType);
+    ?? (isMachineCode(normalized) || containsOpaqueIdentifier(resourceType)
+      ? '其他业务对象'
+      : resourceType);
 }
 
 export function auditActorLabel(actor: string): string {
   const normalized = actor.trim().toUpperCase();
   if (!normalized) return '未记录操作人';
   return auditActorLabels[normalized]
-    ?? (isMachineCode(normalized) ? '系统操作主体' : actor);
+    ?? (isMachineCode(normalized) || containsOpaqueIdentifier(actor)
+      ? '系统操作主体'
+      : actor);
 }
 
 export function auditFieldLabel(field: string): string {
-  return auditFieldLabels[field] ?? (isMachineCode(field) ? '其他变更字段' : field);
+  return auditFieldLabels[field]
+    ?? (isMachineCode(field)
+      || containsOpaqueIdentifier(field)
+      || looksLikeIdentifierField(field)
+      ? '其他变更字段'
+      : field);
+}
+
+/**
+ * 审计标识继续保留在 API 中用于筛选和路由。它们属于实现细节，
+ * 只包含这些字段的变更不进入业务侧变更轨迹。
+ */
+export function isHiddenAuditField(field: string): boolean {
+  return hiddenAuditFields.has(field);
+}
+
+export function shouldMaskAuditChange(
+  field: string,
+  before?: string,
+  after?: string,
+): boolean {
+  return looksLikeIdentifierField(field)
+    || [before, after].some((value) => (
+      value !== undefined
+      && (containsOpaqueIdentifier(value) || looksStructured(value))
+    ));
+}
+
+export function auditTextLabel(value: string, maskedLabel: string): string {
+  return containsOpaqueIdentifier(value) || looksStructured(value)
+    ? maskedLabel
+    : value;
 }
 
 function isMachineCode(value: string): boolean {
   return /^[A-Z][A-Z0-9_]*$/.test(value);
+}
+
+function containsOpaqueIdentifier(value: string): boolean {
+  const trimmed = value.trim();
+  return /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(trimmed)
+    || /(?:^|\D)\d{16,}(?:\D|$)/.test(trimmed);
+}
+
+function looksLikeIdentifierField(field: string): boolean {
+  return /(?:^|[_-])(?:id|ids)$/i.test(field)
+    || /(?:Id|Ids)$/.test(field);
+}
+
+function looksStructured(value: string): boolean {
+  const trimmed = value.trim();
+  return (trimmed.startsWith('{') && trimmed.endsWith('}'))
+    || (trimmed.startsWith('[') && trimmed.endsWith(']'));
 }

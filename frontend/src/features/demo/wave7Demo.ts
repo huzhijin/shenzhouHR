@@ -1,9 +1,10 @@
 import type {
   AttendanceRecordsProjection,
-  DashboardProjection,
   FeedbackProjection,
   LeaveProjection,
+  LiveDashboardProjection,
   ReportProjection,
+  SelfAttendanceDashboardProjection,
   TodayProjection,
   Wave7AllowedAction,
   Wave7PeriodState,
@@ -59,6 +60,80 @@ export function createDemoAttendanceRecordsProjection(): AttendanceRecordsProjec
       attendanceRecord('2026-06-08', 510, '正常', ['认可加班 0.5 小时']),
       attendanceRecord('2026-06-09', 480, '已补签', ['上班卡已补签']),
       attendanceRecord('2026-06-10', 480, '正常'),
+    ],
+  };
+}
+
+export function createDemoSelfAttendanceDashboardProjection(
+): SelfAttendanceDashboardProjection {
+  const businessDate = currentShanghaiDate();
+  const periodLabel = businessDate.slice(0, 7);
+  const trendDates = recentPeriodDates(businessDate, 7);
+  const previousDate = trendDates[Math.max(0, trendDates.length - 2)]
+    ?? businessDate;
+  return {
+    kind: 'SELF_ATTENDANCE_DASHBOARD',
+    metadata: {
+      projectionVersion: `DEMO-SELF-DASHBOARD-${businessDate}-V1`,
+      sourceVersions: [
+        `DEMO-SELF-ATTENDANCE-${periodLabel}-V1`,
+        `DEMO-SELF-EXCEPTION-${businessDate}-V1`,
+      ],
+      dataAsOf: new Date().toISOString(),
+      timeZone: 'Asia/Shanghai',
+      periodLabel,
+      periodState: 'OPEN',
+      scope: {
+        type: 'SELF',
+        reference: 'current-principal',
+        label: '本人',
+      },
+    },
+    businessDate,
+    summary: {
+      scheduledMinutes: trendDates.length * 480,
+      confirmedMinutes: Math.max(0, trendDates.length * 480 - 45),
+      recognizedOvertimeMinutes: 75,
+      leaveMinutes: 240,
+      unresolvedExceptionCount: 2,
+    },
+    dailyTrend: trendDates.map((date, index) => ({
+      businessDate: date,
+      scheduledMinutes: 480,
+      confirmedMinutes: index === trendDates.length - 1 ? 435 : 480,
+      recognizedOvertimeMinutes: index === trendDates.length - 3 ? 75 : 0,
+      leaveMinutes: index === trendDates.length - 4 ? 240 : 0,
+      issueCount: index >= trendDates.length - 2 ? 1 : 0,
+    })),
+    today: {
+      shiftLabel: '标准班 · 08:30–17:30',
+      firstPunchAt: `${businessDate}T00:42:00Z`,
+      lastPunchAt: null,
+      statusLabel: '存在未解决异常',
+      confirmedMinutes: 435,
+      issueLabels: ['迟到待确认'],
+    },
+    exceptionTypeDistribution: [
+      { type: 'LATE', count: 1 },
+      { type: 'MISSING_PUNCH', count: 1 },
+    ],
+    recentExceptions: [
+      {
+        businessDate,
+        type: 'LATE',
+        severity: 'WARNING',
+        state: 'PENDING_REVIEW',
+        minutes: 12,
+        safeEvidenceSummary: '首个有效打卡晚于班次开始时间，等待复核。',
+      },
+      {
+        businessDate: previousDate,
+        type: 'MISSING_PUNCH',
+        severity: 'INFO',
+        state: 'PENDING_EVIDENCE',
+        minutes: 0,
+        safeEvidenceSummary: '下班打卡记录缺失，可补充本人考勤凭证。',
+      },
     ],
   };
 }
@@ -131,17 +206,156 @@ export function createDemoFeedbackProjection(): FeedbackProjection {
   };
 }
 
-export function createDemoDashboardProjection(): DashboardProjection {
+export function createDemoDashboardProjection(): LiveDashboardProjection {
+  const businessDate = currentShanghaiDate();
+  const period = businessDate.slice(0, 7);
+  const trendDates = recentPeriodDates(businessDate, 7);
+  const trendCounts = [5, 4, 6, 3, 8, 5, 7].slice(-trendDates.length);
+  const trendBlocking = [1, 1, 2, 0, 3, 1, 3].slice(-trendDates.length);
+  const trendAffected = [5, 4, 5, 3, 7, 5, 6].slice(-trendDates.length);
   return {
     kind: 'DASHBOARD',
     metadata: metadata({
-      projectionVersion: 'DEMO-DASHBOARD-2026-06-V1',
-      periodLabel: REPORTING_PERIOD,
-      periodState: 'CLOSED',
+      projectionVersion: `DEMO-DASHBOARD-${businessDate}-V1`,
+      periodLabel: period,
+      periodState: 'OPEN',
       scope: companyScope(),
       allowedActions: ['DASHBOARD_DRILL_DOWN'],
     }),
-    title: '2026 年 06 月考勤管理工作台',
+    title: '今日异常考勤',
+    businessDate,
+    selectedCompanyId: '30000000-0000-0000-0000-000000000001',
+    summary: {
+      unresolvedCount: 7,
+      affectedEmployeeCount: 6,
+      blockingCount: 3,
+    },
+    analytics: {
+      dailyTrend: trendDates.map((date, index) => ({
+        businessDate: date,
+        exceptionCount: trendCounts[index]!,
+        blockingCount: trendBlocking[index]!,
+        affectedEmployeeCount: trendAffected[index]!,
+      })),
+      severityDistribution: [
+        { severity: 'INFO', count: 1 },
+        { severity: 'WARNING', count: 3 },
+        { severity: 'ERROR', count: 3 },
+      ],
+      typeDistribution: [
+        { exceptionType: 'MISSING_PUNCH_OVERDUE', count: 3 },
+        { exceptionType: 'LATE', count: 2 },
+        { exceptionType: 'ABSENCE', count: 1 },
+        { exceptionType: 'EVIDENCE_CONFLICT', count: 1 },
+      ],
+      organizationRanking: [
+        {
+          organizationName: '制造一部',
+          exceptionCount: 4,
+          blockingCount: 2,
+        },
+        {
+          organizationName: '研发一部',
+          exceptionCount: 2,
+          blockingCount: 1,
+        },
+        {
+          organizationName: '人力资源部',
+          exceptionCount: 1,
+          blockingCount: 0,
+        },
+      ],
+    },
+    exceptions: [
+      dashboardException(
+        'DEMO-EXCEPTION-001',
+        'SZ001',
+        '张明',
+        '制造一部',
+        businessDate,
+        'MISSING_PUNCH_OVERDUE',
+        'ERROR',
+        'PENDING_REVIEW',
+        480,
+        '计划工作段缺少下班有效打卡',
+      ),
+      dashboardException(
+        'DEMO-EXCEPTION-002',
+        'SZ018',
+        '李悦',
+        '研发一部',
+        businessDate,
+        'EVIDENCE_CONFLICT',
+        'ERROR',
+        'PENDING_EVIDENCE',
+        0,
+        'OA 单据时间与原始打卡证据存在冲突',
+      ),
+      dashboardException(
+        'DEMO-EXCEPTION-003',
+        'SZ026',
+        '周程',
+        '制造一部',
+        businessDate,
+        'ABSENCE',
+        'ERROR',
+        'PENDING_REVIEW',
+        480,
+        '计划工作段未匹配到打卡或有效业务单据',
+      ),
+      dashboardException(
+        'DEMO-EXCEPTION-004',
+        'SZ031',
+        '王敏',
+        '制造一部',
+        businessDate,
+        'MISSING_PUNCH_OVERDUE',
+        'WARNING',
+        'OPEN',
+        0,
+        '上班有效打卡缺失，补正时限已超过',
+      ),
+      dashboardException(
+        'DEMO-EXCEPTION-005',
+        'SZ042',
+        '陈辉',
+        '研发一部',
+        businessDate,
+        'LATE',
+        'WARNING',
+        'OPEN',
+        18,
+        '首次有效打卡晚于计划开始时间 18 分钟',
+      ),
+      dashboardException(
+        'DEMO-EXCEPTION-006',
+        'SZ057',
+        '赵宁',
+        '制造一部',
+        businessDate,
+        'LATE',
+        'WARNING',
+        'OPEN',
+        11,
+        '首次有效打卡晚于计划开始时间 11 分钟',
+      ),
+      dashboardException(
+        'DEMO-EXCEPTION-007',
+        'SZ074',
+        '钱晓',
+        '人力资源部',
+        businessDate,
+        'MISSING_PUNCH_OVERDUE',
+        'INFO',
+        'PENDING_EVIDENCE',
+        0,
+        '补签单已提交，等待证据同步',
+      ),
+    ],
+    companies: [{
+      companyId: '30000000-0000-0000-0000-000000000001',
+      companyName: '江苏神州半导体科技股份有限公司',
+    }],
     metrics: [
       metric('attendance-rate', '出勤率', '98.6%', 'demo-report:attendance-rate'),
       metric('exception-rate', '考勤异常率', '1.8%', 'demo-report:exceptions'),
@@ -257,17 +471,43 @@ function reportRow(
 }
 
 function metric(
-  key: DashboardProjection['metrics'][number]['key'],
+  key: LiveDashboardProjection['metrics'][number]['key'],
   label: string,
   displayValue: string,
   drillDownReference?: string,
-): DashboardProjection['metrics'][number] {
+): LiveDashboardProjection['metrics'][number] {
   return {
     key,
     label,
     displayValue,
     suppressed: false,
     drillDownReference,
+  };
+}
+
+function dashboardException(
+  exceptionReference: string,
+  employeeNumber: string,
+  employeeName: string,
+  organizationName: string,
+  businessDate: string,
+  exceptionType: string,
+  severity: LiveDashboardProjection['exceptions'][number]['severity'],
+  state: LiveDashboardProjection['exceptions'][number]['state'],
+  exceptionMinutes: number,
+  evidenceSummary: string,
+): LiveDashboardProjection['exceptions'][number] {
+  return {
+    exceptionReference,
+    employeeNumber,
+    employeeName,
+    organizationName,
+    businessDate,
+    exceptionType,
+    severity,
+    state,
+    exceptionMinutes,
+    evidenceSummary,
   };
 }
 
@@ -316,4 +556,22 @@ function currentShanghaiDate(): string {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
+}
+
+function recentPeriodDates(
+  businessDate: string,
+  requestedDays: number,
+): string[] {
+  const period = businessDate.slice(0, 7);
+  const end = new Date(`${businessDate}T00:00:00Z`);
+  const dates: string[] = [];
+  for (let offset = requestedDays - 1; offset >= 0; offset -= 1) {
+    const date = new Date(end);
+    date.setUTCDate(end.getUTCDate() - offset);
+    const value = date.toISOString().slice(0, 10);
+    if (value.startsWith(period)) {
+      dates.push(value);
+    }
+  }
+  return dates;
 }

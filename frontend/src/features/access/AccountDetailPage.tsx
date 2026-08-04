@@ -1,5 +1,5 @@
 import { IconKey, IconLockOpen, IconPlus, IconPlayerPause, IconRefresh, IconTrash } from '@tabler/icons-react';
-import { Button, DatePicker, Form, Input, Select, Space } from 'antd';
+import { Alert, Button, DatePicker, Form, Input, Select, Space } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,10 @@ import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import { revokeSession } from '../auth/authApi';
 import {
+  CompanySelect,
+  OrganizationSelect,
+} from '../referenceData';
+import {
   AccountStatusPanel,
   PermissionMatrix,
   RoleScopeList,
@@ -18,9 +22,11 @@ import {
 } from './AccessComponents';
 import {
   assignRoles,
+  accountRequiresStrongTemporaryPassword,
   getAccount,
-  issuePasswordReset,
+  isStrongTemporaryPassword,
   listRoles,
+  resetTemporaryPassword,
   unlockAccount,
   updateAccountStatus,
   type RoleView,
@@ -47,6 +53,8 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
   const [processing, setProcessing] = useState(false);
   const [feedback, setFeedback] = useState<string>();
   const [reason, setReason] = useState('');
+  const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [temporaryPasswordError, setTemporaryPasswordError] = useState<string>();
   const [sessionTarget, setSessionTarget] = useState<string>();
   const selectedRoles = useMemo(
     () => Array.from(new Set(roleAssignments.map((assignment) => assignment.roleId))),
@@ -63,10 +71,27 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
 
   const confirmOperation = async () => {
     if (!operation || resource.status !== 'ready') return;
+    const privilegedAccount = accountRequiresStrongTemporaryPassword(resource.data.roles);
+    if (
+      operation === 'reset'
+      && privilegedAccount
+      && !isStrongTemporaryPassword(temporaryPassword)
+    ) {
+      setTemporaryPasswordError(
+        !temporaryPassword
+          ? t('access.privilegedPasswordRequired')
+          : t('access.initialPasswordRule'),
+      );
+      return;
+    }
     setProcessing(true);
     try {
       if (operation === 'unlock') await unlockAccount(accountId, reason);
-      if (operation === 'reset') await issuePasswordReset(accountId, reason);
+      if (operation === 'reset') {
+        const passwordForRequest = temporaryPassword || undefined;
+        setTemporaryPassword('');
+        await resetTemporaryPassword(accountId, reason, passwordForRequest);
+      }
       if (operation === 'revoke-session' && sessionTarget) await revokeSession(sessionTarget, reason);
       if (operation === 'disable' || operation === 'enable') {
         await updateAccountStatus(accountId, operation === 'disable' ? 'DISABLED' : 'ACTIVE', resource.data.rowVersion, reason);
@@ -74,6 +99,8 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
       setFeedback(t('access.operationCompleted'));
       setOperation(undefined);
       setReason('');
+      setTemporaryPassword('');
+      setTemporaryPasswordError(undefined);
       setSessionTarget(undefined);
       reload();
     } finally {
@@ -103,9 +130,14 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
   if ('error' in resource) return <StatePanel state={resource.status} description={resource.error.message} onRetry={reload} />;
   if (resource.status !== 'ready') return <StatePanel state="404" />;
   const account = resource.data;
+  const privilegedAccount = accountRequiresStrongTemporaryPassword(account.roles);
   const openUnlock = () => setOperation('unlock');
   const openStatusChange = () => setOperation(account.status === 'DISABLED' ? 'enable' : 'disable');
-  const openReset = () => setOperation('reset');
+  const openReset = () => {
+    setTemporaryPassword('');
+    setTemporaryPasswordError(undefined);
+    setOperation('reset');
+  };
   const handleLoadRoles = () => {
     void loadRoles();
   };
@@ -211,17 +243,42 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
                             )}
                           />
                         </Form.Item>
-                        {assignment.scopeType !== 'SELF' ? (
-                          <Form.Item label={`${t('access.scopeResource')} ${index + 1}`} required>
-                            <Input
-                              value={assignment.scopeResourceId ?? ''}
-                              onChange={(event) => updateAssignment(
+                        <Form.Item
+                          label={`${t('access.scopeTarget')} ${index + 1}`}
+                          required={assignment.scopeType !== 'SELF'}
+                        >
+                          {assignment.scopeType === 'COMPANY' ? (
+                            <CompanySelect
+                              value={assignment.scopeResourceId ?? undefined}
+                              aria-label={`${t('access.company')} ${index + 1}`}
+                              onChange={(scopeResourceId) => updateAssignment(
                                 assignment.key,
-                                { scopeResourceId: event.target.value },
+                                { scopeResourceId: scopeResourceId ?? '' },
                               )}
                             />
-                          </Form.Item>
-                        ) : null}
+                          ) : null}
+                          {assignment.scopeType === 'ORGANIZATION' ? (
+                            <OrganizationSelect
+                              value={assignment.scopeResourceId ?? undefined}
+                              aria-label={`${t('access.organization')} ${index + 1}`}
+                              onChange={(scopeResourceId) => updateAssignment(
+                                assignment.key,
+                                { scopeResourceId: scopeResourceId ?? '' },
+                              )}
+                            />
+                          ) : null}
+                          {assignment.scopeType === 'SELF' ? (
+                            <Select
+                              aria-label={`${t('access.self')} ${index + 1}`}
+                              disabled
+                              value="SELF"
+                              options={[{
+                                value: 'SELF',
+                                label: t('access.currentAccountSelf'),
+                              }]}
+                            />
+                          ) : null}
+                        </Form.Item>
                         <Form.Item label={`${t('access.authorizationStart')} ${index + 1}`} required>
                           <DatePicker
                             showTime
@@ -263,12 +320,63 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
       <ConfirmationDialog
         open={Boolean(operation)}
         title={operationTitle(operation, t)}
-        description={<Input.TextArea value={reason} aria-label={t('access.changeReason')} placeholder={t('access.changeReasonPlaceholder')} onChange={(event) => setReason(event.target.value)} />}
+        description={(
+          <div className="account-operation-fields">
+            <Input.TextArea
+              value={reason}
+              aria-label={t('access.changeReason')}
+              placeholder={t('access.changeReasonPlaceholder')}
+              onChange={(event) => setReason(event.target.value)}
+            />
+            {operation === 'reset' ? (
+              <>
+                <Alert
+                  showIcon
+                  type={privilegedAccount ? 'warning' : 'info'}
+                  title={privilegedAccount
+                    ? t('access.privilegedResetPasswordNotice')
+                    : t('access.standardResetPasswordNotice')}
+                />
+                {privilegedAccount ? (
+                  <>
+                    <label htmlFor="account-temporary-password">
+                      {t('access.strongTemporaryPassword')}
+                    </label>
+                    <Input.Password
+                      id="account-temporary-password"
+                      value={temporaryPassword}
+                      autoComplete="new-password"
+                      required
+                      aria-required="true"
+                      aria-describedby="account-temporary-password-policy"
+                      aria-invalid={temporaryPasswordError ? 'true' : undefined}
+                      onChange={(event) => {
+                        setTemporaryPassword(event.target.value);
+                        setTemporaryPasswordError(undefined);
+                      }}
+                    />
+                    <p id="account-temporary-password-policy" className="form-help">
+                      {t('access.initialPasswordRule')}
+                    </p>
+                    {temporaryPasswordError ? (
+                      <p role="alert">{temporaryPasswordError}</p>
+                    ) : null}
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        )}
         confirmText={t('access.confirmExecute')}
         danger={operation === 'disable' || operation === 'reset'}
         processing={processing}
         onConfirm={() => void confirmOperation()}
-        onCancel={() => setOperation(undefined)}
+        onCancel={() => {
+          setOperation(undefined);
+          setReason('');
+          setTemporaryPassword('');
+          setTemporaryPasswordError(undefined);
+        }}
       />
     </>
   );

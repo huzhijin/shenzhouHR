@@ -1,5 +1,5 @@
 import { IconDownload, IconUpload } from '@tabler/icons-react';
-import { Alert, Card, Form, Input, Select, Upload, message } from 'antd';
+import { Alert, Card, Form, Input, Upload, message } from 'antd';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -10,6 +10,10 @@ import { PageHeader, ResourcePagination } from '../../shared/components/PagePrim
 import { StatePanel } from '../../shared/components/StatePanel';
 import { isDemoMode } from '../../shared/config/runtimeMode';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import {
+  AttendanceSourceSelect,
+  CompanySelect,
+} from '../referenceData';
 import {
   downloadPunchTemplate,
   listPunchImports,
@@ -23,6 +27,8 @@ interface UploadFields {
   reason: string;
 }
 
+const spreadsheetSourceTypes = ['DEVICE_EXCEL', 'STANDARD_XLSX'] as const;
+
 export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
   const demoMode = isDemoMode();
   const navigate = useNavigate();
@@ -32,6 +38,7 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
   const [file, setFile] = useState<File>();
   const [uploading, setUploading] = useState(false);
   const [form] = Form.useForm<UploadFields>();
+  const selectedCompanyId = Form.useWatch('companyId', form);
   const loader = useMemo(() => () => listPunchImports(page, size), [page, size]);
   const imports = useAsyncResource(
     loader,
@@ -67,7 +74,7 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
         values.sourceId,
         values.reason,
       );
-      void messageApi.success('文件已创建为草稿；服务端仍会执行完整安全校验。');
+      void messageApi.success('文件已上传，请继续完成预检。');
       navigate(`/sources/attendance-excel/${encodeURIComponent(batch.batchId)}`);
     } catch {
       void messageApi.error('上传未提交，请检查文件策略和当前权限。');
@@ -81,7 +88,7 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
       {messageContextHolder}
       <PageHeader
         title="外部考勤电子表格导入"
-        description="导入原始打卡事实，不导入迟到、旷工、认可加班或任何计算结果。服务端逐行预检后才允许发布。"
+        description="导入原始打卡记录；预检通过并确认后，数据才会正式生效。"
         breadcrumbs={[{ label: '考勤来源' }, { label: '电子表格导入' }]}
         actions={canDownload ? (
           <AccessibleButton
@@ -96,11 +103,11 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
       <Alert
         showIcon
         type="info"
-        title="安全文件策略"
+        title="文件要求"
         description="仅接受 .xlsx，最大 20 兆字节、50,000 数据行；宏、公式、外部链接、嵌入对象、危险压缩包和结果列会被拒绝。"
       />
       {canUpload ? (
-        <Card className="content-card" title="新建导入批次">
+        <Card className="content-card" title="新建导入任务">
           <Form
             form={form}
             layout="vertical"
@@ -109,6 +116,9 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
               sourceId: 'SRC-XLS-OFFLINE-A',
               reason: '客户演示导入',
             } : undefined}
+            onValuesChange={(changed: Partial<UploadFields>) => {
+              if ('companyId' in changed) form.setFieldValue('sourceId', undefined);
+            }}
             onFinish={(values) => void submitUpload(values)}
           >
             <div className="form-grid">
@@ -117,32 +127,20 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
                 name="companyId"
                 rules={[{ required: true, message: '请选择公司' }]}
               >
-                {demoMode ? (
-                  <Select
-                    options={[
-                      {
-                        value: 'LEGAL-JIANGSU',
-                        label: '江苏神州半导体科技有限公司',
-                      },
-                    ]}
-                  />
-                ) : <Input autoComplete="off" placeholder="请输入公司 ID" />}
+                <CompanySelect
+                  selectedLabel={demoMode ? '江苏神州半导体科技有限公司' : undefined}
+                />
               </Form.Item>
               <Form.Item
                 label="文件来源"
                 name="sourceId"
                 rules={[{ required: true, message: '请选择文件来源' }]}
               >
-                {demoMode ? (
-                  <Select
-                    options={[
-                      {
-                        value: 'SRC-XLS-OFFLINE-A',
-                        label: '离线考勤文件（一号厂区）',
-                      },
-                    ]}
-                  />
-                ) : <Input autoComplete="off" placeholder="请输入文件来源 ID" />}
+                <AttendanceSourceSelect
+                  companyId={selectedCompanyId}
+                  sourceTypes={spreadsheetSourceTypes}
+                  selectedLabel={demoMode ? '离线考勤文件（一号厂区）' : undefined}
+                />
               </Form.Item>
               <Form.Item
                 label="变更原因"
@@ -184,11 +182,11 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
       ) : null}
       {imports.resource.status === 'ready' ? (
         <>
-          <Card className="content-card" title="导入批次">
+          <Card className="content-card" title="导入任务">
             <BatchTable batches={imports.resource.data.items} />
           </Card>
           <ResourcePagination
-            ariaLabel="考勤电子表格导入批次分页"
+            ariaLabel="考勤电子表格导入任务分页"
             page={page}
             pageSize={size}
             total={imports.resource.data.totalElements}
@@ -228,7 +226,7 @@ function BatchTable({ batches }: { batches: PunchImportBatchView[] }) {
       rows={batches}
       rowKey={(batch) => batch.batchId}
       columns={columns}
-      ariaLabel="考勤电子表格导入批次与服务端状态"
+      ariaLabel="考勤电子表格导入任务与状态"
     />
   );
 }
@@ -241,7 +239,7 @@ function ImportState({
   onRetry: () => void;
 }) {
   if (resource.status === 'empty') {
-    return <StatePanel state="empty" description="当前作用域内还没有考勤电子表格导入批次。" />;
+    return <StatePanel state="empty" description="当前可查看范围内还没有考勤电子表格导入任务。" />;
   }
   if (resource.status === 'loading' || resource.status === 'partial-loading') {
     return <StatePanel state={resource.status} />;
@@ -260,7 +258,7 @@ function ImportState({
 
 function formatDateTime(value: string): string {
   const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return value;
+  if (!Number.isFinite(timestamp)) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
     timeStyle: 'short',

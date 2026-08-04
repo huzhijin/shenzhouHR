@@ -199,6 +199,32 @@ describe('firstAuthorizedPath', () => {
     })).toEqual([]);
   });
 
+  it('accepts the shared workbench route for either dashboard scope without widening other routes', () => {
+    const organizationWorkbench = [{
+      key: 'workbench',
+      label: '考勤工作台',
+      path: '/workbench',
+    }];
+    const personalWorkbench = [{
+      key: 'personal-workbench',
+      label: '我的考勤工作台',
+      path: '/workbench',
+    }];
+
+    expect(authorizedMenu({
+      capabilities: ['ATTENDANCE_DASHBOARD:READ'],
+      menu: organizationWorkbench,
+    })).toEqual(organizationWorkbench);
+    expect(authorizedMenu({
+      capabilities: ['ATTENDANCE_SELF:READ'],
+      menu: personalWorkbench,
+    })).toEqual(personalWorkbench);
+    expect(authorizedMenu({
+      capabilities: ['ATTENDANCE_REPORT:READ'],
+      menu: personalWorkbench,
+    })).toEqual([]);
+  });
+
   it('rejects prototype-only and excluded WAVE-7 routes from a server menu', () => {
     expect(authorizedMenu({
       capabilities: [
