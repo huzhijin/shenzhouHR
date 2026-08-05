@@ -14,6 +14,7 @@ interface EmployeeReadMapper {
             @Param("at") Instant at,
             @Param("query") String query,
             @Param("organizationId") String organizationId,
+            @Param("includeDescendants") boolean includeDescendants,
             @Param("companyId") String companyId,
             @Param("status") String status);
 
@@ -23,6 +24,7 @@ interface EmployeeReadMapper {
             @Param("at") Instant at,
             @Param("query") String query,
             @Param("organizationId") String organizationId,
+            @Param("includeDescendants") boolean includeDescendants,
             @Param("companyId") String companyId,
             @Param("status") String status,
             @Param("sort") String sort,

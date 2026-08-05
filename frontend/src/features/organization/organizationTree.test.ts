@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OrganizationNode } from './organizationApi';
-import { topLevelOrganizationKeys, toOrganizationTreeData } from './organizationTree';
+import {
+  allOrganizationKeys,
+  topLevelOrganizationKeys,
+  toOrganizationTreeData,
+} from './organizationTree';
 
 describe('toOrganizationTreeData', () => {
   it('preserves precise external IDs as strings', () => {
@@ -32,6 +36,21 @@ describe('topLevelOrganizationKeys', () => {
 
     expect(topLevelOrganizationKeys(roots)).toEqual(['root-1', 'root-2']);
     expect(topLevelOrganizationKeys(roots)).not.toContain('child');
+  });
+});
+
+describe('allOrganizationKeys', () => {
+  it('returns every company, department and team key for an expanded directory tree', () => {
+    const grandchild = organizationNode('grandchild', []);
+    const child = organizationNode('child', [grandchild]);
+    const roots = [organizationNode('root-1', [child]), organizationNode('root-2', [])];
+
+    expect(allOrganizationKeys(roots)).toEqual([
+      'root-1',
+      'child',
+      'grandchild',
+      'root-2',
+    ]);
   });
 });
 

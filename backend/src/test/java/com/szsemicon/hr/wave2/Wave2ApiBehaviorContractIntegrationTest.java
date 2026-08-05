@@ -86,6 +86,39 @@ class Wave2ApiBehaviorContractIntegrationTest extends Wave1IntegrationTestSuppor
                 companyB, 1, "b0000000-0000-0000-0000-000000000004");
     }
 
+    @Test
+    void employeeOrganizationFilterIncludesDescendantsOnlyWhenExplicitlyRequested()
+            throws Exception {
+        String parentOrganization = "40000000-0000-0000-0000-000000000002";
+
+        mockMvc.perform(get("/api/v1/employees")
+                        .queryParam("organizationId", parentOrganization)
+                        .queryParam("asOf", "2026-07-20")
+                        .queryParam("page", "0")
+                        .queryParam("size", "100")
+                        .with(user(ADMIN_PRINCIPAL).authorities(
+                                authority("MASTER_DATA:READ"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].employeeId")
+                        .value("b0000000-0000-0000-0000-000000000002"));
+
+        mockMvc.perform(get("/api/v1/employees")
+                        .queryParam("organizationId", parentOrganization)
+                        .queryParam("includeDescendants", "true")
+                        .queryParam("asOf", "2026-07-20")
+                        .queryParam("page", "0")
+                        .queryParam("size", "100")
+                        .with(user(ADMIN_PRINCIPAL).authorities(
+                                authority("MASTER_DATA:READ"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items[*].employeeId").value(
+                        org.hamcrest.Matchers.containsInAnyOrder(
+                                "b0000000-0000-0000-0000-000000000002",
+                                "b0000000-0000-0000-0000-000000000003")));
+    }
+
     private void expectEmployeeCompanyPage(
             String companyId,
             int total,

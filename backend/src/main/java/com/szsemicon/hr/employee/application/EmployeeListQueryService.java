@@ -58,6 +58,22 @@ public class EmployeeListQueryService {
             String status,
             LocalDate asOf,
             String sort) {
+        return query(
+                page, size, query, organizationId, false,
+                companyId, status, asOf, sort);
+    }
+
+    @Transactional(readOnly = true)
+    public EmployeePage query(
+            int page,
+            int size,
+            String query,
+            String organizationId,
+            boolean includeDescendants,
+            String companyId,
+            String status,
+            LocalDate asOf,
+            String sort) {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw new IllegalArgumentException("page must be non-negative and size must be between 1 and 100");
         }
@@ -83,6 +99,7 @@ public class EmployeeListQueryService {
                         : asOf.atStartOfDay(ZoneOffset.UTC).toInstant(),
                 query == null || query.isBlank() ? null : query.trim(),
                 organizationId,
+                includeDescendants,
                 companyId,
                 status,
                 safeSort,

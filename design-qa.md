@@ -108,3 +108,36 @@
 - 使用真实技术管理员初始凭据验证登录成功，并进入首次登录强制修改密码流程。
 
 final result: passed
+
+## 2026-08-05 员工组织树与规则编辑增量验收
+
+### 验收范围
+
+- 员工公司/部门树与人员子树筛选：`frontend/src/features/employee/EmployeesPage.tsx`
+- 员工子树查询合同：`GET /api/v1/employees?organizationId=...&includeDescendants=true`
+- 考勤规则版本编辑引导：`frontend/src/features/attendanceSetup/AttendancePolicyLifecyclePanel.tsx`
+- 规则生命周期、绑定与试算区块顺序：`frontend/src/features/attendanceSetup/AttendancePolicyPage.tsx`
+
+### 视觉来源与目标状态
+
+- 来源视觉：`/var/folders/tk/5gwscs1s47s6dfbtl0q272cw0000gn/T/codex-clipboard-N96fVe.png`
+- 来源视口：2048 × 1024。
+- 目标状态：左侧默认展开全部授权公司/部门，默认选中“全部人员”；右侧显示人员及“所在部门”，点击公司或部门后显示该节点与全部下级组织的人员。
+- 实现地址：`http://127.0.0.1:5173/people/employees`。
+
+### 自动化与服务验证
+
+- 员工页组件测试覆盖默认全部人员、完整树展开、节点子树筛选、请求乱序及目录刷新失败状态保持。
+- API/后端集成测试覆盖 `includeDescendants=false` 的兼容精确筛选与 `true` 的完整子树筛选。
+- 规则页测试覆盖区块顺序、已发布版本不可直接编辑提示、默认版本同步、保存后进入后继草稿、
+  路由替换、发布状态绑定门禁及草稿未来生效日校验。
+- TypeScript、ESLint、后端构建和服务健康检查通过。
+
+### 同状态视觉比对
+
+- 已打开并检查来源视觉。
+- 当前会话的内置浏览器不可用（运行时仅发现外部 Chrome 连接），因此未在未经用户选择的情况下切换浏览器，也未能采集同视口实现截图、合并对照图或浏览器控制台证据。
+- 实现截图：未生成（内置浏览器不可用）。
+- 交互与控制台：组件/API 自动化通过；浏览器交互与控制台检查未执行。
+
+final result: blocked — 内置浏览器不可用，无法完成同视口截图合并比对；功能与自动化验收不受影响。

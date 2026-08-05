@@ -1,3 +1,5 @@
+import { getDemoOrganizationTree } from '../organization/demoOrganization';
+import type { OrganizationNode } from '../organization/organizationApi';
 import type {
   EmployeeCreateRequest,
   EmployeeDetail,
@@ -97,11 +99,17 @@ export function getDemoEmployeePage(
   size: number,
   filters: EmployeeFilters = {},
 ): EmployeePage {
+  const visibleOrganizationIds = filters.organizationId
+    ? demoOrganizationScope(filters.organizationId, filters.includeDescendants)
+    : undefined;
   const filtered = demoEmployees.filter((employee) => (
     (!filters.query
       || employee.employeeNumber.includes(filters.query)
       || employee.displayName.includes(filters.query))
-    && (!filters.organizationId || employee.organizationId === filters.organizationId)
+    && (!visibleOrganizationIds || (
+      employee.organizationId !== null
+      && visibleOrganizationIds.has(employee.organizationId)
+    ))
     && (!filters.status || employee.employmentStatus === filters.status)
   ));
   const offset = page * size;
@@ -111,6 +119,34 @@ export function getDemoEmployeePage(
     page,
     size,
   };
+}
+
+function demoOrganizationScope(
+  organizationId: string,
+  includeDescendants = false,
+): Set<string> {
+  if (!includeDescendants) return new Set([organizationId]);
+  const selected = findDemoOrganization(getDemoOrganizationTree(), organizationId);
+  return new Set(selected ? flattenDemoOrganizationIds(selected) : [organizationId]);
+}
+
+function findDemoOrganization(
+  nodes: OrganizationNode[],
+  organizationId: string,
+): OrganizationNode | undefined {
+  for (const node of nodes) {
+    if (node.organizationId === organizationId) return node;
+    const nested = findDemoOrganization(node.children, organizationId);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function flattenDemoOrganizationIds(node: OrganizationNode): string[] {
+  return [
+    node.organizationId,
+    ...node.children.flatMap(flattenDemoOrganizationIds),
+  ];
 }
 
 export function getDemoEmployeeDetail(employeeId: string): EmployeeDetail {

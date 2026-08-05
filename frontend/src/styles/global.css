@@ -841,6 +841,49 @@ a:hover {
   overflow: auto;
 }
 
+.employee-directory-workbench {
+  display: grid;
+  grid-template-columns: minmax(19rem, 22rem) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.employee-directory-workbench__tree,
+.employee-directory-workbench__list {
+  min-width: 0;
+}
+
+.employee-directory-workbench__tree {
+  position: sticky;
+  top: var(--space-4);
+  max-height: calc(100dvh - var(--space-8));
+  overflow: auto;
+}
+
+.employee-directory-heading,
+.employee-list-heading {
+  margin-bottom: var(--space-4);
+}
+
+.employee-directory-node {
+  min-width: 0;
+  min-height: var(--size-control);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.employee-directory-node > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.employee-directory-tree .ant-tree-treenode,
+.employee-directory-tree .ant-tree-node-content-wrapper {
+  min-width: 0;
+}
+
 .people-badge-row {
   margin-bottom: var(--space-4);
 }
@@ -1851,6 +1894,10 @@ a:hover {
   .organization-workbench {
     grid-template-columns: 1fr;
   }
+
+  .employee-directory-workbench {
+    grid-template-columns: minmax(16rem, 19rem) minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 768px) {
@@ -2014,8 +2061,14 @@ a:hover {
   .metric-list,
   .people-context-strip,
   .people-metrics,
-  .organization-workbench {
+  .organization-workbench,
+  .employee-directory-workbench {
     grid-template-columns: 1fr;
+  }
+
+  .employee-directory-workbench__tree {
+    position: static;
+    max-height: 30rem;
   }
 
   .import-stepper {

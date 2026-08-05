@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
@@ -8,11 +8,18 @@ import * as employeeApi from '../employee/employeeApi';
 import * as attendanceSetupApi from './attendanceSetupApi';
 import {
   demoCalendars,
+  demoPolicyCatalog,
+  demoPolicyVersions,
   demoShifts,
   demoShiftVersions,
   requiredDemoItem,
 } from './attendanceSetupDemo';
 import { AttendanceGroupsPage } from './AttendanceGroupsPage';
+import { AttendancePolicyLifecyclePanel } from './AttendancePolicyLifecyclePanel';
+import {
+  policyLifecycleMinimumDate,
+  utcDateAfter,
+} from './attendancePolicyLifecycleDates';
 import { loadAllAttendanceDirectoryItems } from './attendanceDirectory';
 import { AttendancePolicyPage } from './AttendancePolicyPage';
 import { CalendarDaysDialog } from './CalendarDialogs';
@@ -23,6 +30,7 @@ import { ShiftsPage } from './ShiftsPage';
 import type * as referenceData from '../referenceData';
 import type {
   AttendancePolicyKind,
+  AttendancePolicyVersionView,
   CalendarDayView,
   PolicySimulationBatchView,
   WorkCalendarView,
@@ -654,12 +662,21 @@ describe('attendance setup demo pages', () => {
     expect(screen.queryByText('晚餐窗口开始')).not.toBeInTheDocument();
   });
 
-  it('shows the policy draft creator before the existing version history', async () => {
+  it('puts lifecycle editing before bindings and explains how to revise a published version', async () => {
     const view = renderPolicyPage();
 
     const creatorHeading = await screen.findByRole('heading', { name: '创建策略草稿' });
     const creator = requiredElement(view.container, '.attendance-draft-creator');
     const versionButton = (await screen.findAllByRole('button', { name: '版本 1' }))[0]!;
+    const catalogSection = requiredClosest(
+      screen.getByRole('heading', { name: '用餐时段扣除' }).closest('section'),
+    );
+    const lifecycleSection = requiredClosest(
+      screen.getByRole('heading', { name: '策略版本生命周期' }).closest('section'),
+    );
+    const bindingSection = requiredClosest(
+      screen.getByRole('heading', { name: '策略绑定' }).closest('section'),
+    );
 
     expect(creator).toContainElement(creatorHeading);
     expect(within(creator).getByText(
@@ -667,6 +684,173 @@ describe('attendance setup demo pages', () => {
     )).toBeInTheDocument();
     expect(creator.compareDocumentPosition(versionButton)
       & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(catalogSection.compareDocumentPosition(lifecycleSection)
+      & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(lifecycleSection.compareDocumentPosition(bindingSection)
+      & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(within(lifecycleSection).getByText('已发布版本不可直接编辑'))
+      .toBeInTheDocument();
+    expect(within(lifecycleSection).getByText(
+      '如需修改，请在上方基于 V1 创建策略草稿：选择未来生效日期，并填写至少 2 个字符的变更原因。进入草稿后才能修改参数、校验和发布。',
+    )).toBeInTheDocument();
+  });
+
+  it('promotes the default lifecycle version into the route and enables version actions', async () => {
+    renderPolicyBasePage();
+
+    expect(await screen.findByText('当前策略版本：V1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '绑定规则到考勤组' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '返回上一页' }));
+    expect(await screen.findByText('规则入口来源页')).toBeInTheDocument();
+    expect(screen.queryByText('当前策略版本：V1')).not.toBeInTheDocument();
+  });
+
+  it('blocks a policy draft whose effective date is earlier than tomorrow', async () => {
+    const createSpy = vi.spyOn(attendanceSetupApi, 'createAttendancePolicyDraft');
+    const view = renderPolicyPage();
+    const creator = await waitFor(() => requiredElement(
+      view.container,
+      '.attendance-draft-creator',
+    ));
+    const dateInput = within(creator).getByLabelText('生效日');
+
+    expect(dateInput).toHaveAttribute('min', utcDateAfter(1));
+    fireEvent.change(dateInput, { target: { value: utcDateAfter(0) } });
+    fireEvent.change(within(creator).getByLabelText('变更原因'), {
+      target: { value: '验证未来生效约束' },
+    });
+    fireEvent.click(within(creator).getByRole('button', { name: '创建策略草稿' }));
+
+    expect(await screen.findByText(
+      '生命周期操作生效日必须不早于允许下限，并处于当前版本有效期内。',
+    )).toBeInTheDocument();
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks saving draft parameters with an effective date earlier than tomorrow', async () => {
+    const published = requiredDemoItem(demoPolicyVersions);
+    const draft: AttendancePolicyVersionView = {
+      ...published,
+      scopedVersionId: 'policy-draft-invalid-effective-from',
+      versionNumber: 2,
+      status: 'DRAFT',
+      effectiveFrom: utcDateAfter(7),
+      changeReason: '创建未来生效草稿',
+      validation: { valid: false, issues: [], validatedAt: null },
+      publishedAt: null,
+      rowVersion: 0,
+    };
+    vi.spyOn(attendanceSetupApi, 'listAttendancePolicyVersions').mockResolvedValue({
+      items: [draft],
+      total: 1,
+      page: 0,
+      size: 20,
+    });
+    vi.spyOn(attendanceSetupApi, 'getAttendancePolicyVersion').mockResolvedValue(draft);
+    const updateSpy = vi.spyOn(attendanceSetupApi, 'updateAttendancePolicyDraft');
+    const view = render(
+      <AttendancePolicyLifecyclePanel
+        templateId={draft.templateId}
+        companyId={draft.companyId}
+        selectedVersionId={draft.scopedVersionId}
+        fields={requiredDemoItem(demoPolicyCatalog).fields}
+        canManage
+        onSelectVersion={vi.fn()}
+      />,
+    );
+    const controls = await waitFor(() => requiredElement(
+      view.container,
+      '.attendance-lifecycle-controls',
+    ));
+    const effectiveFromInput = within(controls).getByLabelText('生效日');
+
+    expect(effectiveFromInput).toHaveAttribute('min', utcDateAfter(1));
+    fireEvent.change(effectiveFromInput, { target: { value: utcDateAfter(0) } });
+    fireEvent.change(within(controls).getByLabelText('变更原因'), {
+      target: { value: '验证草稿保存日期门禁' },
+    });
+    fireEvent.click(within(controls).getByRole('button', { name: '保存草稿参数' }));
+
+    expect(await screen.findByText(
+      '生命周期操作生效日必须不早于允许下限，并处于当前版本有效期内。',
+    )).toBeInTheDocument();
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it('selects the successor draft returned after saving parameters', async () => {
+    const published = requiredDemoItem(demoPolicyVersions);
+    const draft: AttendancePolicyVersionView = {
+      ...published,
+      scopedVersionId: 'policy-draft-v2',
+      versionNumber: 2,
+      status: 'DRAFT',
+      effectiveFrom: '2026-09-01',
+      changeReason: '创建未来生效草稿',
+      validation: { valid: false, issues: [], validatedAt: null },
+      publishedAt: null,
+      rowVersion: 0,
+    };
+    const successor: AttendancePolicyVersionView = {
+      ...draft,
+      scopedVersionId: 'policy-draft-v3',
+      versionNumber: 3,
+      changeReason: '调整晚餐扣除分钟',
+    };
+    vi.spyOn(attendanceSetupApi, 'listAttendancePolicyVersions').mockResolvedValue({
+      items: [draft],
+      total: 1,
+      page: 0,
+      size: 20,
+    });
+    vi.spyOn(attendanceSetupApi, 'getAttendancePolicyVersion').mockResolvedValue(draft);
+    const updateSpy = vi.spyOn(attendanceSetupApi, 'updateAttendancePolicyDraft')
+      .mockResolvedValue(successor);
+    const onSelectVersion = vi.fn();
+
+    const view = render(
+      <AttendancePolicyLifecyclePanel
+        templateId={draft.templateId}
+        companyId={draft.companyId}
+        selectedVersionId={draft.scopedVersionId}
+        fields={requiredDemoItem(demoPolicyCatalog).fields}
+        canManage
+        onSelectVersion={onSelectVersion}
+      />,
+    );
+
+    const controls = await waitFor(() => requiredElement(
+      view.container,
+      '.attendance-lifecycle-controls',
+    ));
+    expect(within(requiredElement(
+      view.container,
+      '.attendance-draft-creator',
+    )).getByLabelText('生效日')).toHaveAttribute(
+      'min',
+      policyLifecycleMinimumDate(draft.effectiveFrom),
+    );
+    fireEvent.change(within(controls).getByLabelText('扣除分钟'), {
+      target: { value: '45' },
+    });
+    fireEvent.change(within(controls).getByLabelText('变更原因'), {
+      target: { value: '调整晚餐扣除分钟' },
+    });
+    fireEvent.click(within(controls).getByRole('button', { name: '保存草稿参数' }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(draft, expect.objectContaining({
+        effectiveFrom: '2026-09-01',
+        reason: '调整晚餐扣除分钟',
+        parameters: expect.arrayContaining([
+          { key: 'deductionMinutes', value: 45 },
+        ]),
+      }));
+      expect(onSelectVersion).toHaveBeenCalledWith(
+        successor.scopedVersionId,
+        { replace: true },
+      );
+    });
   });
 
   it('fails a missing direct policy-version route closed', async () => {
@@ -712,7 +896,7 @@ describe('attendance setup demo pages', () => {
 
     expect([localDate(beforeRender), localDate(after)]).toContain(businessDate);
     expect(correctionAsOf).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?$/,
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{3})?)?$/,
     );
     const submitted = onSimulate.mock.calls[0]?.[0] as { correctionAsOf: string };
     expect(Date.parse(submitted.correctionAsOf)).toBeGreaterThanOrEqual(
@@ -1193,6 +1377,37 @@ function renderPolicyPage(versionId = mealPolicyVersionId) {
   );
 }
 
+function renderPolicyBasePage() {
+  return render(
+    <MemoryRouter
+      initialEntries={['/rules/source', '/rules/attendance-policy']}
+      initialIndex={1}
+    >
+      <HistoryBackButton />
+      <Routes>
+        <Route path="/rules/source" element={<p>规则入口来源页</p>} />
+        <Route
+          path="/rules/attendance-policy"
+          element={<AttendancePolicyPage capabilities={capabilities} />}
+        />
+        <Route
+          path="/rules/attendance-policy/:versionId"
+          element={<AttendancePolicyPage capabilities={capabilities} />}
+        />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+function HistoryBackButton() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(-1)}>
+      返回上一页
+    </button>
+  );
+}
+
 async function submitSimulationForm(container: HTMLElement) {
   await selectSimulationEmployee(container);
   fireEvent.submit(requiredElement(container, '.policy-simulation-workbench form'));
@@ -1277,6 +1492,11 @@ function requiredElement(container: HTMLElement, selector: string): HTMLElement 
   const element = container.querySelector<HTMLElement>(selector);
   if (!element) throw new Error(`Missing test element: ${selector}`);
   return element;
+}
+
+function requiredClosest(value: Element | null): HTMLElement {
+  if (!(value instanceof HTMLElement)) throw new Error('Missing closest test element');
+  return value;
 }
 
 function requiredItem<T>(items: readonly T[], index: number): T {

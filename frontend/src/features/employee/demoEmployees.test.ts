@@ -16,4 +16,15 @@ describe('demo employees', () => {
     expect(firstPage.items.some((employee) => employee.bindingStatus === 'CONFLICT')).toBe(true);
     expect(firstPage.items.some((employee) => employee.seeyonOaCode === null)).toBe(true);
   });
+
+  it('includes child departments when the directory requests an organization subtree', () => {
+    const managementCenter = getDemoEmployeePage(0, 20, {
+      organizationId: 'c0000000-0000-0000-0000-000000000010',
+      includeDescendants: true,
+    });
+
+    expect(managementCenter.total).toBe(7);
+    expect(new Set(managementCenter.items.map((employee) => employee.organizationName)))
+      .toEqual(new Set(['人力资源部', '财务管理部', '数字化与信息部']));
+  });
 });

@@ -2076,7 +2076,13 @@ paths:
           schema: { type: string, maxLength: 100 }
         - name: organizationId
           in: query
+          description: 可选组织筛选；默认只匹配直接任职于该组织的员工
           schema: { $ref: '#/components/schemas/ResourceId' }
+        - name: includeDescendants
+          in: query
+          required: false
+          description: organizationId 有值时是否同时包含当前组织投影中的下级组织；默认 false。该扩展不按 asOf 回溯历史组织树
+          schema: { type: boolean, default: false }
         - name: companyId
           in: query
           required: false

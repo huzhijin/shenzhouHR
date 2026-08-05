@@ -51,6 +51,9 @@ describe('attendance policy route and impact isolation', () => {
 
     renderPolicyPage(mealVersion.scopedVersionId);
 
+    expect(await screen.findByRole('button', { name: '绑定规则到考勤组' }))
+      .toBeEnabled();
+
     const row = (await screen.findAllByText(selectedBinding.changeReason))
       .map((label) => label.closest('tr'))
       .find((candidate) => candidate !== null) ?? null;
@@ -87,6 +90,42 @@ describe('attendance policy route and impact isolation', () => {
     expect(screen.queryByText(selectedBinding.groupId)).not.toBeInTheDocument();
     expect(within(requiredElement(impactSection)).getByText('23')).toBeInTheDocument();
   });
+
+  it.each([
+    ['DRAFT', '当前为草稿版本，请先校验并发布后再绑定考勤组'],
+    ['VALIDATED', '当前版本已校验，请先发布后再绑定考勤组'],
+  ] as const)(
+    'keeps the binding action disabled for a %s version',
+    async (status, hint) => {
+      const version: AttendancePolicyVersionView = {
+        ...mealVersion,
+        scopedVersionId: `meal-${status.toLowerCase()}`,
+        status,
+        publishedAt: null,
+        validation: {
+          valid: status === 'VALIDATED',
+          issues: [],
+          validatedAt: status === 'VALIDATED' ? '2026-08-05T08:00:00Z' : null,
+        },
+      };
+      vi.spyOn(attendanceSetupApi, 'getAttendancePolicyVersionContext')
+        .mockResolvedValue(version);
+      vi.spyOn(attendanceSetupApi, 'listAttendancePolicyVersions').mockResolvedValue({
+        items: [version],
+        total: 1,
+        page: 0,
+        size: 20,
+      });
+      vi.spyOn(attendanceSetupApi, 'getAttendancePolicyVersion')
+        .mockResolvedValue(version);
+
+      renderPolicyPage(version.scopedVersionId);
+
+      const button = await screen.findByRole('button', { name: '绑定规则到考勤组' });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('title', hint);
+    },
+  );
 
   it('hides route-A lifecycle and mutations while route B is unresolved', async () => {
     const routeB = deferred<AttendancePolicyVersionView>();
@@ -146,7 +185,9 @@ describe('attendance policy route and impact isolation', () => {
     });
     expect(screen.queryByText('策略版本生命周期')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '运行试算' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '绑定规则到考勤组' })).toBeDisabled();
+    const bindingButton = screen.getByRole('button', { name: '绑定规则到考勤组' });
+    expect(bindingButton).toBeDisabled();
+    expect(bindingButton).toHaveAttribute('title', '请先选择公司并打开一个规则版本');
   }, 30_000);
 });
 

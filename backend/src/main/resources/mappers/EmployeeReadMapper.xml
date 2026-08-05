@@ -100,7 +100,27 @@
             )
         </if>
         <if test="organizationId != null">
-            AND current_assignment.organization_id = #{organizationId}
+            AND (
+                current_assignment.organization_id = #{organizationId}
+                OR (
+                    #{includeDescendants} = TRUE
+                    AND EXISTS (
+                        SELECT 1
+                        FROM organization_current_closure filter_closure
+                        JOIN organization_identity selected_filter_organization
+                          ON selected_filter_organization.organization_id =
+                                filter_closure.ancestor_organization_id
+                         AND selected_filter_organization.company_id = employee.company_id
+                        JOIN organization_identity assigned_filter_organization
+                          ON assigned_filter_organization.organization_id =
+                                filter_closure.descendant_organization_id
+                         AND assigned_filter_organization.company_id = employee.company_id
+                        WHERE filter_closure.ancestor_organization_id = #{organizationId}
+                          AND filter_closure.descendant_organization_id =
+                                current_assignment.organization_id
+                    )
+                )
+            )
         </if>
         <if test="companyId != null">
             AND employee.company_id = #{companyId}

@@ -42,7 +42,10 @@ interface LifecyclePanelProps {
   selectedVersionId: string;
   fields: PolicyFieldDefinition[];
   canManage: boolean;
-  onSelectVersion: (versionId: string) => void;
+  onSelectVersion: (
+    versionId: string,
+    options?: { replace?: boolean },
+  ) => void;
 }
 
 type LifecycleAction = 'validate' | 'publish' | 'deactivate' | 'rollback';
@@ -110,6 +113,10 @@ export function AttendancePolicyLifecyclePanel({
     && detail.resource.data.companyId === companyId
     ? detail.resource.data
     : undefined;
+  const draftMinimumDate = selected
+    ? policyLifecycleMinimumDate(selected.effectiveFrom)
+    : utcDateAfter(1);
+  const editMinimumDate = utcDateAfter(1);
 
   useEffect(() => {
     if (!selected) return;
@@ -127,6 +134,18 @@ export function AttendancePolicyLifecyclePanel({
   useEffect(() => {
     setVersionPage(0);
   }, [companyId, templateId]);
+
+  useEffect(() => {
+    setDraftEffectiveFrom((current) => current < draftMinimumDate
+      ? draftMinimumDate
+      : current);
+  }, [draftMinimumDate]);
+
+  useEffect(() => {
+    if (!selectedVersionId && effectiveVersionId) {
+      onSelectVersion(effectiveVersionId, { replace: true });
+    }
+  }, [effectiveVersionId, onSelectVersion, selectedVersionId]);
 
   const reload = () => {
     versions.reload();
@@ -152,6 +171,13 @@ export function AttendancePolicyLifecyclePanel({
   };
 
   const createDraft = () => {
+    if (!draftEffectiveFrom || draftEffectiveFrom < draftMinimumDate) {
+      setNotice({
+        kind: 'warning',
+        message: t('attendanceSetup.futureEffectiveFromRequired'),
+      });
+      return;
+    }
     if (!templateId || draftReason.trim().length < 2) {
       setNotice({ kind: 'warning', message: t('attendanceSetup.reasonRequired') });
       return;
@@ -171,18 +197,31 @@ export function AttendancePolicyLifecyclePanel({
   };
 
   const saveDraft = () => {
-    if (!selected || actionReason.trim().length < 2) {
+    if (!selected) return;
+    if (!editEffectiveFrom || editEffectiveFrom < editMinimumDate) {
+      setNotice({
+        kind: 'warning',
+        message: t('attendanceSetup.futureEffectiveFromRequired'),
+      });
+      return;
+    }
+    if (actionReason.trim().length < 2) {
       setNotice({ kind: 'warning', message: t('attendanceSetup.reasonRequired') });
       return;
     }
     const parameters = policyParametersForSave(fields, parameterValues);
     void run(
-      () => updateAttendancePolicyDraft(selected, {
-        parameters,
-        effectiveFrom: editEffectiveFrom,
-        effectiveTo: editEffectiveTo || null,
-        reason: actionReason.trim(),
-      }),
+      async () => {
+        const updated = await updateAttendancePolicyDraft(selected, {
+          parameters,
+          effectiveFrom: editEffectiveFrom,
+          effectiveTo: editEffectiveTo || null,
+          reason: actionReason.trim(),
+        });
+        setVersionPage(0);
+        onSelectVersion(updated.scopedVersionId, { replace: true });
+        return updated;
+      },
       t('attendanceSetup.policyDraftSaved'),
     );
   };
@@ -282,6 +321,7 @@ export function AttendancePolicyLifecyclePanel({
               <span>{t('attendanceSetup.effectiveFrom')}</span>
               <Input
                 type="date"
+                min={draftMinimumDate}
                 value={draftEffectiveFrom}
                 onChange={changeDraftEffectiveFrom}
               />
@@ -379,6 +419,14 @@ export function AttendancePolicyLifecyclePanel({
             </div>
             <StatusBadge status={selected.status} />
           </header>
+          {selected.status === 'PUBLISHED' && canManage ? (
+            <Alert
+              showIcon
+              type="info"
+              title="已发布版本不可直接编辑"
+              description={`如需修改，请在上方基于 V${selected.versionNumber} 创建策略草稿：选择未来生效日期，并填写至少 2 个字符的变更原因。进入草稿后才能修改参数、校验和发布。`}
+            />
+          ) : null}
           <dl className="metric-list">
             <div><dt>{t('attendanceSetup.policyKind')}</dt><dd>{policyKindLabel(selected.policyKind)}</dd></div>
             <div><dt>{t('attendanceSetup.validation')}</dt><dd>{selected.validation.valid ? t('attendanceSetup.yes') : t('attendanceSetup.no')}</dd></div>
@@ -413,6 +461,7 @@ export function AttendancePolicyLifecyclePanel({
                       <span>{t('attendanceSetup.effectiveFrom')}</span>
                       <Input
                         type="date"
+                        min={editMinimumDate}
                         value={editEffectiveFrom}
                         onChange={changeEditEffectiveFrom}
                       />

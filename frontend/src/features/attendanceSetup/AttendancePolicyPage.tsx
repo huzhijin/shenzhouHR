@@ -5,7 +5,7 @@ import {
   IconLink,
 } from '@tabler/icons-react';
 import { Alert, Pagination, Segmented } from 'antd';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -130,6 +130,14 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
     : undefined;
   const lifecycleCompanyId = routeContext?.companyId ?? selectedCompanyId;
   const effectiveVersionId = routeContext?.scopedVersionId ?? '';
+  const canBindEffectiveVersion = routeContext?.status === 'PUBLISHED';
+  const bindPolicyDisabledHint = !effectiveVersionId
+    ? t('attendanceSetup.bindPolicyDisabledHint')
+    : routeContext?.status === 'DRAFT'
+      ? '当前为草稿版本，请先校验并发布后再绑定考勤组'
+      : routeContext?.status === 'VALIDATED'
+        ? '当前版本已校验，请先发布后再绑定考勤组'
+        : '只有已发布的规则版本可以绑定考勤组';
   const groupLabels = groupDirectory.resource.status === 'ready'
     ? new Map(groupDirectory.resource.data.map((group) => [
       group.groupId,
@@ -254,6 +262,7 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
   };
 
   const openBindingCreator = () => {
+    if (!canBindEffectiveVersion) return;
     setEditingBinding(undefined);
     setBindingOpen(true);
   };
@@ -329,9 +338,15 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
       }
     }
   };
-  const selectPolicyVersion = (selectedVersionId: string) => {
-    navigate(`/rules/attendance-policy/${encodeURIComponent(selectedVersionId)}`);
-  };
+  const selectPolicyVersion = useCallback((
+    selectedVersionId: string,
+    options?: { replace?: boolean },
+  ) => {
+    navigate(
+      `/rules/attendance-policy/${encodeURIComponent(selectedVersionId)}`,
+      { replace: options?.replace === true },
+    );
+  }, [navigate]);
   const requestSimulation = (input: PolicySimulationInput) => {
     void simulate(input);
   };
@@ -370,10 +385,8 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
             label={t('attendanceSetup.bindPolicyToGroup')}
             type="primary"
             icon={<IconLink aria-hidden="true" stroke={2} />}
-            disabled={!effectiveVersionId}
-            title={!effectiveVersionId
-              ? t('attendanceSetup.bindPolicyDisabledHint')
-              : undefined}
+            disabled={!canBindEffectiveVersion}
+            title={!canBindEffectiveVersion ? bindPolicyDisabledHint : undefined}
             onClick={openBindingCreator}
           >
             {t('attendanceSetup.bindPolicyToGroup')}
@@ -479,6 +492,17 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
               ))}
             </ul>
           </section>
+          {routeContextReady && selectedTemplate && lifecycleCompanyId ? (
+            <AttendancePolicyLifecyclePanel
+              key={`${selectedTemplate.templateId}-${lifecycleCompanyId}-${effectiveVersionId}`}
+              templateId={selectedTemplate.templateId}
+              companyId={lifecycleCompanyId}
+              selectedVersionId={effectiveVersionId}
+              fields={selectedTemplate.fields}
+              canManage={canManage}
+              onSelectVersion={selectPolicyVersion}
+            />
+          ) : null}
           <section className="content-surface attendance-section section-spaced">
             <div className="section-heading">
               <div>
@@ -564,17 +588,6 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
               </nav>
             ) : null}
           </section>
-          {routeContextReady && selectedTemplate && lifecycleCompanyId ? (
-            <AttendancePolicyLifecyclePanel
-              key={`${selectedTemplate.templateId}-${lifecycleCompanyId}-${effectiveVersionId}`}
-              templateId={selectedTemplate.templateId}
-              companyId={lifecycleCompanyId}
-              selectedVersionId={effectiveVersionId}
-              fields={selectedTemplate.fields}
-              canManage={canManage}
-              onSelectVersion={selectPolicyVersion}
-            />
-          ) : null}
           {routeContextReady && canManage ? (
             <>
               <section className="content-surface attendance-section section-spaced">
