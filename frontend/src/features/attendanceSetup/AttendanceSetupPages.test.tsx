@@ -37,7 +37,7 @@ vi.mock('../../shared/config/runtimeMode', () => ({
 // directory boundaries deterministic and preserves the user-facing labels.
 vi.mock('../referenceData', async (importOriginal) => {
   const actual = await importOriginal<typeof referenceData>();
-  const { createElement } = await import('react');
+  const { createElement, useEffect } = await import('react');
   return {
     ...actual,
     CompanySelect: ({
@@ -50,23 +50,33 @@ vi.mock('../referenceData', async (importOriginal) => {
       onChange?: (value: string | undefined) => void;
       id?: string;
       disabled?: boolean;
-    }) => createElement(
-      'select',
-      {
-        id,
-        disabled,
-        value: value ?? '',
-        onChange: (event: { target: { value: string } }) => {
-          onChange?.(event.target.value || undefined);
+    }) => {
+      useEffect(() => {
+        if (!value) onChange?.('9700000000000000001');
+      }, [onChange, value]);
+      return createElement(
+        'select',
+        {
+          id,
+          disabled,
+          value: value ?? '',
+          onChange: (event: { target: { value: string } }) => {
+            onChange?.(event.target.value || undefined);
+          },
         },
-      },
-      createElement('option', { value: '' }, '请选择公司'),
-      createElement(
-        'option',
-        { value: '9700000000000000001' },
-        '江苏神州半导体科技股份有限公司',
-      ),
-    ),
+        createElement('option', { value: '' }, '请选择公司'),
+        createElement(
+          'option',
+          { value: '9700000000000000001' },
+          '江苏神州半导体科技股份有限公司',
+        ),
+        createElement(
+          'option',
+          { value: '9700000000000000002' },
+          '第二测试公司',
+        ),
+      );
+    },
     EmployeeSelect: ({
       value,
       onChange,
@@ -131,6 +141,42 @@ describe('attendance setup demo pages', () => {
     expect(screen.getByRole('button', { name: '分配人员' })).toBeEnabled();
   });
 
+  it('opens a controlled cross-group transfer form with a real target selector', async () => {
+    renderPage(<AttendanceGroupsPage capabilities={capabilities} />);
+
+    const sourceGroups = await screen.findAllByRole('button', {
+      name: 'FAB-A-4D2N 一号厂 A 班四班两倒',
+    });
+    fireEvent.click(sourceGroups[0]!);
+    const transferButtons = await screen.findAllByRole('button', {
+      name: /调配考勤组/,
+    }, { timeout: 5_000 });
+    expect(screen.getAllByText('已调配（历史归属）').length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText('可调配').length).toBeGreaterThan(0);
+    const historicalRows = screen.getAllByText('暑期产线轮班安排')
+      .map((reasonCell) => reasonCell.closest('tr'))
+      .filter((row): row is HTMLTableRowElement => row !== null);
+    expect(historicalRows.length).toBeGreaterThan(0);
+    historicalRows.forEach((historicalRow) => {
+      expect(within(historicalRow).queryByRole('button', {
+        name: /调配考勤组/,
+      })).not.toBeInTheDocument();
+    });
+    expect(transferButtons[0]).toBeEnabled();
+    fireEvent.click(transferButtons[0]!);
+
+    expect(await screen.findByRole('dialog', { name: '调配考勤组' }))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText('当前考勤组')).toBeDisabled();
+    expect(screen.getByLabelText('调配生效日')).toHaveAttribute('type', 'date');
+    const targetGroup = screen.getByLabelText('目标考勤组');
+    fireEvent.mouseDown(targetGroup);
+    expect((await screen.findAllByText('FAB-B-DAY · 一号厂 B 班白班')).length)
+      .toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '确认调配' })).toBeEnabled();
+  });
+
   it('loads every business-label page within the server page-size limit', async () => {
     const loadPage = vi.fn((page: number, size: number) => Promise.resolve({
       items: Array.from(
@@ -145,6 +191,38 @@ describe('attendance setup demo pages', () => {
     expect(items).toHaveLength(615);
     expect(loadPage).toHaveBeenCalledTimes(7);
     expect(loadPage.mock.calls.every(([, size]) => size === 100)).toBe(true);
+  });
+
+  it('loads and reloads the employee directory within the selected company', async () => {
+    const employeeDirectory = vi.spyOn(employeeApi, 'getEmployees')
+      .mockImplementation((page, size) => Promise.resolve({
+        items: [],
+        total: 0,
+        page,
+        size,
+      }));
+
+    renderPage(<AttendanceGroupsPage capabilities={capabilities} />);
+
+    await waitFor(() => {
+      expect(employeeDirectory).toHaveBeenCalledWith(0, 100, {
+        companyId: '9700000000000000001',
+        sort: 'employeeNumber',
+      });
+    });
+    expect(employeeDirectory.mock.calls.every(([, , filters]) => Boolean(filters?.companyId)))
+      .toBe(true);
+
+    fireEvent.change(document.getElementById('attendance-groups-company')!, {
+      target: { value: '9700000000000000002' },
+    });
+
+    await waitFor(() => {
+      expect(employeeDirectory).toHaveBeenCalledWith(0, 100, {
+        companyId: '9700000000000000002',
+        sort: 'employeeNumber',
+      });
+    });
   });
 
   it('keeps calendar and shift names when the employee directory is forbidden', async () => {
@@ -225,7 +303,7 @@ describe('attendance setup demo pages', () => {
     fireEvent.click(requiredElement(pagination, '.ant-pagination-next button'));
 
     await waitFor(() => {
-      expect(listSpy).toHaveBeenCalledWith(1, 20);
+      expect(listSpy).toHaveBeenCalledWith(1, 20, '9700000000000000001');
     });
     expect((await screen.findAllByRole(
       'button',

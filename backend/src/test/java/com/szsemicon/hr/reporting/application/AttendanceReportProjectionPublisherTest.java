@@ -204,6 +204,20 @@ class AttendanceReportProjectionPublisherTest {
     }
 
     @Test
+    void rejectsGraceExemptLateExceptionBeforePersistence() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+
+        assertThatThrownBy(() -> publisher.publish(command(
+                        PeriodState.OPEN,
+                        daily(10, 0),
+                        safeException())))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("grace-exempt late");
+        assertThat(writer.calls).isEmpty();
+    }
+
+    @Test
     void aFactWriteFailureNeverTransitionsTheProjectionToPublished() {
         RecordingWriter writer = new RecordingWriter();
         writer.failOa = true;
@@ -356,6 +370,11 @@ class AttendanceReportProjectionPublisherTest {
     }
 
     private DailyFact daily(long lateMinutes) {
+        return daily(lateMinutes, lateMinutes);
+    }
+
+    private DailyFact daily(
+            long lateMinutes, long penalizedLateMinutes) {
         return new DailyFact(
                 "calculated-daily-a",
                 "legal-a",
@@ -375,7 +394,7 @@ class AttendanceReportProjectionPublisherTest {
                 20,
                 460,
                 lateMinutes,
-                0,
+                penalizedLateMinutes,
                 10,
                 0,
                 Instant.parse("2026-07-15T00:40:00Z"),

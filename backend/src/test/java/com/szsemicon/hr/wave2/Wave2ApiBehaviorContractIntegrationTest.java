@@ -45,6 +45,67 @@ class Wave2ApiBehaviorContractIntegrationTest extends Wave1IntegrationTestSuppor
     }
 
     @Test
+    void employeeCompanyFilterIntersectsMasterDataScopeForItemsAndCount()
+            throws Exception {
+        String companyA = "30000000-0000-0000-0000-000000000001";
+        String companyB = "30000000-0000-0000-0000-000000000002";
+        String unknownCompany = "30000000-0000-0000-0000-000000000099";
+
+        expectEmployeeCompanyPage(companyA, 3, null);
+        expectEmployeeCompanyPage(companyB, 0, null);
+        expectEmployeeCompanyPage(unknownCompany, 0, null);
+
+        jdbc.update(
+                """
+                INSERT INTO auth_data_scope (
+                    scope_id, scope_type, company_id, organization_id,
+                    include_descendants, valid_from, valid_to
+                ) VALUES (
+                    '99000000-0000-0000-0000-000000000091', 'COMPANY', ?,
+                    NULL, TRUE, TIMESTAMP '2020-01-01 00:00:00', NULL
+                )
+                """,
+                companyB);
+        jdbc.update(
+                """
+                INSERT INTO auth_principal_role_assignment (
+                    assignment_id, principal_id, role_id, data_scope_id,
+                    valid_from, valid_to, assigned_by, reason, row_version
+                ) VALUES (
+                    'a9000000-0000-0000-0000-000000000091', ?, ?,
+                    '99000000-0000-0000-0000-000000000091',
+                    TIMESTAMP '2020-01-01 00:00:00', NULL, ?,
+                    '员工公司筛选权限交集测试', 0
+                )
+                """,
+                ADMIN_PRINCIPAL,
+                ADMIN_ROLE,
+                ADMIN_PRINCIPAL);
+
+        expectEmployeeCompanyPage(
+                companyB, 1, "b0000000-0000-0000-0000-000000000004");
+    }
+
+    private void expectEmployeeCompanyPage(
+            String companyId,
+            int total,
+            String expectedEmployeeId) throws Exception {
+        var result = mockMvc.perform(get("/api/v1/employees")
+                        .queryParam("companyId", companyId)
+                        .queryParam("page", "0")
+                        .queryParam("size", "100")
+                        .with(user(ADMIN_PRINCIPAL).authorities(
+                                authority("MASTER_DATA:READ"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(total))
+                .andExpect(jsonPath("$.items.length()").value(total));
+        if (expectedEmployeeId != null) {
+            result.andExpect(jsonPath("$.items[0].employeeId")
+                    .value(expectedEmployeeId));
+        }
+    }
+
+    @Test
     void create_employee_response_matches_the_locked_detail_contract() throws Exception {
         mockMvc.perform(post("/api/v1/employees")
                         .with(user(ADMIN_PRINCIPAL).authorities(authority("EMPLOYEE:CREATE")))

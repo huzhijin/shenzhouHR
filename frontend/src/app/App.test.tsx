@@ -536,6 +536,14 @@ describe('App session and route authorization', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (target.pathname === '/api/v1/attendance-reports/month-matrix') {
+        return new Response(JSON.stringify(
+          attendanceMonthMatrixResponse(target),
+        ), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       const reportType = target.searchParams.get('reportType')!;
       const period = target.searchParams.get('period')!;
       const companyId = target.searchParams.get('companyId')!;
@@ -553,6 +561,9 @@ describe('App session and route authorization', () => {
           ...reportFixture.filters,
           period,
           companyId,
+          organizationId: null,
+          employeeId: null,
+          status: null,
         },
         page,
         size,
@@ -573,7 +584,7 @@ describe('App session and route authorization', () => {
     )).toBeInTheDocument();
     expect(screen.queryByText('ATTENDANCE_DETAIL_FORMULA_V1'))
       .not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();
     expect(screen.getByTestId('current-location'))
@@ -753,5 +764,57 @@ function attendanceDashboardResponse() {
       companyId: 'company-a',
       companyName: '神州半导体',
     }],
+  };
+}
+
+function attendanceMonthMatrixResponse(target: URL) {
+  const period = target.searchParams.get('period')!;
+  const companyId = target.searchParams.get('companyId')!;
+  const page = Number(target.searchParams.get('page'));
+  const size = Number(target.searchParams.get('size'));
+  const [yearValue, monthValue] = period.split('-');
+  const dayCount = new Date(Date.UTC(
+    Number(yearValue),
+    Number(monthValue),
+    0,
+  )).getUTCDate();
+  const dates = Array.from({ length: dayCount }, (_, index) => (
+    `${period}-${String(index + 1).padStart(2, '0')}`
+  ));
+  return {
+    kind: 'ATTENDANCE_MONTH_MATRIX',
+    metadata: {
+      ...reportFixture.metadata,
+      periodLabel: period,
+    },
+    queryFingerprint: 'a'.repeat(64),
+    formulaVersion: 'ATTENDANCE_MONTH_MATRIX_V1',
+    filters: {
+      period,
+      scopeReference: reportFixture.filters.scopeReference,
+      companyId,
+      organizationId: null,
+      employeeId: null,
+    },
+    dates,
+    employeeCount: 1,
+    rows: [{
+      employeeId: 'employee-app-test',
+      employeeNumber: 'SZ001',
+      employeeName: '张三',
+      organizationId: 'organization-app-test',
+      organizationName: '制造一部',
+      days: dates.map((date) => ({
+        date,
+        organizationName: null,
+        shiftLabel: null,
+        firstPunchAt: null,
+        lastPunchAt: null,
+        badges: [],
+      })),
+    }],
+    page,
+    size,
+    totalPages: 1,
   };
 }

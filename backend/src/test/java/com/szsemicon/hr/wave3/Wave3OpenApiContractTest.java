@@ -80,7 +80,7 @@ class Wave3OpenApiContractTest {
         List<Operation> operations = wave3Operations();
         assertThat(operations)
                 .as("every current W3 controller operation")
-                .hasSize(54);
+                .hasSize(55);
         assertThat(operations.stream().map(Operation::operationId))
                 .doesNotHaveDuplicates();
 
@@ -94,12 +94,22 @@ class Wave3OpenApiContractTest {
                     .isIn(WAVE3_CAPABILITIES);
             assertThat(value.get("x-data-scope"))
                     .as(operation.label() + " data scope")
-                    .isEqualTo("ATTENDANCE_SETUP:COMPANY");
+                    .isIn(
+                            "ATTENDANCE_SETUP:COMPANY",
+                            "SHARED_LOCATION:AT_LEAST_ONE_BOUND_COMPANY",
+                            "SHARED_LOCATION:ALL_BOUND_COMPANIES");
 
             Map<String, Object> responses = map(value.get("responses"));
             assertThat(responses)
                     .as(operation.label() + " authentication responses")
                     .containsKeys("401", "403");
+            if (Boolean.TRUE.equals(value.get("x-retired"))) {
+                assertThat(responses)
+                        .as(operation.label() + " retired response")
+                        .doesNotContainKeys("200", "201", "202", "204")
+                        .containsKey("409");
+                continue;
+            }
             Map<String, Object> success = responses.entrySet().stream()
                     .filter(entry -> entry.getKey().matches("2\\d\\d"))
                     .map(Map.Entry::getValue)
@@ -116,7 +126,9 @@ class Wave3OpenApiContractTest {
     @Test
     void writeOperationsExposeConsistentConcurrencyAndChangeHeaders() {
         for (Operation operation : wave3Operations()) {
-            if ("get".equals(operation.method()) || readOnlyPost(operation)) {
+            if ("get".equals(operation.method())
+                    || readOnlyPost(operation)
+                    || Boolean.TRUE.equals(operation.value().get("x-retired"))) {
                 continue;
             }
             Set<String> parameterReferences = parameterReferences(operation.value());
@@ -240,6 +252,26 @@ class Wave3OpenApiContractTest {
     }
 
     @Test
+    void assignmentTransferContractRequiresOnlyTargetBoundaryAndReason() {
+        Map<String, Object> request = object(
+                "targetGroupId", "group-2",
+                "effectiveFrom", "2026-08-20",
+                "reason", "跨组调配");
+        assertThat(contract.validateSchema(
+                "AttendanceGroupAssignmentTransferRequest", request)).isEmpty();
+
+        request.remove("targetGroupId");
+        assertThat(contract.validateSchema(
+                "AttendanceGroupAssignmentTransferRequest", request))
+                .isNotEmpty();
+        request.put("targetGroupId", "group-2");
+        request.put("effectiveTo", "2026-09-01");
+        assertThat(contract.validateSchema(
+                "AttendanceGroupAssignmentTransferRequest", request))
+                .anyMatch(error -> error.contains("additional property"));
+    }
+
+    @Test
     void viewAndSimulationSchemasAcceptRealDtosAndRejectInvalidInstances() {
         Map<String, Object> segment = object(
                 "segmentType", "WORK",
@@ -249,14 +281,17 @@ class Wave3OpenApiContractTest {
                 "endDayOffset", 1);
         Map<String, Object> fixtures = object(
                 "AttendanceLocationView", object(
-                        "locationId", "loc-1", "companyId", "le-1",
+                        "locationId", "loc-1",
+                        "sharedLocationId", "shared-loc-1",
+                        "companyLocationId", "loc-1", "companyId", "le-1",
                         "code", "SHANGHAI",
                         "locationRevisionId", "location-revision-1",
                         "revisionNumber", 1, "name", "上海园区",
                         "timeZone", "Asia/Shanghai", "status", "ACTIVE",
                         "effectiveFrom", "2026-01-01", "effectiveTo", null,
                         "snapshotDigest", "c".repeat(64),
-                        "rowVersion", 2L, "changeReason", "启用地点",
+                        "rowVersion", 2L, "sharedManagementAllowed", true,
+                        "changeReason", "启用地点",
                         "updatedAt", "2026-07-26T10:00:00Z"),
                 "AttendanceGroupView", object(
                         "groupId", "group-1", "companyId", "le-1",
@@ -274,6 +309,7 @@ class Wave3OpenApiContractTest {
                         "employeeId", "employee-1", "effectiveFrom", "2026-01-01",
                         "effectiveTo", null, "rowVersion", 1L,
                         "monthlyContextKey", "employee-1:2026-07",
+                        "hasSuccessor", false, "transferable", true,
                         "changeReason", "分配默认考勤组",
                         "updatedAt", "2026-07-26T10:00:00Z"),
                 "ShiftTemplateView", object(
@@ -545,6 +581,64 @@ class Wave3OpenApiContractTest {
         assertThat(schema).containsEntry(
                 "$ref",
                 "#/components/schemas/AttendancePolicyVersionDetail");
+    }
+
+    @Test
+    void dailySetupListsExposeTheOptionalAuthorizedCompanyFilter() {
+        Set<String> operationIds = Set.of(
+                "listAttendanceLocations",
+                "listAttendanceGroups",
+                "listShiftTemplates",
+                "listWorkCalendars",
+                "listAttendancePolicyBindings");
+        assertThat(wave3Operations().stream()
+                        .filter(operation -> operationIds.contains(
+                                operation.operationId()))
+                        .toList())
+                .hasSize(operationIds.size())
+                .allSatisfy(operation -> assertThat(
+                                parameterReferences(operation.value()))
+                        .contains(
+                                "#/components/parameters/AttendanceCompanyFilter"));
+
+        Map<String, Object> parameters = map(map(
+                contract.root().get("components")).get("parameters"));
+        assertThat(map(parameters.get("AttendanceCompanyFilter")))
+                .containsEntry("name", "companyId")
+                .containsEntry("in", "query")
+                .containsEntry("required", false);
+    }
+
+    @Test
+    void sharedLocationContractRetiresCreationAndExposesStableIdentitiesAndConflicts() {
+        Operation retiredCreate = wave3Operations().stream()
+                .filter(operation -> operation.operationId()
+                        .equals("rejectAttendanceLocationCreation"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(retiredCreate.value()).containsEntry("x-retired", true);
+        assertThat(map(retiredCreate.value().get("responses")))
+                .doesNotContainKeys("200", "201", "202", "204")
+                .containsKey("409");
+
+        Operation update = wave3Operations().stream()
+                .filter(operation -> operation.operationId()
+                        .equals("updateAttendanceLocation"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(map(map(update.value().get("responses")).get("409")))
+                .containsEntry(
+                        "$ref",
+                        "#/components/responses/AttendanceSetupConflict");
+        assertThat(String.valueOf(update.value().get("description")))
+                .contains("SHARED_LOCATION_TIME_ZONE_IN_USE");
+
+        Map<String, Object> schemas = map(map(
+                contract.root().get("components")).get("schemas"));
+        Map<String, Object> locationView =
+                map(schemas.get("AttendanceLocationView"));
+        assertThat(list(locationView.get("required")))
+                .contains("sharedLocationId", "companyLocationId");
     }
 
     private List<Operation> wave3Operations() {

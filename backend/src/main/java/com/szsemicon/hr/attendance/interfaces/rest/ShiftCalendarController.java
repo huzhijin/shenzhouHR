@@ -71,10 +71,11 @@ public class ShiftCalendarController {
 
     @GetMapping("/shifts")
     ResponseEntity<ShiftTemplatePage> listShifts(
+            @RequestParam(required = false) String companyId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return noStore(ShiftCalendarDtos.templates(
-                shiftService.listTemplates(page, size)));
+                shiftService.listTemplates(companyId, page, size)));
     }
 
     @PostMapping("/shifts")
@@ -289,11 +290,12 @@ public class ShiftCalendarController {
 
     @GetMapping("/calendars")
     ResponseEntity<CalendarPage> listCalendars(
+            @RequestParam(required = false) String companyId,
             @RequestParam(required = false) Integer year,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return noStore(ShiftCalendarDtos.calendars(
-                calendarService.listCalendars(year, page, size)));
+                calendarService.listCalendars(companyId, year, page, size)));
     }
 
     @PostMapping("/calendars")

@@ -73,19 +73,34 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
   const catalogAndBindingsLoader = useMemo(
     () => () => Promise.all([
       listPolicyCatalog(),
-      listPolicyBindings(undefined, undefined, bindingPage, bindingPageSize),
+      selectedCompanyId
+        ? listPolicyBindings(
+          undefined,
+          undefined,
+          bindingPage,
+          bindingPageSize,
+          selectedCompanyId,
+        )
+        : Promise.resolve({
+          items: [],
+          total: 0,
+          page: bindingPage,
+          size: bindingPageSize,
+        }),
     ]),
-    [bindingPage, bindingPageSize],
+    [bindingPage, bindingPageSize, selectedCompanyId],
   );
   const catalogAndBindings = useAsyncResource(
     catalogAndBindingsLoader,
     ([catalog, bindings]) => catalog.length === 0 && bindings.items.length === 0,
-    [bindingPage, bindingPageSize],
+    [bindingPage, bindingPageSize, selectedCompanyId],
   );
   const groupDirectory = useAsyncResource(
-    listReferenceAttendanceGroups,
+    () => selectedCompanyId
+      ? listReferenceAttendanceGroups(undefined, selectedCompanyId)
+      : Promise.resolve([]),
     () => false,
-    [],
+    [selectedCompanyId],
   );
   const policyVersionContextLoader = useMemo(
     () => () => versionId
@@ -261,8 +276,16 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
     setProcessing(false);
   };
   const changeCompany = (companyId?: string) => {
+    if (versionId && !routeContext) return;
     if (versionId) navigate('/rules/attendance-policy');
     setSelectedCompanyId(companyId ?? '');
+    setBindingPage(0);
+    setBindingOpen(false);
+    setEditingBinding(undefined);
+    setSimulation(undefined);
+    setImpact(undefined);
+    setImpactBinding(undefined);
+    setNotice(undefined);
   };
   const openBindingEditor = (binding: PolicyBindingView) => async () => {
     const generation = ++bindingMutationGeneration.current;
@@ -274,6 +297,7 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
         undefined,
         0,
         100,
+        lifecycleCompanyId || undefined,
       );
       if (bindingMutationGeneration.current !== generation) return;
       const current = currentBindings.items.find(
@@ -377,12 +401,15 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
           <CompanySelect
             id="attendance-policy-company"
             value={lifecycleCompanyId || undefined}
+            allowClear={false}
             onChange={changeCompany}
           />
           <span className="form-help">
             {routeContext
               ? `当前策略版本：V${routeContext.versionNumber}`
-              : '选择公司后，从下方版本列表进入配置。'}
+              : selectedCompanyId
+                ? t('attendanceSetup.companySelectedHint')
+                : t('attendanceSetup.selectCompanyFirst')}
           </span>
         </div>
       </section>
@@ -576,9 +603,10 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
       {routeContextReady && canManage ? (
         <>
           <PolicyBindingDialog
-            key={`${effectivePolicyKind}-${effectiveVersionId}-${editingBinding?.bindingId ?? 'create'}`}
+            key={`${lifecycleCompanyId}-${effectivePolicyKind}-${effectiveVersionId}-${editingBinding?.bindingId ?? 'create'}`}
             open={bindingOpen}
             processing={processing}
+            companyId={lifecycleCompanyId}
             catalog={catalogAndBindings.resource.status === 'ready'
               ? catalogAndBindings.resource.data[0]
               : []}

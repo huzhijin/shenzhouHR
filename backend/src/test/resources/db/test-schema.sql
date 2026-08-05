@@ -540,6 +540,8 @@ CREATE TABLE location (
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
     UNIQUE (company_id, location_code),
+    UNIQUE (company_id, location_id),
+    UNIQUE (company_id, location_id, location_code),
     CONSTRAINT fk_test_location_company
         FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_location_created_by
@@ -569,6 +571,79 @@ CREATE TABLE location_revision (
     CONSTRAINT fk_test_location_revision_created_by
         FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id),
     CONSTRAINT ck_test_location_revision_number CHECK (revision_number > 0)
+);
+
+CREATE TABLE shared_location (
+    shared_location_id VARCHAR(36) PRIMARY KEY,
+    location_code VARCHAR(64) NOT NULL UNIQUE,
+    row_version BIGINT DEFAULT 0 NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (shared_location_id, location_code),
+    CONSTRAINT fk_test_shared_location_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
+);
+
+CREATE TABLE shared_location_revision (
+    shared_location_revision_id VARCHAR(36) PRIMARY KEY,
+    shared_location_id VARCHAR(36) NOT NULL,
+    revision_number INTEGER NOT NULL,
+    location_name VARCHAR(100) NOT NULL,
+    time_zone VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    effective_from DATE NOT NULL,
+    effective_to DATE,
+    supersedes_shared_location_revision_id VARCHAR(36),
+    snapshot_digest CHAR(64) NOT NULL,
+    change_reason VARCHAR(500) NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (shared_location_id, revision_number),
+    UNIQUE (shared_location_id, effective_from),
+    UNIQUE (supersedes_shared_location_revision_id),
+    CONSTRAINT fk_test_shared_location_revision_location
+        FOREIGN KEY (shared_location_id)
+        REFERENCES shared_location (shared_location_id),
+    CONSTRAINT fk_test_shared_location_revision_predecessor
+        FOREIGN KEY (supersedes_shared_location_revision_id)
+        REFERENCES shared_location_revision (shared_location_revision_id),
+    CONSTRAINT fk_test_shared_location_revision_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id),
+    CONSTRAINT ck_test_shared_location_revision_number
+        CHECK (revision_number > 0),
+    CONSTRAINT ck_test_shared_location_revision_status
+        CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    CONSTRAINT ck_test_shared_location_revision_period
+        CHECK (effective_to IS NULL OR effective_to > effective_from)
+);
+
+CREATE TABLE company_location_availability (
+    company_location_availability_id VARCHAR(36) PRIMARY KEY,
+    shared_location_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    location_id VARCHAR(36) NOT NULL,
+    location_code VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    effective_from DATE NOT NULL,
+    effective_to DATE,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (company_id, shared_location_id),
+    UNIQUE (location_id),
+    CONSTRAINT fk_test_company_location_shared_code
+        FOREIGN KEY (shared_location_id, location_code)
+        REFERENCES shared_location (shared_location_id, location_code),
+    CONSTRAINT fk_test_company_location_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT fk_test_company_location_projection_company
+        FOREIGN KEY (company_id, location_id, location_code)
+        REFERENCES location (company_id, location_id, location_code),
+    CONSTRAINT fk_test_company_location_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id),
+    CONSTRAINT ck_test_company_location_status
+        CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    CONSTRAINT ck_test_company_location_period
+        CHECK (effective_to IS NULL OR effective_to > effective_from)
 );
 
 CREATE TABLE shift_template (

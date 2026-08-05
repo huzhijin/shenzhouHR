@@ -20,6 +20,11 @@ class AttendanceReportOpenApiContractTest {
                 .contains("  /attendance-reports:")
                 .contains("operationId: getAttendanceReport")
                 .contains("x-capability: ATTENDANCE_REPORT:READ")
+                .contains("  /attendance-reports/month-matrix:")
+                .contains("operationId: getAttendanceMonthMatrix")
+                .contains(
+                        "$ref: '#/components/schemas/"
+                                + "AttendanceMonthMatrixPage'")
                 .contains("  /attendance-reports/companies:")
                 .contains("operationId: listAttendanceReportCompanies")
                 .contains(
@@ -40,6 +45,33 @@ class AttendanceReportOpenApiContractTest {
                 .doesNotContain(
                         "path: /attendance-report-exports, "
                                 + "requestSchema: AttendanceReportExportRequest");
+    }
+
+    @Test
+    void monthMatrixDefinesSemanticBadgesWithoutServerColors()
+            throws Exception {
+        String contract = Files.readString(OPEN_API);
+        String schema = between(
+                contract,
+                "    AttendanceMonthMatrixBadgeCode:",
+                "    AttendanceReportExportCreateRequest:");
+
+        assertThat(schema)
+                .contains(
+                        "LATE",
+                        "EARLY_DEPARTURE",
+                        "MISSING_PUNCH",
+                        "RECOGNIZED_OVERTIME",
+                        "TIME_OFF",
+                        "OUTING",
+                        "TRIP",
+                        "PERSONAL_LEAVE",
+                        "SICK_LEAVE",
+                        "ANNUAL_LEAVE",
+                        "PUNCH_CORRECTION",
+                        "ABSENCE",
+                        "REST_DAY")
+                .doesNotContain("color:");
     }
 
     @Test

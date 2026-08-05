@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AttendanceReportType } from './wave7Contracts';
 import {
+  type AttendanceMonthMatrixQuery,
   type ReportExportCreateRequest,
   type ReportQuery,
   wave7ProjectionGateway,
@@ -185,6 +186,62 @@ describe('Wave 7 production gateway', () => {
     expect(target.searchParams.get('page')).toBe('2');
     expect(target.searchParams.get('size')).toBe('25');
     expect(init).toMatchObject({ credentials: 'same-origin' });
+  });
+
+  it('loads the employee-paged formal month matrix from its dedicated route', async () => {
+    const query: AttendanceMonthMatrixQuery = {
+      period: '2026-07',
+      companyId: 'company-a',
+      organizationId: 'org-a',
+      page: 1,
+      size: 20,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(
+      monthMatrixResponse(query),
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await wave7ProjectionGateway
+      .loadAttendanceMonthMatrix?.(query);
+
+    expect(result?.kind).toBe('ATTENDANCE_MONTH_MATRIX');
+    const target = new URL(
+      String(fetchMock.mock.calls[0]?.[0]),
+      window.location.origin,
+    );
+    expect(target.pathname)
+      .toBe('/api/v1/attendance-reports/month-matrix');
+    expect(Object.fromEntries(target.searchParams)).toEqual({
+      period: '2026-07',
+      companyId: 'company-a',
+      organizationId: 'org-a',
+      page: '1',
+      size: '20',
+    });
+  });
+
+  it('fails closed when a month matrix contains presentation colors', async () => {
+    const query: AttendanceMonthMatrixQuery = {
+      period: '2026-07',
+      companyId: 'company-a',
+    };
+    const response = monthMatrixResponse(query);
+    const firstDay = response.rows[0]!.days[0]!;
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      ...response,
+      rows: [{
+        ...response.rows[0]!,
+        days: [{ ...firstDay, color: '#ff0000' }, ...response.rows[0]!.days.slice(1)],
+      }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway
+      .loadAttendanceMonthMatrix?.(query))
+      .rejects.toMatchObject({
+        status: 502,
+        code: 'INVALID_RESPONSE_BODY',
+      });
   });
 
   it('loads only the period-bound authorized company directory', async () => {
@@ -595,6 +652,73 @@ function reportResponse(query: ReportQuery) {
     size,
     totalPages: 3,
   };
+}
+
+function monthMatrixResponse(query: AttendanceMonthMatrixQuery) {
+  const dates = datesForPeriod(query.period);
+  const companyId = query.companyId ?? 'company-a';
+  const page = query.page ?? 0;
+  const size = query.size ?? 50;
+  return {
+    kind: 'ATTENDANCE_MONTH_MATRIX',
+    metadata: {
+      projectionVersion: 'FORMAL-REPORT-2026-07-V1',
+      sourceVersions: ['W5-CALC-V1', 'OA-V2'],
+      dataAsOf: '2026-07-29T01:00:00Z',
+      timeZone: 'Asia/Shanghai',
+      periodLabel: query.period,
+      periodState: 'OPEN',
+      scope: {
+        type: 'ORGANIZATION',
+        reference: 'scope:formal:authorized',
+        label: '服务端授权组织',
+      },
+      allowedActions: ['REPORT_DRILL_DOWN'],
+    },
+    queryFingerprint: 'a'.repeat(64),
+    formulaVersion: 'ATTENDANCE_MONTH_MATRIX_V1',
+    filters: {
+      period: query.period,
+      scopeReference: 'scope:formal:authorized',
+      companyId,
+      organizationId: query.organizationId ?? null,
+      employeeId: null,
+    },
+    dates,
+    employeeCount: 40,
+    rows: [{
+      employeeId: 'employee-a',
+      employeeNumber: 'SZ001',
+      employeeName: '张三',
+      organizationId: 'org-a',
+      organizationName: '制造一部',
+      days: dates.map((date, index) => ({
+        date,
+        organizationName: index === 0 ? '制造一部' : null,
+        shiftLabel: index === 0 ? '扬州总部班次' : null,
+        firstPunchAt: index === 0 ? '2026-07-01T00:25:00Z' : null,
+        lastPunchAt: index === 0 ? '2026-07-01T10:15:00Z' : null,
+        badges: index === 0
+          ? ['LATE', 'EARLY_DEPARTURE', 'PUNCH_CORRECTION']
+          : [],
+      })),
+    }],
+    page,
+    size,
+    totalPages: Math.ceil(40 / size),
+  };
+}
+
+function datesForPeriod(period: string): string[] {
+  const [yearValue, monthValue] = period.split('-');
+  const days = new Date(Date.UTC(
+    Number(yearValue),
+    Number(monthValue),
+    0,
+  )).getUTCDate();
+  return Array.from({ length: days }, (_, index) => (
+    `${period}-${String(index + 1).padStart(2, '0')}`
+  ));
 }
 
 function exportResponse(overrides: Record<string, unknown> = {}) {

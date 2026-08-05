@@ -59,6 +59,61 @@ class Wave3MigrationContractTest {
     }
 
     @Test
+    void v31CreatesOnlyTheSharedLocationSchemaAndDefersBusinessBackfill() {
+        String migration = new String(readRepositoryBytes(
+                "backend/src/main/resources/db/migration/"
+                        + "V31__shared_physical_location_catalog.sql"),
+                StandardCharsets.UTF_8);
+
+        assertThat(migration).contains(
+                "CREATE TABLE shared_location (",
+                "CREATE TABLE shared_location_revision (",
+                "CREATE TABLE company_location_availability (",
+                "uq_shared_location_code",
+                "uq_shared_location_identity_code",
+                "uq_company_location_shared",
+                "uq_location_company_projection",
+                "uq_location_company_projection_code",
+                "fk_company_location_shared_code",
+                "fk_company_location_projection_company");
+        assertThat(migration.toUpperCase()).doesNotContain(
+                "INSERT INTO", "UPDATE ", "DELETE FROM", "DROP TABLE");
+    }
+
+    @Test
+    void sharedLocationDeploymentScriptsEnforceV31AndPreserveSchemaOwnership() {
+        String finalizer = repositoryText(
+                "deploy/mysql/four-company-finalization-post-v30.sql");
+        String convergence = repositoryText(
+                "deploy/mysql/shared-location-convergence-post-v30.sql");
+        String verifier = repositoryText(
+                "deploy/mysql/verify-four-company-finalization.sql");
+
+        assertThat(finalizer)
+                .contains(
+                        "DATABASE() IS NULL",
+                        "version = '31' AND success = 1",
+                        "shared_location_revision",
+                        "company_location_availability")
+                .doesNotContain("DATABASE() <> 'shenzhou_hr_dev'");
+        assertThat(convergence).contains(
+                "version = '31' AND success = 1",
+                "fk_company_location_projection_company",
+                "shared_location_id,location_code",
+                "company_id,location_id,location_code",
+                "target company location availability period drifted",
+                "shared latest revision drifted from company projections",
+                "four-company location target must be 7 shared and 28 availability rows");
+        assertThat(convergence.toUpperCase())
+                .doesNotContain("CREATE TABLE", "ALTER TABLE");
+        assertThat(verifier).contains(
+                "shared_location_chain_metrics",
+                "configuration.shared_location_head_count",
+                "integrity.shared_location_revision_chain_mismatch",
+                "configuration.company_location_availability_cardinality");
+    }
+
+    @Test
     void locksPeriodVersionHistoryIdempotencyAndReferenceContracts() {
         assertThat(migration()).contains(
                 "CHECK (effective_to IS NULL OR effective_to > effective_from)",
@@ -184,6 +239,10 @@ class Wave3MigrationContractTest {
         return new String(readRepositoryBytes(
                 "backend/src/main/resources/db/migration/"
                         + "V7__attendance_setup_and_base_policies.sql"), StandardCharsets.UTF_8);
+    }
+
+    private static String repositoryText(String path) {
+        return new String(readRepositoryBytes(path), StandardCharsets.UTF_8);
     }
 
     private static byte[] readRepositoryBytes(String path) {

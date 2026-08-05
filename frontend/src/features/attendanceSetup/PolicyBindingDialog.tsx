@@ -14,6 +14,7 @@ export function PolicyBindingDialog({
   open,
   processing,
   catalog,
+  companyId,
   policyKind,
   policyVersionId,
   initialValues,
@@ -23,6 +24,7 @@ export function PolicyBindingDialog({
   open: boolean;
   processing: boolean;
   catalog: PolicyTemplateDefinition[];
+  companyId: string;
   policyKind: AttendancePolicyKind;
   policyVersionId: string;
   initialValues?: Partial<PolicyBindingPreviewInput>;
@@ -41,7 +43,7 @@ export function PolicyBindingDialog({
     };
     setGroupsLoading(true);
     setGroupsUnavailable(false);
-    void listReferenceAttendanceGroups()
+    void listReferenceAttendanceGroups(undefined, companyId)
       .then((items) => {
         if (active) setGroups(items);
       })
@@ -57,7 +59,7 @@ export function PolicyBindingDialog({
     return () => {
       active = false;
     };
-  }, [open]);
+  }, [companyId, open]);
   return (
     <Modal
       open={open}

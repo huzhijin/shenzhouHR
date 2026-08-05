@@ -377,6 +377,7 @@
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
           AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+          AND (#{companyId} IS NULL OR scoped.company_id = #{companyId})
         ORDER BY scoped.template_code, scoped.shift_template_id
         LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -399,6 +400,7 @@
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
           AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+          AND (#{companyId} IS NULL OR scoped.company_id = #{companyId})
     </select>
 
     <insert id="insertTemplate">

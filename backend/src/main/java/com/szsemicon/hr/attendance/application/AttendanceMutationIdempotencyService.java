@@ -1,8 +1,12 @@
 package com.szsemicon.hr.attendance.application;
 
+import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.AssignmentTransferCommand;
 import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.GroupCommand;
+import com.szsemicon.hr.attendance.application.CalendarCommands.CalendarCommand;
+import com.szsemicon.hr.attendance.application.ShiftCommands.TemplateCommand;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Assignment;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.AttendanceGroup;
+import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Location;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.people.application.PeopleRepository;
@@ -11,6 +15,7 @@ import com.szsemicon.hr.shared.security.ResourceNotAvailableAccessDeniedExceptio
 import java.nio.ByteBuffer;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
@@ -72,7 +77,7 @@ public class AttendanceMutationIdempotencyService {
             Class<T> responseType,
             Supplier<T> mutation) {
         Runnable currentAccessCheck = () -> requireCurrentAccess(
-                operation, resourceType, resourceId);
+                operation, resourceType, resourceId, command);
         Runnable resourceLock = () -> lockStableResource(
                 operation, resourceType, resourceId, command);
         return idempotencyService.execute(
@@ -91,9 +96,26 @@ public class AttendanceMutationIdempotencyService {
     }
 
     private void requireCurrentAccess(
-            String operation, String resourceType, String resourceId) {
+            String operation,
+            String resourceType,
+            String resourceId,
+            Object command) {
         String capability = capability(resourceType);
         capabilityService.require(capability);
+        if ("ATTENDANCE_LOCATION".equals(resourceType)
+                && !isCreate(operation)) {
+            List<String> boundCompanyIds =
+                    groupRepository.listSharedLocationCompanyIds(resourceId);
+            String actor = principalProvider.currentPrincipalId();
+            var at = clock.instant();
+            if (boundCompanyIds.isEmpty()
+                    || boundCompanyIds.stream().anyMatch(companyId ->
+                            !peopleRepository.canAccessCompany(
+                                    actor, capability, companyId, at))) {
+                throw new ResourceNotAvailableAccessDeniedException();
+            }
+            return;
+        }
         String companyId = companyId(
                 operation, resourceType, resourceId);
         if (!peopleRepository.canAccessCompany(
@@ -102,6 +124,24 @@ public class AttendanceMutationIdempotencyService {
                 companyId,
                 clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
+        }
+        if ("ATTENDANCE_GROUP_ASSIGNMENT".equals(resourceType)
+                && command instanceof AssignmentTransferCommand transfer) {
+            Assignment source = groupRepository.findAssignment(resourceId)
+                    .filter(assignment -> assignment.groupId()
+                            .equals(transfer.sourceGroupId()))
+                    .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+            if (!requireGroup(source.groupId()).companyId().equals(companyId)) {
+                throw new ResourceNotAvailableAccessDeniedException();
+            }
+            AttendanceGroup target = requireGroup(transfer.targetGroupId());
+            if (!peopleRepository.canAccessCompany(
+                    principalProvider.currentPrincipalId(),
+                    capability,
+                    target.companyId(),
+                    clock.instant())) {
+                throw new ResourceNotAvailableAccessDeniedException();
+            }
         }
     }
 
@@ -175,12 +215,23 @@ public class AttendanceMutationIdempotencyService {
                 if (isCreate(operation)) {
                     peopleRepository.lockCompany(resourceId);
                 } else {
-                    groupRepository.lockLocation(resourceId);
-                    var location = groupRepository.findLocation(resourceId)
-                            .orElseThrow(
-                                    ResourceNotAvailableAccessDeniedException::new);
-                    groupRepository.lockLocationRevision(
-                            location.locationRevisionId());
+                    groupRepository.lockSharedLocation(resourceId);
+                    var bindings = groupRepository
+                            .listSharedLocationBindings(resourceId)
+                            .stream()
+                            .sorted(Comparator.comparing(
+                                    Location::locationId,
+                                    AttendanceMutationIdempotencyService
+                                            ::compareBinaryIds))
+                            .toList();
+                    if (bindings.isEmpty()) {
+                        throw new ResourceNotAvailableAccessDeniedException();
+                    }
+                    for (var location : bindings) {
+                        groupRepository.lockLocation(location.locationId());
+                        groupRepository.lockLocationRevision(
+                                location.locationRevisionId());
+                    }
                 }
             }
             case "ATTENDANCE_GROUP" -> {
@@ -206,10 +257,12 @@ public class AttendanceMutationIdempotencyService {
                 Assignment assignment = groupRepository.findAssignment(resourceId)
                         .orElseThrow(
                                 ResourceNotAvailableAccessDeniedException::new);
-                AttendanceGroup group = requireGroup(assignment.groupId());
-                groupRepository.lockGroup(group.groupId());
-                group = requireGroup(group.groupId());
-                groupRepository.lockGroupRevision(group.groupRevisionId());
+                List<String> groupIds = new ArrayList<>();
+                groupIds.add(assignment.groupId());
+                if (command instanceof AssignmentTransferCommand transfer) {
+                    groupIds.add(transfer.targetGroupId());
+                }
+                lockGroups(groupIds);
                 groupRepository.lockEmployee(assignment.employeeId());
                 groupRepository.lockAssignmentTimeline(
                         assignment.assignmentId());
@@ -217,6 +270,11 @@ public class AttendanceMutationIdempotencyService {
             case "ATTENDANCE_SHIFT_TEMPLATE" -> {
                 if (isCreate(operation)) {
                     peopleRepository.lockCompany(resourceId);
+                    if (!(command instanceof TemplateCommand create)) {
+                        throw new IllegalArgumentException(
+                                "shift template create requires TemplateCommand");
+                    }
+                    lockLocations(List.of(create.locationId()));
                 } else {
                     shiftRepository.lockTemplate(resourceId);
                 }
@@ -233,6 +291,11 @@ public class AttendanceMutationIdempotencyService {
             case "ATTENDANCE_WORK_CALENDAR" -> {
                 if (isCreate(operation)) {
                     peopleRepository.lockCompany(resourceId);
+                    if (!(command instanceof CalendarCommand create)) {
+                        throw new IllegalArgumentException(
+                                "work calendar create requires CalendarCommand");
+                    }
+                    lockLocations(List.of(create.locationId()));
                 } else {
                     calendarRepository.lockCalendar(resourceId);
                 }
@@ -263,6 +326,17 @@ public class AttendanceMutationIdempotencyService {
                                     ResourceNotAvailableAccessDeniedException::new);
                     groupRepository.lockLocationRevision(
                             location.locationRevisionId());
+                });
+    }
+
+    private void lockGroups(List<String> groupIds) {
+        groupIds.stream()
+                .distinct()
+                .sorted(AttendanceMutationIdempotencyService::compareBinaryIds)
+                .forEach(groupId -> {
+                    groupRepository.lockGroup(groupId);
+                    AttendanceGroup group = requireGroup(groupId);
+                    groupRepository.lockGroupRevision(group.groupRevisionId());
                 });
     }
 

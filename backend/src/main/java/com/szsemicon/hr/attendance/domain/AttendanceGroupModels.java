@@ -16,6 +16,7 @@ public final class AttendanceGroupModels {
 
     public record Location(
             String locationId,
+            String sharedLocationId,
             String companyId,
             String code,
             String locationRevisionId,
@@ -79,6 +80,12 @@ public final class AttendanceGroupModels {
             return employeeId + ":" + date.getYear() + "-"
                     + "%02d".formatted(date.getMonthValue());
         }
+    }
+
+    public record AssignmentListItem(
+            Assignment assignment,
+            boolean hasSuccessor,
+            boolean transferable) {
     }
 
     public record LocationTimelineFact(

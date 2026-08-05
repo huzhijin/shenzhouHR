@@ -36,6 +36,13 @@ public class AttendanceReportController {
             "status",
             "page",
             "size");
+    private static final Set<String> MONTH_MATRIX_PARAMETERS = Set.of(
+            "period",
+            "companyId",
+            "organizationId",
+            "employeeId",
+            "page",
+            "size");
 
     private final AttendanceReportQueryService queryService;
     private final Clock clock;
@@ -98,6 +105,81 @@ public class AttendanceReportController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(toResponse(result));
+    }
+
+    @GetMapping("/month-matrix")
+    @PreAuthorize("hasAuthority('ATTENDANCE_REPORT:READ')")
+    ResponseEntity<AttendanceMonthMatrixResponse> monthMatrix(
+            @RequestParam(required = false) YearMonth period,
+            @RequestParam(required = false) String companyId,
+            @RequestParam(required = false) String organizationId,
+            @RequestParam(required = false) String employeeId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam MultiValueMap<String, String> requestParameters) {
+        rejectUnknownParameters(
+                requestParameters, MONTH_MATRIX_PARAMETERS);
+        YearMonth resolvedPeriod = period == null
+                ? YearMonth.from(clock.instant().atZone(BUSINESS_ZONE))
+                : period;
+        var result = queryService.queryMonthMatrix(
+                resolvedPeriod,
+                companyId,
+                organizationId,
+                employeeId,
+                page,
+                size);
+        var metadata = new AttendanceMonthMatrixResponse.ProjectionMetadata(
+                result.projectionVersion(),
+                result.sourceVersions(),
+                result.dataAsOf(),
+                BUSINESS_ZONE.getId(),
+                result.filters().period().toString(),
+                result.periodState(),
+                new AttendanceMonthMatrixResponse.ProjectionScope(
+                        result.scope().type().name(),
+                        result.scope().reference(),
+                        result.scope().label()),
+                result.allowedActions());
+        var filters = new AttendanceMonthMatrixResponse.ReportFilters(
+                result.filters().period().toString(),
+                result.scope().reference(),
+                result.filters().companyId(),
+                result.filters().organizationId(),
+                result.filters().employeeId());
+        var rows = result.rows().stream()
+                .map(row -> new AttendanceMonthMatrixResponse.EmployeeRow(
+                        row.employeeId(),
+                        row.employeeNumber(),
+                        row.employeeName(),
+                        row.organizationId(),
+                        row.organizationName(),
+                        row.days().stream()
+                                .map(day -> new AttendanceMonthMatrixResponse.DayCell(
+                                        day.date(),
+                                        day.organizationName(),
+                                        day.shiftLabel(),
+                                        day.firstPunchAt(),
+                                        day.lastPunchAt(),
+                                        day.badges().stream()
+                                                .map(Enum::name)
+                                                .toList()))
+                                .toList()))
+                .toList();
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(new AttendanceMonthMatrixResponse(
+                        "ATTENDANCE_MONTH_MATRIX",
+                        metadata,
+                        result.queryFingerprint(),
+                        result.formulaVersion(),
+                        filters,
+                        result.dates(),
+                        result.totalEmployees(),
+                        rows,
+                        result.page(),
+                        result.size(),
+                        result.totalPages()));
     }
 
     private AttendanceReportResponse toResponse(AttendanceReportPage page) {

@@ -85,19 +85,26 @@ class MyBatisCalendarRepository implements CalendarRepository {
     public List<WorkCalendar> listCalendars(
             String principalId,
             String capability,
+            String companyId,
             Integer year,
             int limit,
             int offset,
             Instant at) {
         return mapper.listCalendars(
-                        principalId, capability, year, limit, offset, at)
+                        principalId, capability, companyId,
+                        year, limit, offset, at)
                 .stream().map(this::calendar).toList();
     }
 
     @Override
     public long countCalendars(
-            String principalId, String capability, Integer year, Instant at) {
-        return mapper.countCalendars(principalId, capability, year, at);
+            String principalId,
+            String capability,
+            String companyId,
+            Integer year,
+            Instant at) {
+        return mapper.countCalendars(
+                principalId, capability, companyId, year, at);
     }
 
     @Override

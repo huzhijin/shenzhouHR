@@ -5,7 +5,22 @@
 <mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupMapper">
 
     <sql id="locationColumns">
-        scoped.location_id, scoped.company_id, scoped.location_code,
+        scoped.location_id,
+        COALESCE(
+            (
+                SELECT availability.shared_location_id
+                FROM company_location_availability availability
+                JOIN shared_location candidate_shared
+                  ON candidate_shared.shared_location_id =
+                        availability.shared_location_id
+                 AND candidate_shared.location_code = scoped.location_code
+                WHERE availability.location_id = scoped.location_id
+                  AND availability.company_id = scoped.company_id
+                  AND availability.location_code = scoped.location_code
+            ),
+            scoped.location_id
+        ) AS shared_location_id,
+        scoped.company_id, scoped.location_code,
         revision.location_revision_id, revision.revision_number,
         revision.location_name, revision.time_zone, timeline.state AS status,
         revision.effective_from,
@@ -29,7 +44,22 @@
     </sql>
 
     <sql id="locationColumnsAsOf">
-        scoped.location_id, scoped.company_id, scoped.location_code,
+        scoped.location_id,
+        COALESCE(
+            (
+                SELECT availability.shared_location_id
+                FROM company_location_availability availability
+                JOIN shared_location candidate_shared
+                  ON candidate_shared.shared_location_id =
+                        availability.shared_location_id
+                 AND candidate_shared.location_code = scoped.location_code
+                WHERE availability.location_id = scoped.location_id
+                  AND availability.company_id = scoped.company_id
+                  AND availability.location_code = scoped.location_code
+            ),
+            scoped.location_id
+        ) AS shared_location_id,
+        scoped.company_id, scoped.location_code,
         revision.location_revision_id, revision.revision_number,
         revision.location_name, revision.time_zone, timeline.state AS status,
         revision.effective_from,
@@ -54,7 +84,22 @@
     </sql>
 
     <sql id="locationRevisionHistoryColumns">
-        scoped.location_id, scoped.company_id, scoped.location_code,
+        scoped.location_id,
+        COALESCE(
+            (
+                SELECT availability.shared_location_id
+                FROM company_location_availability availability
+                JOIN shared_location candidate_shared
+                  ON candidate_shared.shared_location_id =
+                        availability.shared_location_id
+                 AND candidate_shared.location_code = scoped.location_code
+                WHERE availability.location_id = scoped.location_id
+                  AND availability.company_id = scoped.company_id
+                  AND availability.location_code = scoped.location_code
+            ),
+            scoped.location_id
+        ) AS shared_location_id,
+        scoped.company_id, scoped.location_code,
         revision.location_revision_id, revision.revision_number,
         revision.location_name, revision.time_zone, timeline.state AS status,
         revision.effective_from,
@@ -78,6 +123,64 @@
         revision.revision_number - 1 AS row_version,
         revision.change_reason, scoped.created_by, scoped.created_at,
         timeline.actor_id AS updated_by, timeline.recorded_at AS updated_at
+    </sql>
+
+    <sql id="sharedLocationColumns">
+        scoped.location_id, shared.shared_location_id,
+        scoped.company_id, shared.location_code,
+        shared_revision.shared_location_revision_id AS location_revision_id,
+        shared_revision.revision_number,
+        shared_revision.location_name, shared_revision.time_zone,
+        shared_revision.status,
+        shared_revision.effective_from,
+        COALESCE(
+            shared_revision.effective_to,
+            (
+                SELECT MIN(successor.effective_from)
+                FROM shared_location_revision successor
+                WHERE successor.shared_location_id =
+                        shared_revision.shared_location_id
+                  AND successor.revision_number
+                        &gt; shared_revision.revision_number
+                  AND successor.effective_from
+                        &gt; shared_revision.effective_from
+            )
+        ) AS effective_to,
+        shared_revision.snapshot_digest,
+        shared.row_version,
+        shared_revision.change_reason,
+        shared.created_by, shared.created_at,
+        shared_revision.created_by AS updated_by,
+        shared_revision.created_at AS updated_at
+    </sql>
+
+    <sql id="sharedLocationRevisionHistoryColumns">
+        scoped.location_id, shared.shared_location_id,
+        scoped.company_id, shared.location_code,
+        shared_revision.shared_location_revision_id AS location_revision_id,
+        shared_revision.revision_number,
+        shared_revision.location_name, shared_revision.time_zone,
+        shared_revision.status,
+        shared_revision.effective_from,
+        COALESCE(
+            shared_revision.effective_to,
+            (
+                SELECT MIN(successor.effective_from)
+                FROM shared_location_revision successor
+                WHERE successor.shared_location_id =
+                        shared_revision.shared_location_id
+                  AND successor.revision_number
+                        &gt; shared_revision.revision_number
+                  AND successor.effective_from
+                        &gt; shared_revision.effective_from
+            )
+        ) AS effective_to,
+        shared_revision.snapshot_digest,
+        shared_revision.revision_number - 1 AS row_version,
+        shared_revision.change_reason,
+        shared.created_by, shared.created_at,
+        shared_revision.created_by AS updated_by,
+        shared_revision.created_at AS updated_at
     </sql>
 
     <sql id="groupColumns">
@@ -239,11 +342,12 @@
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
           AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+          AND (#{companyId} IS NULL OR scoped.company_id = #{companyId})
     </sql>
 
     <select id="findLocation"
             resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
-        SELECT <include refid="locationColumns"/>
+        SELECT DISTINCT <include refid="locationColumns"/>
         FROM location scoped
         JOIN location_revision revision
           ON revision.location_id = scoped.location_id
@@ -261,6 +365,277 @@
          )
         WHERE scoped.location_id = #{locationId}
     </select>
+
+    <select id="findSharedLocation"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
+        SELECT DISTINCT <include refid="sharedLocationColumns"/>
+        FROM company_location_availability availability
+        JOIN location scoped
+          ON scoped.location_id = availability.location_id
+         AND scoped.company_id = availability.company_id
+        JOIN shared_location shared
+          ON shared.shared_location_id = availability.shared_location_id
+         AND shared.location_code = scoped.location_code
+         AND availability.location_code = scoped.location_code
+        JOIN shared_location_revision shared_revision
+          ON shared_revision.shared_location_id = shared.shared_location_id
+         AND shared_revision.revision_number = (
+             SELECT MAX(latest.revision_number)
+             FROM shared_location_revision latest
+             WHERE latest.shared_location_id = shared.shared_location_id
+         )
+        WHERE (availability.location_id = #{locationId}
+               OR availability.shared_location_id = #{locationId})
+          AND availability.status = 'ACTIVE'
+        ORDER BY scoped.location_id
+        LIMIT 1
+    </select>
+
+    <select id="findLocationByGlobalCode"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
+        SELECT <include refid="locationColumns"/>
+        FROM shared_location shared
+        JOIN company_location_availability availability
+          ON availability.shared_location_id = shared.shared_location_id
+         AND availability.location_code = shared.location_code
+         AND availability.status = 'ACTIVE'
+        JOIN location scoped
+          ON scoped.location_id = availability.location_id
+         AND scoped.company_id = availability.company_id
+         AND scoped.location_code = shared.location_code
+         AND scoped.location_id = (
+             SELECT MIN(candidate.location_id)
+             FROM company_location_availability candidate
+             JOIN location candidate_projection
+               ON candidate_projection.location_id = candidate.location_id
+              AND candidate_projection.company_id = candidate.company_id
+             WHERE candidate.shared_location_id = shared.shared_location_id
+               AND candidate.location_code = shared.location_code
+               AND candidate.status = 'ACTIVE'
+               AND candidate_projection.location_code = shared.location_code
+         )
+        JOIN location_revision revision
+          ON revision.location_id = scoped.location_id
+         AND revision.revision_number = (
+             SELECT MAX(latest_revision.revision_number)
+             FROM location_revision latest_revision
+             WHERE latest_revision.location_id = scoped.location_id
+         )
+        JOIN location_timeline timeline
+          ON timeline.location_revision_id = revision.location_revision_id
+         AND timeline.event_sequence = (
+             SELECT MIN(origin.event_sequence)
+             FROM location_timeline origin
+             WHERE origin.location_revision_id = revision.location_revision_id
+         )
+        WHERE shared.location_code = #{locationCode}
+    </select>
+
+    <select id="listSharedLocationBindings"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
+        SELECT DISTINCT <include refid="locationColumns"/>
+        FROM company_location_availability requested
+        JOIN location requested_projection
+          ON requested_projection.location_id = requested.location_id
+         AND requested_projection.company_id = requested.company_id
+        JOIN shared_location requested_shared
+          ON requested_shared.shared_location_id = requested.shared_location_id
+         AND requested_shared.location_code = requested_projection.location_code
+         AND requested.location_code = requested_projection.location_code
+        JOIN company_location_availability availability
+          ON availability.shared_location_id = requested.shared_location_id
+         AND availability.location_code = requested.location_code
+         AND availability.status = 'ACTIVE'
+        JOIN location scoped
+          ON scoped.location_id = availability.location_id
+         AND scoped.company_id = availability.company_id
+         AND scoped.location_code = requested_shared.location_code
+        JOIN location_revision revision
+          ON revision.location_id = scoped.location_id
+         AND revision.revision_number = (
+             SELECT MAX(latest_revision.revision_number)
+             FROM location_revision latest_revision
+             WHERE latest_revision.location_id = scoped.location_id
+         )
+        JOIN location_timeline timeline
+          ON timeline.location_revision_id = revision.location_revision_id
+         AND timeline.event_sequence = (
+             SELECT MIN(origin.event_sequence)
+             FROM location_timeline origin
+             WHERE origin.location_revision_id = revision.location_revision_id
+         )
+        WHERE (requested.location_id = #{locationId}
+               OR requested.shared_location_id = #{locationId})
+          AND requested.status = 'ACTIVE'
+        ORDER BY scoped.location_id
+    </select>
+
+    <select id="listSharedLocationCompanyIds" resultType="string">
+        SELECT DISTINCT availability.company_id
+        FROM company_location_availability requested
+        JOIN location requested_projection
+          ON requested_projection.location_id = requested.location_id
+         AND requested_projection.company_id = requested.company_id
+        JOIN shared_location requested_shared
+          ON requested_shared.shared_location_id = requested.shared_location_id
+         AND requested_shared.location_code = requested_projection.location_code
+         AND requested.location_code = requested_projection.location_code
+        JOIN company_location_availability availability
+          ON availability.shared_location_id = requested.shared_location_id
+         AND availability.location_code = requested.location_code
+         AND availability.status = 'ACTIVE'
+        JOIN location scoped
+          ON scoped.location_id = availability.location_id
+         AND scoped.company_id = availability.company_id
+         AND scoped.location_code = requested_shared.location_code
+        WHERE (requested.location_id = #{locationId}
+               OR requested.shared_location_id = #{locationId})
+          AND requested.status = 'ACTIVE'
+        ORDER BY availability.company_id
+    </select>
+
+    <select id="lockSharedLocation" resultType="long">
+        SELECT shared.row_version
+        FROM shared_location shared
+        WHERE shared.shared_location_id = (
+            SELECT availability.shared_location_id
+            FROM company_location_availability availability
+            JOIN location scoped
+              ON scoped.location_id = availability.location_id
+             AND scoped.company_id = availability.company_id
+            WHERE (availability.location_id = #{locationId}
+                   OR availability.shared_location_id = #{locationId})
+              AND availability.status = 'ACTIVE'
+              AND scoped.location_code = shared.location_code
+              AND availability.location_code = shared.location_code
+            ORDER BY availability.location_id
+            LIMIT 1
+        )
+        FOR UPDATE
+    </select>
+
+    <update id="advanceSharedLocationVersion">
+        UPDATE shared_location shared
+        SET shared.row_version = shared.row_version + 1
+        WHERE shared.shared_location_id = (
+            SELECT availability.shared_location_id
+            FROM company_location_availability availability
+            JOIN location scoped
+              ON scoped.location_id = availability.location_id
+             AND scoped.company_id = availability.company_id
+            WHERE (availability.location_id = #{locationId}
+                   OR availability.shared_location_id = #{locationId})
+              AND availability.status = 'ACTIVE'
+              AND scoped.location_code = shared.location_code
+              AND availability.location_code = shared.location_code
+            ORDER BY availability.location_id
+            LIMIT 1
+        )
+          AND shared.row_version = #{expectedVersion}
+    </update>
+
+    <select id="isLocationAvailable" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM company_location_availability availability
+            JOIN location scoped
+              ON scoped.location_id = availability.location_id
+             AND scoped.company_id = availability.company_id
+            JOIN shared_location shared
+              ON shared.shared_location_id = availability.shared_location_id
+             AND shared.location_code = scoped.location_code
+             AND availability.location_code = scoped.location_code
+            WHERE availability.location_id = #{locationId}
+              AND availability.company_id = #{companyId}
+              AND availability.status = 'ACTIVE'
+              AND availability.effective_from &lt;= #{businessDate}
+              AND (availability.effective_to IS NULL
+                   OR availability.effective_to &gt; #{businessDate})
+        )
+    </select>
+
+    <insert id="insertSharedLocationIdentity">
+        INSERT INTO shared_location (
+            shared_location_id, location_code, row_version,
+            created_by, created_at
+        ) VALUES (
+            #{row.sharedLocationId}, #{row.locationCode}, 0,
+            #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
+
+    <insert id="insertSharedLocationRevision">
+        INSERT INTO shared_location_revision (
+            shared_location_revision_id, shared_location_id, revision_number,
+            location_name, time_zone, status, effective_from, effective_to,
+            supersedes_shared_location_revision_id, snapshot_digest,
+            change_reason, created_by, created_at
+        ) VALUES (
+            #{sharedRevisionId},
+            COALESCE(
+                (SELECT availability.shared_location_id
+                 FROM company_location_availability availability
+                 JOIN location projection
+                   ON projection.location_id = availability.location_id
+                  AND projection.company_id = availability.company_id
+                  AND projection.location_code = #{row.locationCode}
+                 WHERE availability.location_id = #{row.locationId}
+                   AND availability.location_code = #{row.locationCode}
+                 LIMIT 1),
+                #{row.sharedLocationId}
+            ),
+            #{sharedRevisionNumber}, #{row.locationName}, #{row.timeZone},
+            #{row.status}, #{row.effectiveFrom}, #{row.effectiveTo},
+            #{predecessorRevisionId}, #{snapshotDigest},
+            #{row.changeReason}, #{row.updatedBy}, #{row.updatedAt}
+        )
+    </insert>
+
+    <select id="latestSharedLocationRevisionId" resultType="string">
+        SELECT revision.shared_location_revision_id
+        FROM company_location_availability availability
+        JOIN location scoped
+          ON scoped.location_id = availability.location_id
+         AND scoped.company_id = availability.company_id
+        JOIN shared_location_revision revision
+          ON revision.shared_location_id = availability.shared_location_id
+        JOIN shared_location shared
+          ON shared.shared_location_id = availability.shared_location_id
+         AND shared.location_code = scoped.location_code
+         AND availability.location_code = scoped.location_code
+        WHERE (availability.location_id = #{locationId}
+               OR availability.shared_location_id = #{locationId})
+          AND availability.status = 'ACTIVE'
+        ORDER BY revision.revision_number DESC
+        LIMIT 1
+    </select>
+
+    <update id="closeSharedLocationRevision">
+        UPDATE shared_location_revision
+        SET effective_to = #{effectiveTo},
+            snapshot_digest = #{snapshotDigest}
+        WHERE shared_location_revision_id = #{revisionId}
+          AND effective_to IS NULL
+          AND effective_from &lt; #{effectiveTo}
+    </update>
+
+    <insert id="insertCompanyLocationAvailability">
+        INSERT INTO company_location_availability (
+            company_location_availability_id, shared_location_id,
+            company_id, location_id, location_code,
+            status, effective_from, effective_to,
+            created_by, created_at
+        ) VALUES (
+            #{availabilityId},
+            (SELECT shared.shared_location_id
+             FROM shared_location shared
+            WHERE shared.location_code = #{row.locationCode}),
+            #{row.companyId},
+            #{row.locationId}, #{row.locationCode},
+            'ACTIVE', #{row.effectiveFrom},
+            #{row.effectiveTo}, #{row.createdBy}, #{row.createdAt}
+        )
+    </insert>
 
     <select id="resolveLocationRevisions"
             resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
@@ -299,57 +674,130 @@
 
     <select id="listLocations"
             resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
-        SELECT DISTINCT <include refid="locationColumns"/>
+        SELECT DISTINCT <include refid="sharedLocationColumns"/>
         FROM location scoped
-        JOIN location_revision revision
-          ON revision.location_id = scoped.location_id
-         AND revision.revision_number = (
-             SELECT MAX(latest_revision.revision_number)
-             FROM location_revision latest_revision
-             WHERE latest_revision.location_id = scoped.location_id
-         )
-        JOIN location_timeline timeline
-          ON timeline.location_revision_id = revision.location_revision_id
-         AND timeline.event_sequence = (
-             SELECT MIN(origin.event_sequence)
-             FROM location_timeline origin
-             WHERE origin.location_revision_id = revision.location_revision_id
+        JOIN company_location_availability availability
+          ON availability.location_id = scoped.location_id
+         AND availability.company_id = scoped.company_id
+         AND availability.status = 'ACTIVE'
+        JOIN shared_location shared
+          ON shared.shared_location_id = availability.shared_location_id
+         AND shared.location_code = scoped.location_code
+         AND availability.location_code = scoped.location_code
+        JOIN shared_location_revision shared_revision
+          ON shared_revision.shared_location_id = shared.shared_location_id
+         AND shared_revision.revision_number = (
+             SELECT MAX(latest.revision_number)
+             FROM shared_location_revision latest
+             WHERE latest.shared_location_id = shared.shared_location_id
          )
         <include refid="activeCompanyScope"/>
-        ORDER BY revision.location_name, scoped.location_id
+        <if test="companyId == null">
+          AND NOT EXISTS (
+              SELECT 1
+              FROM company_location_availability earlier
+              JOIN location earlier_projection
+                ON earlier_projection.location_id = earlier.location_id
+               AND earlier_projection.company_id = earlier.company_id
+              JOIN auth_principal_role_assignment earlier_assignment
+                ON earlier_assignment.principal_id = #{principalId}
+              JOIN auth_role_capability earlier_role_capability
+                ON earlier_role_capability.role_id = earlier_assignment.role_id
+              JOIN auth_capability earlier_capability
+                ON earlier_capability.capability_id =
+                    earlier_role_capability.capability_id
+               AND earlier_capability.capability_code = #{capability}
+              JOIN auth_data_scope earlier_scope
+                ON earlier_scope.scope_id = earlier_assignment.data_scope_id
+               AND earlier_scope.scope_type = 'COMPANY'
+               AND earlier_scope.company_id = earlier.company_id
+              WHERE earlier.shared_location_id = availability.shared_location_id
+                AND earlier.location_code = availability.location_code
+                AND earlier.status = 'ACTIVE'
+                AND earlier_projection.location_code = shared.location_code
+                AND earlier.location_id &lt; scoped.location_id
+                AND earlier_assignment.valid_from &lt;= #{at}
+                AND (earlier_assignment.valid_to IS NULL
+                     OR earlier_assignment.valid_to &gt; #{at})
+                AND earlier_scope.valid_from &lt;= #{at}
+                AND (earlier_scope.valid_to IS NULL
+                     OR earlier_scope.valid_to &gt; #{at})
+          )
+        </if>
+        ORDER BY shared_revision.location_name, scoped.location_id
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="countLocations" resultType="long">
-        SELECT COUNT(DISTINCT scoped.location_id)
+        SELECT COUNT(DISTINCT
+            <choose>
+                <when test="companyId == null">
+                    availability.shared_location_id
+                </when>
+                <otherwise>
+                    scoped.location_id
+                </otherwise>
+            </choose>
+        )
         FROM location scoped
+        JOIN company_location_availability availability
+          ON availability.location_id = scoped.location_id
+         AND availability.company_id = scoped.company_id
+         AND availability.status = 'ACTIVE'
+        JOIN shared_location shared
+          ON shared.shared_location_id = availability.shared_location_id
+         AND shared.location_code = scoped.location_code
+         AND availability.location_code = scoped.location_code
         <include refid="activeCompanyScope"/>
     </select>
 
     <select id="listLocationRevisions"
             resultType="com.szsemicon.hr.attendance.infrastructure.persistence.AttendanceGroupRows$LocationRow">
-        SELECT <include refid="locationRevisionHistoryColumns"/>
-        FROM location scoped
-        JOIN location_revision revision
-          ON revision.location_id = scoped.location_id
-        JOIN location_timeline timeline
-          ON timeline.location_revision_id = revision.location_revision_id
-         AND timeline.event_sequence = (
-             SELECT MIN(origin.event_sequence)
-             FROM location_timeline origin
-             WHERE origin.location_revision_id =
-                    revision.location_revision_id
-         )
-        WHERE scoped.location_id = #{locationId}
-        ORDER BY revision.revision_number DESC,
-                 revision.location_revision_id
+        SELECT DISTINCT <include refid="sharedLocationRevisionHistoryColumns"/>
+        FROM company_location_availability availability
+        JOIN location scoped
+          ON scoped.location_id = availability.location_id
+         AND scoped.company_id = availability.company_id
+        JOIN shared_location shared
+          ON shared.shared_location_id = availability.shared_location_id
+         AND shared.location_code = scoped.location_code
+         AND availability.location_code = scoped.location_code
+        JOIN shared_location_revision shared_revision
+          ON shared_revision.shared_location_id = shared.shared_location_id
+        WHERE (availability.location_id = #{locationId}
+               OR availability.shared_location_id = #{locationId})
+          AND availability.status = 'ACTIVE'
+          AND scoped.location_id = (
+              SELECT MIN(candidate.location_id)
+              FROM company_location_availability candidate
+              JOIN location candidate_projection
+                ON candidate_projection.location_id = candidate.location_id
+               AND candidate_projection.company_id = candidate.company_id
+              WHERE candidate.shared_location_id = availability.shared_location_id
+                AND candidate.location_code = availability.location_code
+                AND candidate.status = 'ACTIVE'
+                AND candidate_projection.location_code = shared.location_code
+          )
+        ORDER BY shared_revision.revision_number DESC,
+                 shared_revision.shared_location_revision_id
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="countLocationRevisions" resultType="long">
-        SELECT COUNT(*)
-        FROM location_revision revision
-        WHERE revision.location_id = #{locationId}
+        SELECT COUNT(DISTINCT revision.shared_location_revision_id)
+        FROM company_location_availability availability
+        JOIN location scoped
+          ON scoped.location_id = availability.location_id
+         AND scoped.company_id = availability.company_id
+        JOIN shared_location shared
+          ON shared.shared_location_id = availability.shared_location_id
+         AND shared.location_code = scoped.location_code
+         AND availability.location_code = scoped.location_code
+        JOIN shared_location_revision revision
+          ON revision.shared_location_id = availability.shared_location_id
+        WHERE (availability.location_id = #{locationId}
+               OR availability.shared_location_id = #{locationId})
+          AND availability.status = 'ACTIVE'
     </select>
 
     <insert id="insertLocationIdentity">
@@ -440,6 +888,29 @@
                 timeline.attendance_group_revision_id
         WHERE revision.location_revision_id = #{locationRevisionId}
         ORDER BY scoped.attendance_group_id
+    </select>
+
+    <select id="hasLocationTimeZoneDependencies" resultType="boolean">
+        SELECT (
+            EXISTS (
+                SELECT 1
+                FROM shift_template template
+                WHERE template.location_id = #{locationId}
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM work_calendar calendar
+                WHERE calendar.location_id = #{locationId}
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM attendance_group_revision group_revision
+                JOIN location_revision location_revision
+                  ON location_revision.location_revision_id =
+                        group_revision.location_revision_id
+                WHERE location_revision.location_id = #{locationId}
+            )
+        )
     </select>
 
     <select id="findGroup"
@@ -1065,19 +1536,53 @@
         FROM attendance_group_timeline timeline
         JOIN attendance_group scoped
           ON scoped.attendance_group_id = timeline.attendance_group_id
+        JOIN attendance_group_assignment predecessor
+          ON predecessor.attendance_group_assignment_id =
+                #{predecessorAssignmentId}
+        JOIN attendance_group_revision predecessor_revision
+          ON predecessor_revision.attendance_group_revision_id =
+                predecessor.attendance_group_revision_id
+        JOIN attendance_group predecessor_group
+          ON predecessor_group.attendance_group_id =
+                predecessor_revision.attendance_group_id
         JOIN employee assigned_employee
           ON assigned_employee.employee_id = #{row.employeeId}
          AND assigned_employee.company_id = scoped.company_id
         WHERE timeline.attendance_group_id = #{row.attendanceGroupId}
           AND timeline.state = 'ACTIVE'
           AND timeline.business_effective_from &lt;= #{row.effectiveFrom}
+          AND predecessor.employee_id = #{row.employeeId}
+          AND predecessor_group.company_id = scoped.company_id
           AND NOT EXISTS (
               SELECT 1
               FROM attendance_group_timeline newer
               WHERE newer.attendance_group_id = timeline.attendance_group_id
                 AND newer.business_effective_from &lt;= #{row.effectiveFrom}
-                AND newer.business_effective_from
-                    &gt; timeline.business_effective_from
+                AND (
+                    newer.business_effective_from
+                        &gt; timeline.business_effective_from
+                    OR (
+                        newer.business_effective_from =
+                            timeline.business_effective_from
+                        AND newer.event_sequence &gt; timeline.event_sequence
+                    )
+                )
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_timeline future
+              WHERE future.attendance_group_id = timeline.attendance_group_id
+                AND future.business_effective_from &gt; #{row.effectiveFrom}
+                AND (
+                    #{row.effectiveTo} IS NULL
+                    OR future.business_effective_from &lt; #{row.effectiveTo}
+                )
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM attendance_group_assignment existing_successor
+              WHERE existing_successor.supersedes_assignment_id =
+                    predecessor.attendance_group_assignment_id
           )
     </insert>
 

@@ -171,6 +171,7 @@ describe('RoleScopeList', () => {
             roleName: '人事管理员',
             scopeType: 'COMPANY',
             scopeResourceId: 'company-internal-id',
+            scopeCompanyName: '江苏神州半导体科技股份有限公司',
             validFrom: '2026-07-01T00:00:00Z',
             validTo: null,
           },
@@ -181,6 +182,10 @@ describe('RoleScopeList', () => {
             roleName: '部门负责人',
             scopeType: 'ORGANIZATION',
             scopeResourceId: 'department-internal-id',
+            scopeCompanyName: '江苏神州半导体科技股份有限公司',
+            scopeResourceName: '人力资源部',
+            scopeResourcePath: '总部 / 人力资源部',
+            includeDescendants: false,
             validFrom: '2026-07-01T00:00:00Z',
             validTo: null,
           },
@@ -190,7 +195,9 @@ describe('RoleScopeList', () => {
 
     expect(screen.getByText('江苏神州半导体科技股份有限公司'))
       .toBeInTheDocument();
-    expect(screen.getByText('人力资源部')).toBeInTheDocument();
+    expect(screen.getByText('江苏神州半导体科技股份有限公司 / 总部 / 人力资源部'))
+      .toBeInTheDocument();
+    expect(screen.getByText('仅所选部门')).toBeInTheDocument();
     expect(screen.queryByText('company-internal-id')).not.toBeInTheDocument();
     expect(screen.queryByText('department-internal-id')).not.toBeInTheDocument();
   });

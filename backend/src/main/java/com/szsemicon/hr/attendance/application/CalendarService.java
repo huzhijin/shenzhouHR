@@ -74,6 +74,12 @@ public class CalendarService {
     @Transactional(readOnly = true)
     public Page<WorkCalendar> listCalendars(
             Integer year, int page, int size) {
+        return listCalendars(null, year, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<WorkCalendar> listCalendars(
+            String companyId, Integer year, int page, int size) {
         AttendanceSetupRules.page(page, size);
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
         String principalId = principalProvider.currentPrincipalId();
@@ -82,6 +88,7 @@ public class CalendarService {
                 repository.listCalendars(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         year,
                         size,
                         page * size,
@@ -89,6 +96,7 @@ public class CalendarService {
                 repository.countCalendars(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         year,
                         at),
                 page,
@@ -140,7 +148,10 @@ public class CalendarService {
                 || !locationRevisions.getFirst().companyId()
                         .equals(normalized.companyId())
                 || !locationRevisions.getFirst().timeZone()
-                        .equals(normalized.timeZone())) {
+                        .equals(normalized.timeZone())
+                || !groupRepository.isLocationAvailable(
+                        normalized.locationId(), normalized.companyId(),
+                        normalized.effectiveFrom())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         WorkCalendar replay =

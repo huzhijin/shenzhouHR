@@ -21,15 +21,46 @@ public interface AttendanceGroupRepository {
 
     Optional<Location> findLocation(String locationId);
 
+    Optional<Location> findSharedLocation(String locationId);
+
+    Optional<Location> findLocationByGlobalCode(String locationCode);
+
+    List<Location> listSharedLocationBindings(String locationId);
+
+    List<String> listSharedLocationCompanyIds(String locationId);
+
+    long lockSharedLocation(String locationId);
+
+    boolean updateSharedLocation(Location location, long expectedVersion);
+
+    boolean isLocationAvailable(
+            String locationId, String companyId, LocalDate businessDate);
+
     List<Location> resolveLocationRevisions(
             String locationId, LocalDate asOf, Instant knowledgeAsOf);
 
     Optional<Location> findLocationByIdempotency(String actorId, String idempotencyKey);
 
-    List<Location> listLocations(
-            String principalId, String capability, int limit, int offset, Instant at);
+    default List<Location> listLocations(
+            String principalId, String capability, int limit, int offset, Instant at) {
+        return listLocations(principalId, capability, null, limit, offset, at);
+    }
 
-    long countLocations(String principalId, String capability, Instant at);
+    List<Location> listLocations(
+            String principalId,
+            String capability,
+            String companyId,
+            int limit,
+            int offset,
+            Instant at);
+
+    default long countLocations(
+            String principalId, String capability, Instant at) {
+        return countLocations(principalId, capability, null, at);
+    }
+
+    long countLocations(
+            String principalId, String capability, String companyId, Instant at);
 
     List<Location> listLocationRevisions(String locationId, int limit, int offset);
 
@@ -46,6 +77,8 @@ public interface AttendanceGroupRepository {
     List<String> findGroupIdsReferencingLocationRevision(
             String locationRevisionId);
 
+    boolean hasLocationTimeZoneDependencies(String locationId);
+
     Optional<AttendanceGroup> findGroup(String groupId);
 
     List<AttendanceGroup> resolveGroupRevisions(
@@ -53,15 +86,37 @@ public interface AttendanceGroupRepository {
 
     Optional<AttendanceGroup> findGroupByIdempotency(String actorId, String idempotencyKey);
 
-    List<AttendanceGroup> listGroups(
+    default List<AttendanceGroup> listGroups(
             String principalId,
             String capability,
             LocalDate asOf,
             int limit,
             int offset,
+            Instant at) {
+        return listGroups(
+                principalId, capability, null, asOf, limit, offset, at);
+    }
+
+    List<AttendanceGroup> listGroups(
+            String principalId,
+            String capability,
+            String companyId,
+            LocalDate asOf,
+            int limit,
+            int offset,
             Instant at);
 
-    long countGroups(String principalId, String capability, LocalDate asOf, Instant at);
+    default long countGroups(
+            String principalId, String capability, LocalDate asOf, Instant at) {
+        return countGroups(principalId, capability, null, asOf, at);
+    }
+
+    long countGroups(
+            String principalId,
+            String capability,
+            String companyId,
+            LocalDate asOf,
+            Instant at);
 
     List<AttendanceGroup> listGroupRevisions(String groupId, int limit, int offset);
 

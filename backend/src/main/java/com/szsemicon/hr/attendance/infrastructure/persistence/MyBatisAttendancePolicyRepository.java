@@ -47,13 +47,15 @@ class MyBatisAttendancePolicyRepository implements AttendancePolicyRepository {
     public List<PolicyBinding> listBindings(
             String principalId,
             String capability,
+            String companyId,
             String groupId,
             LocalDate asOf,
             int limit,
             int offset,
             Instant at) {
         return mapper.listBindings(
-                        principalId, capability, groupId, asOf, limit, offset, at)
+                        principalId, capability, companyId,
+                        groupId, asOf, limit, offset, at)
                 .stream()
                 .map(this::binding)
                 .toList();
@@ -63,11 +65,12 @@ class MyBatisAttendancePolicyRepository implements AttendancePolicyRepository {
     public long countBindings(
             String principalId,
             String capability,
+            String companyId,
             String groupId,
             LocalDate asOf,
             Instant at) {
         return mapper.countBindings(
-                principalId, capability, groupId, asOf, at);
+                principalId, capability, companyId, groupId, asOf, at);
     }
 
     @Override

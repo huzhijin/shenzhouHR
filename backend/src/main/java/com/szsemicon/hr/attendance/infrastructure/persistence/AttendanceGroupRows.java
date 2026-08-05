@@ -10,6 +10,7 @@ final class AttendanceGroupRows {
 
     record LocationRow(
             String locationId,
+            String sharedLocationId,
             String companyId,
             String locationCode,
             String locationRevisionId,

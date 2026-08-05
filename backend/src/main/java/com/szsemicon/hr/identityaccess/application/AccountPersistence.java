@@ -12,6 +12,21 @@ import java.util.Optional;
 
 public interface AccountPersistence {
 
+    record GrantableCompanyRecord(
+            String companyId,
+            String code,
+            String name) {
+    }
+
+    record GrantableOrganizationRecord(
+            String organizationId,
+            String companyId,
+            String parentOrganizationId,
+            String code,
+            String name,
+            boolean canIncludeDescendants) {
+    }
+
     record EmployeeAccountCandidateRecord(
             String employeeId,
             String companyId,
@@ -187,6 +202,39 @@ public interface AccountPersistence {
             String status,
             Instant at);
 
+    /**
+     * Lists active companies for which the actor's current capability scope
+     * covers the requested scope type. Callers intersect results when an
+     * operation requires more than one capability.
+     */
+    List<GrantableCompanyRecord> findGrantableCompanies(
+            String actorPrincipalId,
+            String requestedScopeType,
+            String requiredCapability,
+            Instant at);
+
+    /**
+     * Lists companies with at least one current organization target covered by
+     * every required capability. Coverage by different organizations in the
+     * same company must not be combined into a false-positive intersection.
+     */
+    List<GrantableCompanyRecord> findGrantableOrganizationCompanies(
+            String actorPrincipalId,
+            List<String> requiredCapabilities,
+            Instant at);
+
+    /**
+     * Lists current active organizations in one company that are individually
+     * covered by the actor's current capability scopes. Exact organization
+     * authority returns only the exact node and marks it as unable to delegate
+     * descendants; descendant authority returns its current closure.
+     */
+    List<GrantableOrganizationRecord> findGrantableOrganizations(
+            String actorPrincipalId,
+            String companyId,
+            String requiredCapability,
+            Instant at);
+
     void updateAccountStatus(
             String accountId,
             String status,
@@ -253,6 +301,19 @@ public interface AccountPersistence {
             String targetPrincipalId,
             String targetEmployeeId,
             List<RoleAssignmentInput> assignments,
+            Instant at);
+
+    /**
+     * Re-evaluates a second capability against every requested target scope
+     * without creating or reusing data-scope rows. Account creation uses this
+     * to require the intersection of ACCOUNT:CREATE and ROLE:ASSIGN.
+     */
+    boolean coversEveryRoleAssignmentScope(
+            String actorPrincipalId,
+            String targetPrincipalId,
+            String targetEmployeeId,
+            List<RoleAssignmentInput> assignments,
+            String requiredCapability,
             Instant at);
 
     void replaceRoleAssignments(

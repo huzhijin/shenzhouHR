@@ -27,6 +27,8 @@ export function requiredDemoItem<T>(items: readonly T[], index = 0): T {
 
 export const demoLocations: readonly LocationView[] = [{
   locationId: '9703000000000000001',
+  sharedLocationId: '9703000000000000001',
+  companyLocationId: '9703000000000000001',
   companyId,
   code: 'SZ-FAB-01',
   locationRevisionId: '9703100000000000001',
@@ -38,10 +40,13 @@ export const demoLocations: readonly LocationView[] = [{
   effectiveTo: null,
   snapshotDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   rowVersion: 3,
+  sharedManagementAllowed: true,
   changeReason: '完成一号厂区考勤边界复核',
   updatedAt: '2026-07-25T02:16:00Z',
 }, {
   locationId: '9703000000000000002',
+  sharedLocationId: '9703000000000000002',
+  companyLocationId: '9703000000000000002',
   companyId,
   code: 'NT-PKG-01',
   locationRevisionId: '9703100000000000002',
@@ -53,6 +58,7 @@ export const demoLocations: readonly LocationView[] = [{
   effectiveTo: null,
   snapshotDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
   rowVersion: 1,
+  sharedManagementAllowed: true,
   changeReason: '建立封测基地考勤地点',
   updatedAt: '2026-07-25T02:20:00Z',
 }];
@@ -75,6 +81,24 @@ export const demoGroups: readonly AttendanceGroupView[] = [{
   rowVersion: 4,
   changeReason: '衔接 2026 夏季班次版本',
   updatedAt: '2026-07-25T03:05:00Z',
+}, {
+  groupId: '9704000000000000002',
+  companyId,
+  code: 'FAB-B-DAY',
+  groupRevisionId: '9704100000000000002',
+  revisionNumber: 1,
+  name: '一号厂 B 班白班',
+  locationId: requiredDemoItem(demoLocations).locationId,
+  locationRevisionId: requiredDemoItem(demoLocations).locationRevisionId,
+  calendarId: '9706000000000000001',
+  shiftTemplateId: '9705000000000000001',
+  status: 'ACTIVE',
+  effectiveFrom: '2026-01-01',
+  effectiveTo: null,
+  snapshotDigest: 'abababababababababababababababababababababababababababababababab',
+  rowVersion: 1,
+  changeReason: '建立可调配的白班考勤组',
+  updatedAt: '2026-07-25T03:10:00Z',
 }];
 
 export const demoAssignments: readonly AssignmentView[] = [{
@@ -85,6 +109,8 @@ export const demoAssignments: readonly AssignmentView[] = [{
   effectiveTo: '2026-08-16',
   rowVersion: 2,
   monthlyContextKey: '9200000000000000001:2026-07',
+  hasSuccessor: true,
+  transferable: false,
   changeReason: '暑期产线轮班安排',
   updatedAt: '2026-07-24T09:20:00Z',
 }, {
@@ -95,6 +121,8 @@ export const demoAssignments: readonly AssignmentView[] = [{
   effectiveTo: null,
   rowVersion: 1,
   monthlyContextKey: '9200000000000000002:2026-07',
+  hasSuccessor: false,
+  transferable: true,
   changeReason: '转入 A 班生效',
   updatedAt: '2026-07-24T09:28:00Z',
 }];

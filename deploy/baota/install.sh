@@ -52,6 +52,21 @@ detect_nginx() {
   die 'Nginx not found; install Nginx in Baota first'
 }
 
+detect_mysql() {
+  local candidate
+  if [[ -n "${MYSQL_BIN:-}" ]]; then
+    candidate="$(command -v "$MYSQL_BIN" 2>/dev/null || true)"
+    [[ -n "$candidate" && -x "$candidate" ]] || die "MySQL client not found: $MYSQL_BIN"
+    printf '%s\n' "$candidate"
+    return
+  fi
+  for candidate in /www/server/mysql/bin/mysql /usr/bin/mysql /usr/local/bin/mysql; do
+    [[ -x "$candidate" ]] && { printf '%s\n' "$candidate"; return; }
+  done
+  command -v mysql >/dev/null 2>&1 || die 'MySQL client not found; install MySQL in Baota first'
+  command -v mysql
+}
+
 need_root
 [[ -f "$RELEASE_ROOT/backend/shenzhou-hr.jar" ]] || die 'Release backend jar is missing'
 [[ -d "$RELEASE_ROOT/web" ]] || die 'Release frontend files are missing'
@@ -82,7 +97,19 @@ read -r -p 'MySQL account host [127.0.0.1]: ' ACCOUNT_HOST
 ACCOUNT_HOST="${ACCOUNT_HOST:-127.0.0.1}"
 
 JAVA_BIN="$(detect_java)"
+JAVA_MAJOR="$($JAVA_BIN -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -1)"
+[[ "$JAVA_MAJOR" == "21" ]] || die "Java 21 is required; detected: ${JAVA_MAJOR:-unknown} at $JAVA_BIN"
+JAR_BIN="${JAR_BIN:-$(dirname -- "$JAVA_BIN")/jar}"
+[[ -x "$JAR_BIN" ]] || die "A full JDK 21 is required; jar tool not found next to Java: $JAR_BIN"
+JAR_MAJOR="$($JAR_BIN --version 2>&1 | sed -n 's/^jar \([0-9][0-9]*\).*/\1/p' | head -1)"
+[[ "$JAR_MAJOR" == "21" ]] || die "JDK 21 jar tool is required; detected: ${JAR_MAJOR:-unknown} at $JAR_BIN"
+MYSQL_BIN="$(detect_mysql)"
+export JAVA_BIN JAR_BIN MYSQL_BIN
 NGINX_BIN="$(detect_nginx)"
+
+printf 'Using Java: %s\n' "$JAVA_BIN"
+printf 'Using JAR tool: %s\n' "$JAR_BIN"
+printf 'Using MySQL client: %s\n' "$MYSQL_BIN"
 
 if [[ -d /www/server/panel/vhost/nginx ]]; then
   NGINX_VHOST_DIR="/www/server/panel/vhost/nginx"

@@ -17,6 +17,7 @@ import com.szsemicon.hr.attendance.application.AttendanceMonthlyExemptionUsagePr
 import com.szsemicon.hr.attendance.application.AttendancePolicyRepository;
 import com.szsemicon.hr.attendance.application.CalendarRepository;
 import com.szsemicon.hr.attendance.application.ShiftRepository;
+import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Assignment;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.AttendanceGroup;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.LifecycleStatus;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Location;
@@ -3195,7 +3196,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
     }
 
     @Test
-    void incompatible_future_location_timezone_revision_rolls_back_every_group()
+    void referenced_location_timezone_change_is_rejected_before_group_rollover()
             throws Exception {
         Setup setup = createBaseSetup();
         createAssignment(
@@ -3234,7 +3235,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                                 """.formatted(COMPANY)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code")
-                        .value("CALENDAR_VERSION_MISSING"));
+                        .value("SHARED_LOCATION_TIME_ZONE_IN_USE"));
 
         MvcResult after = read(
                 "/api/v1/attendance-setup/resolve",
@@ -3261,6 +3262,13 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 Long.class,
                 setup.firstGroupId(),
                 setup.secondGroupId())).isEqualTo(2L);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM shared_location_revision
+                WHERE shared_location_id = ?
+                """,
+                Long.class,
+                setup.locationId())).isEqualTo(1L);
     }
 
     @Test
@@ -3440,6 +3448,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
         Instant successorRecordedAt = testClock.instant();
         Location locationSuccessor = new Location(
                 finiteLocation.locationId(),
+                finiteLocation.sharedLocationId(),
                 finiteLocation.companyId(),
                 finiteLocation.code(),
                 java.util.UUID.randomUUID().toString(),
@@ -3775,6 +3784,325 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
     }
 
     @Test
+    void assignment_transfer_appends_cross_group_successor_and_preserves_history()
+            throws Exception {
+        Setup setup = createBaseSetup();
+        String assignmentId = createAssignment(
+                setup.firstGroupId(),
+                "wave3-assignment-transfer-source",
+                "2026-08-14",
+                null);
+        String requestBody = """
+                {
+                  "targetGroupId":"%s",
+                  "effectiveFrom":"2026-08-20",
+                  "reason":"WAVE-3 人员跨考勤组调配"
+                }
+                """.formatted(setup.secondGroupId());
+
+        mockMvc.perform(get(
+                        "/api/v1/attendance-setup/groups/{groupId}/assignments",
+                        setup.firstGroupId())
+                        .with(user(ADMIN_PRINCIPAL)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].assignmentId")
+                        .value(assignmentId))
+                .andExpect(jsonPath("$.items[0].hasSuccessor").value(false))
+                .andExpect(jsonPath("$.items[0].transferable").value(true));
+
+        MvcResult transferred = mockMvc.perform(post(
+                        "/api/v1/attendance-setup/groups/{groupId}/assignments/{assignmentId}/transfer",
+                        setup.firstGroupId(),
+                        assignmentId)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .header(HttpHeaders.IF_MATCH, "\"0\"")
+                        .header(
+                                "Idempotency-Key",
+                                "wave3-assignment-cross-group-transfer")
+                        .header(
+                                "X-Change-Reason",
+                                "WAVE-3 人员跨考勤组调配")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"0\""))
+                .andExpect(header().string("Idempotency-Replayed", "false"))
+                .andExpect(jsonPath("$.groupId").value(setup.secondGroupId()))
+                .andExpect(jsonPath("$.employeeId").value(EMPLOYEE))
+                .andExpect(jsonPath("$.effectiveFrom").value("2026-08-20"))
+                .andExpect(jsonPath("$.effectiveTo").doesNotExist())
+                .andReturn();
+        String successorId = value(transferred, "$.assignmentId");
+        assertThat(successorId).isNotEqualTo(assignmentId);
+
+        assertThat(attendanceGroupRepository.findAssignment(assignmentId))
+                .get()
+                .satisfies(predecessor -> {
+                    assertThat(predecessor.groupId())
+                            .isEqualTo(setup.firstGroupId());
+                    assertThat(predecessor.effectiveTo())
+                            .isEqualTo(LocalDate.parse("2026-08-20"));
+                    assertThat(predecessor.rowVersion()).isEqualTo(1);
+                });
+        assertThat(attendanceGroupRepository.findAssignment(successorId))
+                .get()
+                .satisfies(successor -> {
+                    assertThat(successor.groupId())
+                            .isEqualTo(setup.secondGroupId());
+                    assertThat(successor.effectiveFrom())
+                            .isEqualTo(LocalDate.parse("2026-08-20"));
+                    assertThat(successor.effectiveTo()).isNull();
+                    assertThat(successor.rowVersion()).isZero();
+                });
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT supersedes_assignment_id
+                FROM attendance_group_assignment
+                WHERE attendance_group_assignment_id = ?
+                """,
+                String.class,
+                successorId)).isEqualTo(assignmentId);
+        assertThat(attendanceGroupRepository.resolveAssignments(
+                        EMPLOYEE,
+                        LocalDate.parse("2026-08-19"),
+                        testClock.instant()))
+                .singleElement()
+                .extracting(Assignment::assignmentId)
+                .isEqualTo(assignmentId);
+        assertThat(attendanceGroupRepository.resolveAssignments(
+                        EMPLOYEE,
+                        LocalDate.parse("2026-08-20"),
+                        testClock.instant()))
+                .singleElement()
+                .satisfies(successor -> {
+                    assertThat(successor.assignmentId()).isEqualTo(successorId);
+                    assertThat(successor.groupId())
+                            .isEqualTo(setup.secondGroupId());
+                });
+        assertThat(jdbc.queryForList(
+                """
+                SELECT state || ':' || CAST(business_effective_from AS VARCHAR)
+                FROM attendance_assignment_timeline
+                WHERE attendance_group_assignment_id = ?
+                ORDER BY event_sequence
+                """,
+                String.class,
+                assignmentId)).containsExactly(
+                        "ACTIVE:2026-08-14",
+                        "INACTIVE:2026-08-20");
+        assertThat(jdbc.queryForList(
+                """
+                SELECT state || ':' || CAST(business_effective_from AS VARCHAR)
+                FROM attendance_assignment_timeline
+                WHERE attendance_group_assignment_id = ?
+                ORDER BY event_sequence
+                """,
+                String.class,
+                successorId)).containsExactly("ACTIVE:2026-08-20");
+
+        mockMvc.perform(get(
+                        "/api/v1/attendance-setup/groups/{groupId}/assignments",
+                        setup.firstGroupId())
+                        .with(user(ADMIN_PRINCIPAL)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].assignmentId")
+                        .value(assignmentId))
+                .andExpect(jsonPath("$.items[0].hasSuccessor").value(true))
+                .andExpect(jsonPath("$.items[0].transferable").value(false));
+        mockMvc.perform(get(
+                        "/api/v1/attendance-setup/groups/{groupId}/assignments",
+                        setup.secondGroupId())
+                        .with(user(ADMIN_PRINCIPAL)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].assignmentId")
+                        .value(successorId))
+                .andExpect(jsonPath("$.items[0].hasSuccessor").value(false))
+                .andExpect(jsonPath("$.items[0].transferable").value(true));
+
+        long assignmentCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_group_assignment", Long.class);
+        long timelineCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_assignment_timeline", Long.class);
+        mockMvc.perform(post(
+                        "/api/v1/attendance-setup/groups/{groupId}/assignments/{assignmentId}/transfer",
+                        setup.firstGroupId(),
+                        assignmentId)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .header(HttpHeaders.IF_MATCH, "\"0\"")
+                        .header(
+                                "Idempotency-Key",
+                                "wave3-assignment-cross-group-transfer")
+                        .header(
+                                "X-Change-Reason",
+                                "WAVE-3 人员跨考勤组调配")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Idempotency-Replayed", "true"))
+                .andExpect(jsonPath("$.assignmentId").value(successorId));
+        mockMvc.perform(post(
+                        "/api/v1/attendance-setup/groups/{groupId}/assignments/{assignmentId}/transfer",
+                        setup.secondGroupId(),
+                        assignmentId)
+                        .with(user(ADMIN_PRINCIPAL))
+                        .with(csrf())
+                        .header(HttpHeaders.IF_MATCH, "\"0\"")
+                        .header(
+                                "Idempotency-Key",
+                                "wave3-assignment-cross-group-transfer")
+                        .header(
+                                "X-Change-Reason",
+                                "WAVE-3 人员跨考勤组调配")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_group_assignment", Long.class))
+                .isEqualTo(assignmentCount);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_assignment_timeline", Long.class))
+                .isEqualTo(timelineCount);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM audit_event
+                WHERE action_code = 'ATTENDANCE_GROUP_ASSIGNMENT_TRANSFERRED'
+                  AND resource_id_ref = ?
+                  AND result_code = 'SUCCESS'
+                """,
+                Long.class,
+                assignmentId)).isEqualTo(1L);
+    }
+
+    @Test
+    void assignment_list_marks_a_leaf_without_a_legal_boundary_non_transferable()
+            throws Exception {
+        Setup setup = createBaseSetup();
+        String assignmentId = createAssignment(
+                setup.firstGroupId(),
+                "wave3-assignment-no-transfer-boundary",
+                "2026-08-14",
+                "2026-08-15");
+
+        mockMvc.perform(get(
+                        "/api/v1/attendance-setup/groups/{groupId}/assignments",
+                        setup.firstGroupId())
+                        .with(user(ADMIN_PRINCIPAL)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].assignmentId")
+                        .value(assignmentId))
+                .andExpect(jsonPath("$.items[0].hasSuccessor").value(false))
+                .andExpect(jsonPath("$.items[0].transferable").value(false));
+    }
+
+    @Test
+    void assignment_transfer_rejects_same_group_backfill_and_existing_successor()
+            throws Exception {
+        Setup setup = createBaseSetup();
+        String assignmentId = createAssignment(
+                setup.firstGroupId(),
+                "wave3-assignment-transfer-guards",
+                "2026-08-14",
+                null);
+        long assignmentsBefore = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_group_assignment", Long.class);
+        long timelinesBefore = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_assignment_timeline", Long.class);
+
+        transferAssignment(
+                setup.firstGroupId(),
+                assignmentId,
+                setup.firstGroupId(),
+                "2026-08-20",
+                "wave3-transfer-same-group")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(
+                        "ATTENDANCE_ASSIGNMENT_TRANSFER_SAME_GROUP"));
+
+        testClock.setInstant(Instant.parse("2026-08-25T00:00:00Z"));
+        transferAssignment(
+                setup.firstGroupId(),
+                assignmentId,
+                setup.secondGroupId(),
+                "2026-08-20",
+                "wave3-transfer-backfill")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(
+                        "ATTENDANCE_ASSIGNMENT_BACKFILL_FORBIDDEN"));
+
+        testClock.setInstant(Instant.parse("2026-07-27T00:00:00Z"));
+        transferAssignment(
+                setup.firstGroupId(),
+                assignmentId,
+                setup.secondGroupId(),
+                "2026-08-20",
+                "wave3-transfer-first-success")
+                .andExpect(status().isOk());
+        transferAssignment(
+                setup.firstGroupId(),
+                assignmentId,
+                setup.secondGroupId(),
+                "2026-08-21",
+                "wave3-transfer-existing-successor",
+                1)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(
+                        "ATTENDANCE_ASSIGNMENT_SUCCESSOR_EXISTS"));
+
+        assertThat(assignmentsBefore).isEqualTo(1L);
+        assertThat(timelinesBefore).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_group_assignment", Long.class))
+                .isEqualTo(2L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_assignment_timeline", Long.class))
+                .isEqualTo(3L);
+    }
+
+    @Test
+    void assignment_transfer_never_crosses_the_company_boundary()
+            throws Exception {
+        Setup setup = createBaseSetup();
+        String assignmentId = createAssignment(
+                setup.firstGroupId(),
+                "wave3-assignment-transfer-company-guard",
+                "2026-08-14",
+                null);
+        jdbc.update(
+                """
+                UPDATE attendance_group
+                SET company_id = '30000000-0000-0000-0000-000000000002'
+                WHERE attendance_group_id = ?
+                """,
+                setup.secondGroupId());
+        long assignmentsBefore = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_group_assignment", Long.class);
+        long timelinesBefore = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_assignment_timeline", Long.class);
+
+        transferAssignment(
+                setup.firstGroupId(),
+                assignmentId,
+                setup.secondGroupId(),
+                "2026-08-20",
+                "wave3-transfer-cross-company")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("RESOURCE_NOT_AVAILABLE"));
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_group_assignment", Long.class))
+                .isEqualTo(assignmentsBefore);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM attendance_assignment_timeline", Long.class))
+                .isEqualTo(timelinesBefore);
+    }
+
+    @Test
     void location_timeline_resolves_business_and_knowledge_time_without_mutating_history()
             throws Exception {
         MvcResult created = create(
@@ -3869,6 +4197,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 .singleElement()
                 .satisfies(location -> {
                     assertThat(location.revisionNumber()).isEqualTo(2);
+                    assertThat(location.rowVersion()).isEqualTo(1);
                     assertThat(location.timeZone()).isEqualTo("UTC");
                 });
         assertThat(attendanceGroupRepository.listLocationRevisions(
@@ -3876,6 +4205,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 .singleElement()
                 .satisfies(location -> {
                     assertThat(location.revisionNumber()).isEqualTo(1);
+                    assertThat(location.rowVersion()).isZero();
                     assertThat(location.locationRevisionId())
                             .isEqualTo(originalRevisionId);
                     assertThat(location.effectiveTo())
@@ -4627,6 +4957,47 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         "Idempotency-Replayed", "false"))
                 .andReturn();
         return value(result, "$.assignmentId");
+    }
+
+    private org.springframework.test.web.servlet.ResultActions transferAssignment(
+            String sourceGroupId,
+            String assignmentId,
+            String targetGroupId,
+            String effectiveFrom,
+            String idempotencyKey) throws Exception {
+        return transferAssignment(
+                sourceGroupId,
+                assignmentId,
+                targetGroupId,
+                effectiveFrom,
+                idempotencyKey,
+                0);
+    }
+
+    private org.springframework.test.web.servlet.ResultActions transferAssignment(
+            String sourceGroupId,
+            String assignmentId,
+            String targetGroupId,
+            String effectiveFrom,
+            String idempotencyKey,
+            long expectedVersion) throws Exception {
+        return mockMvc.perform(post(
+                        "/api/v1/attendance-setup/groups/{groupId}/assignments/{assignmentId}/transfer",
+                        sourceGroupId,
+                        assignmentId)
+                .with(user(ADMIN_PRINCIPAL))
+                .with(csrf())
+                .header(HttpHeaders.IF_MATCH, "\"" + expectedVersion + "\"")
+                .header("Idempotency-Key", idempotencyKey)
+                .header("X-Change-Reason", "WAVE-3 人员跨考勤组调配")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "targetGroupId":"%s",
+                          "effectiveFrom":"%s",
+                          "reason":"WAVE-3 人员跨考勤组调配"
+                        }
+                        """.formatted(targetGroupId, effectiveFrom)));
     }
 
     private Map<String, Long> formalAttendanceTableCounts() {

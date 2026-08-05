@@ -590,7 +590,10 @@ paths:
       tags: [Access]
       operationId: createAccount
       summary: 创建本地账号；所有账号都必须设置强临时密码
-      x-capability: ACCOUNT:CREATE
+      description: |
+        同时要求 ACCOUNT:CREATE 与 ROLE:ASSIGN。每一条目标公司、组织或本人范围都必须
+        位于两项能力当前数据范围的交集内；ROLE:ASSIGN 还必须覆盖所请求角色授权的完整有效期。
+      x-capabilities: [ACCOUNT:CREATE, ROLE:ASSIGN]
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
       requestBody:
@@ -891,6 +894,82 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/RoleView'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+  /access/grantable-scopes/companies:
+    get:
+      tags: [Access]
+      operationId: listGrantableScopeCompanies
+      summary: 查询当前账号可转授数据范围的启用公司
+      description: |
+        ROLE_ASSIGNMENT 用途按当前有效 ROLE:ASSIGN 范围返回；ACCOUNT_CREATION 用途返回
+        ROLE:ASSIGN 与 ACCOUNT:CREATE 当前范围的交集。COMPANY 仅返回可转授整家公司的公司；
+        ORGANIZATION 返回至少有一个可转授组织的公司。新公司不会自动加入既有授权。
+      x-capability: ROLE:ASSIGN
+      parameters:
+        - name: scopeType
+          in: query
+          required: true
+          schema: { type: string, enum: [COMPANY, ORGANIZATION] }
+        - name: usage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ROLE_ASSIGNMENT, ACCOUNT_CREATION]
+            default: ROLE_ASSIGNMENT
+      responses:
+        '200':
+          description: 可转授公司目录
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GrantableCompany' }
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+  /access/grantable-scopes/companies/{companyId}/organizations:
+    get:
+      tags: [Access]
+      operationId: listGrantableScopeOrganizations
+      summary: 按公司查询当前账号可转授的启用组织
+      description: |
+        必须先选择公司。公司范围可返回该公司全部当前启用部门和团队；精确组织范围只返回
+        该组织，包含下级的组织范围返回当前组织闭包。ACCOUNT_CREATION 用途返回 ROLE:ASSIGN
+        与 ACCOUNT:CREATE 当前范围的交集。角色码不会绕过数据范围。
+      x-capability: ROLE:ASSIGN
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/ResourceId' }
+        - name: usage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ROLE_ASSIGNMENT, ACCOUNT_CREATION]
+            default: ROLE_ASSIGNMENT
+      responses:
+        '200':
+          description: 可转授组织目录
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GrantableOrganization' }
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
         '401':
           $ref: '#/components/responses/AuthenticationRequired'
         '403':
@@ -1998,6 +2077,11 @@ paths:
         - name: organizationId
           in: query
           schema: { $ref: '#/components/schemas/ResourceId' }
+        - name: companyId
+          in: query
+          required: false
+          description: 可选公司筛选；结果仍取当前主体 MASTER_DATA:READ 数据权限范围的交集
+          schema: { $ref: '#/components/schemas/ResourceId' }
         - name: status
           in: query
           schema: { $ref: '#/components/schemas/EmployeeStatus' }
@@ -2382,11 +2466,12 @@ paths:
     get:
       tags: [AttendanceSetup]
       operationId: listAttendanceLocations
-      summary: 分页查询授权公司范围内的考勤地点
+      summary: 分页查询共享物理地点；无公司筛选时每个地点只返回一次
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:COMPANY
+      x-data-scope: SHARED_LOCATION:AT_LEAST_ONE_BOUND_COMPANY
       parameters:
+        - $ref: '#/components/parameters/AttendanceCompanyFilter'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
       responses:
@@ -2401,12 +2486,14 @@ paths:
         '403': { $ref: '#/components/responses/AccessDenied' }
     post:
       tags: [AttendanceSetup]
-      operationId: createAttendanceLocation
-      summary: 幂等创建考勤地点
+      operationId: rejectAttendanceLocationCreation
+      summary: 已停用的地点新增接口；固定返回409且不会写入数据
+      description: 七个共享物理地点由部署收敛脚本一次性预置，运行期只能修改已有地点。
+      deprecated: true
+      x-retired: true
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:COMPANY
-      x-audit-event: ATTENDANCE_LOCATION_CREATED
+      x-data-scope: SHARED_LOCATION:ALL_BOUND_COMPANIES
       parameters:
         - $ref: '#/components/parameters/CsrfToken'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -2417,15 +2504,6 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/AttendanceLocationRequest' }
       responses:
-        '201':
-          description: 考勤地点
-          headers:
-            ETag: { $ref: '#/components/headers/ETag' }
-            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
-            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AttendanceLocationView' }
         '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
@@ -2436,7 +2514,7 @@ paths:
       operationId: getAttendanceLocation
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:COMPANY
+      x-data-scope: SHARED_LOCATION:AT_LEAST_ONE_BOUND_COMPANY
       parameters:
         - $ref: '#/components/parameters/LocationId'
       responses:
@@ -2454,9 +2532,13 @@ paths:
     put:
       tags: [AttendanceSetup]
       operationId: updateAttendanceLocation
+      description: |
+        追加共享地点修订并同步全部公司兼容投影。409 同时覆盖乐观锁冲突、
+        公司投影漂移、期间冲突，以及已存在考勤配置或历史引用时禁止直接修改时区
+        （SHARED_LOCATION_TIME_ZONE_IN_USE）。
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:COMPANY
+      x-data-scope: SHARED_LOCATION:ALL_BOUND_COMPANIES
       x-audit-event: ATTENDANCE_LOCATION_UPDATED
       parameters:
         - $ref: '#/components/parameters/LocationId'
@@ -2483,7 +2565,7 @@ paths:
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
-        '409': { $ref: '#/components/responses/StaleVersion' }
+        '409': { $ref: '#/components/responses/AttendanceSetupConflict' }
   /attendance-setup/locations/{locationId}/revisions:
     get:
       tags: [AttendanceSetup]
@@ -2491,7 +2573,7 @@ paths:
       summary: 分页返回地点不可变修订历史
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:READ
-      x-data-scope: ATTENDANCE_SETUP:COMPANY
+      x-data-scope: SHARED_LOCATION:AT_LEAST_ONE_BOUND_COMPANY
       parameters:
         - $ref: '#/components/parameters/LocationId'
         - $ref: '#/components/parameters/Page'
@@ -2514,7 +2596,7 @@ paths:
       summary: 启用或停用考勤地点，不物理删除
       security: [{ sessionCookie: [] }]
       x-capability: ATTENDANCE_SETUP:MANAGE_GROUP
-      x-data-scope: ATTENDANCE_SETUP:COMPANY
+      x-data-scope: SHARED_LOCATION:ALL_BOUND_COMPANIES
       x-audit-event: ATTENDANCE_LOCATION_LIFECYCLE_CHANGED
       parameters:
         - $ref: '#/components/parameters/LocationId'
@@ -2538,10 +2620,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AttendanceLocationView' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
-        '409': { $ref: '#/components/responses/StaleVersion' }
+        '409': { $ref: '#/components/responses/AttendanceSetupConflict' }
   /attendance-setup/groups:
     get:
       tags: [AttendanceSetup]
@@ -2550,6 +2633,7 @@ paths:
       x-capability: ATTENDANCE_SETUP:READ
       x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
+        - $ref: '#/components/parameters/AttendanceCompanyFilter'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
         - name: asOf
@@ -2801,6 +2885,46 @@ paths:
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
         '409': { $ref: '#/components/responses/AttendanceSetupConflict' }
+  /attendance-setup/groups/{groupId}/assignments/{assignmentId}/transfer:
+    post:
+      tags: [AttendanceSetup]
+      operationId: transferAttendanceGroupAssignment
+      summary: 从业务生效日起将员工调配到同公司的另一个考勤组
+      description: |
+        旧归属及其时间线保持只读；系统在生效日关闭旧归属并创建目标考勤组后继。
+        禁止历史回插、跨公司、期间重叠，以及调配到缺少有效地点、班次或日历的考勤组。
+      security: [{ sessionCookie: [] }]
+      x-capability: ATTENDANCE_SETUP:ASSIGN
+      x-data-scope: ATTENDANCE_SETUP:COMPANY
+      x-audit-event: ATTENDANCE_GROUP_ASSIGNMENT_TRANSFERRED
+      parameters:
+        - $ref: '#/components/parameters/GroupId'
+        - $ref: '#/components/parameters/AssignmentId'
+        - $ref: '#/components/parameters/CsrfToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/ChangeReason'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceGroupAssignmentTransferRequest'
+      responses:
+        '200':
+          description: 目标考勤组中的人员归属后继
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceGroupAssignmentView' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/AttendanceSetupConflict' }
   /attendance-setup/shifts:
     get:
       tags: [AttendanceSetup]
@@ -2809,6 +2933,7 @@ paths:
       x-capability: ATTENDANCE_SETUP:READ
       x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
+        - $ref: '#/components/parameters/AttendanceCompanyFilter'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
       responses:
@@ -3086,6 +3211,7 @@ paths:
       x-capability: ATTENDANCE_SETUP:READ
       x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
+        - $ref: '#/components/parameters/AttendanceCompanyFilter'
         - name: year
           in: query
           schema: { type: integer, minimum: 2000, maximum: 2100 }
@@ -3553,6 +3679,7 @@ paths:
       x-capability: ATTENDANCE_SETUP:READ
       x-data-scope: ATTENDANCE_SETUP:COMPANY
       parameters:
+        - $ref: '#/components/parameters/AttendanceCompanyFilter'
         - name: groupId
           in: query
           schema: { $ref: '#/components/schemas/ResourceId' }
@@ -4720,6 +4847,58 @@ paths:
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-reports/month-matrix:
+    get:
+      tags: [AttendanceReports]
+      operationId: getAttendanceMonthMatrix
+      x-capability: ATTENDANCE_REPORT:READ
+      description: |
+        按员工分页返回正式月度考勤矩阵。状态标签仅由授权后的已发布报表投影中
+        的每日结果、有效 OA 单据和异常事实组合；颜色只是客户端展示提示，
+        不参与考勤结果计算。同一天的多个不同状态全部返回。
+      parameters:
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        - name: companyId
+          in: query
+          required: false
+          description: 单公司授权可省略；多公司授权必须从授权公司目录显式选择。
+          schema: { type: string, maxLength: 36 }
+        - name: organizationId
+          in: query
+          required: false
+          schema: { type: string, maxLength: 36 }
+        - name: employeeId
+          in: query
+          required: false
+          schema: { type: string, maxLength: 36 }
+        - { $ref: '#/components/parameters/Page' }
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: 授权范围内的员工月度考勤矩阵
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceMonthMatrixPage'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /attendance-reports/companies:
     get:
       tags: [AttendanceReports]
@@ -4971,6 +5150,12 @@ components:
       in: query
       required: true
       schema: { $ref: '#/components/schemas/ResourceId' }
+    AttendanceCompanyFilter:
+      name: companyId
+      in: query
+      required: false
+      description: 可选公司筛选；仅在当前账号已授权的公司范围内生效
+      schema: { $ref: '#/components/schemas/ResourceId' }
     VersionId:
       name: versionId
       in: path
@@ -5037,6 +5222,7 @@ components:
       name: locationId
       in: path
       required: true
+      description: 共享地点操作应传 sharedLocationId；暂兼容传 companyLocationId。
       schema: { $ref: '#/components/schemas/ResourceId' }
     GroupId:
       name: groupId
@@ -5089,7 +5275,9 @@ components:
       additionalProperties: false
       required: [companyId, code, name, timeZone, effectiveFrom, reason]
       properties:
-        companyId: { $ref: '#/components/schemas/ResourceId' }
+        companyId:
+          allOf: [{ $ref: '#/components/schemas/ResourceId' }]
+          description: 兼容公司投影/首个可用公司，不表示地点归该公司所有。
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         name: { type: string, minLength: 1, maxLength: 100 }
         timeZone: { type: string, minLength: 1, maxLength: 64, examples: [Asia/Shanghai] }
@@ -5101,6 +5289,8 @@ components:
       additionalProperties: false
       required:
         - locationId
+        - sharedLocationId
+        - companyLocationId
         - companyId
         - code
         - locationRevisionId
@@ -5112,10 +5302,20 @@ components:
         - effectiveTo
         - snapshotDigest
         - rowVersion
+        - sharedManagementAllowed
         - changeReason
         - updatedAt
       properties:
-        locationId: { $ref: '#/components/schemas/ResourceId' }
+        locationId:
+          allOf: [{ $ref: '#/components/schemas/ResourceId' }]
+          deprecated: true
+          description: 公司地点投影标识的兼容字段；新客户端必须显式使用下面两个标识。
+        sharedLocationId:
+          allOf: [{ $ref: '#/components/schemas/ResourceId' }]
+          description: 七个共享物理地点之一的稳定全局标识，不随当前账号可见公司变化。
+        companyLocationId:
+          allOf: [{ $ref: '#/components/schemas/ResourceId' }]
+          description: 当前公司兼容投影标识；考勤组、班次和日历继续引用此标识。
         companyId: { $ref: '#/components/schemas/ResourceId' }
         code: { type: string, pattern: '^[A-Z0-9_-]+$', maxLength: 64 }
         locationRevisionId: { $ref: '#/components/schemas/ResourceId' }
@@ -5127,6 +5327,9 @@ components:
         effectiveTo: { type: [string, 'null'], format: date }
         snapshotDigest: { type: string, pattern: '^[0-9a-f]{64}$' }
         rowVersion: { type: integer, format: int64, minimum: 0 }
+        sharedManagementAllowed:
+          type: boolean
+          description: 当前账号是否覆盖该共享地点全部可用公司的管理权限。
         changeReason: { type: string, minLength: 2, maxLength: 500 }
         updatedAt: { type: string, format: date-time }
     AttendanceLocationPage:
@@ -5213,6 +5416,17 @@ components:
         effectiveFrom: { type: string, format: date }
         effectiveTo: { type: [string, 'null'], format: date }
         reason: { type: string, minLength: 2, maxLength: 500 }
+    AttendanceGroupAssignmentTransferRequest:
+      type: object
+      additionalProperties: false
+      required: [targetGroupId, effectiveFrom, reason]
+      properties:
+        targetGroupId: { $ref: '#/components/schemas/ResourceId' }
+        effectiveFrom:
+          type: string
+          format: date
+          description: 业务生效日；不得早于当前业务日期，且必须位于原归属有效期内。
+        reason: { type: string, minLength: 2, maxLength: 500 }
     AttendanceGroupAssignmentView:
       type: object
       additionalProperties: false
@@ -5224,6 +5438,8 @@ components:
         - effectiveTo
         - rowVersion
         - monthlyContextKey
+        - hasSuccessor
+        - transferable
         - changeReason
         - updatedAt
       properties:
@@ -5237,6 +5453,12 @@ components:
           type: string
           maxLength: 160
           description: 后续计算使用 employeeId + natural month；考勤组变更不重置。
+        hasSuccessor:
+          type: boolean
+          description: 是否已经生成后继归属；为 true 时本记录是只读历史，不可再次调配。
+        transferable:
+          type: boolean
+          description: 服务端依据无后继且当前归属期间仍存在合法调配生效日计算；前端不得根据 effectiveTo 自行推断。
         changeReason: { type: string, minLength: 2, maxLength: 500 }
         updatedAt: { type: string, format: date-time }
     AttendanceGroupAssignmentPage:
@@ -6229,11 +6451,11 @@ components:
     RoleView:
       type: object
       additionalProperties: false
-      required: [roleId, code, name, capabilities]
+      required: [roleId, roleCode, roleName, capabilities]
       properties:
         roleId: { $ref: '#/components/schemas/ResourceId' }
-        code: { type: string }
-        name: { type: string }
+        roleCode: { type: string }
+        roleName: { type: string }
         capabilities:
           type: array
           uniqueItems: true
@@ -6249,17 +6471,78 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ResourceId'
             - type: 'null'
+        includeDescendants:
+          type: boolean
+          default: true
+          description: |
+            仅 ORGANIZATION 范围生效；true 包含当前有效下级组织，false 仅所选组织。
+            省略时为兼容已有客户端按 true 处理。COMPANY 固定覆盖公司，SELF 固定仅本人。
         validFrom: { type: string, format: date-time }
         validTo: { type: [string, 'null'], format: date-time }
     RoleAssignmentView:
-      allOf:
-        - $ref: '#/components/schemas/RoleAssignmentRequest'
-        - type: object
-          required: [assignmentId, roleCode, roleName]
-          properties:
-            assignmentId: { $ref: '#/components/schemas/ResourceId' }
-            roleCode: { type: string }
-            roleName: { type: string }
+      type: object
+      additionalProperties: false
+      required:
+        - assignmentId
+        - roleId
+        - roleCode
+        - roleName
+        - scopeType
+        - scopeResourceId
+        - scopeCompanyId
+        - scopeCompanyName
+        - scopeResourceName
+        - scopeResourcePath
+        - includeDescendants
+        - validFrom
+        - validTo
+      properties:
+        assignmentId: { $ref: '#/components/schemas/ResourceId' }
+        roleId: { $ref: '#/components/schemas/ResourceId' }
+        roleCode: { type: string }
+        roleName: { type: string }
+        scopeType: { type: string, enum: [COMPANY, ORGANIZATION, SELF] }
+        scopeResourceId:
+          oneOf:
+            - $ref: '#/components/schemas/ResourceId'
+            - type: 'null'
+        scopeCompanyId:
+          oneOf:
+            - $ref: '#/components/schemas/ResourceId'
+            - type: 'null'
+          description: COMPANY/ORGANIZATION 范围所属公司，供界面先选公司再选组织。
+        scopeCompanyName: { type: [string, 'null'] }
+        scopeResourceName: { type: [string, 'null'] }
+        scopeResourcePath:
+          type: [string, 'null']
+          description: 组织范围在所属公司内的当前完整名称路径，不重复公司根；界面不得回显内部主键代替名称。
+        includeDescendants: { type: boolean }
+        validFrom: { type: string, format: date-time }
+        validTo: { type: [string, 'null'], format: date-time }
+    GrantableCompany:
+      type: object
+      additionalProperties: false
+      required: [companyId, code, name]
+      properties:
+        companyId: { $ref: '#/components/schemas/ResourceId' }
+        code: { type: string }
+        name: { type: string }
+    GrantableOrganization:
+      type: object
+      additionalProperties: false
+      required: [organizationId, companyId, code, name, canIncludeDescendants]
+      properties:
+        organizationId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
+        parentOrganizationId:
+          oneOf:
+            - $ref: '#/components/schemas/ResourceId'
+            - type: 'null'
+        code: { type: string }
+        name: { type: string }
+        canIncludeDescendants:
+          type: boolean
+          description: 当前用途的全部必需能力是否均允许把该节点连同下级一起授予。
     RoleAssignmentsUpdateRequest:
       type: object
       additionalProperties: false
@@ -8512,6 +8795,124 @@ components:
         rows:
           type: array
           items: { $ref: '#/components/schemas/AttendanceReportRow' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1, maximum: 200 }
+        totalPages: { type: integer, minimum: 0 }
+    AttendanceMonthMatrixBadgeCode:
+      type: string
+      enum:
+        - LATE
+        - EARLY_DEPARTURE
+        - MISSING_PUNCH
+        - ABSENCE
+        - RECOGNIZED_OVERTIME
+        - TIME_OFF
+        - OUTING
+        - TRIP
+        - PERSONAL_LEAVE
+        - SICK_LEAVE
+        - ANNUAL_LEAVE
+        - PUNCH_CORRECTION
+        - REST_DAY
+        - OTHER_LEAVE
+        - LEAVE_REVOCATION
+        - OVERTIME_APPLICATION
+        - EXEMPT_PUNCH
+        - OTHER_ATTENDANCE_DOCUMENT
+        - OTHER_EXCEPTION
+    AttendanceMonthMatrixDay:
+      type: object
+      additionalProperties: false
+      required:
+        - date
+        - organizationName
+        - shiftLabel
+        - firstPunchAt
+        - lastPunchAt
+        - badges
+      properties:
+        date: { type: string, format: date }
+        organizationName: { type: [string, 'null'], maxLength: 200 }
+        shiftLabel: { type: [string, 'null'], maxLength: 500 }
+        firstPunchAt: { type: [string, 'null'], format: date-time }
+        lastPunchAt: { type: [string, 'null'], format: date-time }
+        badges:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AttendanceMonthMatrixBadgeCode'
+    AttendanceMonthMatrixEmployeeRow:
+      type: object
+      additionalProperties: false
+      required:
+        - employeeId
+        - employeeNumber
+        - employeeName
+        - organizationId
+        - organizationName
+        - days
+      properties:
+        employeeId: { type: string, minLength: 1, maxLength: 36 }
+        employeeNumber: { type: string, minLength: 1, maxLength: 64 }
+        employeeName: { type: string, minLength: 1, maxLength: 100 }
+        organizationId: { type: string, minLength: 1, maxLength: 36 }
+        organizationName: { type: string, minLength: 1, maxLength: 200 }
+        days:
+          type: array
+          minItems: 28
+          maxItems: 31
+          items:
+            $ref: '#/components/schemas/AttendanceMonthMatrixDay'
+    AttendanceMonthMatrixFilters:
+      type: object
+      additionalProperties: false
+      required: [period, scopeReference, companyId]
+      properties:
+        period:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        scopeReference: { type: string, minLength: 1, maxLength: 128 }
+        companyId: { type: string, minLength: 1, maxLength: 36 }
+        organizationId: { type: [string, 'null'], maxLength: 36 }
+        employeeId: { type: [string, 'null'], maxLength: 36 }
+    AttendanceMonthMatrixPage:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - metadata
+        - queryFingerprint
+        - formulaVersion
+        - filters
+        - dates
+        - employeeCount
+        - rows
+        - page
+        - size
+        - totalPages
+      properties:
+        kind: { type: string, const: ATTENDANCE_MONTH_MATRIX }
+        metadata:
+          $ref: '#/components/schemas/AttendanceReportProjectionMetadata'
+        queryFingerprint:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        formulaVersion:
+          type: string
+          const: ATTENDANCE_MONTH_MATRIX_V1
+        filters:
+          $ref: '#/components/schemas/AttendanceMonthMatrixFilters'
+        dates:
+          type: array
+          minItems: 28
+          maxItems: 31
+          uniqueItems: true
+          items: { type: string, format: date }
+        employeeCount: { type: integer, format: int64, minimum: 0 }
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceMonthMatrixEmployeeRow'
         page: { type: integer, minimum: 0 }
         size: { type: integer, minimum: 1, maximum: 200 }
         totalPages: { type: integer, minimum: 0 }

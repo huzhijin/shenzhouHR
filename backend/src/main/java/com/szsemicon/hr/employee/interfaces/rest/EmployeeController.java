@@ -27,11 +27,12 @@ public class EmployeeController {
             @RequestParam(defaultValue = "50") int size,
             @RequestParam(required = false) String query,
             @RequestParam(required = false) String organizationId,
+            @RequestParam(required = false) String companyId,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) LocalDate asOf,
             @RequestParam(required = false) String sort) {
         EmployeePage result = queryService.query(
-                page, size, query, organizationId, status, asOf, sort);
+                page, size, query, organizationId, companyId, status, asOf, sort);
         var response = new EmployeePageResponse(
                 result.items().stream().map(this::toResponse).toList(),
                 result.total(),

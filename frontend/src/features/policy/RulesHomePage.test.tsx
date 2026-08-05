@@ -20,7 +20,10 @@ describe('RulesHomePage', () => {
       .toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '日常考勤设置' }))
       .toBeInTheDocument();
+    expect(screen.getByText('一句话看懂考勤设置')).toBeInTheDocument();
+    expect(screen.getByText(/地点决定“在哪里”/)).toBeInTheDocument();
     expect(screen.getByText('第 1 步')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '设置地点' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '设置班次' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '设置工作日历' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '建立考勤组' })).toBeInTheDocument();
@@ -34,13 +37,15 @@ describe('RulesHomePage', () => {
       .not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '设置班次' }))
       .not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '高级规则模板' }))
+    expect(screen.queryByText('一句话看懂考勤设置')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '高级规则模板（一般不用）' }))
       .toBeInTheDocument();
   });
 
   it('opens the selected authorized setting', () => {
     renderRulesHome(['POLICY:READ', 'ATTENDANCE_SETUP:READ']);
 
+    expect(screen.getByRole('button', { name: '设置地点：打开设置' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '设置班次：打开设置' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '设置工作日历：打开设置' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '建立考勤组：打开设置' })).toBeInTheDocument();

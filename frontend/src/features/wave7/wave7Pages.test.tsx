@@ -31,6 +31,9 @@ import {
   EmployeeTodayRoute,
 } from './EmployeeSelfServicePages';
 import {
+  AttendanceMonthMatrixView,
+  attendanceReportMatrixSnapshotMismatchMessage,
+  attendanceReportMatrixSnapshotsMatch,
   createReportExportRequest,
   exportDeliveryForRowCount,
   reportCellDisplayValue,
@@ -42,11 +45,13 @@ import {
   reportTypeOptions,
 } from './ReportsPage';
 import type {
+  AttendanceMonthMatrixQuery,
   ReportExportCreateRequest,
   ReportQuery,
   Wave7ProjectionGateway,
 } from './wave7Gateway';
 import type {
+  AttendanceMonthMatrixProjection,
   AttendanceReportType,
   AttendanceReportExportView,
   DashboardLoadResult,
@@ -640,6 +645,219 @@ describe('Wave 7 formal report route', () => {
 
     expect(loadReport.mock.calls.map(([query]) => query?.reportType))
       .toEqual(reportTypeOptions.map((option) => option.value));
+  });
+
+  it('renders every formal status badge in the employee month matrix', async () => {
+    const loadAttendanceMonthMatrix = vi.fn(
+      async (query: AttendanceMonthMatrixQuery) => formalMonthMatrix(query),
+    );
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({
+          loadReport: async (query) => formalReport(query),
+          loadAttendanceMonthMatrix,
+        })}
+        initialPeriod="2026-06"
+      />,
+      '/attendance/reports',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: '月度考勤明细矩阵',
+    })).toBeInTheDocument();
+    expect(screen.getByText(/颜色仅用于快速识别/)).toBeInTheDocument();
+    expect(screen.getByRole('region', {
+      name: '月度考勤矩阵数据概览',
+    })).toHaveTextContent('服务端授权组织');
+    expect(screen.getByText('员工总数').parentElement)
+      .toHaveTextContent('40');
+    expect(screen.getByText('矩阵分页').parentElement)
+      .toHaveTextContent('第 1 页 / 2 页 · 每页 20 人');
+    expect(screen.getByText(
+      /导出文件是平铺正式明细/,
+    )).toBeInTheDocument();
+    const matrix = screen.getByRole('table', {
+      name: '正式月度考勤明细矩阵',
+    });
+    const badges = Array.from(matrix.querySelectorAll(
+      '[data-badge-code]',
+    ));
+    expect(badges.map((badge) => badge.textContent)).toEqual([
+      '迟到',
+      '早退',
+      '补签',
+    ]);
+    expect(badges[0]).toHaveAttribute('data-badge-code', 'LATE');
+    expect(within(matrix).getByText('08:25')).toBeInTheDocument();
+    expect(within(matrix).getByText('18:15')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '汇总明细' }))
+      .not.toBeInTheDocument();
+    expect(loadAttendanceMonthMatrix).toHaveBeenCalledWith({
+      period: '2026-06',
+      companyId: '30000000-0000-0000-0000-000000000001',
+      page: 0,
+      size: 20,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() => {
+      expect(loadAttendanceMonthMatrix).toHaveBeenLastCalledWith({
+        period: '2026-06',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        page: 1,
+        size: 20,
+      });
+    });
+  });
+
+  it('compares every formal snapshot binding before mixing matrix data', () => {
+    const query: ReportQuery = {
+      reportType: 'ATTENDANCE_DETAIL',
+      period: '2026-06',
+      companyId: '30000000-0000-0000-0000-000000000001',
+      page: 0,
+      size: 50,
+    };
+    const report = formalReport(query);
+    const matrix = formalMonthMatrix({
+      period: query.period,
+      companyId: query.companyId,
+      page: 0,
+      size: 20,
+    });
+    expect(attendanceReportMatrixSnapshotsMatch(report, matrix))
+      .toBe(true);
+
+    const mismatches: Record<string, AttendanceMonthMatrixProjection> = {
+      projectionVersion: {
+        ...matrix,
+        metadata: {
+          ...matrix.metadata,
+          projectionVersion: 'different-projection',
+        },
+      },
+      dataAsOf: {
+        ...matrix,
+        metadata: {
+          ...matrix.metadata,
+          dataAsOf: '2026-06-30T01:00:00Z',
+        },
+      },
+      sourceVersions: {
+        ...matrix,
+        metadata: {
+          ...matrix.metadata,
+          sourceVersions: ['DIFFERENT-SOURCE-V1'],
+        },
+      },
+      periodState: {
+        ...matrix,
+        metadata: { ...matrix.metadata, periodState: 'CLOSED' },
+      },
+      scope: {
+        ...matrix,
+        metadata: {
+          ...matrix.metadata,
+          scope: {
+            ...matrix.metadata.scope,
+            reference: 'scope:different',
+          },
+        },
+      },
+      filters: {
+        ...matrix,
+        filters: { ...matrix.filters, companyId: 'company-different' },
+      },
+    };
+    for (const [binding, mismatched] of Object.entries(mismatches)) {
+      expect(
+        attendanceReportMatrixSnapshotsMatch(report, mismatched),
+        binding,
+      ).toBe(false);
+    }
+  });
+
+  it('fails closed in Chinese and removes export when snapshots differ', async () => {
+    const loadAttendanceMonthMatrix = vi.fn(
+      async (query: AttendanceMonthMatrixQuery) => {
+        const matrix = formalMonthMatrix(query);
+        return {
+          ...matrix,
+          metadata: {
+            ...matrix.metadata,
+            projectionVersion: 'different-projection',
+          },
+        };
+      },
+    );
+    renderWithRouter(
+      <ReportsRoute
+        gateway={formalExportGateway({
+          loadReport: async (query) => formalReport(query),
+          loadAttendanceMonthMatrix,
+        })}
+        capabilities={['ATTENDANCE_REPORT:EXPORT_CREATE']}
+        initialPeriod="2026-06"
+      />,
+      '/attendance/reports',
+    );
+
+    expect(await screen.findByText(
+      attendanceReportMatrixSnapshotMismatchMessage,
+    )).toBeInTheDocument();
+    expect(screen.queryByRole('table', {
+      name: '正式月度考勤明细矩阵',
+    })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {
+      name: '创建受控导出',
+    })).not.toBeInTheDocument();
+  });
+
+  it('returns an out-of-range matrix page to the last valid page', async () => {
+    const onPageChange = vi.fn();
+    const matrix = formalMonthMatrix({
+      period: '2026-06',
+      companyId: '30000000-0000-0000-0000-000000000001',
+      page: 2,
+      size: 20,
+    });
+    render(
+      <AttendanceMonthMatrixView
+        matrix={{ ...matrix, rows: [], totalPages: 2 }}
+        onPageChange={onPageChange}
+      />,
+    );
+
+    expect(screen.getByText(
+      '当前页码已超出有效范围，正在返回最后一页。',
+    )).toBeInTheDocument();
+    await waitFor(() => {
+      expect(onPageChange).toHaveBeenCalledWith(1);
+    });
+  });
+
+  it('formats matrix punches with the projection metadata time zone', () => {
+    const matrix = formalMonthMatrix({
+      period: '2026-06',
+      companyId: '30000000-0000-0000-0000-000000000001',
+      page: 0,
+      size: 20,
+    });
+    render(
+      <AttendanceMonthMatrixView
+        matrix={{
+          ...matrix,
+          metadata: { ...matrix.metadata, timeZone: 'UTC' },
+        }}
+      />,
+    );
+
+    const table = screen.getByRole('table', {
+      name: '正式月度考勤明细矩阵',
+    });
+    expect(within(table).getByText('00:25')).toBeInTheDocument();
+    expect(within(table).getByText('10:15')).toBeInTheDocument();
+    expect(within(table).queryByText('08:25')).not.toBeInTheDocument();
   });
 
   it('clears old authorized rows synchronously before a month reload', async () => {
@@ -1287,5 +1505,59 @@ function formalReport(
     size,
     totalPages: 1,
     ...overrides,
+  };
+}
+
+function formalMonthMatrix(
+  query: AttendanceMonthMatrixQuery,
+): AttendanceMonthMatrixProjection {
+  const dates = Array.from({ length: 30 }, (_, index) => (
+    `2026-06-${String(index + 1).padStart(2, '0')}`
+  ));
+  return {
+    kind: 'ATTENDANCE_MONTH_MATRIX',
+    metadata: {
+      ...reportFixture.metadata,
+      projectionVersion:
+        `FORMAL-ATTENDANCE_DETAIL-${query.period}-V1`,
+      periodLabel: query.period,
+      scope: {
+        type: 'ORGANIZATION',
+        reference: 'scope:server-authorized',
+        label: '服务端授权组织',
+      },
+    },
+    queryFingerprint: 'a'.repeat(64),
+    formulaVersion: 'ATTENDANCE_MONTH_MATRIX_V1',
+    filters: {
+      period: query.period,
+      scopeReference: 'scope:server-authorized',
+      companyId: query.companyId
+        ?? '30000000-0000-0000-0000-000000000001',
+      organizationId: query.organizationId ?? null,
+      employeeId: null,
+    },
+    dates,
+    employeeCount: 40,
+    rows: [{
+      employeeId: `employee-${query.page ?? 0}`,
+      employeeNumber: 'SZ001',
+      employeeName: '张三',
+      organizationId: 'org-a',
+      organizationName: '制造一部',
+      days: dates.map((date, index) => ({
+        date,
+        organizationName: index === 0 ? '制造一部' : null,
+        shiftLabel: index === 0 ? '扬州总部班次' : null,
+        firstPunchAt: index === 0 ? '2026-06-01T00:25:00Z' : null,
+        lastPunchAt: index === 0 ? '2026-06-01T10:15:00Z' : null,
+        badges: index === 0
+          ? ['LATE', 'EARLY_DEPARTURE', 'PUNCH_CORRECTION']
+          : [],
+      })),
+    }],
+    page: query.page ?? 0,
+    size: query.size ?? 20,
+    totalPages: 2,
   };
 }

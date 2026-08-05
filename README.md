@@ -16,6 +16,8 @@
 
 [`deploy/mysql/usability-finalization-post-v30.sql`](deploy/mysql/usability-finalization-post-v30.sql) 只用于已经准确执行过 V30 且包含 W3 基线的现有数据库；干净数据库不得运行。它负责停用 W3 验证公司、停用旧合成管理员并撤销会话、移除制造中心主管/主任角色，以及按精确标识清理浏览器验收产生的合成员工与组织。脚本会先核对数据形状，发现真实授权或异常依赖时立即回滚。在权威 V29、V30 恢复前，它保持为 Flyway 外的可重复执行收口脚本。
 
+完成上述收口后，现有本机基线必须按固定顺序执行共享地点升级：先由 Flyway 执行并记录纯结构迁移 [`V31__shared_physical_location_catalog.sql`](backend/src/main/resources/db/migration/V31__shared_physical_location_catalog.sql)，再运行 [`deploy/mysql/four-company-finalization-post-v30.sql`](deploy/mysql/four-company-finalization-post-v30.sql)，将已确认的上海昇州、上海晟州聚能、江苏神州和江苏芯越建立为 4 家独立公司并初始化公司级班次、工作日历、考勤组、规则、年假策略和管理员公司范围；随后运行 [`deploy/mysql/shared-location-convergence-post-v30.sql`](deploy/mysql/shared-location-convergence-post-v30.sql)，将内部 28 条公司兼容投影收敛为 7 条集团共享地点主数据和 28 条公司可用关系；最后运行只读验收脚本 [`deploy/mysql/verify-four-company-finalization.sql`](deploy/mysql/verify-four-company-finalization.sql)。顺序必须是 `V31 → 四公司收口 → 共享地点收敛 → 只读验收`，全部检查均为 `PASS` 才可继续。这些脚本均有严格的版本和数据形状保护，不能用于空库或未经确认的环境。
+
 ## W9 发布加固与验收
 
 W9 提供考勤 P0-A 的离线安全检查、50 并发/36 个月容量合同、原生 Nginx/systemd 预检、MySQL 备份恢复安全脚本、浏览器验收矩阵和严格 release evidence contract。当前状态是 **harness ready，release `NOT_VERIFIED`**：

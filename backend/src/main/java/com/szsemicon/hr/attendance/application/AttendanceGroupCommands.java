@@ -35,4 +35,11 @@ public final class AttendanceGroupCommands {
             LocalDate effectiveTo,
             String reason) {
     }
+
+    public record AssignmentTransferCommand(
+            String sourceGroupId,
+            String targetGroupId,
+            LocalDate effectiveFrom,
+            String reason) {
+    }
 }

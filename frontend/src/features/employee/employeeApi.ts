@@ -167,6 +167,7 @@ export interface PriorServiceAdjustmentRequest {
 export interface EmployeeFilters {
   query?: string;
   organizationId?: string;
+  companyId?: string;
   status?: EmployeeStatus;
   sort?: 'employeeNumber' | 'displayName' | 'employmentStatus' | 'organizationName' | 'updatedAt';
 }
@@ -182,6 +183,7 @@ export function getEmployees(
   const parameters = new URLSearchParams({ page: String(page), size: String(size) });
   if (filters.query) parameters.set('query', filters.query);
   if (filters.organizationId) parameters.set('organizationId', filters.organizationId);
+  if (filters.companyId) parameters.set('companyId', filters.companyId);
   if (filters.status) parameters.set('status', filters.status);
   if (filters.sort) parameters.set('sort', filters.sort);
   return requestJson<EmployeePage>(`${basePath}?${parameters}`);

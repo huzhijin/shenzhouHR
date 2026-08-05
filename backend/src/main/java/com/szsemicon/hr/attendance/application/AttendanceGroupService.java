@@ -1,10 +1,12 @@
 package com.szsemicon.hr.attendance.application;
 
 import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.AssignmentCommand;
+import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.AssignmentTransferCommand;
 import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.GroupCommand;
 import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.LocationCommand;
 import com.szsemicon.hr.attendance.application.AttendanceGroupRepository.AssignmentRolloverCandidate;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Assignment;
+import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.AssignmentListItem;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.AttendanceGroup;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.LifecycleStatus;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Location;
@@ -40,6 +42,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -66,6 +70,7 @@ public class AttendanceGroupService {
     private final AuditService auditService;
     private final SecurityTokenService tokenService;
     private final Clock clock;
+    private final boolean testFixtureLocationBootstrapEnabled;
 
     public AttendanceGroupService(
             CurrentCapabilityService capabilityService,
@@ -78,7 +83,8 @@ public class AttendanceGroupService {
             AttendanceSetupIdempotencyService idempotencyService,
             AuditService auditService,
             SecurityTokenService tokenService,
-            Clock clock) {
+            Clock clock,
+            Environment environment) {
         this.capabilityService = capabilityService;
         this.principalProvider = principalProvider;
         this.peopleRepository = peopleRepository;
@@ -90,10 +96,17 @@ public class AttendanceGroupService {
         this.auditService = auditService;
         this.tokenService = tokenService;
         this.clock = clock;
+        this.testFixtureLocationBootstrapEnabled =
+                environment.acceptsProfiles(Profiles.of("test"));
     }
 
     @Transactional(readOnly = true)
     public Page<Location> listLocations(int page, int size) {
+        return listLocations(null, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Location> listLocations(String companyId, int page, int size) {
         AttendanceSetupRules.page(page, size);
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
         String principal = principalProvider.currentPrincipalId();
@@ -101,26 +114,44 @@ public class AttendanceGroupService {
         return new Page<>(
                 repository.listLocations(
                         principal, CapabilityCodes.ATTENDANCE_SETUP_READ,
-                        size, page * size, now),
+                        companyId, size, page * size, now),
                 repository.countLocations(
-                        principal, CapabilityCodes.ATTENDANCE_SETUP_READ, now),
+                        principal, CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId, now),
                 page,
                 size);
     }
 
     @Transactional(readOnly = true)
     public Location getLocation(String locationId) {
-        Location location = repository.findLocation(locationId)
+        Location location = repository.findSharedLocation(locationId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        requireCompany(CapabilityCodes.ATTENDANCE_SETUP_READ, location.companyId());
+        requireSharedLocationRead(locationId);
         return location;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean canManageSharedLocation(String locationId) {
+        List<String> companyIds =
+                repository.listSharedLocationCompanyIds(locationId);
+        if (companyIds.isEmpty()) {
+            return false;
+        }
+        String actor = principalProvider.currentPrincipalId();
+        Instant at = clock.instant();
+        return companyIds.stream().allMatch(companyId ->
+                peopleRepository.canAccessCompany(
+                        actor,
+                        CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP,
+                        companyId,
+                        at));
     }
 
     @Transactional(readOnly = true)
     public Page<Location> listLocationRevisions(
             String locationId, int page, int size) {
         AttendanceSetupRules.page(page, size);
-        requireLocation(locationId, CapabilityCodes.ATTENDANCE_SETUP_READ);
+        requireSharedLocationRead(locationId);
         return new Page<>(
                 repository.listLocationRevisions(
                         locationId, size, page * size),
@@ -132,6 +163,11 @@ public class AttendanceGroupService {
     @Transactional
     public Location createLocation(LocationCommand command, String idempotencyKey) {
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
+        if (!testFixtureLocationBootstrapEnabled) {
+            throw AttendanceSetupRules.conflict(
+                    "SHARED_LOCATION_CATALOG_FIXED",
+                    "共享地点目录固定为七个预置地点，不支持新增；请修改现有地点");
+        }
         LocationCommand normalized = normalize(command);
         String key = AttendanceSetupRules.idempotencyKey(idempotencyKey);
         requireCompany(
@@ -144,58 +180,91 @@ public class AttendanceGroupService {
                         "IDEMPOTENCY_KEY_REUSED",
                         "Idempotency-Key 已用于不同的地点请求");
             }
-            return replay;
+            return repository.findSharedLocation(replay.sharedLocationId())
+                    .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         }
         Instant now = clock.instant();
+        String locationId = UUID.randomUUID().toString();
         Location created = new Location(
-                UUID.randomUUID().toString(), normalized.companyId(),
+                locationId, locationId, normalized.companyId(),
                 normalized.code(), UUID.randomUUID().toString(), 1,
                 normalized.name(), normalized.timeZone(), LifecycleStatus.ACTIVE,
                 normalized.effectiveFrom(), normalized.effectiveTo(),
                 locationDigest(normalized),
                 0, normalized.reason(), actor, now, actor, now);
         repository.insertLocation(created, key);
+        Location persisted = repository.findSharedLocation(locationId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "shared location fixture was not persisted"));
         audit(actor, "ATTENDANCE_LOCATION_CREATED", "ATTENDANCE_LOCATION",
-                created.locationId(), normalized.reason(), null, created);
-        return created;
+                persisted.sharedLocationId(), normalized.reason(), null, persisted);
+        return persisted;
     }
 
     @Transactional
     public Location updateLocation(
             String locationId, LocationCommand command, long expectedVersion) {
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
-        Location current = requireLocation(
-                locationId, CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
         LocationCommand normalized = normalize(command);
-        if (!current.companyId().equals(normalized.companyId())) {
-            throw new ResourceNotAvailableAccessDeniedException();
-        }
+        Location current = repository.findSharedLocation(locationId)
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         if (!current.code().equals(normalized.code())) {
             throw AttendanceSetupRules.conflict(
                     "LOCATION_IDENTITY_IMMUTABLE",
                     "地点编码属于稳定 identity，不可通过 revision 修改");
         }
-        repository.lockLocation(locationId);
-        current = requireLocation(
-                locationId, CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
-        repository.lockLocationRevision(current.locationRevisionId());
+        requireSharedLocationManagement(locationId);
+        long sharedVersion = repository.lockSharedLocation(locationId);
+        requireVersion(sharedVersion, expectedVersion);
+        List<Location> bindings = lockSharedLocationBindings(locationId);
+        current = repository.findSharedLocation(current.sharedLocationId())
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         requireVersion(current.rowVersion(), expectedVersion);
-        requireFutureRevision(current.effectiveFrom(), normalized.effectiveFrom());
+        if (bindings.stream().noneMatch(binding ->
+                binding.companyId().equals(normalized.companyId()))) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
+        for (Location binding : bindings) {
+            if (!binding.code().equals(normalized.code())) {
+                throw AttendanceSetupRules.conflict(
+                        "SHARED_LOCATION_PROJECTION_DRIFT",
+                        "共享地点的公司兼容投影编码不一致");
+            }
+            requireFutureRevision(
+                    binding.effectiveFrom(), normalized.effectiveFrom());
+        }
+        rejectReferencedTimeZoneChange(current, normalized, bindings);
         Instant now = clock.instant();
         String actor = principalProvider.currentPrincipalId();
-        Location updated = new Location(
-                current.locationId(), current.companyId(), normalized.code(),
-                UUID.randomUUID().toString(), current.revisionNumber() + 1,
-                normalized.name(), normalized.timeZone(), current.status(),
-                normalized.effectiveFrom(), normalized.effectiveTo(),
-                locationDigest(normalized),
-                current.rowVersion() + 1, normalized.reason(), current.createdBy(),
-                current.createdAt(), actor, now);
-        coordinateLocationRollover(
-                current, updated, expectedVersion, normalized.reason(), actor, now);
+        Map<String, Location> successors = sharedLocationSuccessors(
+                bindings, normalized, null, actor, now);
+        Location compatibilitySuccessor = successors.values().stream()
+                .filter(value -> value.companyId()
+                        .equals(normalized.companyId()))
+                .findFirst()
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        if (!repository.updateSharedLocation(
+                compatibilitySuccessor, sharedVersion)) {
+            throw new OptimisticLockingFailureException(
+                    "shared location version changed");
+        }
+        for (Location binding : bindings) {
+            coordinateLocationRollover(
+                    binding,
+                    successors.get(binding.locationId()),
+                    binding.rowVersion(),
+                    normalized.reason(),
+                    actor,
+                    now);
+        }
+        Location persisted = repository.findSharedLocation(
+                        current.sharedLocationId())
+                .filter(value -> value.rowVersion() == sharedVersion + 1)
+                .orElseThrow(() -> new OptimisticLockingFailureException(
+                        "shared location successor was not persisted"));
         audit(actor, "ATTENDANCE_LOCATION_UPDATED", "ATTENDANCE_LOCATION",
-                locationId, normalized.reason(), current, updated);
-        return updated;
+                current.sharedLocationId(), normalized.reason(), current, persisted);
+        return persisted;
     }
 
     @Transactional
@@ -205,13 +274,15 @@ public class AttendanceGroupService {
             String reason,
             long expectedVersion) {
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
-        Location current = requireLocation(
-                locationId, CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
+        Location current = repository.findSharedLocation(locationId)
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         String normalizedReason = AttendanceSetupRules.reason(reason);
-        repository.lockLocation(locationId);
-        current = requireLocation(
-                locationId, CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP);
-        repository.lockLocationRevision(current.locationRevisionId());
+        requireSharedLocationManagement(locationId);
+        long sharedVersion = repository.lockSharedLocation(locationId);
+        requireVersion(sharedVersion, expectedVersion);
+        List<Location> bindings = lockSharedLocationBindings(locationId);
+        current = repository.findSharedLocation(current.sharedLocationId())
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         requireVersion(current.rowVersion(), expectedVersion);
         if (current.status() == status) {
             throw AttendanceSetupRules.conflict(
@@ -220,28 +291,51 @@ public class AttendanceGroupService {
         String actor = principalProvider.currentPrincipalId();
         Instant now = clock.instant();
         LocalDate nextEffectiveFrom = futureStatusBoundary(current.effectiveFrom());
-        LocationCommand transition = new LocationCommand(
+        LocationCommand sharedTransition = new LocationCommand(
                 current.companyId(), current.code(), current.name(),
                 current.timeZone(), nextEffectiveFrom, current.effectiveTo(),
                 normalizedReason);
-        requireFutureRevision(current.effectiveFrom(), nextEffectiveFrom);
-        Location updated = new Location(
-                current.locationId(), current.companyId(), current.code(),
-                UUID.randomUUID().toString(), current.revisionNumber() + 1,
-                current.name(), current.timeZone(), status,
-                nextEffectiveFrom, current.effectiveTo(),
-                locationDigest(transition), current.rowVersion() + 1,
-                normalizedReason, current.createdBy(), current.createdAt(), actor, now);
-        coordinateLocationRollover(
-                current, updated, expectedVersion, normalizedReason, actor, now);
+        for (Location binding : bindings) {
+            requireFutureRevision(binding.effectiveFrom(), nextEffectiveFrom);
+        }
+        Map<String, Location> successors = sharedLocationSuccessors(
+                bindings, sharedTransition, status, actor, now);
+        Location compatibilitySuccessor = successors.values().stream()
+                .findFirst()
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        if (!repository.updateSharedLocation(
+                compatibilitySuccessor, sharedVersion)) {
+            throw new OptimisticLockingFailureException(
+                    "shared location version changed");
+        }
+        for (Location binding : bindings) {
+            coordinateLocationRollover(
+                    binding,
+                    successors.get(binding.locationId()),
+                    binding.rowVersion(),
+                    normalizedReason,
+                    actor,
+                    now);
+        }
+        Location persisted = repository.findSharedLocation(
+                        current.sharedLocationId())
+                .filter(value -> value.rowVersion() == sharedVersion + 1)
+                .orElseThrow(() -> new OptimisticLockingFailureException(
+                        "shared location status successor was not persisted"));
         audit(actor, "ATTENDANCE_LOCATION_" + status.name(), "ATTENDANCE_LOCATION",
-                locationId, normalizedReason, current, updated);
-        return updated;
+                current.sharedLocationId(), normalizedReason, current, persisted);
+        return persisted;
     }
 
     @Transactional(readOnly = true)
     public Page<AttendanceGroup> listGroups(
             LocalDate asOf, int page, int size) {
+        return listGroups(null, asOf, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AttendanceGroup> listGroups(
+            String companyId, LocalDate asOf, int page, int size) {
         AttendanceSetupRules.page(page, size);
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
         String principal = principalProvider.currentPrincipalId();
@@ -249,9 +343,10 @@ public class AttendanceGroupService {
         return new Page<>(
                 repository.listGroups(
                         principal, CapabilityCodes.ATTENDANCE_SETUP_READ,
-                        asOf, size, page * size, now),
+                        companyId, asOf, size, page * size, now),
                 repository.countGroups(
-                        principal, CapabilityCodes.ATTENDANCE_SETUP_READ, asOf, now),
+                        principal, CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId, asOf, now),
                 page,
                 size);
     }
@@ -486,16 +581,31 @@ public class AttendanceGroupService {
     }
 
     @Transactional(readOnly = true)
-    public Page<Assignment> listAssignments(
+    public Page<AssignmentListItem> listAssignments(
             String groupId, LocalDate asOf, int page, int size) {
         AttendanceSetupRules.page(page, size);
         requireGroup(groupId, CapabilityCodes.ATTENDANCE_SETUP_READ);
+        List<AssignmentListItem> assignments = repository.listAssignments(
+                        groupId, asOf, size, page * size)
+                .stream()
+                .map(this::describeAssignment)
+                .toList();
         return new Page<>(
-                repository.listAssignments(
-                        groupId, asOf, size, page * size),
+                assignments,
                 repository.countAssignments(groupId, asOf),
                 page,
                 size);
+    }
+
+    @Transactional(readOnly = true)
+    public AssignmentListItem describeAssignment(Assignment assignment) {
+        boolean hasSuccessor = repository
+                .findAssignmentSuccessor(assignment.assignmentId())
+                .isPresent();
+        return new AssignmentListItem(
+                assignment,
+                hasSuccessor,
+                !hasSuccessor && hasTransferBoundary(assignment));
     }
 
     @Transactional
@@ -603,6 +713,118 @@ public class AttendanceGroupService {
                 .orElseThrow(() -> new IllegalStateException(
                         "assignment successor was not persisted"));
         audit(actor, "ATTENDANCE_GROUP_ASSIGNMENT_UPDATED",
+                "ATTENDANCE_GROUP_ASSIGNMENT", assignmentId,
+                normalized.reason(), current, successor);
+        return successor;
+    }
+
+    @Transactional
+    public Assignment transferAssignment(
+            String sourceGroupId,
+            String assignmentId,
+            AssignmentTransferCommand command,
+            long expectedVersion) {
+        capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_ASSIGN);
+        AssignmentTransferCommand normalized = normalize(command);
+        if (!sourceGroupId.equals(normalized.sourceGroupId())) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
+        Assignment current = repository.findAssignment(assignmentId)
+                .filter(value -> value.groupId().equals(sourceGroupId))
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        AttendanceGroup sourceGroup = requireGroup(
+                sourceGroupId, CapabilityCodes.ATTENDANCE_SETUP_ASSIGN);
+        AttendanceGroup targetGroup = requireEffectiveActiveGroup(
+                normalized.targetGroupId(),
+                normalized.effectiveFrom(),
+                CapabilityCodes.ATTENDANCE_SETUP_ASSIGN);
+        if (sourceGroup.groupId().equals(targetGroup.groupId())) {
+            throw AttendanceSetupRules.conflict(
+                    "ATTENDANCE_ASSIGNMENT_TRANSFER_SAME_GROUP",
+                    "目标考勤组必须与当前考勤组不同");
+        }
+        if (!sourceGroup.companyId().equals(targetGroup.companyId())) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
+        requireEmployeeInCompany(
+                current.employeeId(),
+                normalized.effectiveFrom(),
+                targetGroup.companyId());
+
+        repository.lockEmployee(current.employeeId());
+        repository.lockAssignmentTimeline(current.assignmentId());
+        current = repository.findAssignment(assignmentId)
+                .filter(value -> value.groupId().equals(sourceGroupId))
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        requireVersion(current.rowVersion(), expectedVersion);
+        if (repository.findAssignmentSuccessor(assignmentId).isPresent()) {
+            throw AttendanceSetupRules.conflict(
+                    "ATTENDANCE_ASSIGNMENT_SUCCESSOR_EXISTS",
+                    "该人员归属已经存在后继记录，不能再次回插");
+        }
+        if (!normalized.effectiveFrom().isAfter(current.effectiveFrom())
+                || current.effectiveTo() != null
+                && !normalized.effectiveFrom().isBefore(current.effectiveTo())) {
+            throw AttendanceSetupRules.conflict(
+                    "ATTENDANCE_ASSIGNMENT_BOUNDARY_CONFLICT",
+                    "调配生效日必须位于当前人员归属的有效期间内");
+        }
+        if (normalized.effectiveFrom().isBefore(LocalDate.now(clock))) {
+            throw AttendanceSetupRules.conflict(
+                    "ATTENDANCE_ASSIGNMENT_BACKFILL_FORBIDDEN",
+                    "人员调配不能回插到已经过去的业务日期");
+        }
+
+        AssignmentCommand targetAssignment = new AssignmentCommand(
+                current.employeeId(),
+                normalized.effectiveFrom(),
+                current.effectiveTo(),
+                normalized.reason());
+        validateAssignmentWithinGroup(targetGroup, targetAssignment);
+        validateAssignmentConfigurationInterval(targetGroup, targetAssignment);
+        if (repository.hasAssignmentOverlap(
+                current.employeeId(),
+                normalized.effectiveFrom(),
+                current.effectiveTo(),
+                current.assignmentId())) {
+            throw AttendanceSetupRules.conflict(
+                    "ATTENDANCE_ASSIGNMENT_OVERLAP",
+                    "目标日期已存在其他考勤组归属，不能重复调配");
+        }
+
+        String actor = principalProvider.currentPrincipalId();
+        Instant now = clock.instant();
+        Assignment updated = new Assignment(
+                current.assignmentId(),
+                targetGroup.groupId(),
+                current.employeeId(),
+                normalized.effectiveFrom(),
+                current.effectiveTo(),
+                current.rowVersion() + 1,
+                normalized.reason(),
+                current.createdBy(),
+                current.createdAt(),
+                actor,
+                now);
+        if (!repository.updateAssignment(updated, expectedVersion)) {
+            throw new OptimisticLockingFailureException(
+                    "assignment version changed");
+        }
+        Assignment successor = repository.findAssignmentSuccessor(assignmentId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "assignment transfer successor was not persisted"));
+        List<Assignment> effective = repository.resolveAssignments(
+                current.employeeId(), normalized.effectiveFrom(), now);
+        if (effective.size() != 1
+                || !effective.getFirst().assignmentId()
+                        .equals(successor.assignmentId())
+                || !effective.getFirst().groupId()
+                        .equals(targetGroup.groupId())) {
+            throw AttendanceSetupRules.conflict(
+                    "ATTENDANCE_ASSIGNMENT_UNIQUENESS_CONFLICT",
+                    "调配生效日必须且只能归属一个目标考勤组");
+        }
+        audit(actor, "ATTENDANCE_GROUP_ASSIGNMENT_TRANSFERRED",
                 "ATTENDANCE_GROUP_ASSIGNMENT", assignmentId,
                 normalized.reason(), current, successor);
         return successor;
@@ -1009,6 +1231,131 @@ public class AttendanceGroupService {
         return location;
     }
 
+    private void requireSharedLocationManagement(String locationId) {
+        List<String> companyIds =
+                repository.listSharedLocationCompanyIds(locationId);
+        if (companyIds.isEmpty()) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
+        for (String companyId : companyIds) {
+            requireCompany(
+                    CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP,
+                    companyId);
+        }
+    }
+
+    private void requireSharedLocationRead(String locationId) {
+        capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
+        List<String> companyIds =
+                repository.listSharedLocationCompanyIds(locationId);
+        String actor = principalProvider.currentPrincipalId();
+        Instant at = clock.instant();
+        if (companyIds.isEmpty() || companyIds.stream().noneMatch(companyId ->
+                peopleRepository.canAccessCompany(
+                        actor,
+                        CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
+                        at))) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
+    }
+
+    private void rejectReferencedTimeZoneChange(
+            Location current,
+            LocationCommand command,
+            List<Location> bindings) {
+        if (current.timeZone().equals(command.timeZone())) {
+            return;
+        }
+        boolean referenced = bindings.stream().anyMatch(binding ->
+                repository.hasLocationTimeZoneDependencies(
+                        binding.locationId()));
+        if (referenced) {
+            throw AttendanceSetupRules.conflict(
+                    "SHARED_LOCATION_TIME_ZONE_IN_USE",
+                    "该地点已有考勤配置或历史引用，不能直接修改时区；请联系系统管理员评估受控迁移");
+        }
+    }
+
+    private List<Location> lockSharedLocationBindings(String locationId) {
+        List<Location> first = repository.listSharedLocationBindings(locationId)
+                .stream()
+                .sorted(Comparator.comparing(
+                        Location::locationId, BINARY_ID_ORDER))
+                .toList();
+        if (first.isEmpty()) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
+        for (Location binding : first) {
+            repository.lockLocation(binding.locationId());
+            repository.lockLocationRevision(binding.locationRevisionId());
+        }
+        List<Location> locked = repository.listSharedLocationBindings(locationId)
+                .stream()
+                .sorted(Comparator.comparing(
+                        Location::locationId, BINARY_ID_ORDER))
+                .toList();
+        List<String> firstHeads = first.stream()
+                .map(value -> value.locationId() + ":"
+                        + value.locationRevisionId())
+                .toList();
+        List<String> lockedHeads = locked.stream()
+                .map(value -> value.locationId() + ":"
+                        + value.locationRevisionId())
+                .toList();
+        if (!firstHeads.equals(lockedHeads)) {
+            throw AttendanceSetupRules.conflict(
+                    "SHARED_LOCATION_BINDING_SET_CHANGED",
+                    "共享地点在获取稳定锁期间发生变化");
+        }
+        for (Location binding : locked) {
+            requireCompany(
+                    CapabilityCodes.ATTENDANCE_SETUP_MANAGE_GROUP,
+                    binding.companyId());
+        }
+        return locked;
+    }
+
+    private Map<String, Location> sharedLocationSuccessors(
+            List<Location> bindings,
+            LocationCommand command,
+            LifecycleStatus status,
+            String actor,
+            Instant now) {
+        Map<String, Location> successors = new LinkedHashMap<>();
+        for (Location current : bindings) {
+            LocationCommand companyCommand = new LocationCommand(
+                    current.companyId(),
+                    command.code(),
+                    command.name(),
+                    command.timeZone(),
+                    command.effectiveFrom(),
+                    command.effectiveTo(),
+                    command.reason());
+            Location successor = new Location(
+                    current.locationId(),
+                    current.sharedLocationId(),
+                    current.companyId(),
+                    current.code(),
+                    UUID.randomUUID().toString(),
+                    current.revisionNumber() + 1,
+                    command.name(),
+                    command.timeZone(),
+                    status == null ? current.status() : status,
+                    command.effectiveFrom(),
+                    command.effectiveTo(),
+                    locationDigest(companyCommand),
+                    current.rowVersion() + 1,
+                    command.reason(),
+                    current.createdBy(),
+                    current.createdAt(),
+                    actor,
+                    now);
+            successors.put(current.locationId(), successor);
+        }
+        return successors;
+    }
+
     private AttendanceGroup requireGroup(String groupId, String capability) {
         capabilityService.require(capability);
         AttendanceGroup group = repository.findGroup(groupId)
@@ -1102,6 +1449,9 @@ public class AttendanceGroupService {
         var template = shiftRepository.findTemplate(command.shiftTemplateId())
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         if (!location.companyId().equals(command.companyId())
+                || !repository.isLocationAvailable(
+                        location.locationId(), command.companyId(),
+                        command.effectiveFrom())
                 || !calendar.companyId().equals(command.companyId())
                 || !template.companyId().equals(command.companyId())
                 || !template.locationId().equals(location.locationId())
@@ -1480,6 +1830,34 @@ public class AttendanceGroupService {
                 command.effectiveFrom(),
                 command.effectiveTo(),
                 AttendanceSetupRules.reason(command.reason()));
+    }
+
+    private AssignmentTransferCommand normalize(
+            AssignmentTransferCommand command) {
+        if (command == null
+                || command.sourceGroupId() == null
+                || command.sourceGroupId().isBlank()
+                || command.targetGroupId() == null
+                || command.targetGroupId().isBlank()) {
+            throw AttendanceSetupRules.invalid("目标考勤组必填");
+        }
+        if (command.effectiveFrom() == null) {
+            throw AttendanceSetupRules.invalid("调配生效日必填");
+        }
+        return new AssignmentTransferCommand(
+                command.sourceGroupId().trim(),
+                command.targetGroupId().trim(),
+                command.effectiveFrom(),
+                AttendanceSetupRules.reason(command.reason()));
+    }
+
+    private boolean hasTransferBoundary(Assignment assignment) {
+        LocalDate today = LocalDate.now(clock);
+        LocalDate earliestBoundary = today.isAfter(assignment.effectiveFrom())
+                ? today
+                : assignment.effectiveFrom().plusDays(1);
+        return assignment.effectiveTo() == null
+                || earliestBoundary.isBefore(assignment.effectiveTo());
     }
 
     private boolean same(Location location, LocationCommand command) {

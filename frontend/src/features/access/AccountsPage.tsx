@@ -1,5 +1,5 @@
-import { IconLock, IconPlus, IconSearch, IconUsersPlus } from '@tabler/icons-react';
-import { Button, Form, Input, Modal, Select, Space } from 'antd';
+import { IconLock, IconPlus, IconSearch, IconTrash, IconUsersPlus } from '@tabler/icons-react';
+import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -10,22 +10,41 @@ import { PageHeader, QueryFilterBar, ResourcePagination } from '../../shared/com
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import {
-  CompanySelect,
   EmployeeSelect,
-  OrganizationSelect,
 } from '../referenceData';
+import {
+  GrantableCompanySelect,
+  GrantableOrganizationSelect,
+} from './GrantableScopeSelects';
 import {
   createAccount,
   isStrongTemporaryPassword,
+  listGrantableCompanies,
+  listGrantableOrganizations,
   listAccounts,
   listRoles,
   lockAccount,
   type AccountStatus,
   type AccountSummary,
+  type GrantableCompany,
+  type GrantableOrganization,
   type RoleView,
 } from './accessApi';
 import { EmployeeAccountProvisioningDialog } from './EmployeeAccountProvisioningDialog';
 import { allowedScopeTypes, type RoleScopeType } from './roleScopePolicy';
+
+interface CreateRoleAssignment {
+  roleId?: string;
+  scopeType?: RoleScopeType;
+  scopeResourceId?: string;
+  scopeCompanyId?: string;
+  includeDescendants?: boolean;
+}
+
+type SubmittedRoleAssignment = CreateRoleAssignment & {
+  roleId: string;
+  scopeType: RoleScopeType;
+};
 
 export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const { t } = useTranslation();
@@ -39,12 +58,19 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   const [processing, setProcessing] = useState(false);
   const [feedback, setFeedback] = useState<string>();
   const [roles, setRoles] = useState<RoleView[]>([]);
+  const [companyScopeCompanies, setCompanyScopeCompanies] = useState<GrantableCompany[]>([]);
+  const [organizationScopeCompanies, setOrganizationScopeCompanies] = useState<GrantableCompany[]>([]);
+  const [organizationsByCompany, setOrganizationsByCompany] = useState<
+    Record<string, GrantableOrganization[]>
+  >({});
   const [form] = Form.useForm();
-  const selectedRoleId = Form.useWatch<string>('roleId', form);
-  const selectedScopeType = Form.useWatch<RoleScopeType>('scopeType', form);
-  const selectedRole = roles.find((role) => role.roleId === selectedRoleId);
-  const allowedScopes = selectedRole ? allowedScopeTypes(selectedRole) : [];
-  const canCreateAccount = capabilities.includes('ACCOUNT:CREATE');
+  const createRoleAssignments = Form.useWatch<CreateRoleAssignment[]>(
+    'roleAssignments',
+    form,
+  ) ?? [];
+  const canCreateAccount = capabilities.includes('ACCOUNT:CREATE')
+    && capabilities.includes('ROLE:ASSIGN')
+    && capabilities.includes('ROLE:READ');
   const canBulkProvision = canBulkProvisionEmployeeAccounts(capabilities);
   const loader = useMemo(
     () => () => listAccounts({ q: query, status, page: pageNumber, size: pageSize }),
@@ -67,8 +93,29 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
   }, [pageNumber, pageSize, resource]);
 
   const openCreate = async () => {
-    setRoles(await listRoles());
+    const [loadedRoles, companyCompanies, organizationCompanies] = await Promise.all([
+      listRoles(),
+      listGrantableCompanies('COMPANY', 'ACCOUNT_CREATION'),
+      listGrantableCompanies('ORGANIZATION', 'ACCOUNT_CREATION'),
+    ]);
+    setRoles(loadedRoles);
+    setCompanyScopeCompanies(companyCompanies);
+    setOrganizationScopeCompanies(organizationCompanies);
+    setOrganizationsByCompany({});
+    form.setFieldsValue({ roleAssignments: [{}] });
     setCreateOpen(true);
+  };
+
+  const loadCreateOrganizations = async (companyId: string) => {
+    if (!companyId || organizationsByCompany[companyId]) return;
+    const organizations = await listGrantableOrganizations(
+      companyId,
+      'ACCOUNT_CREATION',
+    );
+    setOrganizationsByCompany((current) => ({
+      ...current,
+      [companyId]: organizations,
+    }));
   };
 
   const create = async (values: {
@@ -76,24 +123,32 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
     displayName: string;
     temporaryPassword?: string;
     employeeId?: string;
-    roleId: string;
-    scopeType: RoleScopeType;
-    scopeResourceId?: string;
+    roleAssignments: SubmittedRoleAssignment[];
   }) => {
     setProcessing(true);
     try {
+      const validFrom = new Date().toISOString();
+      const roleAssignments = values.roleAssignments.map((assignment) => ({
+        roleId: assignment.roleId,
+        scopeType: assignment.scopeType,
+        scopeResourceId: assignment.scopeType === 'SELF'
+          ? null
+          : assignment.scopeResourceId ?? null,
+        includeDescendants: assignment.scopeType === 'ORGANIZATION'
+          ? assignment.includeDescendants === true
+          : assignment.scopeType === 'COMPANY',
+        validFrom,
+        validTo: null,
+      }));
+      const hasSelfScope = values.roleAssignments.some(
+        (assignment) => assignment.scopeType === 'SELF',
+      );
       await createAccount({
         username: values.username,
         displayName: values.displayName,
         temporaryPassword: values.temporaryPassword,
-        employeeId: values.scopeType === 'SELF' ? values.employeeId ?? null : null,
-        roleAssignments: [{
-          roleId: values.roleId,
-          scopeType: values.scopeType,
-          scopeResourceId: values.scopeType === 'SELF' ? null : values.scopeResourceId ?? null,
-          validFrom: new Date().toISOString(),
-          validTo: null,
-        }],
+        employeeId: hasSelfScope ? values.employeeId ?? null : null,
+        roleAssignments,
       });
       setCreateOpen(false);
       form.resetFields();
@@ -209,86 +264,220 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
           </>
         ) : null}
       </section>
-      <Modal open={createOpen} title={t('access.createLocalAccount')} okText={t('policy.create')} cancelText={t('common.cancel')} confirmLoading={processing} onOk={() => void form.submit()} onCancel={closeCreate}>
+      <Modal width={960} open={createOpen} title={t('access.createLocalAccount')} okText={t('policy.create')} cancelText={t('common.cancel')} confirmLoading={processing} onOk={() => void form.submit()} onCancel={closeCreate}>
         <Form form={form} layout="vertical" onFinish={(values) => void create(values)}>
           <Form.Item label={t('access.username')} name="username" rules={[{ required: true, pattern: /^[A-Za-z0-9._-]{3,128}$/, message: t('access.usernameRule') }]}><Input autoComplete="off" /></Form.Item>
           <Form.Item label={t('access.displayName')} name="displayName" rules={[{ required: true, message: t('access.displayNameRequired') }]}><Input /></Form.Item>
-          <Form.Item label={t('access.initialRole')} name="roleId" rules={[{ required: true, message: t('access.roleRequired') }]}>
-            <Select
-              options={Array.from(roles, (role) => ({ value: role.roleId, label: role.roleName }))}
-              onChange={(roleId: string) => {
-                const role = roles.find((candidate) => candidate.roleId === roleId);
-                const [defaultScope] = role ? allowedScopeTypes(role) : [];
-                form.setFieldsValue({
-                  scopeType: defaultScope,
-                  scopeResourceId: undefined,
-                  employeeId: undefined,
-                  temporaryPassword: undefined,
-                });
-              }}
-            />
+          <Form.Item
+            label={t('access.initialPassword')}
+            name="temporaryPassword"
+            extra={t('access.initialPasswordRule')}
+            rules={[
+              { required: true, message: t('access.temporaryPasswordRequired') },
+              {
+                validator: (_rule, value) => !value || isStrongTemporaryPassword(value)
+                  ? Promise.resolve()
+                  : Promise.reject(new Error(t('access.initialPasswordRule'))),
+              },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
           </Form.Item>
-          {selectedRole ? (
-            <Form.Item
-              label={t('access.initialPassword')}
-              name="temporaryPassword"
-              extra={t('access.initialPasswordRule')}
-              rules={[
-                { required: true, message: t('access.temporaryPasswordRequired') },
-                {
-                  validator: (_rule, value) => !value || isStrongTemporaryPassword(value)
-                    ? Promise.resolve()
-                    : Promise.reject(new Error(t('access.initialPasswordRule'))),
-                },
-              ]}
-            >
-              <Input.Password autoComplete="new-password" />
-            </Form.Item>
+          {createRoleAssignments.some((assignment) => (
+            roles.find((role) => role.roleId === assignment?.roleId)?.roleCode === 'EXECUTIVE'
+          )) ? (
+            <Alert
+              showIcon
+              type="info"
+              title="首次选择高管角色时，默认加入当前可授权的全部启用公司；以后新增公司不会自动扩权，请在账号详情中手动添加。"
+            />
           ) : null}
-          <Form.Item label={t('access.scopeType')} name="scopeType" rules={[{ required: true }]}>
-            <Select
-              disabled={allowedScopes.length <= 1}
-              options={allowedScopes.map((scopeType) => ({
-                value: scopeType,
-                label: scopeType === 'COMPANY'
-                  ? t('access.company')
-                  : scopeType === 'ORGANIZATION'
-                    ? t('access.organization')
-                    : t('access.self'),
-              }))}
-              onChange={() => {
-                form.setFieldsValue({
-                  scopeResourceId: undefined,
-                  employeeId: undefined,
-                });
-              }}
-            />
-          </Form.Item>
-          {selectedScopeType === 'SELF' ? (
+          <Form.List
+            name="roleAssignments"
+            rules={[{
+              validator: async (_rule, assignments) => {
+                if (!assignments?.length) throw new Error('请至少添加一条角色授权');
+              },
+            }]}
+          >
+            {(fields, { add, remove }, { errors }) => (
+              <div className="role-assignment-group">
+                {fields.map((field, index) => {
+                  const assignment = createRoleAssignments[field.name] ?? {};
+                  const role = roles.find((candidate) => candidate.roleId === assignment.roleId);
+                  const allowedScopes = role ? allowedScopeTypes(role) : [];
+                  const organizations = assignment.scopeCompanyId
+                    ? organizationsByCompany[assignment.scopeCompanyId] ?? []
+                    : [];
+                  const selectedOrganization = organizations.find(
+                    (organization) => organization.organizationId === assignment.scopeResourceId,
+                  );
+                  return (
+                    <div key={field.key} className="role-assignment-row">
+                      <Form.Item
+                        label={`${t('access.initialRole')} ${index + 1}`}
+                        name={[field.name, 'roleId']}
+                        rules={[{ required: true, message: t('access.roleRequired') }]}
+                      >
+                        <Select
+                          options={roles.map((candidate) => ({
+                            value: candidate.roleId,
+                            label: candidate.roleName,
+                          }))}
+                          onChange={(roleId: string) => {
+                            const nextRole = roles.find((candidate) => candidate.roleId === roleId);
+                            const [scopeType] = nextRole ? allowedScopeTypes(nextRole) : [];
+                            const current = [...(form.getFieldValue('roleAssignments') ?? [])];
+                            const replacements: CreateRoleAssignment[] = nextRole?.roleCode === 'EXECUTIVE'
+                              && scopeType === 'COMPANY'
+                              && companyScopeCompanies.length > 0
+                              ? companyScopeCompanies.map((company) => ({
+                                roleId,
+                                scopeType,
+                                scopeCompanyId: company.companyId,
+                                scopeResourceId: company.companyId,
+                                includeDescendants: true,
+                              }))
+                              : [{
+                                roleId,
+                                scopeType,
+                                includeDescendants: scopeType === 'COMPANY',
+                              }];
+                            current.splice(field.name, 1, ...replacements);
+                            form.setFieldValue('roleAssignments', current);
+                          }}
+                        />
+                      </Form.Item>
+                      <Form.Item
+                        label={`${t('access.scopeType')} ${index + 1}`}
+                        name={[field.name, 'scopeType']}
+                        rules={[{ required: true, message: '请选择数据范围类型' }]}
+                      >
+                        <Select
+                          disabled={allowedScopes.length <= 1}
+                          options={allowedScopes.map((scopeType) => ({
+                            value: scopeType,
+                            label: scopeType === 'COMPANY'
+                              ? t('access.company')
+                              : scopeType === 'ORGANIZATION'
+                                ? t('access.organization')
+                                : t('access.self'),
+                          }))}
+                          onChange={(scopeType: RoleScopeType) => {
+                            form.setFieldValue(
+                              ['roleAssignments', field.name, 'scopeCompanyId'],
+                              undefined,
+                            );
+                            form.setFieldValue(
+                              ['roleAssignments', field.name, 'scopeResourceId'],
+                              undefined,
+                            );
+                            form.setFieldValue(
+                              ['roleAssignments', field.name, 'includeDescendants'],
+                              scopeType === 'COMPANY',
+                            );
+                          }}
+                        />
+                      </Form.Item>
+                      {assignment.scopeType === 'COMPANY' ? (
+                        <Form.Item
+                          label={`${t('access.company')} ${index + 1}`}
+                          name={[field.name, 'scopeResourceId']}
+                          rules={[{ required: true, message: t('access.companyRequired') }]}
+                        >
+                          <GrantableCompanySelect companies={companyScopeCompanies} />
+                        </Form.Item>
+                      ) : null}
+                      {assignment.scopeType === 'ORGANIZATION' ? (
+                        <div className="organization-scope-fields">
+                          <Form.Item
+                            label={`组织所属公司 ${index + 1}`}
+                            name={[field.name, 'scopeCompanyId']}
+                            rules={[{ required: true, message: '请先选择公司' }]}
+                          >
+                            <GrantableCompanySelect
+                              companies={organizationScopeCompanies}
+                              onChange={(companyId) => {
+                                form.setFieldValue(
+                                  ['roleAssignments', field.name, 'scopeResourceId'],
+                                  undefined,
+                                );
+                                form.setFieldValue(
+                                  ['roleAssignments', field.name, 'includeDescendants'],
+                                  false,
+                                );
+                                if (companyId) void loadCreateOrganizations(companyId);
+                              }}
+                            />
+                          </Form.Item>
+                          <Form.Item
+                            label={`${t('access.organization')} ${index + 1}`}
+                            name={[field.name, 'scopeResourceId']}
+                            rules={[{ required: true, message: t('access.organizationRequired') }]}
+                          >
+                            <GrantableOrganizationSelect
+                              organizations={organizations}
+                              companySelected={Boolean(assignment.scopeCompanyId)}
+                              onChange={() => {
+                                form.setFieldValue(
+                                  ['roleAssignments', field.name, 'includeDescendants'],
+                                  false,
+                                );
+                              }}
+                            />
+                          </Form.Item>
+                          <Form.Item
+                            name={[field.name, 'includeDescendants']}
+                            valuePropName="checked"
+                          >
+                            <Checkbox disabled={!selectedOrganization?.canIncludeDescendants}>
+                              包含下级部门
+                            </Checkbox>
+                          </Form.Item>
+                        </div>
+                      ) : null}
+                      {assignment.scopeType === 'SELF' ? (
+                        <p className="form-help">该角色仅授权给所绑定员工本人。</p>
+                      ) : null}
+                      <Space wrap>
+                        {role ? (
+                          <Button
+                            icon={<IconPlus stroke={2} />}
+                            onClick={() => add({
+                              roleId: role.roleId,
+                              scopeType: allowedScopes[0],
+                              includeDescendants: allowedScopes[0] === 'COMPANY',
+                            }, field.name + 1)}
+                          >
+                            新增该角色范围
+                          </Button>
+                        ) : null}
+                        <Button
+                          danger
+                          disabled={fields.length <= 1}
+                          icon={<IconTrash stroke={2} />}
+                          onClick={() => remove(field.name)}
+                        >
+                          删除本条
+                        </Button>
+                      </Space>
+                    </div>
+                  );
+                })}
+                <Button icon={<IconPlus stroke={2} />} onClick={() => add({})}>
+                  添加其他角色或范围
+                </Button>
+                <Form.ErrorList errors={errors} />
+              </div>
+            )}
+          </Form.List>
+          {createRoleAssignments.some((assignment) => assignment?.scopeType === 'SELF') ? (
             <Form.Item
               label={t('access.employeeId')}
               name="employeeId"
               rules={[{ required: true, message: t('access.employeeIdRequired') }]}
             >
               <EmployeeSelect />
-            </Form.Item>
-          ) : null}
-          {selectedScopeType === 'COMPANY' ? (
-            <Form.Item
-              label={t('access.company')}
-              name="scopeResourceId"
-              rules={[{ required: true, message: t('access.companyRequired') }]}
-            >
-              <CompanySelect />
-            </Form.Item>
-          ) : null}
-          {selectedScopeType === 'ORGANIZATION' ? (
-            <Form.Item
-              label={t('access.organization')}
-              name="scopeResourceId"
-              rules={[{ required: true, message: t('access.organizationRequired') }]}
-            >
-              <OrganizationSelect />
             </Form.Item>
           ) : null}
         </Form>

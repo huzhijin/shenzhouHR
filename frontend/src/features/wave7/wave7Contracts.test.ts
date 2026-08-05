@@ -6,6 +6,7 @@ import {
   todayFixture,
 } from '../../test/fixtures/wave7ContractFixtures';
 import {
+  assertAttendanceMonthMatrixProjection,
   assertAttendanceReportExportView,
   assertAttendanceReportCompanyDirectory,
   assertLiveReportProjection,
@@ -66,6 +67,72 @@ describe('Wave 7 projection contracts', () => {
       }],
       rowCount: 1,
     })).not.toThrow();
+  });
+
+  it('accepts a strict multi-badge monthly matrix and rejects date drift', () => {
+    const dates = Array.from({ length: 31 }, (_, index) => (
+      `2026-07-${String(index + 1).padStart(2, '0')}`
+    ));
+    const matrix = {
+      kind: 'ATTENDANCE_MONTH_MATRIX',
+      metadata: {
+        ...reportFixture.metadata,
+        periodLabel: '2026-07',
+        scope: {
+          type: 'ORGANIZATION',
+          reference: 'scope:authorized',
+          label: '授权组织',
+        },
+      },
+      queryFingerprint: 'a'.repeat(64),
+      formulaVersion: 'ATTENDANCE_MONTH_MATRIX_V1',
+      filters: {
+        period: '2026-07',
+        scopeReference: 'scope:authorized',
+        companyId: 'company-a',
+        organizationId: null,
+        employeeId: null,
+      },
+      dates,
+      employeeCount: 1,
+      rows: [{
+        employeeId: 'employee-a',
+        employeeNumber: 'SZ001',
+        employeeName: '张三',
+        organizationId: 'org-a',
+        organizationName: '制造一部',
+        days: dates.map((date, index) => ({
+          date,
+          organizationName: index === 0 ? '制造一部' : null,
+          shiftLabel: index === 0 ? '扬州总部班次' : null,
+          firstPunchAt: index === 0 ? '2026-07-01T00:25:00Z' : null,
+          lastPunchAt: index === 0 ? '2026-07-01T10:15:00Z' : null,
+          badges: index === 0
+            ? ['LATE', 'EARLY_DEPARTURE', 'PUNCH_CORRECTION']
+            : [],
+        })),
+      }],
+      page: 0,
+      size: 20,
+      totalPages: 1,
+    };
+
+    expect(() => assertAttendanceMonthMatrixProjection(matrix))
+      .not.toThrow();
+    expect(() => assertAttendanceMonthMatrixProjection({
+      ...matrix,
+      dates: [...dates.slice(0, 30), '2026-08-01'],
+    })).toThrow(/dates are inconsistent/);
+    expect(() => assertAttendanceMonthMatrixProjection({
+      ...matrix,
+      rows: [{
+        ...matrix.rows[0],
+        days: [{
+          ...matrix.rows[0]!.days[0],
+          badges: ['LATE', 'LATE'],
+        }, ...matrix.rows[0]!.days.slice(1)],
+      }],
+    })).toThrow(/badges are invalid/);
   });
 
   it('rejects a formal report missing pagination or using an unknown type', () => {

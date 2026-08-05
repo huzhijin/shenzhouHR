@@ -14,6 +14,7 @@ interface EmployeeReadMapper {
             @Param("at") Instant at,
             @Param("query") String query,
             @Param("organizationId") String organizationId,
+            @Param("companyId") String companyId,
             @Param("status") String status);
 
     List<EmployeeSummaryRow> findVisibleTo(
@@ -22,6 +23,7 @@ interface EmployeeReadMapper {
             @Param("at") Instant at,
             @Param("query") String query,
             @Param("organizationId") String organizationId,
+            @Param("companyId") String companyId,
             @Param("status") String status,
             @Param("sort") String sort,
             @Param("limit") int limit,

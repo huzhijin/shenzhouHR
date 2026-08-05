@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createEmployeeAccounts,
   isStrongTemporaryPassword,
+  listGrantableCompanies,
+  listGrantableOrganizations,
   listEmployeeAccountCandidates,
   resetTemporaryPassword,
 } from './accessApi';
@@ -90,5 +92,39 @@ describe('account access API', () => {
     expect(JSON.parse(String(request.body))).toEqual({
       employeeIds: ['employee-001', 'employee-002'],
     });
+  });
+
+  it('loads only the server-authorized grant directory and scopes organizations by company', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await listGrantableCompanies('COMPANY');
+    await listGrantableOrganizations('company/branch');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/v1/access/grantable-scopes/companies?scopeType=COMPANY&usage=ROLE_ASSIGNMENT',
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      '/api/v1/access/grantable-scopes/companies/company%2Fbranch/organizations?usage=ROLE_ASSIGNMENT',
+    );
+  });
+
+  it('requests the dual-capability scope intersection for account creation', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }))
+      .mockResolvedValueOnce(new Response('[]', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await listGrantableCompanies('ORGANIZATION', 'ACCOUNT_CREATION');
+    await listGrantableOrganizations('company-a', 'ACCOUNT_CREATION');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/v1/access/grantable-scopes/companies?scopeType=ORGANIZATION&usage=ACCOUNT_CREATION',
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      '/api/v1/access/grantable-scopes/companies/company-a/organizations?usage=ACCOUNT_CREATION',
+    );
   });
 });

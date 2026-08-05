@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 import {
   listReferenceAttendanceGroups,
@@ -29,6 +29,7 @@ import {
 } from './useReferenceOptions';
 
 export function CompanySelect(props: BusinessSelectProps) {
+  const statusMessageId = useId();
   const state = useReferenceOptions(
     async () => (await listReferenceCompanies()).map((company) => ({
       value: company.companyId,
@@ -40,19 +41,37 @@ export function CompanySelect(props: BusinessSelectProps) {
   const onlyCompany = state.status === 'ready' && state.options.length === 1
     ? state.options[0]
     : undefined;
+  const noCompany = state.status === 'ready' && state.options.length === 0;
+  const statusMessage = noCompany
+    ? '当前账号没有可用公司，请联系系统管理员检查公司权限。'
+    : onlyCompany
+      ? '当前账号仅授权 1 家公司，已自动选择。'
+      : undefined;
+  const describedBy = [
+    props['aria-describedby'],
+    statusMessage ? statusMessageId : undefined,
+  ].filter(Boolean).join(' ') || undefined;
   useEffect(() => {
     if (!props.value && onlyCompany) {
       props.onChange?.(onlyCompany.value);
     }
   }, [onlyCompany, props.onChange, props.value]);
   return (
-    <ReferenceSelect
-      {...props}
-      state={state}
-      disabled={props.disabled || Boolean(onlyCompany)}
-      allowClear={onlyCompany ? false : props.allowClear}
-      placeholder={props.placeholder ?? '请选择公司'}
-    />
+    <div className="company-select-field">
+      <ReferenceSelect
+        {...props}
+        aria-describedby={describedBy}
+        state={state}
+        disabled={props.disabled || Boolean(onlyCompany) || noCompany}
+        allowClear={onlyCompany ? false : props.allowClear}
+        placeholder={noCompany ? '无可用公司' : props.placeholder ?? '请选择公司'}
+      />
+      {statusMessage ? (
+        <span id={statusMessageId} className="form-help" role="status">
+          {statusMessage}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -106,10 +125,9 @@ export function LocationSelect({
   ...props
 }: ScopedReferenceSelectProps) {
   const state = useReferenceOptions(
-    async () => (await listReferenceLocations())
-      .filter((location) => !companyId || location.companyId === companyId)
+    async () => (await listReferenceLocations(companyId))
       .map((location) => namedOption(
-        location.locationId,
+        location.companyLocationId,
         location.name,
         location.code,
         lifecycleStatusLabel(location.status),
@@ -131,10 +149,9 @@ export function AttendanceGroupSelect({
   ...props
 }: AttendanceGroupSelectProps) {
   const state = useReferenceOptions(
-    async () => (await listReferenceAttendanceGroups(asOf))
+    async () => (await listReferenceAttendanceGroups(asOf, companyId))
       .filter((group) => (
-        (!companyId || group.companyId === companyId)
-        && (!locationId || group.locationId === locationId)
+        !locationId || group.locationId === locationId
       ))
       .map((group) => {
         const name = namedCodeLabel(group.name, group.code);
@@ -166,10 +183,9 @@ export function ShiftTemplateSelect({
   ...props
 }: ShiftTemplateSelectProps) {
   const state = useReferenceOptions(
-    async () => (await listReferenceShiftTemplates())
+    async () => (await listReferenceShiftTemplates(companyId))
       .filter((shift) => (
-        (!companyId || shift.companyId === companyId)
-        && (!locationId || shift.locationId === locationId)
+        !locationId || shift.locationId === locationId
       ))
       .map((shift) => namedOption(
         shift.shiftId,
@@ -247,10 +263,9 @@ export function CalendarSelect({
   ...props
 }: CalendarSelectProps) {
   const state = useReferenceOptions(
-    async () => (await listReferenceCalendars(year))
+    async () => (await listReferenceCalendars(year, companyId))
       .filter((calendar) => (
-        (!companyId || calendar.companyId === companyId)
-        && (!locationId || calendar.locationId === locationId)
+        !locationId || calendar.locationId === locationId
       ))
       .map((calendar) => {
         const name = namedCodeLabel(calendar.name, calendar.code);

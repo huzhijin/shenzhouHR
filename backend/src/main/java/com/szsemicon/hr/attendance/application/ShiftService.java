@@ -72,6 +72,12 @@ public class ShiftService {
 
     @Transactional(readOnly = true)
     public Page<ShiftTemplate> listTemplates(int page, int size) {
+        return listTemplates(null, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ShiftTemplate> listTemplates(
+            String companyId, int page, int size) {
         AttendanceSetupRules.page(page, size);
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
         String principalId = principalProvider.currentPrincipalId();
@@ -80,12 +86,14 @@ public class ShiftService {
                 repository.listTemplates(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         size,
                         page * size,
                         at),
                 repository.countTemplates(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         at),
                 page,
                 size);
@@ -107,6 +115,11 @@ public class ShiftService {
                 .filter(value -> value.companyId().equals(normalized.companyId()))
                 .filter(value -> value.status() == LifecycleStatus.ACTIVE)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        if (!groupRepository.isLocationAvailable(
+                location.locationId(), normalized.companyId(),
+                LocalDate.now(clock))) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
         String actor = principalProvider.currentPrincipalId();
         String key = AttendanceSetupRules.idempotencyKey(idempotencyKey);
         ShiftTemplate replay =
@@ -152,6 +165,11 @@ public class ShiftService {
                 .filter(value -> value.companyId().equals(current.companyId()))
                 .filter(value -> value.status() == LifecycleStatus.ACTIVE)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        if (!groupRepository.isLocationAvailable(
+                location.locationId(), current.companyId(),
+                LocalDate.now(clock))) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
         requireVersion(current.rowVersion(), expectedVersion);
         String actor = principalProvider.currentPrincipalId();
         Instant now = clock.instant();

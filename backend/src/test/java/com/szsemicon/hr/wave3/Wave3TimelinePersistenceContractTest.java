@@ -180,8 +180,8 @@ class Wave3TimelinePersistenceContractTest {
         assertBoundedList(
                 group,
                 "listLocationRevisions",
-                "revision.revision_number DESC",
-                "revision.location_revision_id");
+                "shared_revision.revision_number DESC",
+                "shared_revision.shared_location_revision_id");
         assertBoundedList(
                 group,
                 "listGroupRevisions",

@@ -23,7 +23,10 @@ export interface Page<T> {
 }
 
 export interface LocationView {
+  /** @deprecated Use sharedLocationId for shared edits and companyLocationId for company setup. */
   locationId: string;
+  sharedLocationId: string;
+  companyLocationId: string;
   companyId: string;
   code: string;
   locationRevisionId: string;
@@ -35,6 +38,7 @@ export interface LocationView {
   effectiveTo?: string | null;
   snapshotDigest: string;
   rowVersion: number;
+  sharedManagementAllowed: boolean;
   changeReason: string;
   updatedAt: string;
 }
@@ -89,6 +93,8 @@ export interface AssignmentView {
   effectiveTo?: string | null;
   rowVersion: number;
   monthlyContextKey: string;
+  hasSuccessor: boolean;
+  transferable: boolean;
   changeReason: string;
   updatedAt: string;
 }
@@ -97,6 +103,12 @@ export interface AssignmentInput {
   employeeId: string;
   effectiveFrom: string;
   effectiveTo?: string | null;
+  reason: string;
+}
+
+export interface AssignmentTransferInput {
+  targetGroupId: string;
+  effectiveFrom: string;
   reason: string;
 }
 

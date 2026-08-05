@@ -19,6 +19,7 @@ import { DataTable } from '../../shared/components/DataTable';
 import { PageHeader, ResourcePagination } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import { CompanySelect } from '../referenceData';
 import {
   createCalendar,
   createCalendarVersion,
@@ -62,6 +63,7 @@ interface DateRange {
 export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
   const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [year, setYear] = useState(currentYear);
   const [selectedCalendarId, setSelectedCalendarId] = useState('');
   const [selectedCalendarVersionId, setSelectedCalendarVersionId] = useState('');
@@ -91,13 +93,20 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
   const [dayPage, setDayPage] = useState(0);
   const [dayPageSize, setDayPageSize] = useState(100);
   const calendarLoader = useMemo(
-    () => () => listCalendars(year, calendarPage, calendarPageSize),
-    [calendarPage, calendarPageSize, year],
+    () => () => selectedCompanyId
+      ? listCalendars(year, calendarPage, calendarPageSize, selectedCompanyId)
+      : Promise.resolve({
+        items: [],
+        total: 0,
+        page: calendarPage,
+        size: calendarPageSize,
+      }),
+    [calendarPage, calendarPageSize, selectedCompanyId, year],
   );
   const calendars = useAsyncResource(
     calendarLoader,
     (page) => page.total === 0,
-    [calendarPage, calendarPageSize, year],
+    [calendarPage, calendarPageSize, selectedCompanyId, year],
   );
   const firstCalendarId = calendars.resource.status === 'ready'
     ? calendars.resource.data.items[0]?.calendarId ?? ''
@@ -173,14 +182,19 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
     range.to,
   ]);
   const locationDirectory = useAsyncResource(
-    () => loadAllAttendanceDirectoryItems((page, size) => listLocations(page, size)),
+    () => selectedCompanyId
+      ? loadAllAttendanceDirectoryItems(
+        (page, size) => listLocations(page, size, selectedCompanyId),
+      )
+      : Promise.resolve([]),
     () => false,
-    [],
+    [selectedCompanyId],
   );
   const shiftBusinessLabelsLoader = useMemo(
     () => async () => {
+      if (!selectedCompanyId) return { shifts: [], versions: [] };
       const shifts = await loadAllAttendanceDirectoryItems(
-        (page, size) => listShifts(page, size),
+        (page, size) => listShifts(page, size, selectedCompanyId),
       );
       const versionPages = await Promise.all(
         shifts.map((shift) => loadAllAttendanceDirectoryItems(
@@ -192,7 +206,7 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
         versions: versionPages.flat(),
       };
     },
-    [],
+    [selectedCompanyId],
   );
   const shiftBusinessLabels = useAsyncResource(
     shiftBusinessLabelsLoader,
@@ -201,7 +215,7 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
   );
   const locationLabels = locationDirectory.resource.status === 'ready'
     ? new Map(locationDirectory.resource.data.map((location) => [
-      location.locationId,
+      location.companyLocationId,
       `${location.name}（${location.code}）`,
     ]))
     : new Map<string, string>();
@@ -411,6 +425,19 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
     setDraftRange({ from: `${value}-12-29`, to: `${value}-12-31` });
     setRange({ from: `${value}-12-29`, to: `${value}-12-31` });
   };
+  const changeCompany = (companyId?: string) => {
+    setSelectedCompanyId(companyId ?? '');
+    setSelectedCalendarId('');
+    setSelectedCalendarVersionId('');
+    setCalendarPage(0);
+    setVersionPage(0);
+    setDayPage(0);
+    setCalendarOpen(false);
+    setDaysOpen(false);
+    setEditingCalendar(undefined);
+    setLifecycleTarget(undefined);
+    setNotice(undefined);
+  };
   const selectCalendarFamily = (calendarId: string) => () => {
     setSelectedCalendarId(calendarId);
     setSelectedCalendarVersionId('');
@@ -482,6 +509,7 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
             <AccessibleButton
               label={t('attendanceSetup.createCalendar')}
               icon={<IconCalendarPlus aria-hidden="true" stroke={2} />}
+              disabled={!selectedCompanyId}
               onClick={openCalendarCreator}
             >
               {t('attendanceSetup.createCalendar')}
@@ -506,8 +534,15 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
         ) : undefined}
       />
       <AttendanceSetupNotice notice={notice} />
-      <section className="attendance-context-bar" aria-label={t('attendanceSetup.queryAsOf')}>
+      <section className="attendance-context-bar" aria-label={t('attendanceSetup.queryContext')}>
         <IconCalendarStats aria-hidden="true" stroke={2} />
+        <label htmlFor="attendance-calendars-company">{t('attendanceSetup.companyId')}</label>
+        <CompanySelect
+          id="attendance-calendars-company"
+          value={selectedCompanyId || undefined}
+          allowClear={false}
+          onChange={changeCompany}
+        />
         <label htmlFor="attendance-calendar-year">{t('attendanceSetup.calendarYear')}</label>
         <InputNumber
           id="attendance-calendar-year"
@@ -516,6 +551,9 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
           value={year}
           onChange={changeCalendarYear}
         />
+        {!selectedCompanyId ? (
+          <span className="form-help">{t('attendanceSetup.selectCompanyFirst')}</span>
+        ) : null}
       </section>
       {calendars.resource.status === 'loading' || calendars.resource.status === 'partial-loading'
         ? <StatePanel state={calendars.resource.status} />
@@ -801,11 +839,12 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
         </>
       ) : null}
       <CalendarDialog
-        key={`${calendarDialogIntent}-${editingCalendar?.calendarId ?? 'create'}-${editingCalendar?.calendarVersionId ?? 'create'}`}
+        key={`${selectedCompanyId}-${calendarDialogIntent}-${editingCalendar?.calendarId ?? 'create'}-${editingCalendar?.calendarVersionId ?? 'create'}`}
         open={calendarOpen}
         processing={processing}
         intent={calendarDialogIntent}
         calendarYear={year}
+        defaultCompanyId={selectedCompanyId || undefined}
         initialValues={editingCalendar ? {
           companyId: editingCalendar.companyId,
           locationId: editingCalendar.locationId,

@@ -8,6 +8,7 @@ import {
 import { Form } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LocationDialog } from '../attendanceSetup/AttendanceGroupDialogs';
 import {
   AttendanceGroupSelect,
   AttendanceSourceSelect,
@@ -175,7 +176,7 @@ describe('business reference selects', () => {
 
   it('shows an empty state and keeps disabled/placeholder props usable', async () => {
     api.listReferenceCompanies.mockResolvedValue([]);
-    const view = render(
+    render(
       <CompanySelect
         aria-label="空公司"
         allowClear
@@ -184,13 +185,82 @@ describe('business reference selects', () => {
     );
 
     const input = screen.getByLabelText('空公司');
-    expect(view.container.querySelector('.ant-select')).toBeInTheDocument();
-    expect(screen.getByText('选择所属公司')).toBeInTheDocument();
     await waitFor(() => {
       expect(api.listReferenceCompanies).toHaveBeenCalled();
     });
+    expect(input).toBeDisabled();
+    expect(screen.getByText('无可用公司')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '当前账号没有可用公司，请联系系统管理员检查公司权限。',
+    );
+    expect(input).toHaveAttribute(
+      'aria-describedby',
+      screen.getByRole('status').id,
+    );
+  });
+
+  it('auto-selects one authorized company and explains why the field is disabled', async () => {
+    const onFinish = vi.fn();
+    render(
+      <Form onFinish={onFinish}>
+        <Form.Item name="companyId">
+          <CompanySelect aria-label="唯一公司" />
+        </Form.Item>
+        <button type="submit">保存唯一公司</button>
+      </Form>,
+    );
+
+    const input = screen.getByLabelText('唯一公司');
+    await waitFor(() => expect(input).toBeDisabled());
+    expect(await screen.findByText(company.companyName)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '当前账号仅授权 1 家公司，已自动选择。',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '保存唯一公司' }));
+    await waitFor(() => {
+      expect(onFinish).toHaveBeenCalledWith({ companyId: company.companyId });
+    });
+  });
+
+  it('keeps multiple authorized companies searchable and selectable without locking one', async () => {
+    const secondCompany = {
+      companyId: 'company-2',
+      companyCode: 'SZSH',
+      companyName: '上海昇州半导体科技有限公司',
+    };
+    const onChange = vi.fn();
+    api.listReferenceCompanies.mockResolvedValue([company, secondCompany]);
+
+    render(<CompanySelect aria-label="多公司" onChange={onChange} />);
+
+    const input = screen.getByLabelText('多公司');
+    await waitFor(() => expect(api.listReferenceCompanies).toHaveBeenCalled());
+    expect(input).not.toBeDisabled();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+
     fireEvent.mouseDown(input);
-    expect(await screen.findByText('暂无可选项')).toBeInTheDocument();
+    expect(await screen.findByText(company.companyName)).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: 'SZSH' } });
+    const option = await screen.findByText(secondCompany.companyName);
+    fireEvent.click(option);
+    expect(onChange).toHaveBeenCalledWith(
+      secondCompany.companyId,
+      expect.objectContaining({ value: secondCompany.companyId }),
+    );
+  });
+
+  it('does not expose a location-creation dialog without an existing location', () => {
+    const { container } = render(
+      <LocationDialog
+        open
+        processing={false}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('shows loading feedback and passes disabled through to antd Select', async () => {
@@ -265,6 +335,8 @@ const location: Awaited<ReturnType<
   typeof referenceApi.listReferenceLocations
 >>[number] = {
   locationId: 'location-1',
+  sharedLocationId: 'shared-location-1',
+  companyLocationId: 'location-1',
   companyId: company.companyId,
   code: 'LOC-01',
   locationRevisionId: 'location-revision-1',
@@ -276,6 +348,7 @@ const location: Awaited<ReturnType<
   effectiveTo: null,
   snapshotDigest: 'digest',
   rowVersion: 1,
+  sharedManagementAllowed: true,
   changeReason: '初始化',
   updatedAt: '2026-01-01T00:00:00Z',
 };

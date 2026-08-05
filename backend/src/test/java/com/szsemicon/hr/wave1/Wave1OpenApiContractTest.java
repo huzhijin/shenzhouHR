@@ -35,6 +35,8 @@ class Wave1OpenApiContractTest {
                 "/access/accounts/{accountId}/temporary-password-reset:",
                 "/access/accounts/{accountId}/role-assignments:",
                 "/access/roles:",
+                "/access/grantable-scopes/companies:",
+                "/access/grantable-scopes/companies/{companyId}/organizations:",
                 "/access/audit-events:",
                 "/access/audit-events/{auditEventId}:",
                 "/policy-templates:",
@@ -107,6 +109,28 @@ class Wave1OpenApiContractTest {
                 .contains("required: [credentials, created, replayed]")
                 .contains("replayed:")
                 .contains("type: boolean");
+    }
+
+    @Test
+    void roleScopeContractSupportsCompanyFirstOrganizationSelection() {
+        String assignment = between(
+                "    RoleAssignmentRequest:",
+                "    RoleAssignmentsUpdateRequest:");
+        assertThat(assignment)
+                .contains("includeDescendants:")
+                .contains("仅 ORGANIZATION 范围生效")
+                .contains("scopeCompanyId:")
+                .contains("供界面先选公司再选组织")
+                .contains("GrantableCompany:")
+                .contains("GrantableOrganization:");
+
+        String directory = between(
+                "  /access/grantable-scopes/companies:",
+                "  /access/audit-events:");
+        assertThat(directory)
+                .contains("x-capability: ROLE:ASSIGN")
+                .contains("新公司不会自动加入既有授权")
+                .contains("角色码不会绕过数据范围");
     }
 
     private String between(String start, String end) {

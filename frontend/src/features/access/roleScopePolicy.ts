@@ -7,6 +7,8 @@ import type {
 export type RoleScopeType = RoleAssignmentRequest['scopeType'];
 export type EditableRoleAssignment = RoleAssignmentRequest & {
   key: string;
+  scopeCompanyId: string | null;
+  includeDescendants: boolean;
 };
 
 const roleScopeMatrix: Readonly<Record<string, readonly RoleScopeType[]>> = {
@@ -36,6 +38,11 @@ export function editableRoleAssignments(
     roleId: assignment.roleId,
     scopeType: assignment.scopeType,
     scopeResourceId: assignment.scopeResourceId,
+    scopeCompanyId: assignment.scopeCompanyId
+      ?? (assignment.scopeType === 'COMPANY' ? assignment.scopeResourceId : null),
+    includeDescendants: assignment.scopeType === 'ORGANIZATION'
+      ? assignment.includeDescendants !== false
+      : assignment.scopeType === 'COMPANY',
     validFrom: assignment.validFrom,
     validTo: assignment.validTo,
   }));
@@ -48,12 +55,14 @@ export function roleAssignmentRequests(
     roleId,
     scopeType,
     scopeResourceId,
+    includeDescendants,
     validFrom,
     validTo,
   }) => ({
     roleId,
     scopeType,
     scopeResourceId,
+    includeDescendants,
     validFrom,
     validTo,
   }));

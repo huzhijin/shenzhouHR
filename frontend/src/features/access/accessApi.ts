@@ -31,6 +31,7 @@ export interface RoleAssignmentRequest {
   roleId: string;
   scopeType: 'COMPANY' | 'ORGANIZATION' | 'SELF';
   scopeResourceId: string | null;
+  includeDescendants?: boolean;
   validFrom: string;
   validTo: string | null;
 }
@@ -39,7 +40,28 @@ export interface RoleAssignmentView extends RoleAssignmentRequest {
   assignmentId: string;
   roleCode: string;
   roleName: string;
+  scopeCompanyId?: string | null;
+  scopeCompanyName?: string | null;
+  scopeResourceName?: string | null;
+  scopeResourcePath?: string | null;
 }
+
+export interface GrantableCompany {
+  companyId: string;
+  code: string;
+  name: string;
+}
+
+export interface GrantableOrganization {
+  organizationId: string;
+  companyId: string;
+  parentOrganizationId: string | null;
+  code: string;
+  name: string;
+  canIncludeDescendants: boolean;
+}
+
+export type GrantableScopeUsage = 'ROLE_ASSIGNMENT' | 'ACCOUNT_CREATION';
 
 export interface AccountDetail extends AccountSummary {
   roles: RoleAssignmentView[];
@@ -185,6 +207,11 @@ export function getAccount(accountId: string): Promise<AccountDetail> {
         roleName: demoRoles[0]?.roleName ?? '',
         scopeType: 'COMPANY',
         scopeResourceId: '9700000000000000001',
+        scopeCompanyId: '9700000000000000001',
+        scopeCompanyName: '江苏神州半导体科技股份有限公司',
+        scopeResourceName: '江苏神州半导体科技股份有限公司',
+        scopeResourcePath: null,
+        includeDescendants: true,
         validFrom: '2026-07-01T00:00:00Z',
         validTo: null,
       }],
@@ -320,6 +347,34 @@ export function resetTemporaryPassword(
 export function listRoles(): Promise<RoleView[]> {
   if (isDemoMode()) return Promise.resolve(demoRoles);
   return requestJson<RoleView[]>('/api/v1/access/roles');
+}
+
+export function listGrantableCompanies(
+  scopeType: 'COMPANY' | 'ORGANIZATION',
+  usage: GrantableScopeUsage = 'ROLE_ASSIGNMENT',
+): Promise<GrantableCompany[]> {
+  if (isDemoMode()) {
+    return Promise.resolve([{
+      companyId: '9700000000000000001',
+      code: 'SZSC',
+      name: '江苏神州半导体科技股份有限公司',
+    }]);
+  }
+  const params = new URLSearchParams({ scopeType, usage });
+  return requestJson<GrantableCompany[]>(
+    `/api/v1/access/grantable-scopes/companies?${params}`,
+  );
+}
+
+export function listGrantableOrganizations(
+  companyId: string,
+  usage: GrantableScopeUsage = 'ROLE_ASSIGNMENT',
+): Promise<GrantableOrganization[]> {
+  if (isDemoMode()) return Promise.resolve([]);
+  const params = new URLSearchParams({ usage });
+  return requestJson<GrantableOrganization[]>(
+    `/api/v1/access/grantable-scopes/companies/${encodeURIComponent(companyId)}/organizations?${params}`,
+  );
 }
 
 export function assignRoles(

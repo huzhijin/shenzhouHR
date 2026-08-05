@@ -106,9 +106,11 @@ class AttendanceReportFactProjectorTest {
         assertThat(projected.exceptionFacts())
                 .extracting(value -> value.exceptionType())
                 .containsExactlyInAnyOrder(
-                        "LATE",
                         "EARLY_DEPARTURE",
                         "MISSING_PUNCH_PENDING");
+        assertThat(projected.exceptionFacts())
+                .extracting(value -> value.exceptionType())
+                .doesNotContain("LATE");
         assertThat(projected.exceptionFacts())
                 .allSatisfy(value -> assertThat(value.safeEvidenceSummary())
                         .doesNotContain("secret-punch-id"));

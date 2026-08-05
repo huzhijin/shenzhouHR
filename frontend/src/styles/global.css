@@ -1446,6 +1446,11 @@ a:hover {
   width: 100%;
 }
 
+.organization-scope-fields {
+  display: grid;
+  gap: var(--space-2);
+}
+
 .role-assignment-row > .ant-btn {
   align-self: end;
   margin-bottom: var(--space-6);
@@ -1683,6 +1688,20 @@ a:hover {
 .form-help {
   margin-top: calc(var(--space-2) * -1);
   font-size: var(--text-xs);
+}
+
+.company-select-field {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+.company-select-field .form-help {
+  margin-top: 0;
+}
+
+.rules-hub-guide {
+  margin-bottom: var(--space-5);
 }
 
 .ant-btn,
@@ -2121,6 +2140,11 @@ a:hover {
 .attendance-context-bar .ant-input-number,
 .attendance-range-controls .ant-input {
   width: var(--size-attendance-control);
+}
+
+.attendance-context-bar .company-select-field {
+  width: min(100%, calc(var(--size-attendance-control) * 1.5));
+  min-width: var(--size-attendance-control);
 }
 
 .attendance-boundary-note {
@@ -2726,6 +2750,231 @@ a:hover {
 .wave7-report-filter-grid input:focus-visible {
   outline: var(--border-width-focus) solid var(--color-focus);
   outline-offset: var(--space-1);
+}
+
+.wave7-month-matrix {
+  min-height: auto;
+}
+
+.wave7-month-matrix__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.wave7-month-matrix__heading h2,
+.wave7-month-matrix__heading p {
+  margin: var(--space-0);
+}
+
+.wave7-month-matrix__heading h2 {
+  font-size: var(--text-lg);
+}
+
+.wave7-month-matrix__heading p {
+  max-width: 58rem;
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.wave7-month-matrix__heading > span {
+  flex: 0 0 auto;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.wave7-month-matrix__legend,
+.wave7-month-matrix__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.wave7-month-matrix__legend {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+}
+
+.wave7-month-matrix__badge {
+  display: inline-flex;
+  min-height: 18px;
+  align-items: center;
+  padding: 1px 4px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+  white-space: nowrap;
+  border-color: var(--attendance-matrix-badge-border, var(--color-border-strong));
+  background: var(--attendance-matrix-badge-background, var(--color-state-neutral));
+  color: var(--attendance-matrix-badge-foreground, var(--color-on-state-neutral));
+}
+
+.wave7-month-matrix__badge[data-badge-code="LATE"] {
+  --attendance-matrix-badge-background: var(--color-attendance-late);
+  --attendance-matrix-badge-foreground: var(--color-on-attendance-late);
+  --attendance-matrix-badge-border: var(--color-attendance-late);
+}
+
+.wave7-month-matrix__badge[data-badge-code="EARLY_DEPARTURE"] {
+  --attendance-matrix-badge-background: var(--color-attendance-early-departure);
+  --attendance-matrix-badge-foreground: var(--color-on-attendance-early-departure);
+  --attendance-matrix-badge-border: var(--color-attendance-early-departure);
+}
+
+.wave7-month-matrix__badge[data-badge-code="MISSING_PUNCH"] {
+  --attendance-matrix-badge-background: var(--color-attendance-missing-punch);
+  --attendance-matrix-badge-foreground: var(--color-on-attendance-missing-punch);
+  --attendance-matrix-badge-border: var(--color-attendance-missing-punch);
+}
+
+.wave7-month-matrix__badge[data-badge-code="ABSENCE"],
+.wave7-month-matrix__badge[data-badge-code="SICK_LEAVE"],
+.wave7-month-matrix__badge[data-badge-code="ANNUAL_LEAVE"] {
+  --attendance-matrix-badge-background: var(--color-danger);
+  --attendance-matrix-badge-foreground: var(--color-on-danger);
+  --attendance-matrix-badge-border: var(--color-danger);
+}
+
+.wave7-month-matrix__badge[data-badge-code="RECOGNIZED_OVERTIME"] {
+  --attendance-matrix-badge-background: var(--color-attendance-recognized-overtime);
+  --attendance-matrix-badge-foreground: var(--color-on-attendance-recognized-overtime);
+  --attendance-matrix-badge-border: var(--color-attendance-recognized-overtime);
+}
+
+.wave7-month-matrix__badge[data-badge-code="TIME_OFF"],
+.wave7-month-matrix__badge[data-badge-code="PERSONAL_LEAVE"],
+.wave7-month-matrix__badge[data-badge-code="OTHER_LEAVE"],
+.wave7-month-matrix__badge[data-badge-code="OTHER_EXCEPTION"] {
+  --attendance-matrix-badge-background: var(--color-warning-soft);
+  --attendance-matrix-badge-foreground: var(--color-on-warning-soft);
+  --attendance-matrix-badge-border: var(--color-on-warning-soft);
+}
+
+.wave7-month-matrix__badge[data-badge-code="OUTING"],
+.wave7-month-matrix__badge[data-badge-code="TRIP"],
+.wave7-month-matrix__badge[data-badge-code="LEAVE_REVOCATION"] {
+  --attendance-matrix-badge-background: var(--color-info-soft);
+  --attendance-matrix-badge-foreground: var(--color-on-info-soft);
+  --attendance-matrix-badge-border: var(--color-on-info-soft);
+}
+
+.wave7-month-matrix__badge[data-badge-code="OVERTIME_APPLICATION"] {
+  --attendance-matrix-badge-background: var(--color-success-soft);
+  --attendance-matrix-badge-foreground: var(--color-on-success-soft);
+  --attendance-matrix-badge-border: var(--color-on-success-soft);
+}
+
+.wave7-month-matrix__badge[data-badge-code="PUNCH_CORRECTION"] {
+  --attendance-matrix-badge-background: var(--color-surface);
+  --attendance-matrix-badge-foreground: var(--color-brand-primary);
+  --attendance-matrix-badge-border: var(--color-brand-primary);
+}
+
+.wave7-month-matrix__scroll {
+  max-width: 100%;
+  overflow: auto;
+  border: var(--border-width-default) solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.wave7-month-matrix table {
+  min-width: 3900px;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--color-surface);
+  font-size: var(--text-xs);
+}
+
+.wave7-month-matrix th,
+.wave7-month-matrix td {
+  width: 108px;
+  min-width: 108px;
+  padding: 6px;
+  border-right: var(--border-width-default) solid var(--color-border);
+  border-bottom: var(--border-width-default) solid var(--color-border);
+  vertical-align: top;
+}
+
+.wave7-month-matrix thead th {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  background: var(--color-attendance-matrix-header);
+  color: var(--color-text-primary);
+  text-align: center;
+}
+
+.wave7-month-matrix thead th span,
+.wave7-month-matrix thead th small {
+  display: block;
+}
+
+.wave7-month-matrix thead th small {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+}
+
+.wave7-month-matrix .wave7-month-matrix__identity {
+  position: sticky;
+  z-index: 1;
+  left: 0;
+  width: 92px;
+  min-width: 92px;
+  background: var(--color-surface);
+}
+
+.wave7-month-matrix .wave7-month-matrix__identity:nth-child(2) {
+  left: 92px;
+}
+
+.wave7-month-matrix .wave7-month-matrix__organization {
+  position: sticky;
+  z-index: 1;
+  left: 184px;
+  width: 180px;
+  min-width: 180px;
+  background: var(--color-surface);
+}
+
+.wave7-month-matrix thead .wave7-month-matrix__identity,
+.wave7-month-matrix thead .wave7-month-matrix__organization {
+  z-index: 3;
+  background: var(--color-attendance-matrix-identity-header);
+}
+
+.wave7-month-matrix__punches {
+  display: grid;
+  gap: 1px;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.wave7-month-matrix__shift {
+  display: block;
+  margin: 3px 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wave7-month-matrix__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
 }
 
 .wave7-export-confirmation {

@@ -20,6 +20,7 @@ export function CalendarDialog({
   initialValues,
   intent = initialValues ? 'revise-version' : 'create-family',
   calendarYear = new Date().getFullYear(),
+  defaultCompanyId,
   onSubmit,
   onCancel,
 }: {
@@ -27,6 +28,7 @@ export function CalendarDialog({
   processing: boolean;
   intent?: 'create-family' | 'update-family' | 'create-version' | 'revise-version';
   calendarYear?: number;
+  defaultCompanyId?: string;
   initialValues?: WorkCalendarInput;
   onSubmit: (values: WorkCalendarInput) => void;
   onCancel: () => void;
@@ -57,13 +59,14 @@ export function CalendarDialog({
         form={form}
         layout="vertical"
         initialValues={initialValues ?? {
+          companyId: defaultCompanyId,
           timeZone: 'Asia/Shanghai',
           calendarYear,
         }}
         onFinish={onSubmit}
       >
         <Form.Item label="公司" name="companyId" rules={[required()]}>
-          <CompanySelect disabled={intent !== 'create-family'} />
+          <CompanySelect disabled={intent !== 'create-family' || Boolean(defaultCompanyId)} />
         </Form.Item>
         <Form.Item label="地点" name="locationId" rules={[required()]}>
           <LocationSelect companyId={companyId} disabled={intent !== 'create-family'} />

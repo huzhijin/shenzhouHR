@@ -164,7 +164,9 @@
           ON data_scope.scope_id = role_assignment.data_scope_id
          AND data_scope.scope_type = 'COMPANY'
          AND data_scope.company_id = group_identity.company_id
-        WHERE (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
+        WHERE (#{companyId} IS NULL
+               OR group_identity.company_id = #{companyId})
+          AND (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
           AND (#{asOf} IS NULL OR revision.effective_from &lt;= #{asOf})
           AND (#{asOf} IS NULL
                OR <include refid="storedBindingEffectiveTo"/> IS NULL
@@ -201,7 +203,9 @@
           ON data_scope.scope_id = role_assignment.data_scope_id
          AND data_scope.scope_type = 'COMPANY'
          AND data_scope.company_id = group_identity.company_id
-        WHERE (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
+        WHERE (#{companyId} IS NULL
+               OR group_identity.company_id = #{companyId})
+          AND (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
           AND (#{asOf} IS NULL OR revision.effective_from &lt;= #{asOf})
           AND (#{asOf} IS NULL
                OR <include refid="storedBindingEffectiveTo"/> IS NULL

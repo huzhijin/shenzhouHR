@@ -116,6 +116,55 @@ class AttendanceReportQueryServiceTest {
     }
 
     @Test
+    void monthMatrixUsesTheSameAuthorizedSnapshotAndPagesByEmployee() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7),
+                COMPANY,
+                "org-a",
+                null,
+                null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(repository.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(snapshot(filter)));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                CLOCK);
+
+        AttendanceMonthMatrixPage result = service.queryMonthMatrix(
+                filter.period(),
+                filter.companyId(),
+                filter.organizationId(),
+                null,
+                0,
+                20);
+
+        verify(capabilities).require(
+                CapabilityCodes.ATTENDANCE_REPORT_READ);
+        verify(repository).loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW);
+        assertThat(result.totalEmployees()).isEqualTo(1);
+        assertThat(result.rows()).hasSize(1);
+        assertThat(result.rows().getFirst().days()).hasSize(31);
+        assertThat(result.formulaVersion())
+                .isEqualTo("ATTENDANCE_MONTH_MATRIX_V1");
+        assertThat(result.allowedActions())
+                .containsExactly("REPORT_DRILL_DOWN");
+    }
+
+    @Test
     void invalidPaginationIsRejectedBeforeAuthorizationOrRepositoryWork() {
         CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);
@@ -213,6 +262,52 @@ class AttendanceReportQueryServiceTest {
                 null,
                 null,
                 null,
+                null,
+                0,
+                50))
+                .isInstanceOf(ApiProblemException.class)
+                .extracting("code")
+                .isEqualTo("ATTENDANCE_REPORT_PROJECTION_NOT_READY");
+    }
+
+    @Test
+    void forgedCrossCompanyFilterCannotTurnAnEmptyAuthorizedSnapshotIntoData() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        when(capabilities.currentCapabilities())
+                .thenReturn(Set.of(CapabilityCodes.ATTENDANCE_REPORT_READ));
+        var forged = new ReportFilter(
+                YearMonth.of(2026, 7),
+                "company-outside-scope",
+                "organization-outside-scope",
+                null,
+                null);
+        when(repository.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                forged,
+                NOW)).thenReturn(Optional.empty());
+        var service = new AttendanceReportQueryService(
+                capabilities, principal(), repository, CLOCK);
+
+        assertThatThrownBy(() -> service.query(
+                ReportType.ATTENDANCE_DETAIL,
+                forged.period(),
+                forged.companyId(),
+                forged.organizationId(),
+                null,
+                null,
+                0,
+                50))
+                .isInstanceOf(ApiProblemException.class)
+                .extracting("code")
+                .isEqualTo("ATTENDANCE_REPORT_PROJECTION_NOT_READY");
+        assertThatThrownBy(() -> service.queryMonthMatrix(
+                forged.period(),
+                forged.companyId(),
+                forged.organizationId(),
                 null,
                 0,
                 50))

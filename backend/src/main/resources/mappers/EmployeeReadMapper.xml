@@ -102,6 +102,9 @@
         <if test="organizationId != null">
             AND current_assignment.organization_id = #{organizationId}
         </if>
+        <if test="companyId != null">
+            AND employee.company_id = #{companyId}
+        </if>
         <if test="status != null">
             AND employee_at.status = #{status}
         </if>

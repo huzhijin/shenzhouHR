@@ -161,6 +161,17 @@ class Wave2OpenApiContractTest {
                 .doesNotContain("AS row_number", "ranked.row_number");
     }
 
+    @Test
+    void documentsTheBackwardCompatibleEmployeeCompanyFilter() {
+        String employeeList = openapi.substring(
+                openapi.indexOf("  /employees:"),
+                openapi.indexOf("    post:", openapi.indexOf("  /employees:")));
+
+        assertThat(employeeList)
+                .contains("operationId: listEmployees", "name: companyId")
+                .contains("MASTER_DATA:READ");
+    }
+
     private static String readOpenApi() {
         return readRepositoryFile("api/openapi.yaml");
     }

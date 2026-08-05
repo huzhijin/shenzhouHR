@@ -99,6 +99,16 @@ public class AttendancePolicyService {
     @Transactional(readOnly = true)
     public Page<PolicyBinding> listBindings(
             String groupId, LocalDate asOf, int page, int size) {
+        return listBindings(null, groupId, asOf, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PolicyBinding> listBindings(
+            String companyId,
+            String groupId,
+            LocalDate asOf,
+            int page,
+            int size) {
         AttendanceSetupRules.page(page, size);
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
         if (groupId != null) {
@@ -110,6 +120,7 @@ public class AttendancePolicyService {
                 repository.listBindings(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         groupId,
                         asOf,
                         size,
@@ -118,6 +129,7 @@ public class AttendancePolicyService {
                 repository.countBindings(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         groupId,
                         asOf,
                         at),

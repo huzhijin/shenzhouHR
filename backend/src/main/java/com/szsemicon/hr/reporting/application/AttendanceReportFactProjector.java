@@ -87,7 +87,9 @@ public final class AttendanceReportFactProjector {
                 context.lastPunchAt(),
                 result.calculationVersionId(),
                 result.resultDigest());
-        return new ProjectionFacts(daily, exceptionFacts(result, context));
+        return new ProjectionFacts(
+                daily,
+                exceptionFacts(result, context, penalizedLate > 0));
     }
 
     /**
@@ -162,13 +164,19 @@ public final class AttendanceReportFactProjector {
     }
 
     private List<ExceptionFact> exceptionFacts(
-            DailyAttendanceResult result, ProjectionContext context) {
+            DailyAttendanceResult result,
+            ProjectionContext context,
+            boolean hasChargeableLate) {
         Map<String, ExceptionAccumulator> findings = new LinkedHashMap<>();
         result.items().stream()
                 .sorted(Comparator.comparing(ResultItem::semanticKey))
                 .forEach(item -> {
                     ExceptionDescriptor descriptor = descriptor(item);
                     if (descriptor == null) {
+                        return;
+                    }
+                    if ("LATE".equals(descriptor.type())
+                            && !hasChargeableLate) {
                         return;
                     }
                     String caseId = item.exceptionFingerprint() == null

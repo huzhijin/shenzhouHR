@@ -7,6 +7,7 @@ import {
 import type {
   AttendanceReportExportView,
   AttendanceReportCompanyDirectory,
+  AttendanceMonthMatrixProjection,
   AttendanceReportType,
   AttendanceRecordsProjection,
   DashboardLoadResult,
@@ -19,8 +20,10 @@ import type {
 import {
   assertAttendanceReportExportView,
   assertAttendanceReportCompanyDirectory,
+  assertAttendanceMonthMatrixProjection,
   assertLiveReportProjection,
   attendanceReportTypes,
+  hasNoReportIdentityFilter,
   normalizeReportExportPurpose,
   parseAttendanceDashboardResponse,
   parseSelfAttendanceDashboardResponse,
@@ -44,6 +47,14 @@ export interface ReportExportCreateRequest {
   currentPassword: string;
 }
 
+export interface AttendanceMonthMatrixQuery {
+  period: string;
+  companyId?: string;
+  organizationId?: string;
+  page?: number;
+  size?: number;
+}
+
 export type ReportExceptionState =
   | 'OPEN'
   | 'PENDING_EVIDENCE'
@@ -61,6 +72,9 @@ export interface Wave7ProjectionGateway {
     period: string,
   ): Promise<AttendanceReportCompanyDirectory>;
   loadReport(query?: ReportQuery): Promise<ReportProjection>;
+  loadAttendanceMonthMatrix?(
+    query: AttendanceMonthMatrixQuery,
+  ): Promise<AttendanceMonthMatrixProjection>;
   createReportExport?(
     request: ReportExportCreateRequest,
   ): Promise<AttendanceReportExportView>;
@@ -184,6 +198,47 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
         normalized.companyId !== undefined
         && response.filters.companyId !== normalized.companyId
       )
+      || (response.filters.organizationId ?? null) !== null
+      || !hasNoReportIdentityFilter(response.filters)
+      || (response.filters.status ?? null)
+        !== (normalized.status ?? null)
+      || response.page !== normalized.page
+      || response.size !== normalized.size
+    ) {
+      throw invalidReportResponse();
+    }
+    return response;
+  },
+  loadAttendanceMonthMatrix: async (query) => {
+    const normalized = normalizeAttendanceMonthMatrixQuery(query);
+    const parameters = new URLSearchParams();
+    parameters.set('period', normalized.period);
+    if (normalized.companyId !== undefined) {
+      parameters.set('companyId', normalized.companyId);
+    }
+    if (normalized.organizationId !== undefined) {
+      parameters.set('organizationId', normalized.organizationId);
+    }
+    parameters.set('page', String(normalized.page));
+    parameters.set('size', String(normalized.size));
+    const response = await requestJson<unknown>(
+      `/api/v1/attendance-reports/month-matrix?${parameters.toString()}`,
+    );
+    try {
+      assertAttendanceMonthMatrixProjection(response);
+    } catch (error: unknown) {
+      void error;
+      throw invalidReportResponse();
+    }
+    if (
+      response.filters.period !== normalized.period
+      || (
+        normalized.companyId !== undefined
+        && response.filters.companyId !== normalized.companyId
+      )
+      || (response.filters.organizationId ?? undefined)
+        !== normalized.organizationId
+      || !hasNoReportIdentityFilter(response.filters)
       || response.page !== normalized.page
       || response.size !== normalized.size
     ) {
@@ -280,6 +335,56 @@ interface NormalizedReportQuery {
   status?: ReportExceptionState;
   page: number;
   size: number;
+}
+
+interface NormalizedAttendanceMonthMatrixQuery {
+  period: string;
+  companyId?: string;
+  organizationId?: string;
+  page: number;
+  size: number;
+}
+
+function normalizeAttendanceMonthMatrixQuery(
+  query: AttendanceMonthMatrixQuery,
+): NormalizedAttendanceMonthMatrixQuery {
+  if (
+    query === undefined
+    || !hasOnlyKeys(
+      query,
+      [
+        'period',
+        'companyId',
+        'organizationId',
+        'page',
+        'size',
+      ],
+    )
+    || !isYearMonth(query.period)
+  ) {
+    throw invalidReportQuery();
+  }
+  const page = query.page ?? 0;
+  const size = query.size ?? 50;
+  if (
+    !Number.isInteger(page)
+    || page < 0
+    || !Number.isInteger(size)
+    || size < 1
+    || size > 200
+  ) {
+    throw invalidReportQuery();
+  }
+  return {
+    period: query.period,
+    companyId: normalizeOptionalQueryFilter(query.companyId, 36),
+    organizationId: normalizeOptionalQueryFilter(
+      query.organizationId,
+      36,
+    ),
+    page,
+    size,
+  };
 }
 
 function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {

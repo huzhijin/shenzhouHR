@@ -65,8 +65,24 @@ public interface IdentityAccessRepository
             String roleId,
             String scopeType,
             String scopeResourceId,
+            boolean includeDescendants,
             Instant validFrom,
             Instant validTo) {
+
+        public RoleAssignmentInput(
+                String roleId,
+                String scopeType,
+                String scopeResourceId,
+                Instant validFrom,
+                Instant validTo) {
+            this(
+                    roleId,
+                    scopeType,
+                    scopeResourceId,
+                    !"SELF".equals(scopeType),
+                    validFrom,
+                    validTo);
+        }
     }
 
     /**
@@ -88,6 +104,11 @@ public interface IdentityAccessRepository
             String roleName,
             String scopeType,
             String scopeResourceId,
+            String scopeCompanyId,
+            String scopeCompanyName,
+            String scopeResourceName,
+            String scopeResourcePath,
+            boolean includeDescendants,
             Instant validFrom,
             Instant validTo) {
     }

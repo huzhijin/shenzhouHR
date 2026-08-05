@@ -32,6 +32,71 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
     }
 
     @Override
+    public Optional<Location> findSharedLocation(String locationId) {
+        return Optional.ofNullable(mapper.findSharedLocation(locationId))
+                .map(this::location);
+    }
+
+    @Override
+    public Optional<Location> findLocationByGlobalCode(String locationCode) {
+        return Optional.ofNullable(mapper.findLocationByGlobalCode(locationCode))
+                .map(this::location);
+    }
+
+    @Override
+    public List<Location> listSharedLocationBindings(String locationId) {
+        return mapper.listSharedLocationBindings(locationId).stream()
+                .map(this::location)
+                .toList();
+    }
+
+    @Override
+    public List<String> listSharedLocationCompanyIds(String locationId) {
+        return mapper.listSharedLocationCompanyIds(locationId);
+    }
+
+    @Override
+    public long lockSharedLocation(String locationId) {
+        Long version = mapper.lockSharedLocation(locationId);
+        if (version == null) {
+            throw new OptimisticLockingFailureException(
+                    "shared location no longer exists");
+        }
+        return version;
+    }
+
+    @Override
+    public boolean updateSharedLocation(Location location, long expectedVersion) {
+        String predecessorRevisionId =
+                mapper.latestSharedLocationRevisionId(location.locationId());
+        Location predecessor = findSharedLocation(location.locationId())
+                .orElse(null);
+        if (predecessorRevisionId == null || predecessor == null
+                || predecessor.rowVersion() != expectedVersion
+                || mapper.closeSharedLocationRevision(
+                        predecessorRevisionId,
+                        location.effectiveFrom(),
+                        sharedLocationDigest(
+                                predecessor,
+                                location.effectiveFrom())) != 1
+                || mapper.advanceSharedLocationVersion(
+                        location.locationId(), expectedVersion) != 1) {
+            return false;
+        }
+        mapper.insertSharedLocationRevision(
+                row(location), UUID.randomUUID().toString(),
+                predecessor.revisionNumber() + 1, predecessorRevisionId,
+                sharedLocationDigest(location));
+        return true;
+    }
+
+    @Override
+    public boolean isLocationAvailable(
+            String locationId, String companyId, LocalDate businessDate) {
+        return mapper.isLocationAvailable(locationId, companyId, businessDate);
+    }
+
+    @Override
     public List<Location> resolveLocationRevisions(
             String locationId, LocalDate asOf, Instant knowledgeAsOf) {
         return mapper.resolveLocationRevisions(locationId, asOf, knowledgeAsOf)
@@ -46,14 +111,21 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
 
     @Override
     public List<Location> listLocations(
-            String principalId, String capability, int limit, int offset, Instant at) {
-        return mapper.listLocations(principalId, capability, limit, offset, at)
+            String principalId,
+            String capability,
+            String companyId,
+            int limit,
+            int offset,
+            Instant at) {
+        return mapper.listLocations(
+                        principalId, capability, companyId, limit, offset, at)
                 .stream().map(this::location).toList();
     }
 
     @Override
-    public long countLocations(String principalId, String capability, Instant at) {
-        return mapper.countLocations(principalId, capability, at);
+    public long countLocations(
+            String principalId, String capability, String companyId, Instant at) {
+        return mapper.countLocations(principalId, capability, companyId, at);
     }
 
     @Override
@@ -71,8 +143,14 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
     @Override
     public void insertLocation(Location location, String idempotencyKey) {
         AttendanceGroupRows.LocationRow row = row(location);
+        mapper.insertSharedLocationIdentity(row);
+        mapper.insertSharedLocationRevision(
+                row, row.locationRevisionId(), 1, null,
+                sharedLocationDigest(location));
         mapper.insertLocationIdentity(row, idempotencyKey);
         mapper.insertLocationRevision(row, null);
+        mapper.insertCompanyLocationAvailability(
+                row, UUID.randomUUID().toString());
         appendLocationTimeline(
                 row, row.status(), row.effectiveFrom(), idempotencyKey);
         appendLocationEndTimeline(row, idempotencyKey);
@@ -121,6 +199,11 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
     }
 
     @Override
+    public boolean hasLocationTimeZoneDependencies(String locationId) {
+        return mapper.hasLocationTimeZoneDependencies(locationId);
+    }
+
+    @Override
     public Optional<AttendanceGroup> findGroup(String groupId) {
         return Optional.ofNullable(mapper.findGroup(groupId)).map(this::group);
     }
@@ -143,18 +226,25 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
     public List<AttendanceGroup> listGroups(
             String principalId,
             String capability,
+            String companyId,
             LocalDate asOf,
             int limit,
             int offset,
             Instant at) {
-        return mapper.listGroups(principalId, capability, asOf, limit, offset, at)
+        return mapper.listGroups(
+                        principalId, capability, companyId, asOf, limit, offset, at)
                 .stream().map(this::group).toList();
     }
 
     @Override
     public long countGroups(
-            String principalId, String capability, LocalDate asOf, Instant at) {
-        return mapper.countGroups(principalId, capability, asOf, at);
+            String principalId,
+            String capability,
+            String companyId,
+            LocalDate asOf,
+            Instant at) {
+        return mapper.countGroups(
+                principalId, capability, companyId, asOf, at);
     }
 
     @Override
@@ -456,7 +546,8 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
 
     private Location location(AttendanceGroupRows.LocationRow row) {
         return new Location(
-                row.locationId(), row.companyId(), row.locationCode(),
+                row.locationId(), row.sharedLocationId(),
+                row.companyId(), row.locationCode(),
                 row.locationRevisionId(), row.revisionNumber(), row.locationName(),
                 row.timeZone(), LifecycleStatus.valueOf(row.status()),
                 row.effectiveFrom(), row.effectiveTo(), row.snapshotDigest(), row.rowVersion(),
@@ -485,7 +576,8 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
 
     private AttendanceGroupRows.LocationRow row(Location value) {
         return new AttendanceGroupRows.LocationRow(
-                value.locationId(), value.companyId(), value.code(),
+                value.locationId(), value.sharedLocationId(),
+                value.companyId(), value.code(),
                 value.locationRevisionId(), value.revisionNumber(), value.name(),
                 value.timeZone(), value.status().name(), value.effectiveFrom(),
                 value.effectiveTo(), value.snapshotDigest(), value.rowVersion(),
@@ -609,6 +701,22 @@ class MyBatisAttendanceGroupRepository implements AttendanceGroupRepository {
             return UUID.randomUUID().toString();
         }
         return value.length() <= 64 ? value : digest(value);
+    }
+
+    private String sharedLocationDigest(Location value) {
+        return sharedLocationDigest(value, value.effectiveTo());
+    }
+
+    private String sharedLocationDigest(
+            Location value, LocalDate effectiveTo) {
+        return digest(String.join(
+                "|",
+                value.code(),
+                value.name(),
+                value.timeZone(),
+                value.status().name(),
+                value.effectiveFrom().toString(),
+                effectiveTo == null ? "NULL" : effectiveTo.toString()));
     }
 
     private String digest(String value) {

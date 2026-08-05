@@ -24,6 +24,7 @@ import {
 } from './attendanceSetupDemo';
 import type {
   AssignmentInput,
+  AssignmentTransferInput,
   AssignmentView,
   AttendancePolicyDraftInput,
   AttendancePolicyDraftUpdateInput,
@@ -56,11 +57,20 @@ import type {
 
 const basePath = '/api/v1/attendance-setup';
 
-export function listLocations(page = 0, size = 100): Promise<Page<LocationView>> {
-  if (isDemoMode()) return Promise.resolve(demoPage(demoLocations, page, size));
-  return requestJson<Page<LocationView>>(
-    `${basePath}/locations?page=${page}&size=${size}`,
+export function listLocations(
+  page = 0,
+  size = 100,
+  companyId?: string,
+): Promise<Page<LocationView>> {
+  const filtered = demoLocations.filter(
+    (item) => companyId === undefined || item.companyId === companyId,
   );
+  if (isDemoMode()) return Promise.resolve(demoPage(filtered, page, size));
+  const params = new URLSearchParams();
+  if (companyId) params.set('companyId', companyId);
+  params.set('page', String(page));
+  params.set('size', String(size));
+  return requestJson<Page<LocationView>>(`${basePath}/locations?${params}`);
 }
 
 export function listLocationRevisions(
@@ -70,7 +80,7 @@ export function listLocationRevisions(
 ): Promise<Page<LocationView>> {
   if (isDemoMode()) {
     return Promise.resolve(demoPage(
-      demoLocations.filter((item) => item.locationId === locationId),
+      demoLocations.filter((item) => item.sharedLocationId === locationId),
       page,
       size,
     ));
@@ -78,27 +88,6 @@ export function listLocationRevisions(
   return requestJson<Page<LocationView>>(
     `${basePath}/locations/${encodeURIComponent(locationId)}/revisions?page=${page}&size=${size}`,
   );
-}
-
-export function createLocation(input: LocationInput): Promise<LocationView> {
-  if (isDemoMode()) {
-    return Promise.resolve({
-      ...requiredDemoItem(demoLocations),
-      ...input,
-      locationId: 'demo-location-created',
-      status: 'ACTIVE',
-      rowVersion: 1,
-      changeReason: input.reason,
-      updatedAt: '2026-07-26T08:00:00Z',
-    });
-  }
-  return requestJson<LocationView>(`${basePath}/locations`, {
-    method: 'POST',
-    headers: changeReasonHeaders(input.reason, {
-      'Idempotency-Key': createIdempotencyKey('attendance-location-create'),
-    }),
-    body: JSON.stringify(input),
-  });
 }
 
 export function updateLocation(
@@ -139,7 +128,7 @@ export function changeLocationStatus(
     });
   }
   return requestJson<LocationView>(
-    `${basePath}/locations/${encodeURIComponent(location.locationId)}/${action}`,
+    `${basePath}/locations/${encodeURIComponent(location.sharedLocationId)}/${action}`,
     {
       method: 'POST',
       headers: changeReasonHeaders(
@@ -158,10 +147,23 @@ export function listAttendanceGroups(
   asOf?: string,
   page = 0,
   size = 100,
+  companyId?: string,
 ): Promise<Page<AttendanceGroupView>> {
-  if (isDemoMode()) return Promise.resolve(demoPage(demoGroups, page, size));
-  const params = new URLSearchParams({ page: String(page), size: String(size) });
-  if (asOf) params.set('asOf', asOf);
+  const filtered = demoGroups.filter(
+    (item) => companyId === undefined || item.companyId === companyId,
+  );
+  if (isDemoMode()) return Promise.resolve(demoPage(filtered, page, size));
+  const params = new URLSearchParams();
+  if (companyId) {
+    params.set('companyId', companyId);
+    if (asOf) params.set('asOf', asOf);
+    params.set('page', String(page));
+    params.set('size', String(size));
+  } else {
+    params.set('page', String(page));
+    params.set('size', String(size));
+    if (asOf) params.set('asOf', asOf);
+  }
   return requestJson<Page<AttendanceGroupView>>(`${basePath}/groups?${params}`);
 }
 
@@ -288,6 +290,8 @@ export function createAssignment(
       groupId,
       rowVersion: 1,
       monthlyContextKey: `${input.employeeId}:${input.effectiveFrom.slice(0, 7)}`,
+      hasSuccessor: false,
+      transferable: true,
       changeReason: input.reason,
       updatedAt: '2026-07-26T08:00:00Z',
     });
@@ -318,6 +322,8 @@ export function updateAssignment(
       groupId,
       rowVersion: rowVersion + 1,
       monthlyContextKey: `${input.employeeId}:${input.effectiveFrom.slice(0, 7)}`,
+      hasSuccessor: false,
+      transferable: true,
       changeReason: input.reason,
     });
   }
@@ -337,11 +343,59 @@ export function updateAssignment(
   );
 }
 
-export function listShifts(page = 0, size = 100): Promise<Page<ShiftTemplateView>> {
-  if (isDemoMode()) return Promise.resolve(demoPage(demoShifts, page, size));
-  return requestJson<Page<ShiftTemplateView>>(
-    `${basePath}/shifts?page=${page}&size=${size}`,
+export function transferAssignment(
+  sourceGroupId: string,
+  assignmentId: string,
+  rowVersion: number,
+  input: AssignmentTransferInput,
+): Promise<AssignmentView> {
+  if (isDemoMode()) {
+    const source = demoAssignments.find((item) => item.assignmentId === assignmentId)
+      ?? requiredDemoItem(demoAssignments);
+    return Promise.resolve({
+      ...source,
+      assignmentId: `demo-assignment-transfer-${assignmentId}`,
+      groupId: input.targetGroupId,
+      effectiveFrom: input.effectiveFrom,
+      rowVersion: 0,
+      monthlyContextKey: `${source.employeeId}:${input.effectiveFrom.slice(0, 7)}`,
+      hasSuccessor: false,
+      transferable: true,
+      changeReason: input.reason,
+      updatedAt: '2026-07-26T08:00:00Z',
+    });
+  }
+  return requestJson<AssignmentView>(
+    `${basePath}/groups/${encodeURIComponent(sourceGroupId)}`
+      + `/assignments/${encodeURIComponent(assignmentId)}/transfer`,
+    {
+      method: 'POST',
+      headers: changeReasonHeaders(
+        input.reason,
+        versionHeaders(
+          rowVersion,
+          createIdempotencyKey('attendance-assignment-transfer'),
+        ),
+      ),
+      body: JSON.stringify(input),
+    },
   );
+}
+
+export function listShifts(
+  page = 0,
+  size = 100,
+  companyId?: string,
+): Promise<Page<ShiftTemplateView>> {
+  const filtered = demoShifts.filter(
+    (item) => companyId === undefined || item.companyId === companyId,
+  );
+  if (isDemoMode()) return Promise.resolve(demoPage(filtered, page, size));
+  const params = new URLSearchParams();
+  if (companyId) params.set('companyId', companyId);
+  params.set('page', String(page));
+  params.set('size', String(size));
+  return requestJson<Page<ShiftTemplateView>>(`${basePath}/shifts?${params}`);
 }
 
 export function createShift(input: ShiftTemplateInput): Promise<ShiftTemplateView> {
@@ -571,15 +625,26 @@ export function listCalendars(
   year?: number,
   page = 0,
   size = 100,
+  companyId?: string,
 ): Promise<Page<WorkCalendarView>> {
   const filtered = demoCalendars.filter(
-    (item) => year === undefined || item.calendarYear === year,
+    (item) => (year === undefined || item.calendarYear === year)
+      && (companyId === undefined || item.companyId === companyId),
   );
   if (isDemoMode()) {
     return Promise.resolve(demoPage(filtered, page, size));
   }
-  const params = new URLSearchParams({ page: String(page), size: String(size) });
-  if (year !== undefined) params.set('year', String(year));
+  const params = new URLSearchParams();
+  if (companyId) {
+    params.set('companyId', companyId);
+    if (year !== undefined) params.set('year', String(year));
+    params.set('page', String(page));
+    params.set('size', String(size));
+  } else {
+    params.set('page', String(page));
+    params.set('size', String(size));
+    if (year !== undefined) params.set('year', String(year));
+  }
   return requestJson<Page<WorkCalendarView>>(`${basePath}/calendars?${params}`);
 }
 
@@ -968,17 +1033,20 @@ export function listPolicyBindings(
   asOf?: string,
   page = 0,
   size = 100,
+  companyId?: string,
 ): Promise<Page<PolicyBindingView>> {
   if (isDemoMode()) {
     return Promise.resolve(demoPage(
       demoBindings.filter(
-        (item) => groupId === undefined || item.groupId === groupId,
+        (item) => (groupId === undefined || item.groupId === groupId)
+          && (companyId === undefined || item.companyId === companyId),
       ),
       page,
       size,
     ));
   }
   const params = new URLSearchParams();
+  if (companyId) params.set('companyId', companyId);
   if (groupId) params.set('groupId', groupId);
   if (asOf) params.set('asOf', asOf);
   params.set('page', String(page));

@@ -2,11 +2,12 @@ import {
   IconAdjustments,
   IconCalendar,
   IconClock,
+  IconMapPin,
   IconShieldCheck,
   IconUsersGroup,
   type Icon,
 } from '@tabler/icons-react';
-import { Button, Card } from 'antd';
+import { Alert, Button, Card } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -24,6 +25,12 @@ interface SettingLink {
 }
 
 const dailySettingLinks: readonly SettingLink[] = [
+  {
+    titleKey: 'rules.locationTitle',
+    descriptionKey: 'rules.locationDescription',
+    path: '/rules/attendance-groups',
+    icon: IconMapPin,
+  },
   {
     titleKey: 'rules.shiftTitle',
     descriptionKey: 'rules.shiftDescription',
@@ -64,6 +71,15 @@ export function RulesHomePage({ capabilities }: RulesHomePageProps) {
         breadcrumbs={[{ label: t('rules.title') }]}
       />
       {canReadAttendanceSetup ? (
+        <Alert
+          className="rules-hub-guide"
+          type="info"
+          showIcon
+          message={t('rules.guideTitle')}
+          description={t('rules.guideDescription')}
+        />
+      ) : null}
+      {canReadAttendanceSetup ? (
         <section className="rules-hub-section" aria-labelledby="rules-daily-settings-title">
           <header className="rules-hub-section__header">
             <h2 id="rules-daily-settings-title">{t('rules.setupTitle')}</h2>
@@ -74,7 +90,7 @@ export function RulesHomePage({ capabilities }: RulesHomePageProps) {
               const SettingIcon = setting.icon;
               const settingTitle = t(setting.titleKey);
               return (
-                <Card className="rules-hub-card" key={setting.path}>
+                <Card className="rules-hub-card" key={setting.titleKey}>
                   <div className="rules-hub-card__meta">
                     <span>{t('rules.step', { step: index + 1 })}</span>
                     <SettingIcon aria-hidden="true" stroke={2} />

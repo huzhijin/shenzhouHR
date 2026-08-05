@@ -118,6 +118,18 @@
   --color-rule-line: var(--color-border-strong);
   --color-rule-terminal: var(--color-accent-sharp);
 
+  /* Attendance matrix states are presentation hints, never calculation inputs. */
+  --color-attendance-matrix-header: #dcebf2;
+  --color-attendance-matrix-identity-header: #c8e1eb;
+  --color-attendance-late: #ff8578;
+  --color-on-attendance-late: #491512;
+  --color-attendance-early-departure: #5aa3ea;
+  --color-on-attendance-early-departure: #102f52;
+  --color-attendance-missing-punch: #be6cbb;
+  --color-on-attendance-missing-punch: #3c153a;
+  --color-attendance-recognized-overtime: #3f8850;
+  --color-on-attendance-recognized-overtime: #ffffff;
+
   /* High-contrast editorial typography: display serif + geometric sans + mono data. */
   --font-display: "Noto Serif SC", "Songti SC", serif;
   --font-ui: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", sans-serif;

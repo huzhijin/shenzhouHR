@@ -59,6 +59,36 @@ describe('attendance setup API boundary', () => {
     );
   });
 
+  it('keeps every attendance directory inside the explicitly selected company', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
+      items: [],
+      total: 0,
+      page: 2,
+      size: 25,
+    })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await attendanceApi.listLocations(2, 25, 'company/1');
+    await attendanceApi.listAttendanceGroups('2026-08-01', 2, 25, 'company/1');
+    await attendanceApi.listShifts(2, 25, 'company/1');
+    await attendanceApi.listCalendars(2026, 2, 25, 'company/1');
+    await attendanceApi.listPolicyBindings(
+      'group/1',
+      '2026-08-01',
+      2,
+      25,
+      'company/1',
+    );
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/v1/attendance-setup/locations?companyId=company%2F1&page=2&size=25',
+      '/api/v1/attendance-setup/groups?companyId=company%2F1&asOf=2026-08-01&page=2&size=25',
+      '/api/v1/attendance-setup/shifts?companyId=company%2F1&page=2&size=25',
+      '/api/v1/attendance-setup/calendars?companyId=company%2F1&year=2026&page=2&size=25',
+      '/api/v1/attendance-setup/policy-bindings?companyId=company%2F1&groupId=group%2F1&asOf=2026-08-01&page=2&size=25',
+    ]);
+  });
+
   it('reads immutable calendar days through the selected version route', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       items: [],
@@ -371,6 +401,49 @@ describe('attendance setup API boundary', () => {
       }]);
   });
 
+  it('transfers an assignment with target group, business date, and controlled headers', async () => {
+    const assignment = requiredDemoItem(demoAssignments);
+    const targetGroup = requiredDemoItem(demoGroups, 1);
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      ...assignment,
+      assignmentId: 'assignment-successor',
+      groupId: targetGroup.groupId,
+      effectiveFrom: '2026-08-20',
+      rowVersion: 0,
+      changeReason: '调配到白班',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await attendanceApi.transferAssignment(
+      assignment.groupId,
+      assignment.assignmentId,
+      assignment.rowVersion,
+      {
+        targetGroupId: targetGroup.groupId,
+        effectiveFrom: '2026-08-20',
+        reason: '调配到白班',
+      },
+    );
+
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = new Headers(init.headers);
+    expect(path).toBe(
+      `/api/v1/attendance-setup/groups/${assignment.groupId}`
+        + `/assignments/${assignment.assignmentId}/transfer`,
+    );
+    expect(init.method).toBe('POST');
+    expect(headers.get('If-Match')).toBe(`"${assignment.rowVersion}"`);
+    expect(headers.get('Idempotency-Key'))
+      .toMatch(/^attendance-assignment-transfer:/);
+    expect(headers.get('X-Change-Reason'))
+      .toBe(`UTF-8''${encodeURIComponent('调配到白班')}`);
+    expect(JSON.parse(String(init.body))).toEqual({
+      targetGroupId: targetGroup.groupId,
+      effectiveFrom: '2026-08-20',
+      reason: '调配到白班',
+    });
+  });
+
   it('short-circuits before every business fetch in demo mode', async () => {
     runtimeMode.demo = true;
     const fetchMock = vi.fn();
@@ -495,7 +568,6 @@ describe('attendance setup API boundary', () => {
     const calls = {
       listLocations: () => attendanceApi.listLocations(),
       listLocationRevisions: () => attendanceApi.listLocationRevisions(location.locationId),
-      createLocation: () => attendanceApi.createLocation(locationInput),
       updateLocation: () => attendanceApi.updateLocation(location.locationId, location.rowVersion, locationInput),
       changeLocationStatus: () => attendanceApi.changeLocationStatus(location, 'deactivate', '演示停用地点'),
       listAttendanceGroups: () => attendanceApi.listAttendanceGroups('2026-08-01'),
@@ -521,6 +593,16 @@ describe('attendance setup API boundary', () => {
           effectiveFrom: assignment.effectiveFrom,
           effectiveTo: assignment.effectiveTo,
           reason: '演示人员分配更新',
+        },
+      ),
+      transferAssignment: () => attendanceApi.transferAssignment(
+        group.groupId,
+        assignment.assignmentId,
+        assignment.rowVersion,
+        {
+          targetGroupId: requiredDemoItem(demoGroups, 1).groupId,
+          effectiveFrom: '2026-08-20',
+          reason: '演示人员跨组调配',
         },
       ),
       listShifts: () => attendanceApi.listShifts(),

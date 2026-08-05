@@ -19,18 +19,42 @@ public interface AttendancePolicyRepository {
             LocalDate effectiveFrom,
             LocalDate effectiveTo);
 
-    List<PolicyBinding> listBindings(
+    default List<PolicyBinding> listBindings(
             String principalId,
             String capability,
             String groupId,
             LocalDate asOf,
             int limit,
             int offset,
+            Instant at) {
+        return listBindings(
+                principalId, capability, null, groupId, asOf, limit, offset, at);
+    }
+
+    List<PolicyBinding> listBindings(
+            String principalId,
+            String capability,
+            String companyId,
+            String groupId,
+            LocalDate asOf,
+            int limit,
+            int offset,
             Instant at);
+
+    default long countBindings(
+            String principalId,
+            String capability,
+            String groupId,
+            LocalDate asOf,
+            Instant at) {
+        return countBindings(
+                principalId, capability, null, groupId, asOf, at);
+    }
 
     long countBindings(
             String principalId,
             String capability,
+            String companyId,
             String groupId,
             LocalDate asOf,
             Instant at);

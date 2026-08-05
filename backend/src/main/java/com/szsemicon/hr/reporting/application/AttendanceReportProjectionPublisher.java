@@ -475,6 +475,11 @@ public class AttendanceReportProjectionPublisher
             throw new IllegalArgumentException(
                     "exception fact is not bound to its daily result");
         }
+        if ("LATE".equals(exception.exceptionType())
+                && daily.penalizedLateMinutes() == 0) {
+            throw new IllegalArgumentException(
+                    "grace-exempt late cannot be published as an exception");
+        }
         validateExceptionFields(exception);
     }
 

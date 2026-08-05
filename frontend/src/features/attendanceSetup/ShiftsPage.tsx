@@ -1,4 +1,5 @@
 import {
+  IconBuilding,
   IconClockPlus,
   IconEdit,
   IconPlayerPlay,
@@ -15,6 +16,7 @@ import { DataTable } from '../../shared/components/DataTable';
 import { PageHeader, ResourcePagination } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import { CompanySelect } from '../referenceData';
 import {
   createShift,
   createShiftVersion,
@@ -47,6 +49,7 @@ import type {
 
 export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
   const { t } = useTranslation();
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [selectedShiftId, setSelectedShiftId] = useState('');
   const [templateOpen, setTemplateOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
@@ -67,9 +70,16 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
   const [versionPage, setVersionPage] = useState(0);
   const [versionPageSize, setVersionPageSize] = useState(20);
   const shifts = useAsyncResource(
-    () => listShifts(shiftPage, shiftPageSize),
+    () => selectedCompanyId
+      ? listShifts(shiftPage, shiftPageSize, selectedCompanyId)
+      : Promise.resolve({
+        items: [],
+        total: 0,
+        page: shiftPage,
+        size: shiftPageSize,
+      }),
     (page) => page.total === 0,
-    [shiftPage, shiftPageSize],
+    [selectedCompanyId, shiftPage, shiftPageSize],
   );
   const firstShiftId = shifts.resource.status === 'ready'
     ? shifts.resource.data.items[0]?.shiftId ?? ''
@@ -92,13 +102,17 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
     [effectiveShiftId, versionPage, versionPageSize],
   );
   const locations = useAsyncResource(
-    () => loadAllAttendanceDirectoryItems((page, size) => listLocations(page, size)),
+    () => selectedCompanyId
+      ? loadAllAttendanceDirectoryItems(
+        (page, size) => listLocations(page, size, selectedCompanyId),
+      )
+      : Promise.resolve([]),
     () => false,
-    [],
+    [selectedCompanyId],
   );
   const locationLabels = locations.resource.status === 'ready'
     ? new Map(locations.resource.data.map((location) => [
-      location.locationId,
+      location.companyLocationId,
       `${location.name}（${location.code}）`,
     ]))
     : new Map<string, string>();
@@ -294,6 +308,19 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
   const changeStatusEffectiveFrom = (event: ChangeEvent<HTMLInputElement>) => {
     setStatusEffectiveFrom(event.target.value);
   };
+  const changeCompany = (companyId?: string) => {
+    setSelectedCompanyId(companyId ?? '');
+    setSelectedShiftId('');
+    setShiftPage(0);
+    setVersionPage(0);
+    setTemplateOpen(false);
+    setVersionOpen(false);
+    setEditingShift(undefined);
+    setEditingVersion(undefined);
+    setPublishTarget(undefined);
+    setStatusTarget(undefined);
+    setNotice(undefined);
+  };
 
   return (
     <>
@@ -309,6 +336,7 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
             <AccessibleButton
               label={t('attendanceSetup.createShift')}
               icon={<IconClockPlus aria-hidden="true" stroke={2} />}
+              disabled={!selectedCompanyId}
               onClick={openShiftCreator}
             >
               {t('attendanceSetup.createShift')}
@@ -326,6 +354,19 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
         ) : undefined}
       />
       <AttendanceSetupNotice notice={notice} />
+      <section className="attendance-context-bar" aria-label={t('attendanceSetup.companyContext')}>
+        <IconBuilding aria-hidden="true" stroke={2} />
+        <label htmlFor="attendance-shifts-company">{t('attendanceSetup.companyId')}</label>
+        <CompanySelect
+          id="attendance-shifts-company"
+          value={selectedCompanyId || undefined}
+          allowClear={false}
+          onChange={changeCompany}
+        />
+        {!selectedCompanyId ? (
+          <span className="form-help">{t('attendanceSetup.selectCompanyFirst')}</span>
+        ) : null}
+      </section>
       {shifts.resource.status === 'loading' || shifts.resource.status === 'partial-loading'
         ? <StatePanel state={shifts.resource.status} />
         : null}
@@ -529,9 +570,10 @@ export function ShiftsPage({ capabilities }: { capabilities: string[] }) {
         </>
       ) : null}
       <ShiftTemplateDialog
-        key={editingShift?.shiftId ?? 'create-shift'}
+        key={`${selectedCompanyId}-${editingShift?.shiftId ?? 'create-shift'}`}
         open={templateOpen}
         processing={processing}
+        defaultCompanyId={selectedCompanyId || undefined}
         initialValues={editingShift ? {
           companyId: editingShift.companyId,
           locationId: editingShift.locationId,

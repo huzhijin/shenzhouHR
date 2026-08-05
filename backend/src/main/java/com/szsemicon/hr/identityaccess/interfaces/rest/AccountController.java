@@ -7,6 +7,8 @@ import com.szsemicon.hr.identityaccess.application.AccountAccessService.AccountP
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.BulkAccountCreationResult;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.CreateAccountCommand;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.EmployeeAccountCandidatePage;
+import com.szsemicon.hr.identityaccess.application.AccountAccessService.GrantableCompany;
+import com.szsemicon.hr.identityaccess.application.AccountAccessService.GrantableOrganization;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleRecord;
 import com.szsemicon.hr.identityaccess.interfaces.rest.AuthenticationController.AcceptedOperation;
@@ -60,7 +62,7 @@ public class AccountController {
     }
 
     @PostMapping("/accounts")
-    @PreAuthorize("hasAuthority('ACCOUNT:CREATE')")
+    @PreAuthorize("hasAuthority('ACCOUNT:CREATE') and hasAuthority('ROLE:ASSIGN')")
     ResponseEntity<AccountDetail> createAccount(
             @Valid @RequestBody AccountCreateRequest request) {
         AccountDetail detail = accountService.createAccount(new CreateAccountCommand(
@@ -175,6 +177,27 @@ public class AccountController {
         return accountService.listRoles();
     }
 
+    @GetMapping("/grantable-scopes/companies")
+    @PreAuthorize("hasAuthority('ROLE:ASSIGN')")
+    ResponseEntity<List<GrantableCompany>> listGrantableCompanies(
+            @RequestParam String scopeType,
+            @RequestParam(defaultValue = "ROLE_ASSIGNMENT") String usage) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(accountService.listGrantableCompanies(scopeType, usage));
+    }
+
+    @GetMapping("/grantable-scopes/companies/{companyId}/organizations")
+    @PreAuthorize("hasAuthority('ROLE:ASSIGN')")
+    ResponseEntity<List<GrantableOrganization>> listGrantableOrganizations(
+            @PathVariable String companyId,
+            @RequestParam(defaultValue = "ROLE_ASSIGNMENT") String usage) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(accountService.listGrantableOrganizations(
+                        companyId, usage));
+    }
+
     public record AccountCreateRequest(
             @NotBlank @Size(min = 3, max = 128) String username,
             @NotBlank @Size(max = 100) String displayName,
@@ -210,6 +233,7 @@ public class AccountController {
             @NotBlank @Size(max = 36) String roleId,
             @NotBlank String scopeType,
             @Size(max = 36) String scopeResourceId,
+            Boolean includeDescendants,
             @NotNull Instant validFrom,
             Instant validTo) {
 
@@ -218,6 +242,9 @@ public class AccountController {
                     roleId,
                     scopeType,
                     scopeResourceId,
+                    "ORGANIZATION".equals(scopeType)
+                            ? !Boolean.FALSE.equals(includeDescendants)
+                            : !"SELF".equals(scopeType),
                     validFrom,
                     validTo);
         }

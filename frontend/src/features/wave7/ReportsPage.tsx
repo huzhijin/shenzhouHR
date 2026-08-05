@@ -24,6 +24,8 @@ import { DataTable, type DataColumn } from '../../shared/components/DataTable';
 import { PageHeader } from '../../shared/components/PagePrimitives';
 import { wave7ProjectionGateway } from '../../shared/runtime/wave7ProjectionGateway';
 import type {
+  AttendanceMonthMatrixBadgeCode,
+  AttendanceMonthMatrixProjection,
   AttendanceReportExportView,
   AttendanceReportCompanyDirectory,
   AttendanceReportType,
@@ -160,6 +162,7 @@ function AuthorizedCompanyReport({
   capabilities: readonly string[];
   gateway: Wave7ProjectionGateway;
 }) {
+  const [matrixPage, setMatrixPage] = useState(0);
   const selectedIsAuthorized = directory.companies.some(
     (option) => option.companyId === selectedCompanyId,
   );
@@ -168,21 +171,57 @@ function AuthorizedCompanyReport({
     : directory.companies.length === 1
       ? directory.companies[0]!.companyId
       : '';
+
+  useEffect(() => {
+    setMatrixPage(0);
+  }, [effectiveCompanyId, period, reportType]);
+
   const loadReport = useCallback(
-    () => gateway.loadReport({
-      reportType,
-      period,
-      companyId: effectiveCompanyId,
-      ...(reportType === 'EXCEPTIONS' && exceptionStatus !== undefined
-        ? { status: exceptionStatus }
-        : {}),
-      page: 0,
-      size: 50,
-    }),
+    async () => {
+      const reportPromise = gateway.loadReport({
+        reportType,
+        period,
+        companyId: effectiveCompanyId,
+        ...(reportType === 'EXCEPTIONS' && exceptionStatus !== undefined
+          ? { status: exceptionStatus }
+          : {}),
+        page: 0,
+        size: 50,
+      });
+      const matrixLoader = gateway.loadAttendanceMonthMatrix;
+      const matrixPromise = reportType === 'ATTENDANCE_DETAIL'
+        && matrixLoader !== undefined
+        ? matrixLoader({
+          period,
+          companyId: effectiveCompanyId,
+          page: matrixPage,
+          size: 20,
+        })
+        : Promise.resolve(null);
+      const [projection, monthMatrix] = await Promise.all([
+        reportPromise,
+        matrixPromise,
+      ]);
+      if (
+        monthMatrix !== null
+        && !attendanceReportMatrixSnapshotsMatch(
+          projection,
+          monthMatrix,
+        )
+      ) {
+        throw new ApiRequestError(409, {
+          code: 'ATTENDANCE_REPORT_MATRIX_SNAPSHOT_MISMATCH',
+          message: attendanceReportMatrixSnapshotMismatchMessage,
+          retryable: true,
+        });
+      }
+      return { projection, monthMatrix };
+    },
     [
       effectiveCompanyId,
       exceptionStatus,
       gateway,
+      matrixPage,
       period,
       reportType,
     ],
@@ -190,7 +229,7 @@ function AuthorizedCompanyReport({
   const queryKey =
     `${reportType}:${period}:${effectiveCompanyId}:${
       reportType === 'EXCEPTIONS' ? exceptionStatus ?? '' : ''
-    }`;
+    }:${matrixPage}`;
 
   return (
     <>
@@ -206,8 +245,10 @@ function AuthorizedCompanyReport({
               aria-label="公司"
               value={effectiveCompanyId}
               disabled={directory.companies.length === 1}
-              onChange={(event) =>
-                onSelectCompany(event.target.value)}
+              onChange={(event) => {
+                setMatrixPage(0);
+                onSelectCompany(event.target.value);
+              }}
             >
               {directory.companies.length > 1 ? (
                 <option value="">请选择公司</option>
@@ -238,14 +279,18 @@ function AuthorizedCompanyReport({
         <Wave7AsyncBoundary
           key={queryKey}
           loader={loadReport}
-          isEmpty={(value) => value.rows.length === 0}
+          isEmpty={(value) => value.monthMatrix !== null
+            ? value.monthMatrix.employeeCount === 0
+            : value.projection.rows.length === 0}
         >
-          {(projection) => (
+          {({ projection, monthMatrix }) => (
             hasLiveReportMetadata(projection)
             && hasFormalReportExportGateway(gateway)
               ? (
                   <FormalReportWorkspace
                     projection={projection}
+                    monthMatrix={monthMatrix}
+                    onMatrixPageChange={setMatrixPage}
                     capabilities={capabilities}
                     gateway={gateway}
                   />
@@ -253,6 +298,8 @@ function AuthorizedCompanyReport({
               : (
                   <ReportView
                     projection={projection}
+                    monthMatrix={monthMatrix}
+                    onMatrixPageChange={setMatrixPage}
                     canCreateExport={capabilities.includes(
                       'ATTENDANCE_REPORT:EXPORT_CREATE',
                     )}
@@ -344,6 +391,72 @@ function hasControlCharacter(value: string): boolean {
 
 export const reportExportPollIntervalMs = 3_000;
 
+export const attendanceReportMatrixSnapshotMismatchMessage =
+  '考勤矩阵与平铺明细不是同一份正式数据快照，系统已停止展示和导出。请刷新后重试。';
+
+export function attendanceReportMatrixSnapshotsMatch(
+  projection: ReportProjection,
+  matrix: AttendanceMonthMatrixProjection,
+): boolean {
+  if (
+    !hasLiveReportMetadata(projection)
+    || projection.reportType !== 'ATTENDANCE_DETAIL'
+  ) {
+    return false;
+  }
+  const reportMetadata = projection.metadata;
+  const matrixMetadata = matrix.metadata;
+  const reportScope = reportMetadata.scope;
+  const matrixScope = matrixMetadata.scope;
+  const reportFilters = projection.filters;
+  const matrixFilters = matrix.filters;
+  return reportMetadata.projectionVersion
+      === matrixMetadata.projectionVersion
+    && reportMetadata.dataAsOf === matrixMetadata.dataAsOf
+    && equalOrderedStrings(
+      reportMetadata.sourceVersions,
+      matrixMetadata.sourceVersions,
+    )
+    && reportMetadata.periodState === matrixMetadata.periodState
+    && reportMetadata.periodLabel === matrixMetadata.periodLabel
+    && reportMetadata.timeZone === matrixMetadata.timeZone
+    && equalStringSets(
+      reportMetadata.allowedActions,
+      matrixMetadata.allowedActions,
+    )
+    && reportScope.type === matrixScope.type
+    && reportScope.reference === matrixScope.reference
+    && reportScope.label === matrixScope.label
+    && reportFilters.period === matrixFilters.period
+    && reportFilters.companyId === matrixFilters.companyId
+    && (reportFilters.organizationId ?? null)
+      === (matrixFilters.organizationId ?? null)
+    && (reportFilters.employeeId ?? null)
+      === (matrixFilters.employeeId ?? null)
+    && (reportFilters.status ?? null) === null
+    && reportFilters.scopeReference === matrixFilters.scopeReference
+    && reportMetadata.periodLabel === reportFilters.period
+    && matrixMetadata.periodLabel === matrixFilters.period
+    && reportScope.reference === reportFilters.scopeReference
+    && matrixScope.reference === matrixFilters.scopeReference;
+}
+
+function equalOrderedStrings(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
+function equalStringSets(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return left.length === right.length
+    && left.every((value) => right.includes(value));
+}
+
 type FormalReportExportGateway = Wave7ProjectionGateway & Required<Pick<
   Wave7ProjectionGateway,
   'createReportExport' | 'loadReportExport' | 'downloadReportExport'
@@ -359,10 +472,14 @@ function hasFormalReportExportGateway(
 
 function FormalReportWorkspace({
   projection,
+  monthMatrix,
+  onMatrixPageChange,
   capabilities,
   gateway,
 }: {
   projection: LiveReportProjection;
+  monthMatrix: AttendanceMonthMatrixProjection | null;
+  onMatrixPageChange: (page: number) => void;
   capabilities: readonly string[];
   gateway: FormalReportExportGateway;
 }) {
@@ -512,6 +629,8 @@ function FormalReportWorkspace({
     <>
       <ReportView
         projection={projection}
+        monthMatrix={monthMatrix}
+        onMatrixPageChange={onMatrixPageChange}
         canCreateExport={canCreateExport}
         requireCurrentPassword
         onCreateExport={createExport}
@@ -536,11 +655,15 @@ function FormalReportWorkspace({
 
 export function ReportView({
   projection,
+  monthMatrix = null,
+  onMatrixPageChange,
   canCreateExport,
   onCreateExport,
   requireCurrentPassword = false,
 }: {
   projection: ReportProjection;
+  monthMatrix?: AttendanceMonthMatrixProjection | null;
+  onMatrixPageChange?: (page: number) => void;
   canCreateExport: boolean;
   onCreateExport?: (
     request: ReportExportRequest,
@@ -557,6 +680,20 @@ export function ReportView({
   const [exportSubmitting, setExportSubmitting] = useState(false);
   const exportAttempt = useRef(0);
   const passwordInput = useRef<InputRef>(null);
+  if (
+    monthMatrix !== null
+    && !attendanceReportMatrixSnapshotsMatch(
+      projection,
+      monthMatrix,
+    )
+  ) {
+    return (
+      <OperationFeedback
+        kind="error"
+        message={attendanceReportMatrixSnapshotMismatchMessage}
+      />
+    );
+  }
   const projectionAllowsExport = projection.metadata.allowedActions.includes('REPORT_EXPORT_CREATE');
   const exportEnabled = canCreateExport && projectionAllowsExport && onCreateExport !== undefined;
   const liveMetadata = hasLiveReportMetadata(projection) ? projection : null;
@@ -646,15 +783,31 @@ export function ReportView({
     <>
       <PageHeader
         title={projection.reportTitle}
-        description="按当前范围和筛选条件展示汇总明细，并支持受控导出。"
+        description={monthMatrix
+          ? '当前页面以月度矩阵展示；受控导出为同一正式快照的平铺考勤明细，不保留颜色、标签样式或矩阵布局。'
+          : '按当前范围和筛选条件展示汇总明细，并支持受控导出。'}
         actions={(
           <Button type="primary" disabled={!exportEnabled} onClick={() => setExportOpen(true)}>
             创建受控导出
           </Button>
         )}
       />
-      <ProjectionMetadata metadata={projection.metadata} />
-      <FrozenHistoryNotice metadata={projection.metadata} />
+      {monthMatrix ? (
+        <section aria-label="月度考勤矩阵数据概览">
+          <ProjectionMetadata metadata={monthMatrix.metadata} />
+        </section>
+      ) : (
+        <ProjectionMetadata metadata={projection.metadata} />
+      )}
+      <FrozenHistoryNotice
+        metadata={monthMatrix?.metadata ?? projection.metadata}
+      />
+      {monthMatrix ? (
+        <OperationFeedback
+          kind="info"
+          message="导出文件是平铺正式明细，不保留当前矩阵的颜色、状态标签样式和横向日期布局。"
+        />
+      ) : null}
       {!canCreateExport || !projectionAllowsExport
         ? <LockedActionReason>当前仅可查看报表，不能创建导出。</LockedActionReason>
         : null}
@@ -666,24 +819,44 @@ export function ReportView({
               <dd>{reportTypeLabel(liveMetadata.reportType)}</dd>
             </div>
           ) : null}
-          <div><dt>筛选期间</dt><dd>{projection.filters.period}</dd></div>
           <div>
-            <dt>状态</dt>
-            <dd>
-              {typeof projection.filters.status === 'string'
-                ? reportCellDisplayValue(
-                    'exception-state',
-                    projection.filters.status,
-                  )
-                : '全部'}
-            </dd>
+            <dt>筛选期间</dt>
+            <dd>{monthMatrix?.filters.period ?? projection.filters.period}</dd>
           </div>
+          {monthMatrix === null ? (
+            <div>
+              <dt>状态</dt>
+              <dd>
+                {typeof projection.filters.status === 'string'
+                  ? reportCellDisplayValue(
+                      'exception-state',
+                      projection.filters.status,
+                    )
+                  : '全部'}
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt>数据范围</dt>
-            <dd>{projection.metadata.scope.label}</dd>
+            <dd>{monthMatrix?.metadata.scope.label
+              ?? projection.metadata.scope.label}</dd>
           </div>
-          <div><dt>记录数</dt><dd>{projection.rowCount}</dd></div>
-          {liveMetadata ? (
+          <div>
+            <dt>{monthMatrix ? '员工总数' : '记录数'}</dt>
+            <dd>{monthMatrix?.employeeCount ?? projection.rowCount}</dd>
+          </div>
+          {monthMatrix ? (
+            <div>
+              <dt>矩阵分页</dt>
+              <dd>
+                第 {monthMatrix.page + 1} 页
+                {' / '}
+                {monthMatrix.totalPages} 页
+                {' · '}
+                每页 {monthMatrix.size} 人
+              </dd>
+            </div>
+          ) : liveMetadata ? (
             <div>
               <dt>分页</dt>
               <dd>
@@ -697,15 +870,22 @@ export function ReportView({
           ) : null}
         </dl>
       </section>
-      <section className="content-surface" aria-labelledby="wave7-report-table-heading">
-        <h2 id="wave7-report-table-heading">汇总明细</h2>
-        <DataTable
-          ariaLabel={projection.reportTitle}
-          rows={projection.rows}
-          rowKey={(row) => row.rowReference}
-          columns={reportColumns}
+      {monthMatrix ? (
+        <AttendanceMonthMatrixView
+          matrix={monthMatrix}
+          onPageChange={onMatrixPageChange}
         />
-      </section>
+      ) : (
+        <section className="content-surface" aria-labelledby="wave7-report-table-heading">
+          <h2 id="wave7-report-table-heading">汇总明细</h2>
+          <DataTable
+            ariaLabel={projection.reportTitle}
+            rows={projection.rows}
+            rowKey={(row) => row.rowReference}
+            columns={reportColumns}
+          />
+        </section>
+      )}
       <ConfirmationDialog
         open={exportOpen}
         title="确认创建受控导出"
@@ -717,7 +897,11 @@ export function ReportView({
         onCancel={closeExportDialog}
         description={(
           <div className="wave7-export-confirmation">
-            <p>导出将使用当前范围和筛选条件，并记录操作日志。</p>
+            <p>
+              {monthMatrix
+                ? '导出将使用当前范围和同一正式快照，生成平铺考勤明细；不保留矩阵颜色、标签样式和布局，并记录操作日志。'
+                : '导出将使用当前范围和筛选条件，并记录操作日志。'}
+            </p>
             <dl>
               <div><dt>范围</dt><dd>{projection.metadata.scope.label}</dd></div>
               <div><dt>导出字段</dt><dd>{businessExportFields.length} 项</dd></div>
@@ -774,6 +958,217 @@ export function ReportView({
       />
     </>
   );
+}
+
+const monthMatrixBadgeLabels: Readonly<Record<
+  AttendanceMonthMatrixBadgeCode,
+  string
+>> = {
+  LATE: '迟到',
+  EARLY_DEPARTURE: '早退',
+  MISSING_PUNCH: '漏刷',
+  ABSENCE: '旷工',
+  RECOGNIZED_OVERTIME: '认可加班',
+  TIME_OFF: '调休',
+  OUTING: '外出',
+  TRIP: '出差',
+  PERSONAL_LEAVE: '事假',
+  SICK_LEAVE: '病假',
+  ANNUAL_LEAVE: '年假',
+  PUNCH_CORRECTION: '补签',
+  REST_DAY: '休息日',
+  OTHER_LEAVE: '其他请假/调休',
+  LEAVE_REVOCATION: '销假',
+  OVERTIME_APPLICATION: '加班单',
+  EXEMPT_PUNCH: '免打卡',
+  OTHER_ATTENDANCE_DOCUMENT: '其他考勤单',
+  OTHER_EXCEPTION: '其他异常',
+};
+
+const monthMatrixLegendCodes: readonly AttendanceMonthMatrixBadgeCode[] = [
+  'LATE',
+  'EARLY_DEPARTURE',
+  'MISSING_PUNCH',
+  'ABSENCE',
+  'RECOGNIZED_OVERTIME',
+  'TIME_OFF',
+  'OUTING',
+  'TRIP',
+  'PERSONAL_LEAVE',
+  'SICK_LEAVE',
+  'ANNUAL_LEAVE',
+  'PUNCH_CORRECTION',
+  'REST_DAY',
+];
+
+export function AttendanceMonthMatrixView({
+  matrix,
+  onPageChange,
+}: {
+  matrix: AttendanceMonthMatrixProjection;
+  onPageChange?: (page: number) => void;
+}) {
+  const pageOutOfRange = matrix.totalPages > 0
+    && matrix.page >= matrix.totalPages;
+  useEffect(() => {
+    if (pageOutOfRange && onPageChange !== undefined) {
+      onPageChange(matrix.totalPages - 1);
+    }
+  }, [matrix.totalPages, onPageChange, pageOutOfRange]);
+
+  if (pageOutOfRange) {
+    return (
+      <section
+        className="content-surface wave7-month-matrix"
+        aria-labelledby="wave7-month-matrix-heading"
+      >
+        <h2 id="wave7-month-matrix-heading">月度考勤明细矩阵</h2>
+        <OperationFeedback
+          kind="info"
+          message="当前页码已超出有效范围，正在返回最后一页。"
+        />
+      </section>
+    );
+  }
+  return (
+    <section
+      className="content-surface wave7-month-matrix"
+      aria-labelledby="wave7-month-matrix-heading"
+    >
+      <div className="wave7-month-matrix__heading">
+        <div>
+          <h2 id="wave7-month-matrix-heading">月度考勤明细矩阵</h2>
+          <p>
+            颜色仅用于快速识别；考勤结论由打卡时间、班次、规则、有效单据和正式异常事实计算。
+            同一天存在多个状态时会全部并列显示。
+          </p>
+        </div>
+        <span>共 {matrix.employeeCount} 人</span>
+      </div>
+      <div className="wave7-month-matrix__legend" aria-label="考勤状态图例">
+        {monthMatrixLegendCodes.map((code) => (
+          <MonthMatrixBadge key={code} code={code} />
+        ))}
+      </div>
+      <div className="wave7-month-matrix__scroll">
+        <table aria-label="正式月度考勤明细矩阵">
+          <thead>
+            <tr>
+              <th className="wave7-month-matrix__identity">工号</th>
+              <th className="wave7-month-matrix__identity">姓名</th>
+              <th className="wave7-month-matrix__organization">部门</th>
+              {matrix.dates.map((date) => (
+                <th key={date}>
+                  <span>{date.slice(8)}</span>
+                  <small>{matrixWeekday(date)}</small>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.rows.map((row) => (
+              <tr key={row.employeeId}>
+                <td className="wave7-month-matrix__identity">{row.employeeNumber}</td>
+                <td className="wave7-month-matrix__identity">{row.employeeName}</td>
+                <td className="wave7-month-matrix__organization">{row.organizationName}</td>
+                {row.days.map((day) => (
+                  <td
+                    key={day.date}
+                    title={[
+                      day.organizationName,
+                      day.shiftLabel,
+                    ].filter(Boolean).join(' · ') || undefined}
+                  >
+                    <div className="wave7-month-matrix__punches">
+                      <time>{formatMatrixPunch(
+                        day.firstPunchAt,
+                        matrix.metadata.timeZone,
+                      )}</time>
+                      <time>{formatMatrixPunch(
+                        day.lastPunchAt,
+                        matrix.metadata.timeZone,
+                      )}</time>
+                    </div>
+                    {day.shiftLabel ? (
+                      <small className="wave7-month-matrix__shift">
+                        {day.shiftLabel}
+                      </small>
+                    ) : null}
+                    <div className="wave7-month-matrix__badges">
+                      {day.badges.map((code) => (
+                        <MonthMatrixBadge key={code} code={code} />
+                      ))}
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="wave7-month-matrix__pagination" aria-label="矩阵分页">
+        <Button
+          disabled={matrix.page === 0 || onPageChange === undefined}
+          onClick={() => onPageChange?.(matrix.page - 1)}
+        >
+          上一页
+        </Button>
+        <span>
+          第 {matrix.page + 1} / {Math.max(matrix.totalPages, 1)} 页
+          {' · '}
+          每页 {matrix.size} 人
+        </span>
+        <Button
+          disabled={
+            matrix.page + 1 >= matrix.totalPages
+            || onPageChange === undefined
+          }
+          onClick={() => onPageChange?.(matrix.page + 1)}
+        >
+          下一页
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function MonthMatrixBadge({
+  code,
+}: {
+  code: AttendanceMonthMatrixBadgeCode;
+}) {
+  return (
+    <span
+      className="wave7-month-matrix__badge"
+      data-badge-code={code}
+    >
+      {monthMatrixBadgeLabels[code]}
+    </span>
+  );
+}
+
+function formatMatrixPunch(
+  value: string | null,
+  timeZone: string,
+): string {
+  if (value === null) return '—';
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone,
+    }).format(new Date(value));
+  } catch (error: unknown) {
+    void error;
+    return '—';
+  }
+}
+
+function matrixWeekday(value: string): string {
+  const weekday = new Date(`${value}T00:00:00Z`).getUTCDay();
+  return ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][weekday]
+    ?? '—';
 }
 
 export function FormalReportExportStatus({

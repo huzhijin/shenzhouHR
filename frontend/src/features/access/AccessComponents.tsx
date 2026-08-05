@@ -2,10 +2,6 @@ import { Button, Checkbox, Descriptions, Tag } from 'antd';
 import { useTranslation } from 'react-i18next';
 
 import { StatusBadge } from '../../shared/components/FeedbackComponents';
-import {
-  CompanySelect,
-  OrganizationSelect,
-} from '../referenceData';
 import type { AccountDetail, RoleAssignmentView, RoleView } from './accessApi';
 import { allowedScopeTypes } from './roleScopePolicy';
 
@@ -218,20 +214,23 @@ export function RoleScopeList({ assignments }: { assignments: RoleAssignmentView
           <div>
             <div>{roleScopeLabel(assignment.scopeType)}</div>
             {assignment.scopeType === 'COMPANY' && assignment.scopeResourceId ? (
-              <CompanySelect
-                aria-label={t('access.authorizedCompany')}
-                disabled
-                size="small"
-                value={assignment.scopeResourceId}
-              />
+              <div aria-label={t('access.authorizedCompany')}>
+                {assignment.scopeCompanyName?.trim() || '已授权公司'}
+              </div>
             ) : null}
             {assignment.scopeType === 'ORGANIZATION' && assignment.scopeResourceId ? (
-              <OrganizationSelect
-                aria-label={t('access.authorizedOrganization')}
-                disabled
-                size="small"
-                value={assignment.scopeResourceId}
-              />
+              <>
+                <div aria-label={t('access.authorizedOrganization')}>
+                  {`${assignment.scopeCompanyName?.trim() || '已授权公司'} / ${
+                    assignment.scopeResourcePath?.trim()
+                    || assignment.scopeResourceName?.trim()
+                    || '已授权部门'
+                  }`}
+                </div>
+                <Tag color={assignment.includeDescendants !== false ? 'blue' : 'default'}>
+                  {assignment.includeDescendants !== false ? '包含下级部门' : '仅所选部门'}
+                </Tag>
+              </>
             ) : null}
             {assignment.scopeType !== 'SELF' && !assignment.scopeResourceId ? (
               <div>{t('access.scopeTargetUnset')}</div>

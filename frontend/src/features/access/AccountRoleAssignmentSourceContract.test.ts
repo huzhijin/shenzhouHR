@@ -30,18 +30,29 @@ describe('account role assignment source contract', () => {
 
   it('uses human-readable employee, company and department selectors for account creation', () => {
     expect(accountsSource).toContain('<EmployeeSelect');
-    expect(accountsSource).toContain('<CompanySelect');
-    expect(accountsSource).toContain('<OrganizationSelect');
-    expect(accountsSource).toContain("selectedScopeType === 'SELF'");
-    expect(accountsSource).toContain("selectedScopeType === 'COMPANY'");
-    expect(accountsSource).toContain("selectedScopeType === 'ORGANIZATION'");
+    expect(accountsSource).toContain('<GrantableCompanySelect');
+    expect(accountsSource).toContain('<GrantableOrganizationSelect');
+    expect(accountsSource).toContain('<Form.List');
+    expect(accountsSource).toContain("assignment.scopeType === 'SELF'");
+    expect(accountsSource).toContain("assignment.scopeType === 'COMPANY'");
+    expect(accountsSource).toContain("assignment.scopeType === 'ORGANIZATION'");
+    expect(accountsSource).toContain('includeDescendants');
+    expect(accountsSource).toContain('scopeCompanyId');
+    expect(accountsSource).toContain("'ACCOUNT_CREATION'");
+    expect(accountsSource).toContain('canIncludeDescendants');
+    expect(accountsSource).toContain('companyScopeCompanies.map((company) => ({');
+    expect(accountsSource).toContain('以后新增公司不会自动扩权');
   });
 
   it('uses scope-specific selectors when editing role assignments', () => {
     expect(detailSource).toContain("assignment.scopeType === 'COMPANY'");
-    expect(detailSource).toContain('<CompanySelect');
+    expect(detailSource).toContain('<GrantableCompanySelect');
     expect(detailSource).toContain("assignment.scopeType === 'ORGANIZATION'");
-    expect(detailSource).toContain('<OrganizationSelect');
+    expect(detailSource).toContain('<GrantableOrganizationSelect');
+    expect(detailSource).toContain('包含下级部门');
+    expect(detailSource).toContain('scopeCompanyId');
+    expect(detailSource).toContain('companyScopeCompanies.map((company) => newAssignment(');
+    expect(detailSource).toContain('以后新增公司需在这里手动添加');
     expect(detailSource).not.toContain(
       'value={assignment.scopeResourceId ?? \'\'}',
     );

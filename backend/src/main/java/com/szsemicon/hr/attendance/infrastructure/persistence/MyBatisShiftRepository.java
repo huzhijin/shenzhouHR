@@ -53,16 +53,19 @@ class MyBatisShiftRepository implements ShiftRepository {
     public List<ShiftTemplate> listTemplates(
             String principalId,
             String capability,
+            String companyId,
             int limit,
             int offset,
             Instant at) {
-        return mapper.listTemplates(principalId, capability, limit, offset, at)
+        return mapper.listTemplates(
+                        principalId, capability, companyId, limit, offset, at)
                 .stream().map(this::template).toList();
     }
 
     @Override
-    public long countTemplates(String principalId, String capability, Instant at) {
-        return mapper.countTemplates(principalId, capability, at);
+    public long countTemplates(
+            String principalId, String capability, String companyId, Instant at) {
+        return mapper.countTemplates(principalId, capability, companyId, at);
     }
 
     @Override

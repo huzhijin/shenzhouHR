@@ -1,5 +1,5 @@
 import { IconKey, IconLockOpen, IconPlus, IconPlayerPause, IconRefresh, IconTrash } from '@tabler/icons-react';
-import { Alert, Button, DatePicker, Form, Input, Select, Space } from 'antd';
+import { Alert, Button, Checkbox, DatePicker, Form, Input, Select, Space } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,9 +11,9 @@ import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import { revokeSession } from '../auth/authApi';
 import {
-  CompanySelect,
-  OrganizationSelect,
-} from '../referenceData';
+  GrantableCompanySelect,
+  GrantableOrganizationSelect,
+} from './GrantableScopeSelects';
 import {
   AccountStatusPanel,
   PermissionMatrix,
@@ -24,11 +24,15 @@ import {
   assignRoles,
   getAccount,
   isStrongTemporaryPassword,
+  listGrantableCompanies,
+  listGrantableOrganizations,
   listRoles,
   resetTemporaryPassword,
   unlockAccount,
   updateAccountStatus,
   type RoleView,
+  type GrantableCompany,
+  type GrantableOrganization,
 } from './accessApi';
 import {
   allowedScopeTypes,
@@ -47,6 +51,11 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
   const accountLoader = useMemo(() => () => getAccount(accountId), [accountId]);
   const { resource, reload } = useAsyncResource(accountLoader, () => false, [accountId]);
   const [roles, setRoles] = useState<RoleView[]>([]);
+  const [companyScopeCompanies, setCompanyScopeCompanies] = useState<GrantableCompany[]>([]);
+  const [organizationScopeCompanies, setOrganizationScopeCompanies] = useState<GrantableCompany[]>([]);
+  const [organizationsByCompany, setOrganizationsByCompany] = useState<
+    Record<string, GrantableOrganization[]>
+  >({});
   const [roleAssignments, setRoleAssignments] = useState<EditableRoleAssignment[]>([]);
   const [operation, setOperation] = useState<Operation>();
   const [processing, setProcessing] = useState(false);
@@ -61,11 +70,35 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
   );
 
   const loadRoles = async () => {
-    const result = await listRoles();
+    const canAssign = capabilities.includes('ROLE:ASSIGN');
+    const [result, companyCompanies, organizationCompanies] = await Promise.all([
+      listRoles(),
+      canAssign ? listGrantableCompanies('COMPANY') : Promise.resolve([]),
+      canAssign ? listGrantableCompanies('ORGANIZATION') : Promise.resolve([]),
+    ]);
     setRoles(result);
+    setCompanyScopeCompanies(companyCompanies);
+    setOrganizationScopeCompanies(organizationCompanies);
     if (resource.status === 'ready') {
-      setRoleAssignments(editableRoleAssignments(resource.data.roles));
+      const editable = editableRoleAssignments(resource.data.roles);
+      setRoleAssignments(editable);
+      const companyIds = Array.from(new Set(editable
+        .filter((assignment) => assignment.scopeType === 'ORGANIZATION')
+        .map((assignment) => assignment.scopeCompanyId)
+        .filter((companyId): companyId is string => Boolean(companyId))));
+      const organizationLists = canAssign
+        ? await Promise.all(companyIds.map(async (companyId) => (
+          [companyId, await listGrantableOrganizations(companyId)] as const
+        )))
+        : [];
+      setOrganizationsByCompany(Object.fromEntries(organizationLists));
     }
+  };
+
+  const loadOrganizations = async (companyId: string) => {
+    if (!companyId || organizationsByCompany[companyId]) return;
+    const organizations = await listGrantableOrganizations(companyId);
+    setOrganizationsByCompany((current) => ({ ...current, [companyId]: organizations }));
   };
 
   const confirmOperation = async () => {
@@ -147,7 +180,20 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
         if (next.some((assignment) => assignment.roleId === roleId)) continue;
         const role = roles.find((candidate) => candidate.roleId === roleId);
         const scopeType = role ? allowedScopeTypes(role)[0] : undefined;
-        if (scopeType) next.push(newAssignment(roleId, scopeType));
+        if (!scopeType) continue;
+        if (role?.roleCode === 'EXECUTIVE' && scopeType === 'COMPANY') {
+          const defaults = companyScopeCompanies.map((company) => newAssignment(
+            roleId,
+            scopeType,
+            company.companyId,
+            company.companyId,
+          ));
+          next.push(...(defaults.length > 0
+            ? defaults
+            : [newAssignment(roleId, scopeType)]));
+        } else {
+          next.push(newAssignment(roleId, scopeType));
+        }
       }
       return next;
     });
@@ -216,6 +262,13 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
                         {t('access.addScopeAssignment')}
                       </Button>
                     </div>
+                    {role.roleCode === 'EXECUTIVE' ? (
+                      <Alert
+                        showIcon
+                        type="info"
+                        title="首次授予高管时默认选择当前可授权的全部启用公司；以后新增公司需在这里手动添加。"
+                      />
+                    ) : null}
                     {rows.map((assignment, index) => (
                       <div key={assignment.key} className="role-assignment-row">
                         <Form.Item label={`${t('access.scopeType')} ${index + 1}`}>
@@ -235,6 +288,8 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
                               {
                                 scopeType,
                                 scopeResourceId: scopeType === 'SELF' ? null : '',
+                                scopeCompanyId: null,
+                                includeDescendants: scopeType === 'COMPANY',
                               },
                             )}
                           />
@@ -244,24 +299,65 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
                           required={assignment.scopeType !== 'SELF'}
                         >
                           {assignment.scopeType === 'COMPANY' ? (
-                            <CompanySelect
+                            <GrantableCompanySelect
+                              companies={companyScopeCompanies}
                               value={assignment.scopeResourceId ?? undefined}
                               aria-label={`${t('access.company')} ${index + 1}`}
                               onChange={(scopeResourceId) => updateAssignment(
                                 assignment.key,
-                                { scopeResourceId: scopeResourceId ?? '' },
+                                {
+                                  scopeResourceId: scopeResourceId ?? '',
+                                  scopeCompanyId: scopeResourceId ?? null,
+                                },
                               )}
                             />
                           ) : null}
                           {assignment.scopeType === 'ORGANIZATION' ? (
-                            <OrganizationSelect
-                              value={assignment.scopeResourceId ?? undefined}
-                              aria-label={`${t('access.organization')} ${index + 1}`}
-                              onChange={(scopeResourceId) => updateAssignment(
-                                assignment.key,
-                                { scopeResourceId: scopeResourceId ?? '' },
-                              )}
-                            />
+                            <div className="organization-scope-fields">
+                              <GrantableCompanySelect
+                                companies={organizationScopeCompanies}
+                                value={assignment.scopeCompanyId ?? undefined}
+                                aria-label={`组织所属公司 ${index + 1}`}
+                                onChange={(scopeCompanyId) => {
+                                  updateAssignment(assignment.key, {
+                                    scopeCompanyId: scopeCompanyId ?? null,
+                                    scopeResourceId: '',
+                                    includeDescendants: false,
+                                  });
+                                  if (scopeCompanyId) void loadOrganizations(scopeCompanyId);
+                                }}
+                              />
+                              <GrantableOrganizationSelect
+                                organizations={assignment.scopeCompanyId
+                                  ? organizationsByCompany[assignment.scopeCompanyId] ?? []
+                                  : []}
+                                companySelected={Boolean(assignment.scopeCompanyId)}
+                                value={assignment.scopeResourceId || undefined}
+                                aria-label={`${t('access.organization')} ${index + 1}`}
+                                onChange={(scopeResourceId) => {
+                                  updateAssignment(assignment.key, {
+                                    scopeResourceId: scopeResourceId ?? '',
+                                    includeDescendants: false,
+                                  });
+                                }}
+                              />
+                              <Checkbox
+                                checked={assignment.includeDescendants}
+                                disabled={!(
+                                  assignment.scopeCompanyId
+                                    ? organizationsByCompany[assignment.scopeCompanyId] ?? []
+                                    : []
+                                ).find((organization) => (
+                                  organization.organizationId === assignment.scopeResourceId
+                                ))?.canIncludeDescendants}
+                                onChange={(event) => updateAssignment(
+                                  assignment.key,
+                                  { includeDescendants: event.target.checked },
+                                )}
+                              >
+                                包含下级部门
+                              </Checkbox>
+                            </div>
                           ) : null}
                           {assignment.scopeType === 'SELF' ? (
                             <Select
@@ -385,13 +481,17 @@ function operationTitle(operation: Operation | undefined, t: (key: string) => st
 function newAssignment(
   roleId: string,
   scopeType: RoleScopeType,
+  scopeResourceId: string | null = null,
+  scopeCompanyId: string | null = null,
 ): EditableRoleAssignment {
   newAssignmentSequence += 1;
   return {
     key: `new-${roleId}-${newAssignmentSequence}`,
     roleId,
     scopeType,
-    scopeResourceId: null,
+    scopeResourceId,
+    scopeCompanyId,
+    includeDescendants: scopeType === 'COMPANY',
     validFrom: new Date().toISOString(),
     validTo: null,
   };
@@ -411,6 +511,8 @@ function roleConfigurationComplete(
       assignment.roleId,
       assignment.scopeType,
       assignment.scopeResourceId ?? '',
+      assignment.scopeCompanyId ?? '',
+      assignment.includeDescendants,
       assignment.validFrom,
       assignment.validTo ?? '',
     ].join('\u0000');
@@ -418,6 +520,7 @@ function roleConfigurationComplete(
       role
         && allowedScopeTypes(role).includes(assignment.scopeType)
         && (assignment.scopeType === 'SELF' || assignment.scopeResourceId?.trim())
+        && (assignment.scopeType !== 'ORGANIZATION' || assignment.scopeCompanyId?.trim())
         && Number.isFinite(validFrom)
         && (validTo == null || Number.isFinite(validTo) && validTo > validFrom),
     );

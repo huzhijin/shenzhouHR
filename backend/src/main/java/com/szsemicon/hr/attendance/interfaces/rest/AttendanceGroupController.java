@@ -1,6 +1,7 @@
 package com.szsemicon.hr.attendance.interfaces.rest;
 
 import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.AssignmentCommand;
+import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.AssignmentTransferCommand;
 import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.GroupCommand;
 import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.LocationCommand;
 import com.szsemicon.hr.attendance.application.AttendanceGroupService;
@@ -10,6 +11,7 @@ import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.AttendanceGroup;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.LifecycleStatus;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Location;
 import com.szsemicon.hr.attendance.interfaces.rest.AttendanceGroupDtos.AssignmentRequest;
+import com.szsemicon.hr.attendance.interfaces.rest.AttendanceGroupDtos.AssignmentTransferRequest;
 import com.szsemicon.hr.attendance.interfaces.rest.AttendanceGroupDtos.AssignmentPage;
 import com.szsemicon.hr.attendance.interfaces.rest.AttendanceGroupDtos.AssignmentView;
 import com.szsemicon.hr.attendance.interfaces.rest.AttendanceGroupDtos.GroupPage;
@@ -52,9 +54,18 @@ public class AttendanceGroupController {
 
     @GetMapping("/locations")
     ResponseEntity<LocationPage> listLocations(
+            @RequestParam(required = false) String companyId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return noStore(AttendanceGroupDtos.locations(service.listLocations(page, size)));
+        var result = service.listLocations(companyId, page, size);
+        return noStore(new LocationPage(
+                result.items().stream()
+                        .map(value -> AttendanceGroupDtos.location(
+                                value,
+                                service.canManageSharedLocation(
+                                        value.locationId())))
+                        .toList(),
+                result.total(), result.page(), result.size()));
     }
 
     @PostMapping("/locations")
@@ -75,20 +86,23 @@ public class AttendanceGroupController {
                 command,
                 null,
                 HttpStatus.CREATED.value(),
-                Location::locationId,
+                Location::sharedLocationId,
                 Location.class,
                 () -> service.createLocation(command, idempotencyKey));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .cacheControl(CacheControl.noStore())
                 .eTag(StrongEtag.ofVersion(result.rowVersion()))
-                .body(AttendanceGroupDtos.location(result));
+                .body(AttendanceGroupDtos.location(result, true));
     }
 
     @GetMapping("/locations/{locationId}")
     ResponseEntity<LocationView> getLocation(@PathVariable String locationId) {
         var result = service.getLocation(locationId);
         return versioned(
-                AttendanceGroupDtos.location(result), result.rowVersion());
+                AttendanceGroupDtos.location(
+                        result,
+                        service.canManageSharedLocation(locationId)),
+                result.rowVersion());
     }
 
     @GetMapping("/locations/{locationId}/revisions")
@@ -121,12 +135,12 @@ public class AttendanceGroupController {
                 command,
                 expectedVersion,
                 HttpStatus.OK.value(),
-                Location::locationId,
+                Location::sharedLocationId,
                 Location.class,
                 () -> service.updateLocation(
                         locationId, command, expectedVersion));
         return versioned(
-                AttendanceGroupDtos.location(result), result.rowVersion());
+                AttendanceGroupDtos.location(result, true), result.rowVersion());
     }
 
     @PostMapping("/locations/{locationId}/{lifecycleAction:activate|deactivate}")
@@ -149,21 +163,22 @@ public class AttendanceGroupController {
                 new LifecycleMutation(status, normalizedReason),
                 expectedVersion,
                 HttpStatus.OK.value(),
-                Location::locationId,
+                Location::sharedLocationId,
                 Location.class,
                 () -> service.changeLocationStatus(
                         locationId, status, normalizedReason, expectedVersion));
         return versioned(
-                AttendanceGroupDtos.location(result), result.rowVersion());
+                AttendanceGroupDtos.location(result, true), result.rowVersion());
     }
 
     @GetMapping("/groups")
     ResponseEntity<GroupPage> listGroups(
+            @RequestParam(required = false) String companyId,
             @RequestParam(required = false) LocalDate asOf,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return noStore(AttendanceGroupDtos.groups(
-                service.listGroups(asOf, page, size)));
+                service.listGroups(companyId, asOf, page, size)));
     }
 
     @PostMapping("/groups")
@@ -281,7 +296,9 @@ public class AttendanceGroupController {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .cacheControl(CacheControl.noStore())
                 .eTag(StrongEtag.ofVersion(result.rowVersion()))
-                .body(AttendanceGroupDtos.assignment(result, result.effectiveFrom()));
+                .body(AttendanceGroupDtos.assignment(
+                        service.describeAssignment(result),
+                        result.effectiveFrom()));
     }
 
     @PutMapping("/groups/{groupId}/assignments/{assignmentId}")
@@ -308,7 +325,42 @@ public class AttendanceGroupController {
                 () -> service.updateAssignment(
                         groupId, assignmentId, command, expectedVersion));
         return versioned(
-                AttendanceGroupDtos.assignment(result, result.effectiveFrom()),
+                AttendanceGroupDtos.assignment(
+                        service.describeAssignment(result),
+                        result.effectiveFrom()),
+                result.rowVersion());
+    }
+
+    @PostMapping("/groups/{groupId}/assignments/{assignmentId}/transfer")
+    ResponseEntity<AssignmentView> transferAssignment(
+            @PathVariable String groupId,
+            @PathVariable String assignmentId,
+            @Valid @RequestBody AssignmentTransferRequest request,
+            @RequestHeader("If-Match") String ifMatch,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("X-Change-Reason") String changeReason) {
+        var command = new AssignmentTransferCommand(
+                groupId,
+                request.targetGroupId(),
+                request.effectiveFrom(),
+                reason(changeReason, request.reason()));
+        long expectedVersion = StrongEtag.parseVersion(ifMatch);
+        var result = mutations.execute(
+                "TRANSFER_ASSIGNMENT",
+                "ATTENDANCE_GROUP_ASSIGNMENT",
+                assignmentId,
+                idempotencyKey,
+                command,
+                expectedVersion,
+                HttpStatus.OK.value(),
+                Assignment::assignmentId,
+                Assignment.class,
+                () -> service.transferAssignment(
+                        groupId, assignmentId, command, expectedVersion));
+        return versioned(
+                AttendanceGroupDtos.assignment(
+                        service.describeAssignment(result),
+                        result.effectiveFrom()),
                 result.rowVersion());
     }
 

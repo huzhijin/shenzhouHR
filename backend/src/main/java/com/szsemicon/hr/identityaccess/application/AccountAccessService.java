@@ -4,6 +4,8 @@ import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.CandidateCounts;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.EmployeeAccountCandidateRecord;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.EmployeeProvisioningTarget;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.GrantableCompanyRecord;
+import com.szsemicon.hr.identityaccess.application.AccountPersistence.GrantableOrganizationRecord;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.IdempotencyClaim;
 import com.szsemicon.hr.identityaccess.application.AccountPersistence.RecoverableRoleAssignment;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.AccountRecord;
@@ -60,6 +62,8 @@ public class AccountAccessService {
     private static final String ACCOUNT_RESET_PASSWORD =
             "ACCOUNT:RESET_PASSWORD";
     private static final String ROLE_ASSIGN = "ROLE:ASSIGN";
+    private static final String GRANT_USAGE_ROLE_ASSIGNMENT = "ROLE_ASSIGNMENT";
+    private static final String GRANT_USAGE_ACCOUNT_CREATION = "ACCOUNT_CREATION";
     private static final String LEGACY_DEFAULT_TEMPORARY_PASSWORD = "123456";
     private static final String EMPLOYEE_SELF_ROLE = "EMPLOYEE_SELF";
     private static final String EMPLOYEE_ACCOUNTS_BULK_CREATE =
@@ -735,6 +739,134 @@ public class AccountAccessService {
         return accountPersistence.findRoles();
     }
 
+    @Transactional(readOnly = true)
+    public List<GrantableCompany> listGrantableCompanies(
+            String scopeType,
+            String usage) {
+        if (!Set.of("COMPANY", "ORGANIZATION").contains(scopeType)) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "授权范围类型无效");
+        }
+        String actorId = principalId();
+        Instant now = clock.instant();
+        List<String> requiredCapabilities = grantUsageCapabilities(usage);
+        List<GrantableCompanyRecord> companies = "ORGANIZATION".equals(scopeType)
+                ? accountPersistence.findGrantableOrganizationCompanies(
+                        actorId, requiredCapabilities, now)
+                : intersectGrantableCompanies(
+                        actorId, scopeType, requiredCapabilities, now);
+        return companies
+                .stream()
+                .map(AccountAccessService::grantableCompany)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<GrantableOrganization> listGrantableOrganizations(
+            String companyId,
+            String usage) {
+        if (companyId == null
+                || companyId.isBlank()
+                || companyId.length() > 36) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "请先选择有效公司");
+        }
+        return intersectGrantableOrganizations(
+                        principalId(),
+                        companyId,
+                        grantUsageCapabilities(usage),
+                        clock.instant())
+                .stream()
+                .map(AccountAccessService::grantableOrganization)
+                .toList();
+    }
+
+    private List<GrantableCompanyRecord> intersectGrantableCompanies(
+            String actorId,
+            String scopeType,
+            List<String> requiredCapabilities,
+            Instant at) {
+        List<GrantableCompanyRecord> first = accountPersistence
+                .findGrantableCompanies(
+                        actorId,
+                        scopeType,
+                        requiredCapabilities.getFirst(),
+                        at);
+        Set<String> coveredIds = new HashSet<>(first.stream()
+                .map(GrantableCompanyRecord::companyId)
+                .toList());
+        for (String capability : requiredCapabilities.subList(
+                1, requiredCapabilities.size())) {
+            coveredIds.retainAll(accountPersistence.findGrantableCompanies(
+                            actorId, scopeType, capability, at)
+                    .stream()
+                    .map(GrantableCompanyRecord::companyId)
+                    .toList());
+        }
+        return first.stream()
+                .filter(company -> coveredIds.contains(company.companyId()))
+                .toList();
+    }
+
+    private List<GrantableOrganizationRecord> intersectGrantableOrganizations(
+            String actorId,
+            String companyId,
+            List<String> requiredCapabilities,
+            Instant at) {
+        List<GrantableOrganizationRecord> first = accountPersistence
+                .findGrantableOrganizations(
+                        actorId,
+                        companyId,
+                        requiredCapabilities.getFirst(),
+                        at);
+        Map<String, Boolean> descendantCoverage = new HashMap<>();
+        first.forEach(organization -> descendantCoverage.put(
+                organization.organizationId(),
+                organization.canIncludeDescendants()));
+        for (String capability : requiredCapabilities.subList(
+                1, requiredCapabilities.size())) {
+            Map<String, GrantableOrganizationRecord> next = accountPersistence
+                    .findGrantableOrganizations(
+                            actorId, companyId, capability, at)
+                    .stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            GrantableOrganizationRecord::organizationId,
+                            organization -> organization));
+            descendantCoverage.entrySet().removeIf(entry ->
+                    !next.containsKey(entry.getKey()));
+            descendantCoverage.replaceAll((organizationId, current) ->
+                    current && next.get(organizationId)
+                            .canIncludeDescendants());
+        }
+        return first.stream()
+                .filter(organization -> descendantCoverage.containsKey(
+                        organization.organizationId()))
+                .map(organization -> new GrantableOrganizationRecord(
+                        organization.organizationId(),
+                        organization.companyId(),
+                        organization.parentOrganizationId(),
+                        organization.code(),
+                        organization.name(),
+                        descendantCoverage.get(organization.organizationId())))
+                .toList();
+    }
+
+    private static List<String> grantUsageCapabilities(String usage) {
+        return switch (usage) {
+            case GRANT_USAGE_ROLE_ASSIGNMENT -> List.of(ROLE_ASSIGN);
+            case GRANT_USAGE_ACCOUNT_CREATION -> List.of(
+                    ROLE_ASSIGN, ACCOUNT_CREATE);
+            default -> throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "授权用途无效");
+        };
+    }
+
     private AccountRecord requireVisible(
             String accountId,
             String requiredCapability,
@@ -842,6 +974,23 @@ public class AccountAccessService {
                 candidate.status());
     }
 
+    private static GrantableCompany grantableCompany(
+            GrantableCompanyRecord company) {
+        return new GrantableCompany(
+                company.companyId(), company.code(), company.name());
+    }
+
+    private static GrantableOrganization grantableOrganization(
+            GrantableOrganizationRecord organization) {
+        return new GrantableOrganization(
+                organization.organizationId(),
+                organization.companyId(),
+                organization.parentOrganizationId(),
+                organization.code(),
+                organization.name(),
+                organization.canIncludeDescendants());
+    }
+
     private static void validateAssignments(List<RoleAssignmentInput> assignments) {
         if (assignments == null || assignments.isEmpty() || assignments.size() > 100) {
             throw new ApiProblemException(
@@ -881,6 +1030,8 @@ public class AccountAccessService {
                     + assignment.scopeType()
                     + '\u0000'
                     + String.valueOf(assignment.scopeResourceId())
+                    + '\u0000'
+                    + assignment.includeDescendants()
                     + '\u0000'
                     + assignment.validFrom()
                     + '\u0000'
@@ -929,12 +1080,24 @@ public class AccountAccessService {
             List<RoleAssignmentInput> assignments,
             Instant now) {
         denySelfRoleAssignment(actorPrincipalId, targetPrincipalId);
-        lockRoleAssignmentAuthorization(
-                actorPrincipalId,
+        accountPersistence.lockRoleGrantTargetCompanies(
                 targetPrincipalId,
                 targetEmployeeId,
                 assignments,
                 now);
+        if (!accountPersistence.lockCurrentCapabilityAuthority(
+                actorPrincipalId, ACCOUNT_CREATE, now)
+                || !accountPersistence.lockCurrentCapabilityAuthority(
+                        actorPrincipalId, ROLE_ASSIGN, now)
+                || !accountPersistence.coversEveryRoleAssignmentScope(
+                        actorPrincipalId,
+                        targetPrincipalId,
+                        targetEmployeeId,
+                        assignments,
+                        ACCOUNT_CREATE,
+                        now)) {
+            throw roleAssignmentScopeDenied();
+        }
         return resolveAuthorizedRoleAssignments(
                 actorPrincipalId,
                 targetPrincipalId,
@@ -1528,5 +1691,20 @@ public class AccountAccessService {
             long total,
             int page,
             int size) {
+    }
+
+    public record GrantableCompany(
+            String companyId,
+            String code,
+            String name) {
+    }
+
+    public record GrantableOrganization(
+            String organizationId,
+            String companyId,
+            String parentOrganizationId,
+            String code,
+            String name,
+            boolean canIncludeDescendants) {
     }
 }

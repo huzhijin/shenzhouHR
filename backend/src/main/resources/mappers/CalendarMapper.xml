@@ -252,6 +252,7 @@
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
           AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+          AND (#{companyId} IS NULL OR scoped.company_id = #{companyId})
         <if test="year != null">
             AND version.calendar_year = #{year}
         </if>
@@ -285,6 +286,7 @@
           AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
           AND data_scope.valid_from &lt;= #{at}
           AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+          AND (#{companyId} IS NULL OR scoped.company_id = #{companyId})
         <if test="year != null">
             AND version.calendar_year = #{year}
         </if>

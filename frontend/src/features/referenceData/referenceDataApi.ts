@@ -79,20 +79,25 @@ export function listReferenceOrganizations(): Promise<OrganizationNode[]> {
   return getCurrentOrganizationTree(false);
 }
 
-export async function listReferenceLocations(): Promise<LocationView[]> {
-  return loadAllAttendanceDirectoryItems((page, size) => listLocations(page, size));
+export async function listReferenceLocations(companyId?: string): Promise<LocationView[]> {
+  return loadAllAttendanceDirectoryItems(
+    (page, size) => listLocations(page, size, companyId),
+  );
 }
 
 export async function listReferenceAttendanceGroups(
   asOf?: string,
+  companyId?: string,
 ): Promise<AttendanceGroupView[]> {
   return loadAllAttendanceDirectoryItems(
-    (page, size) => listAttendanceGroups(asOf, page, size),
+    (page, size) => listAttendanceGroups(asOf, page, size, companyId),
   );
 }
 
-export async function listReferenceShiftTemplates(): Promise<ShiftTemplateView[]> {
-  return loadAllAttendanceDirectoryItems((page, size) => listShifts(page, size));
+export async function listReferenceShiftTemplates(companyId?: string): Promise<ShiftTemplateView[]> {
+  return loadAllAttendanceDirectoryItems(
+    (page, size) => listShifts(page, size, companyId),
+  );
 }
 
 export async function listReferenceShiftVersions(
@@ -105,9 +110,10 @@ export async function listReferenceShiftVersions(
 
 export async function listReferenceCalendars(
   year?: number,
+  companyId?: string,
 ): Promise<WorkCalendarView[]> {
   return loadAllAttendanceDirectoryItems(
-    (page, size) => listCalendars(year, page, size),
+    (page, size) => listCalendars(year, page, size, companyId),
   );
 }
 

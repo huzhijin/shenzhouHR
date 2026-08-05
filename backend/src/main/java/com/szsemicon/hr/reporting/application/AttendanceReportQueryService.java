@@ -158,6 +158,85 @@ public class AttendanceReportQueryService {
                 totalPages);
     }
 
+    @Transactional(readOnly = true)
+    public AttendanceMonthMatrixPage queryMonthMatrix(
+            YearMonth period,
+            String companyId,
+            String organizationId,
+            String employeeId,
+            int page,
+            int size) {
+        requirePage(page, size);
+        if (period == null) {
+            throw new IllegalArgumentException("period is required");
+        }
+        ReportFilter filter = new ReportFilter(
+                period,
+                companyId,
+                organizationId,
+                employeeId,
+                null);
+        capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_READ);
+        Set<String> currentCapabilities = capabilities.currentCapabilities();
+        String principalId = principalProvider.currentPrincipalId();
+        var snapshot = repository.loadAuthorizedSnapshot(
+                        principalId,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        filter,
+                        clock.instant())
+                .orElseThrow(() -> new ApiProblemException(
+                        HttpStatus.CONFLICT,
+                        "ATTENDANCE_REPORT_PROJECTION_NOT_READY",
+                        "当前期间尚无已发布的报表投影",
+                        true));
+        var matrix = AttendanceMonthMatrixAssembler.assemble(snapshot);
+        int from = Math.min(
+                Math.multiplyExact(page, size), matrix.rows().size());
+        int to = Math.min(from + size, matrix.rows().size());
+        long total = matrix.rows().size();
+        int totalPages = total == 0
+                ? 0
+                : (int) Math.ceil((double) total / size);
+        var actions = allowedActions(currentCapabilities);
+        String fingerprint = fingerprint(
+                ReportType.ATTENDANCE_DETAIL,
+                snapshot.filter(),
+                snapshot.projectionVersion(),
+                snapshot.scope().authorizationDigest(),
+                AttendanceMonthMatrixAssembler.FORMULA_VERSION);
+        return new AttendanceMonthMatrixPage(
+                snapshot.projectionVersion(),
+                fingerprint,
+                AttendanceMonthMatrixAssembler.FORMULA_VERSION,
+                snapshot.periodState(),
+                snapshot.dataAsOf(),
+                snapshot.sourceVersions(),
+                snapshot.scope(),
+                snapshot.filter(),
+                actions,
+                matrix.dates(),
+                matrix.rows().subList(from, to),
+                page,
+                size,
+                total,
+                totalPages);
+    }
+
+    private static List<String> allowedActions(
+            Set<String> currentCapabilities) {
+        var actions = new ArrayList<String>();
+        actions.add("REPORT_DRILL_DOWN");
+        if (currentCapabilities.contains(
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE)) {
+            actions.add("REPORT_EXPORT_CREATE");
+        }
+        if (currentCapabilities.contains(
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD)) {
+            actions.add("REPORT_EXPORT_DOWNLOAD");
+        }
+        return actions;
+    }
+
     static String fingerprint(
             ReportType type,
             ReportFilter filter,

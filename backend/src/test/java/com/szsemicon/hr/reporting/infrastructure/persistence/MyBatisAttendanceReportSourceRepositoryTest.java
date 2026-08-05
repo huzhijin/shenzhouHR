@@ -255,6 +255,65 @@ class MyBatisAttendanceReportSourceRepositoryTest {
     }
 
     @Test
+    void organizationScopesInDifferentCompaniesRemainSelectableWithoutRoleBypass() {
+        AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
+        var repository = new MyBatisAttendanceReportSourceRepository(
+                mapper,
+                new ObjectMapper());
+        var period = YearMonth.of(2026, 7);
+        var authorizationTime =
+                Instant.parse("2026-07-29T00:00:00Z");
+        for (String suffix : List.of("a", "b")) {
+            String companyId = "company-" + suffix;
+            String projectionId = "projection-company-" + suffix;
+            when(mapper.listLatestAuthorizedProjections(
+                            "principal-1",
+                            "ATTENDANCE_REPORT:READ",
+                            period.atDay(1),
+                            period.plusMonths(1).atDay(1),
+                            companyId,
+                            authorizationTime))
+                    .thenReturn(List.of(new ReportRows.ProjectionRow(
+                            projectionId,
+                            companyId,
+                            "version-" + suffix,
+                            "OPEN",
+                            "[]",
+                            authorizationTime)));
+            when(mapper.listAuthorizedScopes(
+                            "principal-1",
+                            "ATTENDANCE_REPORT:READ",
+                            projectionId,
+                            companyId,
+                            authorizationTime))
+                    .thenReturn(List.of(new ReportRows.ScopeRow(
+                            "scope-org-" + suffix,
+                            "ORGANIZATION",
+                            null,
+                            "organization-" + suffix,
+                            true,
+                            null)));
+
+            var result = repository.loadAuthorizedSnapshot(
+                    "principal-1",
+                    "ATTENDANCE_REPORT:READ",
+                    new ReportFilter(
+                            period,
+                            companyId,
+                            "organization-" + suffix,
+                            null,
+                            null),
+                    authorizationTime);
+
+            assertThat(result).isPresent();
+            assertThat(result.orElseThrow().filter().companyId())
+                    .isEqualTo(companyId);
+            assertThat(result.orElseThrow().scope().type())
+                    .isEqualTo(ScopeType.ORGANIZATION);
+        }
+    }
+
+    @Test
     void mismatchedProjectionCannotEscapeExplicitCompanySelection() {
         AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
         var repository = new MyBatisAttendanceReportSourceRepository(

@@ -122,6 +122,7 @@ describe('attendance policy route and revision safety', () => {
         undefined,
         0,
         100,
+        visibleRevision.companyId,
       );
     });
     expect(await screen.findByText(

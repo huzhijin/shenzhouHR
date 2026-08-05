@@ -11,6 +11,51 @@ interface AttendanceGroupMapper {
 
     AttendanceGroupRows.LocationRow findLocation(@Param("locationId") String locationId);
 
+    AttendanceGroupRows.LocationRow findSharedLocation(
+            @Param("locationId") String locationId);
+
+    AttendanceGroupRows.LocationRow findLocationByGlobalCode(
+            @Param("locationCode") String locationCode);
+
+    List<AttendanceGroupRows.LocationRow> listSharedLocationBindings(
+            @Param("locationId") String locationId);
+
+    List<String> listSharedLocationCompanyIds(
+            @Param("locationId") String locationId);
+
+    Long lockSharedLocation(@Param("locationId") String locationId);
+
+    int advanceSharedLocationVersion(
+            @Param("locationId") String locationId,
+            @Param("expectedVersion") long expectedVersion);
+
+    boolean isLocationAvailable(
+            @Param("locationId") String locationId,
+            @Param("companyId") String companyId,
+            @Param("businessDate") LocalDate businessDate);
+
+    void insertSharedLocationIdentity(
+            @Param("row") AttendanceGroupRows.LocationRow row);
+
+    void insertSharedLocationRevision(
+            @Param("row") AttendanceGroupRows.LocationRow row,
+            @Param("sharedRevisionId") String sharedRevisionId,
+            @Param("sharedRevisionNumber") int sharedRevisionNumber,
+            @Param("predecessorRevisionId") String predecessorRevisionId,
+            @Param("snapshotDigest") String snapshotDigest);
+
+    String latestSharedLocationRevisionId(
+            @Param("locationId") String locationId);
+
+    int closeSharedLocationRevision(
+            @Param("revisionId") String revisionId,
+            @Param("effectiveTo") LocalDate effectiveTo,
+            @Param("snapshotDigest") String snapshotDigest);
+
+    void insertCompanyLocationAvailability(
+            @Param("row") AttendanceGroupRows.LocationRow row,
+            @Param("availabilityId") String availabilityId);
+
     List<AttendanceGroupRows.LocationRow> resolveLocationRevisions(
             @Param("locationId") String locationId,
             @Param("asOf") LocalDate asOf,
@@ -23,6 +68,7 @@ interface AttendanceGroupMapper {
     List<AttendanceGroupRows.LocationRow> listLocations(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
+            @Param("companyId") String companyId,
             @Param("limit") int limit,
             @Param("offset") int offset,
             @Param("at") Instant at);
@@ -30,6 +76,7 @@ interface AttendanceGroupMapper {
     long countLocations(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
+            @Param("companyId") String companyId,
             @Param("at") Instant at);
 
     List<AttendanceGroupRows.LocationRow> listLocationRevisions(
@@ -66,6 +113,9 @@ interface AttendanceGroupMapper {
     List<String> findGroupIdsReferencingLocationRevision(
             @Param("locationRevisionId") String locationRevisionId);
 
+    boolean hasLocationTimeZoneDependencies(
+            @Param("locationId") String locationId);
+
     AttendanceGroupRows.GroupRow findGroup(@Param("groupId") String groupId);
 
     List<AttendanceGroupRows.GroupRow> resolveGroupRevisions(
@@ -80,6 +130,7 @@ interface AttendanceGroupMapper {
     List<AttendanceGroupRows.GroupRow> listGroups(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
+            @Param("companyId") String companyId,
             @Param("asOf") LocalDate asOf,
             @Param("limit") int limit,
             @Param("offset") int offset,
@@ -88,6 +139,7 @@ interface AttendanceGroupMapper {
     long countGroups(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
+            @Param("companyId") String companyId,
             @Param("asOf") LocalDate asOf,
             @Param("at") Instant at);
 

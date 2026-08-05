@@ -21,9 +21,13 @@ export function ShiftTemplateDialog({
   open,
   processing,
   initialValues,
+  defaultCompanyId,
   onSubmit,
   onCancel,
-}: DialogProps<ShiftTemplateInput> & { initialValues?: ShiftTemplateInput }) {
+}: DialogProps<ShiftTemplateInput> & {
+  initialValues?: ShiftTemplateInput;
+  defaultCompanyId?: string;
+}) {
   const { t } = useTranslation();
   const [form] = Form.useForm<ShiftTemplateInput>();
   const companyId = Form.useWatch<string>('companyId', form);
@@ -41,11 +45,11 @@ export function ShiftTemplateDialog({
       <Form<ShiftTemplateInput>
         form={form}
         layout="vertical"
-        initialValues={initialValues}
+        initialValues={initialValues ?? { companyId: defaultCompanyId }}
         onFinish={onSubmit}
       >
         <Form.Item label="公司" name="companyId" rules={[required()]}>
-          <CompanySelect disabled={initialValues !== undefined} />
+          <CompanySelect disabled={initialValues !== undefined || Boolean(defaultCompanyId)} />
         </Form.Item>
         <Form.Item label="地点" name="locationId" rules={[required()]}>
           <LocationSelect companyId={companyId} disabled={initialValues !== undefined} />

@@ -25,7 +25,7 @@ public class MyBatisEmployeeReadRepository implements EmployeeReadRepository {
             int size) {
         return findVisibleTo(
                 principalId, capabilityCode, at,
-                null, null, null, "displayName", page, size);
+                null, null, null, null, "displayName", page, size);
     }
 
     @Override
@@ -39,8 +39,26 @@ public class MyBatisEmployeeReadRepository implements EmployeeReadRepository {
             String sort,
             int page,
             int size) {
+        return findVisibleTo(
+                principalId, capabilityCode, at, query, organizationId, null,
+                status, sort, page, size);
+    }
+
+    @Override
+    public EmployeePage findVisibleTo(
+            String principalId,
+            String capabilityCode,
+            Instant at,
+            String query,
+            String organizationId,
+            String companyId,
+            String status,
+            String sort,
+            int page,
+            int size) {
         long total = mapper.countVisibleTo(
-                principalId, capabilityCode, at, query, organizationId, status);
+                principalId, capabilityCode, at, query, organizationId,
+                companyId, status);
         long offset = Math.multiplyExact((long) page, size);
         List<EmployeeSummary> items = mapper.findVisibleTo(
                         principalId,
@@ -48,6 +66,7 @@ public class MyBatisEmployeeReadRepository implements EmployeeReadRepository {
                         at,
                         query,
                         organizationId,
+                        companyId,
                         status,
                         sort,
                         size,

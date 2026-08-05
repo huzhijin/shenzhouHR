@@ -19,7 +19,7 @@ export interface Wave7ProjectionMetadata {
   projectionVersion: string;
   sourceVersions: string[];
   dataAsOf: string;
-  timeZone: 'Asia/Shanghai';
+  timeZone: string;
   periodLabel: string;
   periodState: Wave7PeriodState;
   scope: Wave7Scope;
@@ -394,6 +394,69 @@ export type LiveReportProjection = ReportProjection
     filters: ReportFilterProjection & { companyId: string };
   };
 
+export const attendanceMonthMatrixBadgeCodes = [
+  'LATE',
+  'EARLY_DEPARTURE',
+  'MISSING_PUNCH',
+  'ABSENCE',
+  'RECOGNIZED_OVERTIME',
+  'TIME_OFF',
+  'OUTING',
+  'TRIP',
+  'PERSONAL_LEAVE',
+  'SICK_LEAVE',
+  'ANNUAL_LEAVE',
+  'PUNCH_CORRECTION',
+  'REST_DAY',
+  'OTHER_LEAVE',
+  'LEAVE_REVOCATION',
+  'OVERTIME_APPLICATION',
+  'EXEMPT_PUNCH',
+  'OTHER_ATTENDANCE_DOCUMENT',
+  'OTHER_EXCEPTION',
+] as const;
+
+export type AttendanceMonthMatrixBadgeCode =
+  typeof attendanceMonthMatrixBadgeCodes[number];
+
+export interface AttendanceMonthMatrixDay {
+  date: string;
+  organizationName: string | null;
+  shiftLabel: string | null;
+  firstPunchAt: string | null;
+  lastPunchAt: string | null;
+  badges: AttendanceMonthMatrixBadgeCode[];
+}
+
+export interface AttendanceMonthMatrixEmployeeRow {
+  employeeId: string;
+  employeeNumber: string;
+  employeeName: string;
+  organizationId: string;
+  organizationName: string;
+  days: AttendanceMonthMatrixDay[];
+}
+
+export interface AttendanceMonthMatrixProjection {
+  kind: 'ATTENDANCE_MONTH_MATRIX';
+  metadata: Omit<Wave7ProjectionMetadata, 'scope'> & {
+    scope: Omit<Wave7Scope, 'type'> & {
+      type: AttendanceReportScopeType;
+    };
+  };
+  queryFingerprint: string;
+  formulaVersion: 'ATTENDANCE_MONTH_MATRIX_V1';
+  filters: Omit<ReportFilterProjection, 'status'> & {
+    companyId: string;
+  };
+  dates: string[];
+  employeeCount: number;
+  rows: AttendanceMonthMatrixEmployeeRow[];
+  page: number;
+  size: number;
+  totalPages: number;
+}
+
 export interface AttendanceReportCompanyOption {
   companyId: string;
   companyName: string;
@@ -402,6 +465,12 @@ export interface AttendanceReportCompanyOption {
 export interface AttendanceReportCompanyDirectory {
   period: string;
   companies: AttendanceReportCompanyOption[];
+}
+
+export function hasNoReportIdentityFilter(
+  filters: ReportFilterProjection,
+): boolean {
+  return (filters.employeeId ?? null) === null;
 }
 
 export const attendanceReportExportDeliveryModes = [
@@ -745,6 +814,211 @@ export function assertLiveReportProjection(
   assertNonNegativeInteger(candidate.page, 'report.page');
   assertPositiveInteger(candidate.size, 'report.size');
   assertNonNegativeInteger(candidate.totalPages, 'report.totalPages');
+}
+
+export function assertAttendanceMonthMatrixProjection(
+  value: unknown,
+): asserts value is AttendanceMonthMatrixProjection {
+  const candidate = asRecord(value, 'attendance month matrix');
+  assertOnlyKeys(
+    candidate,
+    [
+      'kind',
+      'metadata',
+      'queryFingerprint',
+      'formulaVersion',
+      'filters',
+      'dates',
+      'employeeCount',
+      'rows',
+      'page',
+      'size',
+      'totalPages',
+    ],
+    'attendance month matrix',
+  );
+  if (candidate.kind !== 'ATTENDANCE_MONTH_MATRIX') {
+    throw new TypeError('attendance month matrix kind is invalid');
+  }
+  assertProjectionMetadata(candidate.metadata);
+  const metadata = asRecord(
+    candidate.metadata,
+    'attendance month matrix.metadata',
+  );
+  const scope = asRecord(
+    metadata.scope,
+    'attendance month matrix.metadata.scope',
+  );
+  if (!attendanceReportScopeTypes.includes(
+    scope.type as AttendanceReportScopeType,
+  )) {
+    throw new TypeError('attendance month matrix scope type is invalid');
+  }
+  if (
+    typeof candidate.queryFingerprint !== 'string'
+    || !/^[a-f0-9]{64}$/.test(candidate.queryFingerprint)
+  ) {
+    throw new TypeError('attendance month matrix fingerprint is invalid');
+  }
+  if (candidate.formulaVersion !== 'ATTENDANCE_MONTH_MATRIX_V1') {
+    throw new TypeError('attendance month matrix formula is invalid');
+  }
+  const filters = asRecord(
+    candidate.filters,
+    'attendance month matrix.filters',
+  );
+  assertOnlyKeys(
+    filters,
+    [
+      'period',
+      'scopeReference',
+      'companyId',
+      'organizationId',
+      'employeeId',
+    ],
+    'attendance month matrix.filters',
+  );
+  assertYearMonth(filters.period, 'attendance month matrix.filters.period');
+  assertBoundedString(
+    filters.scopeReference,
+    'attendance month matrix.filters.scopeReference',
+    128,
+  );
+  assertBoundedString(
+    filters.companyId,
+    'attendance month matrix.filters.companyId',
+    36,
+  );
+  assertNullableString(
+    filters.organizationId,
+    'attendance month matrix.filters.organizationId',
+  );
+  assertNullableString(
+    filters.employeeId,
+    'attendance month matrix.filters.employeeId',
+  );
+  if (metadata.periodLabel !== filters.period) {
+    throw new TypeError('attendance month matrix periods are inconsistent');
+  }
+  assertArray(candidate.dates, 'attendance month matrix.dates');
+  const expectedDates = datesInMonth(filters.period as string);
+  if (
+    candidate.dates.length !== expectedDates.length
+    || !candidate.dates.every((date, index) => {
+      assertDate(date, `attendance month matrix.dates[${index}]`);
+      return date === expectedDates[index];
+    })
+  ) {
+    throw new TypeError('attendance month matrix dates are inconsistent');
+  }
+  assertNonNegativeSafeInteger(
+    candidate.employeeCount,
+    'attendance month matrix.employeeCount',
+  );
+  assertNonNegativeInteger(candidate.page, 'attendance month matrix.page');
+  assertPositiveInteger(candidate.size, 'attendance month matrix.size');
+  assertNonNegativeInteger(
+    candidate.totalPages,
+    'attendance month matrix.totalPages',
+  );
+  assertArray(candidate.rows, 'attendance month matrix.rows');
+  if ((candidate.rows as unknown[]).length > (candidate.size as number)) {
+    throw new TypeError('attendance month matrix page exceeds its size');
+  }
+  const expectedTotalPages = candidate.employeeCount === 0
+    ? 0
+    : Math.ceil(
+      (candidate.employeeCount as number) / (candidate.size as number),
+    );
+  if (
+    candidate.totalPages !== expectedTotalPages
+    || (candidate.rows as unknown[]).length
+      > (candidate.employeeCount as number)
+  ) {
+    throw new TypeError('attendance month matrix pagination is inconsistent');
+  }
+  const employeeIds = new Set<string>();
+  for (const [rowIndex, value] of candidate.rows.entries()) {
+    const row = asRecord(
+      value,
+      `attendance month matrix.rows[${rowIndex}]`,
+    );
+    assertOnlyKeys(
+      row,
+      [
+        'employeeId',
+        'employeeNumber',
+        'employeeName',
+        'organizationId',
+        'organizationName',
+        'days',
+      ],
+      `attendance month matrix.rows[${rowIndex}]`,
+    );
+    assertBoundedString(row.employeeId, 'matrix employeeId', 36);
+    assertBoundedString(row.employeeNumber, 'matrix employeeNumber', 64);
+    assertBoundedString(row.employeeName, 'matrix employeeName', 100);
+    assertBoundedString(row.organizationId, 'matrix organizationId', 36);
+    assertBoundedString(
+      row.organizationName,
+      'matrix organizationName',
+      200,
+    );
+    if (employeeIds.has(row.employeeId as string)) {
+      throw new TypeError('attendance month matrix has duplicate employees');
+    }
+    employeeIds.add(row.employeeId as string);
+    assertArray(row.days, `attendance month matrix.rows[${rowIndex}].days`);
+    if (row.days.length !== expectedDates.length) {
+      throw new TypeError('attendance month matrix row dates are incomplete');
+    }
+    row.days.forEach((value, dayIndex) => {
+      const day = asRecord(
+        value,
+        `attendance month matrix.rows[${rowIndex}].days[${dayIndex}]`,
+      );
+      assertOnlyKeys(
+        day,
+        [
+          'date',
+          'organizationName',
+          'shiftLabel',
+          'firstPunchAt',
+          'lastPunchAt',
+          'badges',
+        ],
+        `attendance month matrix.rows[${rowIndex}].days[${dayIndex}]`,
+      );
+      assertDate(day.date, 'attendance month matrix day date');
+      if (day.date !== expectedDates[dayIndex]) {
+        throw new TypeError('attendance month matrix day order is invalid');
+      }
+      assertNullableString(day.organizationName, 'matrix organizationName');
+      assertNullableString(day.shiftLabel, 'matrix shiftLabel');
+      for (const key of ['firstPunchAt', 'lastPunchAt'] as const) {
+        if (day[key] !== null) {
+          assertInstant(day[key], `attendance month matrix day ${key}`);
+        }
+      }
+      if (
+        typeof day.firstPunchAt === 'string'
+        && typeof day.lastPunchAt === 'string'
+        && Date.parse(day.firstPunchAt) > Date.parse(day.lastPunchAt)
+      ) {
+        throw new TypeError('attendance month matrix punch order is invalid');
+      }
+      assertArray(day.badges, 'attendance month matrix day badges');
+      const badgeSet = new Set(day.badges);
+      if (
+        badgeSet.size !== day.badges.length
+        || !day.badges.every((code) => attendanceMonthMatrixBadgeCodes.includes(
+          code as AttendanceMonthMatrixBadgeCode,
+        ))
+      ) {
+        throw new TypeError('attendance month matrix badges are invalid');
+      }
+    });
+  }
 }
 
 export function hasLiveReportMetadata(
@@ -2205,6 +2479,16 @@ function assertYearMonth(value: unknown, label: string): asserts value is string
   ) {
     throw new TypeError(`${label} must use YYYY-MM`);
   }
+}
+
+function datesInMonth(period: string): string[] {
+  const [yearValue, monthValue] = period.split('-');
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const count = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Array.from({ length: count }, (_, index) => (
+    `${period}-${String(index + 1).padStart(2, '0')}`
+  ));
 }
 
 function assertDate(value: unknown, label: string): asserts value is string {

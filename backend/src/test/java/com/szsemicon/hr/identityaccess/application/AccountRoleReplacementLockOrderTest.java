@@ -1,6 +1,7 @@
 package com.szsemicon.hr.identityaccess.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -13,6 +14,7 @@ import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.Reso
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
 import com.szsemicon.hr.shared.security.PasswordCodec;
 import com.szsemicon.hr.shared.security.SecurityTokenService;
+import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -141,5 +143,58 @@ class AccountRoleReplacementLockOrderTest {
                 ACTOR_ID,
                 "调整授权",
                 NOW);
+    }
+
+    @Test
+    void accountCreationRechecksAccountCreateBeforeAnyAccountRowIsInserted() {
+        AccountPersistence persistence = mock(AccountPersistence.class);
+        AuthenticationPersistence authentication = mock(AuthenticationPersistence.class);
+        AccountAccessService service = new AccountAccessService(
+                persistence,
+                authentication,
+                mock(AuditService.class),
+                new SecurityTokenService(),
+                new PasswordCodec(),
+                new ObjectMapper(),
+                TEST_PEPPER,
+                "v1",
+                Duration.ofHours(1),
+                mock(PlatformTransactionManager.class),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(ACTOR_ID, "n/a"));
+        RoleAssignmentInput requested = new RoleAssignmentInput(
+                ROLE_ID,
+                "COMPANY",
+                "c0000000-0000-0000-0000-000000000001",
+                NOW,
+                null);
+        when(persistence.lockCurrentCapabilityAuthority(
+                ACTOR_ID, "ACCOUNT:CREATE", NOW)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.createAccount(
+                new AccountAccessService.CreateAccountCommand(
+                        "new.account",
+                        "新账号",
+                        "Strong#Password123",
+                        null,
+                        List.of(requested))))
+                .isInstanceOf(ApiProblemException.class)
+                .extracting("code")
+                .isEqualTo("ROLE_ASSIGNMENT_SCOPE_DENIED");
+
+        InOrder order = inOrder(persistence);
+        order.verify(persistence).lockRoleGrantTargetCompanies(
+                null, null, List.of(requested), NOW);
+        order.verify(persistence).lockCurrentCapabilityAuthority(
+                ACTOR_ID, "ACCOUNT:CREATE", NOW);
+        verify(persistence, never()).createAccount(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
     }
 }
