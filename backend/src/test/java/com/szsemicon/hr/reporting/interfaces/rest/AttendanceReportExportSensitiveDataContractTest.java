@@ -9,6 +9,9 @@ import tools.jackson.databind.ObjectMapper;
 
 class AttendanceReportExportSensitiveDataContractTest {
 
+    private static final String FINGERPRINT = "a".repeat(64);
+    private static final String SCOPE = "authorized-scope-set:" + FINGERPRINT;
+
     @Test
     void requestStringRepresentationsRedactPurposeAndPassword() {
         String purpose = "董事会专项复核";
@@ -16,11 +19,11 @@ class AttendanceReportExportSensitiveDataContractTest {
         var create =
                 new AttendanceReportExportController.CreateExportRequest(
                         ReportType.ATTENDANCE_DETAIL,
-                        YearMonth.of(2026, 7),
-                        "legal-1",
-                        null,
-                        null,
-                        null,
+                        "projection-1",
+                        FINGERPRINT,
+                        SCOPE,
+                        filters(),
+                        java.util.List.of("employee-number"),
                         purpose,
                         password);
         var download =
@@ -44,11 +47,11 @@ class AttendanceReportExportSensitiveDataContractTest {
         var create =
                 new AttendanceReportExportController.CreateExportRequest(
                         ReportType.ATTENDANCE_DETAIL,
-                        null,
-                        "legal-1",
-                        null,
-                        null,
-                        null,
+                        "projection-1",
+                        FINGERPRINT,
+                        SCOPE,
+                        filters(),
+                        java.util.List.of("employee-number"),
                         "月度薪资核对",
                         password);
         var download =
@@ -67,5 +70,15 @@ class AttendanceReportExportSensitiveDataContractTest {
                                 .ReauthenticationRequest.class)
                 .currentPassword())
                 .isEqualTo(password);
+    }
+
+    private static AttendanceReportExportController.ExportFilters filters() {
+        return new AttendanceReportExportController.ExportFilters(
+                YearMonth.of(2026, 7),
+                SCOPE,
+                "legal-1",
+                null,
+                null,
+                null);
     }
 }

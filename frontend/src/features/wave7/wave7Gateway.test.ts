@@ -159,6 +159,7 @@ describe('Wave 7 production gateway', () => {
       period: '2026-07',
       companyId: '30000000-0000-0000-0000-000000000001',
       status: 'PENDING_REVIEW',
+      expectedProjectionVersion: 'FORMAL-REPORT-2026-07-V1',
       page: 2,
       size: 25,
     };
@@ -183,6 +184,8 @@ describe('Wave 7 production gateway', () => {
     expect(target.searchParams.get('companyId'))
       .toBe('30000000-0000-0000-0000-000000000001');
     expect(target.searchParams.get('status')).toBe('PENDING_REVIEW');
+    expect(target.searchParams.get('expectedProjectionVersion'))
+      .toBe('FORMAL-REPORT-2026-07-V1');
     expect(target.searchParams.get('page')).toBe('2');
     expect(target.searchParams.get('size')).toBe('25');
     expect(init).toMatchObject({ credentials: 'same-origin' });
@@ -193,6 +196,7 @@ describe('Wave 7 production gateway', () => {
       period: '2026-07',
       companyId: 'company-a',
       organizationId: 'org-a',
+      expectedProjectionVersion: 'FORMAL-REPORT-2026-07-V1',
       page: 1,
       size: 20,
     };
@@ -215,6 +219,7 @@ describe('Wave 7 production gateway', () => {
       period: '2026-07',
       companyId: 'company-a',
       organizationId: 'org-a',
+      expectedProjectionVersion: 'FORMAL-REPORT-2026-07-V1',
       page: '1',
       size: '20',
     });
@@ -341,6 +346,50 @@ describe('Wave 7 production gateway', () => {
       });
   });
 
+  it('rejects report and matrix responses from another projection version', async () => {
+    const reportQuery: ReportQuery = {
+      reportType: 'ATTENDANCE_DETAIL',
+      period: '2026-07',
+      companyId: 'company-a',
+      expectedProjectionVersion: 'FORMAL-REPORT-2026-07-V1',
+    };
+    const matrixQuery: AttendanceMonthMatrixQuery = {
+      period: '2026-07',
+      companyId: 'company-a',
+      expectedProjectionVersion: 'FORMAL-REPORT-2026-07-V1',
+    };
+    const report = reportResponse(reportQuery);
+    const matrix = monthMatrixResponse(matrixQuery);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        ...report,
+        metadata: {
+          ...report.metadata,
+          projectionVersion: 'FORMAL-REPORT-2026-07-V2',
+        },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ...matrix,
+        metadata: {
+          ...matrix.metadata,
+          projectionVersion: 'FORMAL-REPORT-2026-07-V2',
+        },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadReport(reportQuery))
+      .rejects.toMatchObject({
+        status: 502,
+        code: 'INVALID_RESPONSE_BODY',
+      });
+    await expect(wave7ProjectionGateway
+      .loadAttendanceMonthMatrix?.(matrixQuery))
+      .rejects.toMatchObject({
+        status: 502,
+        code: 'INVALID_RESPONSE_BODY',
+      });
+  });
+
   it('rejects invalid conditions before issuing a request', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -373,6 +422,23 @@ describe('Wave 7 production gateway', () => {
       status: 400,
       code: 'INVALID_REPORT_QUERY',
     });
+    await expect(wave7ProjectionGateway.loadReport({
+      reportType: 'LATE',
+      period: '2026-07',
+      expectedProjectionVersion: ' projection-1',
+    })).rejects.toMatchObject({
+      status: 400,
+      code: 'INVALID_REPORT_QUERY',
+    });
+    await expect(wave7ProjectionGateway
+      .loadAttendanceMonthMatrix?.({
+        period: '2026-07',
+        expectedProjectionVersion: 'p'.repeat(129),
+      }))
+      .rejects.toMatchObject({
+        status: 400,
+        code: 'INVALID_REPORT_QUERY',
+      });
     const retiredQuery = {
       reportType: 'LATE',
       period: '2026-07',
@@ -390,11 +456,7 @@ describe('Wave 7 production gateway', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const retiredRequest = {
-      reportType: 'ATTENDANCE_DETAIL',
-      period: '2026-07',
-      companyId: 'company-a',
-      purpose: '月度考勤复核',
-      currentPassword: 'Current#Password123',
+      ...exportCreateRequest(),
       [retiredBoundaryIdKey]: 'company-a',
     } as unknown as ReportExportCreateRequest;
 
@@ -423,12 +485,8 @@ describe('Wave 7 production gateway', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await wave7ProjectionGateway.createReportExport?.({
-      reportType: 'ATTENDANCE_DETAIL',
-      period: '2026-07',
-      companyId: '30000000-0000-0000-0000-000000000001',
-      status: null,
+      ...exportCreateRequest(),
       purpose: ' 月度考勤复核 ',
-      currentPassword: 'Current#Password123',
     });
     const refreshed = await wave7ProjectionGateway.loadReportExport?.(
       created.exportId,
@@ -445,9 +503,18 @@ describe('Wave 7 production gateway', () => {
     expect(String(createTarget)).not.toContain('Current#Password123');
     expect(JSON.parse(String(createInit?.body))).toEqual({
       reportType: 'ATTENDANCE_DETAIL',
-      period: '2026-07',
-      companyId: '30000000-0000-0000-0000-000000000001',
-      status: null,
+      projectionVersion: 'FORMAL-REPORT-2026-07-V1',
+      queryFingerprint: 'a'.repeat(64),
+      scopeReference: 'scope:formal:authorized',
+      filters: {
+        period: '2026-07',
+        scopeReference: 'scope:formal:authorized',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        organizationId: null,
+        employeeId: null,
+        status: null,
+      },
+      selectedFields: ['employee-number', 'employee-name'],
       purpose: '月度考勤复核',
       currentPassword: 'Current#Password123',
     });
@@ -464,11 +531,13 @@ describe('Wave 7 production gateway', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(wave7ProjectionGateway.createReportExport?.({
-      reportType: 'ATTENDANCE_DETAIL',
-      period: '2026-07',
-      companyId: 'company-a',
+      ...exportCreateRequest({
+        filters: {
+          ...exportCreateRequest().filters,
+          companyId: 'company-a',
+        },
+      }),
       purpose: '跨公司负例',
-      currentPassword: 'Current#Password123',
     })).rejects.toMatchObject({
       status: 502,
       code: 'INVALID_REPORT_EXPORT_RESPONSE',
@@ -527,10 +596,8 @@ describe('Wave 7 production gateway', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(wave7ProjectionGateway.createReportExport?.({
-      reportType: 'ATTENDANCE_DETAIL',
-      period: '2026-07',
+      ...exportCreateRequest(),
       purpose: '月度复核',
-      currentPassword: 'Current#Password123',
     })).rejects.toMatchObject({
       status: 502,
       code: 'INVALID_REPORT_EXPORT_RESPONSE',
@@ -579,8 +646,7 @@ describe('Wave 7 production gateway', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(wave7ProjectionGateway.createReportExport?.({
-      reportType: 'ATTENDANCE_DETAIL',
-      period: '2026-07',
+      ...exportCreateRequest(),
       purpose: '月度复核',
       currentPassword: 'Wrong#Password',
     })).rejects.toMatchObject({
@@ -601,6 +667,29 @@ describe('Wave 7 production gateway', () => {
 });
 
 const exportId = '1f9a72c2-fcd5-4e66-8a61-a8e6744d166f';
+
+function exportCreateRequest(
+  overrides: Partial<ReportExportCreateRequest> = {},
+): ReportExportCreateRequest {
+  return {
+    reportType: 'ATTENDANCE_DETAIL',
+    projectionVersion: 'FORMAL-REPORT-2026-07-V1',
+    queryFingerprint: 'a'.repeat(64),
+    scopeReference: 'scope:formal:authorized',
+    filters: {
+      period: '2026-07',
+      scopeReference: 'scope:formal:authorized',
+      companyId: '30000000-0000-0000-0000-000000000001',
+      organizationId: null,
+      employeeId: null,
+      status: null,
+    },
+    selectedFields: ['employee-number', 'employee-name'],
+    purpose: '月度考勤复核',
+    currentPassword: 'Current#Password123',
+    ...overrides,
+  };
+}
 
 function reportResponse(query: ReportQuery) {
   const page = query.page ?? 0;
@@ -623,7 +712,7 @@ function reportResponse(query: ReportQuery) {
     },
     reportType: query.reportType as AttendanceReportType,
     reportTitle: `${query.reportType} 报表`,
-    queryFingerprint: `formal:${query.reportType}:${query.period}`,
+    queryFingerprint: 'a'.repeat(64),
     formulaVersion: `${query.reportType}_FORMULA_V1`,
     filters: {
       period: query.period,

@@ -165,6 +165,147 @@ describe('Wave 7 projection contracts', () => {
     })).toThrow(/scope.type/);
   });
 
+  it('rejects malformed report fingerprints and inconsistent pagination', () => {
+    const liveReport = {
+      ...reportFixture,
+      reportType: 'ATTENDANCE_DETAIL',
+      formulaVersion: 'ATTENDANCE_DETAIL_V1',
+      page: 0,
+      size: 50,
+      totalPages: 1,
+    };
+
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      queryFingerprint: 'not-a-sha256',
+    })).toThrow(/queryFingerprint/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      totalPages: 2,
+    })).toThrow(/pagination/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      size: 1,
+    })).toThrow(/pagination/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      size: 201,
+      totalPages: 1,
+    })).toThrow(/service limit/);
+  });
+
+  it('enforces OpenAPI bounds on live report text and filter fields', () => {
+    const liveReport = {
+      ...reportFixture,
+      reportType: 'ATTENDANCE_DETAIL',
+      formulaVersion: 'ATTENDANCE_DETAIL_V1',
+      page: 0,
+      size: 50,
+      totalPages: 1,
+    };
+
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      reportTitle: '报'.repeat(101),
+    })).toThrow(/reportTitle/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      formulaVersion: 'F'.repeat(129),
+    })).toThrow(/formulaVersion/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      filters: {
+        ...liveReport.filters,
+        scopeReference: 's'.repeat(129),
+      },
+    })).toThrow(/scopeReference/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      filters: {
+        ...liveReport.filters,
+        companyId: 'c'.repeat(37),
+      },
+    })).toThrow(/companyId/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      filters: {
+        ...liveReport.filters,
+        organizationId: 'o'.repeat(37),
+      },
+    })).toThrow(/organizationId/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      filters: {
+        ...liveReport.filters,
+        employeeId: 'e'.repeat(37),
+      },
+    })).toThrow(/employeeId/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      filters: {
+        ...liveReport.filters,
+        status: 's'.repeat(33),
+      },
+    })).toThrow(/status/);
+  });
+
+  it('rejects unsafe live report allowlists, row identities, and values', () => {
+    const liveReport = {
+      ...reportFixture,
+      reportType: 'ATTENDANCE_DETAIL',
+      formulaVersion: 'ATTENDANCE_DETAIL_V1',
+      page: 0,
+      size: 50,
+      totalPages: 1,
+    };
+
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      exportFieldAllowlist: [],
+    })).toThrow(/non-empty and unique/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      exportFieldAllowlist: ['scope', 'scope'],
+    })).toThrow(/non-empty and unique/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      rows: [
+        liveReport.rows[0],
+        {
+          ...liveReport.rows[1],
+          rowReference: liveReport.rows[0]!.rowReference,
+        },
+      ],
+    })).toThrow(/duplicate rowReference/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      rows: [{
+        ...liveReport.rows[0],
+        rowReference: 'r'.repeat(257),
+      }],
+      rowCount: 1,
+    })).toThrow(/rowReference/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      rows: [{
+        ...liveReport.rows[0],
+        drillDownReference: 'd'.repeat(257),
+      }],
+      rowCount: 1,
+    })).toThrow(/drillDownReference/);
+    expect(() => assertLiveReportProjection({
+      ...liveReport,
+      rows: [{
+        ...liveReport.rows[0],
+        values: {
+          ...liveReport.rows[0]!.values,
+          'scheduled-hours': 168,
+        },
+      }],
+      rowCount: 1,
+    })).toThrow(/row value must be a string/);
+  });
+
   it('accepts strict synchronous and asynchronous export views', () => {
     const ready = {
       exportId: '1f9a72c2-fcd5-4e66-8a61-a8e6744d166f',
@@ -492,6 +633,33 @@ describe('Wave 7 projection contracts', () => {
     });
     expect(parsed.analytics.typeDistribution).toEqual([]);
     expect(parsed.analytics.organizationRanking).toEqual([]);
+  });
+
+  it('rejects dashboard employee details without drill-down permission', () => {
+    const ready = attendanceDashboardResponse();
+
+    expect(() => parseAttendanceDashboardResponse({
+      ...ready,
+      metadata: {
+        ...ready.metadata,
+        allowedActions: [],
+      },
+    })).toThrow(/requires dashboard drill-down permission/);
+
+    const parsed = parseAttendanceDashboardResponse({
+      ...ready,
+      metadata: {
+        ...ready.metadata,
+        allowedActions: [],
+      },
+      exceptions: [],
+    });
+    expect(parsed.kind).toBe('DASHBOARD');
+    if (parsed.kind !== 'DASHBOARD') {
+      throw new TypeError('dashboard response must be ready');
+    }
+    expect(parsed.summary.unresolvedCount).toBe(1);
+    expect(parsed.exceptions).toEqual([]);
   });
 
   it('fails closed before the upstream projections are synchronized', async () => {

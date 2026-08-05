@@ -20,6 +20,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Repository;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -184,6 +185,188 @@ public class MyBatisAttendanceReportSourceRepository
                         .stream()
                         .map(ReportRows.TimeAccountRow::toDomain)
                         .toList()));
+    }
+
+    @Override
+    public Optional<ReportSourceSnapshot> loadAuthorizedSnapshotIntersection(
+            String principalId,
+            String additionalCapabilityCode,
+            ReportSourceSnapshot readSnapshot,
+            boolean requireFullReadScopeCoverage,
+            Instant authorizationTime) {
+        Objects.requireNonNull(readSnapshot, "readSnapshot");
+        Objects.requireNonNull(authorizationTime, "authorizationTime");
+        if (principalId == null
+                || principalId.isBlank()
+                || !Set.of(
+                                CapabilityCodes
+                                        .ATTENDANCE_REPORT_EXPORT_CREATE,
+                                CapabilityCodes
+                                        .ATTENDANCE_REPORT_EXPORT_DOWNLOAD)
+                        .contains(additionalCapabilityCode)) {
+            return Optional.empty();
+        }
+        var periodStart = readSnapshot.filter().period().atDay(1);
+        var periodEndExclusive =
+                readSnapshot.filter().period().plusMonths(1).atDay(1);
+        List<ReportRows.ProjectionRow> projections =
+                mapper.listLatestAuthorizedProjections(
+                        principalId,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        periodStart,
+                        periodEndExclusive,
+                        readSnapshot.filter().companyId(),
+                        authorizationTime);
+        if (projections == null || projections.size() != 1) {
+            return Optional.empty();
+        }
+        ReportRows.ProjectionRow projection = projections.getFirst();
+        if (!readSnapshot.filter()
+                        .companyId()
+                        .equals(projection.companyId())
+                || !readSnapshot.projectionVersion().equals(
+                        projection.projectionVersion())) {
+            return Optional.empty();
+        }
+        List<ReportRows.ScopeRow> readScopes = nullSafe(
+                mapper.listAuthorizedScopes(
+                        principalId,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        projection.projectionId(),
+                        projection.companyId(),
+                        authorizationTime));
+        List<ReportRows.ScopeRow> additionalScopes = nullSafe(
+                mapper.listAuthorizedScopes(
+                        principalId,
+                        additionalCapabilityCode,
+                        projection.projectionId(),
+                        projection.companyId(),
+                        authorizationTime));
+        if (readScopes.isEmpty() || additionalScopes.isEmpty()) {
+            return Optional.empty();
+        }
+        Set<String> readEmployeeIds = Set.copyOf(nullSafe(
+                mapper.listAuthorizedEmployeeIdsInScopeIntersection(
+                        projection.companyId(),
+                        readScopes,
+                        readScopes,
+                        authorizationTime)));
+        Set<String> authorizedEmployeeIds = Set.copyOf(nullSafe(
+                mapper.listAuthorizedEmployeeIdsInScopeIntersection(
+                        projection.companyId(),
+                        readScopes,
+                        additionalScopes,
+                        authorizationTime)));
+        if (requireFullReadScopeCoverage
+                && (!authorizedEmployeeIds.equals(readEmployeeIds)
+                        || !fullyCoversReadScopes(
+                                projection.companyId(),
+                                readScopes,
+                                additionalScopes,
+                                authorizedEmployeeIds,
+                                authorizationTime))) {
+            return Optional.empty();
+        }
+        if (!requireFullReadScopeCoverage
+                && authorizedEmployeeIds.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new ReportSourceSnapshot(
+                readSnapshot.scope(),
+                readSnapshot.filter(),
+                readSnapshot.projectionVersion(),
+                readSnapshot.periodState(),
+                readSnapshot.dataAsOf(),
+                readSnapshot.sourceVersions(),
+                readSnapshot.dailyFacts().stream()
+                        .filter(fact -> authorizedEmployeeIds.contains(
+                                fact.employeeId()))
+                        .toList(),
+                readSnapshot.oaDocumentFacts().stream()
+                        .filter(fact -> authorizedEmployeeIds.contains(
+                                fact.employeeId()))
+                        .toList(),
+                readSnapshot.exceptionFacts().stream()
+                        .filter(fact -> authorizedEmployeeIds.contains(
+                                fact.employeeId()))
+                        .toList(),
+                readSnapshot.timeAccountFacts().stream()
+                        .filter(fact -> authorizedEmployeeIds.contains(
+                                fact.employeeId()))
+                        .toList()));
+    }
+
+    private boolean fullyCoversReadScopes(
+            String companyId,
+            List<ReportRows.ScopeRow> readScopes,
+            List<ReportRows.ScopeRow> additionalScopes,
+            Set<String> intersectionEmployeeIds,
+            Instant authorizationTime) {
+        return readScopes.stream().allMatch(readScope ->
+                additionalScopes.stream().anyMatch(additionalScope ->
+                        scopeCovers(
+                                companyId,
+                                additionalScope,
+                                readScope,
+                                intersectionEmployeeIds,
+                                authorizationTime)));
+    }
+
+    private boolean scopeCovers(
+            String companyId,
+            ReportRows.ScopeRow additionalScope,
+            ReportRows.ScopeRow readScope,
+            Set<String> intersectionEmployeeIds,
+            Instant authorizationTime) {
+        if (ScopeType.COMPANY.name().equals(
+                additionalScope.scopeType())) {
+            return companyId.equals(additionalScope.companyId());
+        }
+        if (ScopeType.COMPANY.name().equals(readScope.scopeType())) {
+            return false;
+        }
+        if (ScopeType.SELF.name().equals(readScope.scopeType())) {
+            if (ScopeType.SELF.name().equals(
+                    additionalScope.scopeType())) {
+                return Objects.equals(
+                        readScope.principalEmployeeId(),
+                        additionalScope.principalEmployeeId());
+            }
+            return intersectionEmployeeIds.contains(
+                    readScope.principalEmployeeId());
+        }
+        if (!ScopeType.ORGANIZATION.name().equals(
+                additionalScope.scopeType())) {
+            return false;
+        }
+        if (!additionalScope.includeDescendants()) {
+            return !readScope.includeDescendants()
+                    && Objects.equals(
+                            additionalScope.organizationId(),
+                            readScope.organizationId());
+        }
+        return isOrganizationAncestor(
+                companyId,
+                additionalScope.organizationId(),
+                readScope.organizationId(),
+                authorizationTime);
+    }
+
+    private boolean isOrganizationAncestor(
+            String companyId,
+            String ancestorOrganizationId,
+            String descendantOrganizationId,
+            Instant authorizationTime) {
+        return mapper.countCurrentOrganizationAncestor(
+                        companyId,
+                        ancestorOrganizationId,
+                        descendantOrganizationId,
+                        authorizationTime)
+                > 0;
+    }
+
+    private static <T> List<T> nullSafe(List<T> values) {
+        return values == null ? List.of() : values;
     }
 
     static AuthorizedScope authorizedScope(

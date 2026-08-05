@@ -3,7 +3,9 @@ package com.szsemicon.hr.reporting.application;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportDataSet;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
@@ -83,7 +85,32 @@ public class AttendanceReportQueryService {
             String status,
             int page,
             int size) {
+        return query(
+                reportType,
+                period,
+                companyId,
+                organizationId,
+                employeeId,
+                status,
+                null,
+                page,
+                size);
+    }
+
+    @Transactional(readOnly = true)
+    public AttendanceReportPage query(
+            ReportType reportType,
+            YearMonth period,
+            String companyId,
+            String organizationId,
+            String employeeId,
+            String status,
+            String expectedProjectionVersion,
+            int page,
+            int size) {
         requirePage(page, size);
+        String normalizedExpectedProjectionVersion =
+                requireExpectedProjectionVersion(expectedProjectionVersion);
         if (reportType == null || period == null) {
             throw new IllegalArgumentException(
                     "reportType and period are required");
@@ -113,6 +140,9 @@ public class AttendanceReportQueryService {
                         "ATTENDANCE_REPORT_PROJECTION_NOT_READY",
                         "当前期间尚无已发布的报表投影",
                         true));
+        requireSameProjectionVersion(
+                normalizedExpectedProjectionVersion,
+                snapshot.projectionVersion());
         var dataSet = calculator.calculate(reportType, snapshot);
         int from = Math.min(
                 Math.multiplyExact(page, size), dataSet.rows().size());
@@ -121,16 +151,13 @@ public class AttendanceReportQueryService {
         int totalPages = total == 0
                 ? 0
                 : (int) Math.ceil((double) total / size);
-        var actions = new ArrayList<String>();
-        actions.add("REPORT_DRILL_DOWN");
-        if (currentCapabilities.contains(
-                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE)) {
-            actions.add("REPORT_EXPORT_CREATE");
-        }
-        if (currentCapabilities.contains(
-                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD)) {
-            actions.add("REPORT_EXPORT_DOWNLOAD");
-        }
+        var actions = allowedActions(
+                principalId,
+                currentCapabilities,
+                reportType,
+                snapshot,
+                dataSet,
+                at);
         String fingerprint = fingerprint(
                 reportType,
                 snapshot.filter(),
@@ -166,7 +193,28 @@ public class AttendanceReportQueryService {
             String employeeId,
             int page,
             int size) {
+        return queryMonthMatrix(
+                period,
+                companyId,
+                organizationId,
+                employeeId,
+                null,
+                page,
+                size);
+    }
+
+    @Transactional(readOnly = true)
+    public AttendanceMonthMatrixPage queryMonthMatrix(
+            YearMonth period,
+            String companyId,
+            String organizationId,
+            String employeeId,
+            String expectedProjectionVersion,
+            int page,
+            int size) {
         requirePage(page, size);
+        String normalizedExpectedProjectionVersion =
+                requireExpectedProjectionVersion(expectedProjectionVersion);
         if (period == null) {
             throw new IllegalArgumentException("period is required");
         }
@@ -179,16 +227,20 @@ public class AttendanceReportQueryService {
         capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_READ);
         Set<String> currentCapabilities = capabilities.currentCapabilities();
         String principalId = principalProvider.currentPrincipalId();
+        var at = clock.instant();
         var snapshot = repository.loadAuthorizedSnapshot(
                         principalId,
                         CapabilityCodes.ATTENDANCE_REPORT_READ,
                         filter,
-                        clock.instant())
+                        at)
                 .orElseThrow(() -> new ApiProblemException(
                         HttpStatus.CONFLICT,
                         "ATTENDANCE_REPORT_PROJECTION_NOT_READY",
                         "当前期间尚无已发布的报表投影",
                         true));
+        requireSameProjectionVersion(
+                normalizedExpectedProjectionVersion,
+                snapshot.projectionVersion());
         var matrix = AttendanceMonthMatrixAssembler.assemble(snapshot);
         int from = Math.min(
                 Math.multiplyExact(page, size), matrix.rows().size());
@@ -197,7 +249,14 @@ public class AttendanceReportQueryService {
         int totalPages = total == 0
                 ? 0
                 : (int) Math.ceil((double) total / size);
-        var actions = allowedActions(currentCapabilities);
+        var actions = allowedActions(
+                principalId,
+                currentCapabilities,
+                ReportType.ATTENDANCE_DETAIL,
+                snapshot,
+                calculator.calculate(
+                        ReportType.ATTENDANCE_DETAIL, snapshot),
+                at);
         String fingerprint = fingerprint(
                 ReportType.ATTENDANCE_DETAIL,
                 snapshot.filter(),
@@ -222,19 +281,66 @@ public class AttendanceReportQueryService {
                 totalPages);
     }
 
-    private static List<String> allowedActions(
-            Set<String> currentCapabilities) {
+    private List<String> allowedActions(
+            String principalId,
+            Set<String> currentCapabilities,
+            ReportType reportType,
+            ReportSourceSnapshot snapshot,
+            ReportDataSet dataSet,
+            java.time.Instant authorizationTime) {
         var actions = new ArrayList<String>();
         actions.add("REPORT_DRILL_DOWN");
         if (currentCapabilities.contains(
-                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE)) {
+                        CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE)
+                && capabilityCoversVisibleReport(
+                        principalId,
+                        CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                        reportType,
+                        snapshot,
+                        dataSet,
+                        authorizationTime)) {
             actions.add("REPORT_EXPORT_CREATE");
         }
         if (currentCapabilities.contains(
-                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD)) {
+                        CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD)
+                && capabilityCoversVisibleReport(
+                        principalId,
+                        CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD,
+                        reportType,
+                        snapshot,
+                        dataSet,
+                        authorizationTime)) {
             actions.add("REPORT_EXPORT_DOWNLOAD");
         }
         return actions;
+    }
+
+    private boolean capabilityCoversVisibleReport(
+            String principalId,
+            String capabilityCode,
+            ReportType reportType,
+            ReportSourceSnapshot snapshot,
+            ReportDataSet dataSet,
+            java.time.Instant authorizationTime) {
+        return repository.loadAuthorizedSnapshotIntersection(
+                        principalId,
+                        capabilityCode,
+                        snapshot,
+                        dataSet.rows().isEmpty(),
+                        authorizationTime)
+                .map(candidate -> {
+                    ReportDataSet candidateDataSet = calculator.calculate(
+                            reportType, candidate);
+                    return AttendanceReportVisibilityDigest
+                            .calculateScopeIndependent(
+                                    reportType, snapshot, dataSet)
+                            .equals(AttendanceReportVisibilityDigest
+                                    .calculateScopeIndependent(
+                                            reportType,
+                                            candidate,
+                                            candidateDataSet));
+                })
+                .orElse(false);
     }
 
     static String fingerprint(
@@ -277,5 +383,36 @@ public class AttendanceReportQueryService {
                     "page must be between 0 and 1000000"
                             + " and size must be between 1 and 200");
         }
+    }
+
+    private static String requireExpectedProjectionVersion(String value) {
+        if (value == null) {
+            return null;
+        }
+        if (value.length() > 128
+                || value.isBlank()
+                || !value.equals(value.trim())
+                || value.codePoints().anyMatch(codePoint ->
+                        codePoint <= 0x1f
+                                || (codePoint >= 0x7f
+                                && codePoint <= 0x9f))) {
+            throw new IllegalArgumentException(
+                    "expectedProjectionVersion is invalid");
+        }
+        return value;
+    }
+
+    private static void requireSameProjectionVersion(
+            String expectedProjectionVersion,
+            String actualProjectionVersion) {
+        if (expectedProjectionVersion == null
+                || expectedProjectionVersion.equals(
+                        actualProjectionVersion)) {
+            return;
+        }
+        throw new ApiProblemException(
+                HttpStatus.CONFLICT,
+                "ATTENDANCE_REPORT_PROJECTION_CHANGED",
+                "报表数据版本已更新，请返回第一页重新加载");
     }
 }

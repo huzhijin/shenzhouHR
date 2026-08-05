@@ -22,6 +22,13 @@ public interface AttendanceReportSourceRepository {
             ReportFilter filter,
             Instant authorizationTime);
 
+    Optional<ReportSourceSnapshot> loadAuthorizedSnapshotIntersection(
+            String principalId,
+            String additionalCapabilityCode,
+            ReportSourceSnapshot readSnapshot,
+            boolean requireFullReadScopeCoverage,
+            Instant authorizationTime);
+
     record CompanyOption(String companyId, String companyName) {
 
         public CompanyOption {

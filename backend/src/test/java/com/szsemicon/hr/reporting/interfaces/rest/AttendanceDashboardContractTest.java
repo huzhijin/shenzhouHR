@@ -10,6 +10,7 @@ import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.Comp
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.DailyTrendPoint;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.DashboardAnalytics;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.DashboardSnapshot;
+import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.ExceptionItem;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.ExceptionSummary;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.OrganizationRankingItem;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.SeverityDistributionItem;
@@ -26,6 +27,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.LinkedMultiValueMap;
+import tools.jackson.databind.json.JsonMapper;
 
 class AttendanceDashboardContractTest {
 
@@ -159,6 +161,70 @@ class AttendanceDashboardContractTest {
     }
 
     @Test
+    void readyEnvelopeDefensivelyOmitsDetailsWithoutDrillDownAction()
+            throws Exception {
+        LocalDate businessDate = LocalDate.of(2026, 7, 29);
+        CompanyOption company =
+                new CompanyOption("company-a", "公司甲");
+        var snapshot = new DashboardSnapshot(
+                "company-a",
+                "projection-1",
+                List.of("deli:20"),
+                Instant.parse("2026-07-29T01:00:00Z"),
+                "OPEN",
+                new AuthorizedScope(
+                        ScopeType.COMPANY,
+                        "authorized-scope-set:abc",
+                        "公司授权范围",
+                        "a".repeat(64)),
+                new ExceptionSummary(1, 1, 1),
+                analytics(businessDate),
+                List.of(new ExceptionItem(
+                        "case-sensitive",
+                        "SZ001",
+                        "张三",
+                        "制造中心",
+                        businessDate,
+                        "MISSING_PUNCH_PENDING",
+                        "ERROR",
+                        "PENDING_REVIEW",
+                        480,
+                        "下班卡缺失")));
+        var result = new AttendanceDashboardService.Ready(
+                businessDate,
+                company,
+                List.of(company),
+                snapshot,
+                List.of());
+
+        var response = AttendanceDashboardResponse.from(result);
+
+        assertThat(response)
+                .isInstanceOfSatisfying(
+                        AttendanceDashboardResponse.Ready.class,
+                        view -> {
+                            assertThat(view.summary().unresolvedCount())
+                                    .isEqualTo(1);
+                            assertThat(view.analytics().dailyTrend())
+                                    .isNotEmpty();
+                            assertThat(view.exceptions()).isEmpty();
+                        });
+        String wireJson = JsonMapper.builder()
+                .findAndAddModules()
+                .build()
+                .writeValueAsString(response);
+        assertThat(wireJson)
+                .contains(
+                        "\"unresolvedCount\":1",
+                        "\"exceptions\":[]")
+                .doesNotContain(
+                        "case-sensitive",
+                        "SZ001",
+                        "张三",
+                        "下班卡缺失");
+    }
+
+    @Test
     void openApiPromotesDashboardAndFreezesItsSafeFields()
             throws Exception {
         String contract = Files.readString(OPEN_API);
@@ -191,6 +257,9 @@ class AttendanceDashboardContractTest {
                 .contains("summary")
                 .contains("analytics")
                 .contains("exceptions")
+                .contains(
+                        "x-detail-capability:"
+                                + " ATTENDANCE_REPORT:READ")
                 .contains("companies");
         assertThat(analytics)
                 .contains(
@@ -227,6 +296,21 @@ class AttendanceDashboardContractTest {
                         ApiProblemException.class,
                         problem -> assertThat(problem.code())
                                 .isEqualTo("VALIDATION_ERROR"));
+    }
+
+    private static DashboardAnalytics analytics(
+            LocalDate businessDate) {
+        return new DashboardAnalytics(
+                List.of(new DailyTrendPoint(
+                        businessDate, 1, 1, 1)),
+                List.of(
+                        new SeverityDistributionItem("INFO", 0),
+                        new SeverityDistributionItem("WARNING", 0),
+                        new SeverityDistributionItem("ERROR", 1)),
+                List.of(new TypeDistributionItem(
+                        "MISSING_PUNCH_PENDING", 1)),
+                List.of(new OrganizationRankingItem(
+                        "制造中心", 1, 1)));
     }
 
     private static String between(

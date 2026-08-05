@@ -2,8 +2,9 @@ package com.szsemicon.hr.reporting.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.szsemicon.hr.reporting.application.AttendanceReportExportService.RequestedExportBinding;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
-import java.time.YearMonth;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Isolation;
@@ -19,11 +20,8 @@ class AttendanceReportExportTransactionBoundaryTest {
                         .getMethod(
                                 "create",
                                 ReportType.class,
-                                YearMonth.class,
-                                String.class,
-                                String.class,
-                                String.class,
-                                String.class,
+                                ReportFilter.class,
+                                RequestedExportBinding.class,
                                 String.class,
                                 String.class)
                         .getAnnotation(Transactional.class))

@@ -3,13 +3,18 @@ package com.szsemicon.hr.reporting.interfaces.rest;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportService;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportService.ExportView;
+import com.szsemicon.hr.reporting.application.AttendanceReportExportService.RequestedExportBinding;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.nio.charset.StandardCharsets;
 import java.time.YearMonth;
+import java.util.List;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -41,11 +46,18 @@ public class AttendanceReportExportController {
             @Valid @RequestBody CreateExportRequest request) {
         ExportView result = exportService.create(
                 request.reportType(),
-                request.period(),
-                request.companyId(),
-                request.organizationId(),
-                request.employeeId(),
-                request.status(),
+                new ReportFilter(
+                        request.filters().period(),
+                        request.filters().companyId(),
+                        request.filters().organizationId(),
+                        request.filters().employeeId(),
+                        request.filters().status()),
+                new RequestedExportBinding(
+                        request.projectionVersion(),
+                        request.queryFingerprint(),
+                        request.scopeReference(),
+                        request.filters().scopeReference(),
+                        request.selectedFields()),
                 request.purpose(),
                 request.currentPassword());
         HttpStatus responseStatus = "READY".equals(result.status())
@@ -90,11 +102,13 @@ public class AttendanceReportExportController {
 
     record CreateExportRequest(
             @NotNull ReportType reportType,
-            @NotNull YearMonth period,
-            @Size(max = 36) String companyId,
-            @Size(max = 36) String organizationId,
-            @Size(max = 36) String employeeId,
-            @Size(max = 32) String status,
+            @NotBlank @Size(max = 128) String projectionVersion,
+            @NotBlank @Pattern(regexp = "^[a-f0-9]{64}$")
+                    String queryFingerprint,
+            @NotBlank @Size(max = 128) String scopeReference,
+            @Valid @NotNull ExportFilters filters,
+            @NotEmpty @Size(max = 64)
+                    List<@NotBlank @Size(max = 64) String> selectedFields,
             @NotBlank @Size(min = 2, max = 200) String purpose,
             @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
                     @NotBlank @Size(max = 256)
@@ -104,18 +118,27 @@ public class AttendanceReportExportController {
         public String toString() {
             return "CreateExportRequest[reportType="
                     + reportType
-                    + ", period="
-                    + period
-                    + ", companyId="
-                    + companyId
-                    + ", organizationId="
-                    + organizationId
-                    + ", employeeId="
-                    + employeeId
-                    + ", status="
-                    + status
+                    + ", projectionVersion="
+                    + projectionVersion
+                    + ", queryFingerprint="
+                    + queryFingerprint
+                    + ", scopeReference="
+                    + scopeReference
+                    + ", filters="
+                    + filters
+                    + ", selectedFields="
+                    + selectedFields
                     + ", purpose=<redacted>, currentPassword=<redacted>]";
         }
+    }
+
+    record ExportFilters(
+            @NotNull YearMonth period,
+            @NotBlank @Size(max = 128) String scopeReference,
+            @NotBlank @Size(max = 36) String companyId,
+            @Size(max = 36) String organizationId,
+            @Size(max = 36) String employeeId,
+            @Size(max = 32) String status) {
     }
 
     record ReauthenticationRequest(

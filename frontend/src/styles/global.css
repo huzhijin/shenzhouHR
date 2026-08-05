@@ -3027,6 +3027,7 @@ a:hover {
   white-space: nowrap;
 }
 
+.wave7-report__pagination,
 .wave7-month-matrix__pagination {
   display: flex;
   align-items: center;

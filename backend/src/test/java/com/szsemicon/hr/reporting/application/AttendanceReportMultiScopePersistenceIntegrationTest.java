@@ -3,9 +3,10 @@ package com.szsemicon.hr.reporting.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.audit.application.AuditService;
@@ -14,6 +15,8 @@ import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.DashboardSnapshot;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.EncodedExport;
+import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.ExportContext;
+import com.szsemicon.hr.reporting.application.AttendanceReportExportService.RequestedExportBinding;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.ExportJob;
 import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
@@ -30,6 +33,7 @@ import java.time.ZoneOffset;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -108,6 +112,9 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
     void reportAndDashboardApplyIndependentCrossCompanyOrganizationScopes() {
         CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
         CurrentPrincipalProvider principal = () -> PRINCIPAL;
         var reportService = new AttendanceReportQueryService(
                 capabilities, principal, reportRepository, CLOCK);
@@ -179,6 +186,285 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
     }
 
     @Test
+    void dashboardEmployeeDetailsRequireIntersectingReportScopePerCompany() {
+        jdbc.update(
+                "DELETE FROM auth_role_capability"
+                        + " WHERE role_id = ? AND capability_id = ?",
+                ROLE,
+                "2f000000-0000-0000-0000-000000000001");
+        jdbc.update(
+                """
+                INSERT INTO auth_role (
+                    role_id, role_code, role_name, permission_domain
+                ) VALUES (
+                    '1f000000-0000-0000-0000-000000000002',
+                    'REPORT_DISJOINT_SCOPE_TEST',
+                    '报表独立范围集成测试', 'ATTENDANCE_REPORT'
+                )
+                """);
+        jdbc.update(
+                """
+                INSERT INTO auth_role_capability (role_id, capability_id)
+                VALUES (
+                    '1f000000-0000-0000-0000-000000000002',
+                    '2f000000-0000-0000-0000-000000000001'
+                )
+                """);
+        jdbc.update(
+                """
+                INSERT INTO auth_data_scope (
+                    scope_id, scope_type, company_id, organization_id,
+                    include_descendants, valid_from, valid_to
+                ) VALUES
+                    ('9f000000-0000-0000-0000-000000000003',
+                        'ORGANIZATION', NULL, ?, FALSE, ?, NULL),
+                    ('9f000000-0000-0000-0000-000000000004',
+                        'COMPANY', ?, NULL, FALSE, ?, NULL)
+                """,
+                UNAUTHORIZED_ORGANIZATION_A,
+                Timestamp.from(Instant.parse("2020-01-01T00:00:00Z")),
+                COMPANY_B,
+                Timestamp.from(Instant.parse("2020-01-01T00:00:00Z")));
+        jdbc.update(
+                """
+                INSERT INTO auth_principal_role_assignment (
+                    assignment_id, principal_id, role_id, data_scope_id,
+                    valid_from, valid_to
+                ) VALUES
+                    ('af000000-0000-0000-0000-000000000003', ?,
+                        '1f000000-0000-0000-0000-000000000002',
+                        '9f000000-0000-0000-0000-000000000003', ?, NULL),
+                    ('af000000-0000-0000-0000-000000000004', ?,
+                        '1f000000-0000-0000-0000-000000000002',
+                        '9f000000-0000-0000-0000-000000000004', ?, NULL)
+                """,
+                PRINCIPAL,
+                Timestamp.from(Instant.parse("2020-01-01T00:00:00Z")),
+                PRINCIPAL,
+                Timestamp.from(Instant.parse("2020-01-01T00:00:00Z")));
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        CurrentPrincipalProvider principal = () -> PRINCIPAL;
+        var service = new AttendanceDashboardService(
+                capabilities, principal, dashboardRepository, CLOCK);
+
+        var companyA = (AttendanceDashboardService.Ready)
+                service.query(COMPANY_A);
+        var companyB = (AttendanceDashboardService.Ready)
+                service.query(COMPANY_B);
+
+        assertThat(companyA.snapshot().summary().unresolvedCount()).isOne();
+        assertThat(companyA.snapshot().exceptions()).isEmpty();
+        assertThat(companyA.allowedActions()).isEmpty();
+        assertAuthorizedDashboard(
+                companyB.snapshot(), "B-CHILD-001");
+        assertThat(companyB.allowedActions())
+                .containsExactly("DASHBOARD_DRILL_DOWN");
+    }
+
+    @Test
+    void exportAuthorizationUsesCurrentAssignmentForHistoricalOrganizationFacts() {
+        String transferredEmployee =
+                "b0000000-0000-0000-0000-000000000002";
+        jdbc.update(
+                "UPDATE auth_data_scope SET organization_id = ?"
+                        + " WHERE scope_id = ?",
+                UNAUTHORIZED_ORGANIZATION_A,
+                SCOPE_A);
+        jdbc.update(
+                "UPDATE employment_assignment SET organization_id = ?"
+                        + " WHERE employee_id = ?"
+                        + " AND version_valid_to IS NULL",
+                UNAUTHORIZED_ORGANIZATION_A,
+                transferredEmployee);
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE));
+        CurrentPrincipalProvider principal = () -> PRINCIPAL;
+        var queryService = new AttendanceReportQueryService(
+                capabilities, principal, reportRepository, CLOCK);
+        AttendanceReportExportStore store = mock(AttendanceReportExportStore.class);
+        AttendanceReportExportEncoder encoder =
+                mock(AttendanceReportExportEncoder.class);
+        when(encoder.encode(any(), any(ExportContext.class))).thenReturn(
+                new EncodedExport(
+                        "application/octet-stream",
+                        "xlsx",
+                        new byte[] {1, 2, 3}));
+        var exportService = new AttendanceReportExportService(
+                capabilities,
+                principal,
+                mock(AuthenticationService.class),
+                reportRepository,
+                store,
+                encoder,
+                new AttendanceReportCalculator(),
+                new AttendanceReportExportTransactions(),
+                mock(AuditService.class),
+                CLOCK,
+                Duration.ofHours(24));
+
+        AttendanceReportPage historicalOrganization = queryService.query(
+                ReportType.ATTENDANCE_DETAIL,
+                PERIOD,
+                COMPANY_A,
+                ORGANIZATION_A,
+                null,
+                null,
+                0,
+                20);
+
+        assertThat(historicalOrganization.totalRows()).isOne();
+        assertThat(historicalOrganization.allowedActions())
+                .containsExactly(
+                        "REPORT_DRILL_DOWN",
+                        "REPORT_EXPORT_CREATE");
+        exportService.create(
+                historicalOrganization.reportType(),
+                historicalOrganization.filters(),
+                binding(historicalOrganization),
+                "调岗历史组织导出",
+                "Current#Password123");
+        verify(store).insert(any(), any(byte[].class));
+    }
+
+    @Test
+    void exportRequiresFullCreateScopeCoverageIncludingEmptyFilters() {
+        jdbc.update(
+                "DELETE FROM auth_role_capability"
+                        + " WHERE role_id = ? AND capability_id = ?",
+                ROLE,
+                "2f000000-0000-0000-0000-000000000003");
+        jdbc.update(
+                """
+                INSERT INTO auth_role (
+                    role_id, role_code, role_name, permission_domain
+                ) VALUES (
+                    '1f000000-0000-0000-0000-000000000003',
+                    'EXPORT_NARROW_SCOPE_TEST',
+                    '导出狭范围集成测试', 'ATTENDANCE_REPORT'
+                )
+                """);
+        jdbc.update(
+                """
+                INSERT INTO auth_role_capability (role_id, capability_id)
+                VALUES (
+                    '1f000000-0000-0000-0000-000000000003',
+                    '2f000000-0000-0000-0000-000000000003'
+                )
+                """);
+        jdbc.update(
+                """
+                INSERT INTO auth_data_scope (
+                    scope_id, scope_type, company_id, organization_id,
+                    include_descendants, valid_from, valid_to
+                ) VALUES (
+                    '9f000000-0000-0000-0000-000000000005',
+                    'ORGANIZATION', NULL, ?, FALSE, ?, NULL
+                )
+                """,
+                UNAUTHORIZED_ORGANIZATION_A,
+                Timestamp.from(Instant.parse("2020-01-01T00:00:00Z")));
+        jdbc.update(
+                """
+                INSERT INTO auth_principal_role_assignment (
+                    assignment_id, principal_id, role_id, data_scope_id,
+                    valid_from, valid_to
+                ) VALUES
+                    ('af000000-0000-0000-0000-000000000005', ?,
+                        '1f000000-0000-0000-0000-000000000003', ?, ?, NULL),
+                    ('af000000-0000-0000-0000-000000000006', ?, ?,
+                        '9f000000-0000-0000-0000-000000000005', ?, NULL)
+                """,
+                PRINCIPAL,
+                SCOPE_A,
+                Timestamp.from(Instant.parse("2020-01-01T00:00:00Z")),
+                PRINCIPAL,
+                ROLE,
+                Timestamp.from(Instant.parse("2020-01-01T00:00:00Z")));
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE));
+        CurrentPrincipalProvider principal = () -> PRINCIPAL;
+        var queryService = new AttendanceReportQueryService(
+                capabilities, principal, reportRepository, CLOCK);
+        AuthenticationService authentication = mock(AuthenticationService.class);
+        AttendanceReportExportStore store = mock(AttendanceReportExportStore.class);
+        AttendanceReportExportEncoder encoder =
+                mock(AttendanceReportExportEncoder.class);
+        var exportService = new AttendanceReportExportService(
+                capabilities,
+                principal,
+                authentication,
+                reportRepository,
+                store,
+                encoder,
+                new AttendanceReportCalculator(),
+                new AttendanceReportExportTransactions(),
+                mock(AuditService.class),
+                CLOCK,
+                Duration.ofHours(24));
+
+        AttendanceReportPage fullRead = queryService.query(
+                ReportType.ATTENDANCE_DETAIL,
+                PERIOD,
+                COMPANY_A,
+                null,
+                null,
+                null,
+                0,
+                20);
+
+        assertThat(fullRead.totalRows()).isEqualTo(2);
+        assertThat(fullRead.allowedActions())
+                .containsExactly("REPORT_DRILL_DOWN");
+        assertExportScopeDenied(exportService, fullRead);
+
+        String employeeOutsideCreateScope =
+                "b0000000-0000-0000-0000-000000000003";
+        jdbc.update(
+                "DELETE FROM attendance_report_daily_fact"
+                        + " WHERE employee_id = ?",
+                employeeOutsideCreateScope);
+        jdbc.update(
+                "DELETE FROM attendance_report_exception_fact"
+                        + " WHERE employee_id = ?",
+                employeeOutsideCreateScope);
+        AttendanceReportPage emptyEmployee = queryService.query(
+                ReportType.ATTENDANCE_DETAIL,
+                PERIOD,
+                COMPANY_A,
+                null,
+                employeeOutsideCreateScope,
+                null,
+                0,
+                20);
+        AttendanceReportPage emptyOrganization = queryService.query(
+                ReportType.ATTENDANCE_DETAIL,
+                PERIOD,
+                COMPANY_A,
+                UNAUTHORIZED_ORGANIZATION_A,
+                null,
+                null,
+                0,
+                20);
+
+        for (AttendanceReportPage empty :
+                List.of(emptyEmployee, emptyOrganization)) {
+            assertThat(empty.totalRows()).isZero();
+            assertThat(empty.allowedActions())
+                    .containsExactly("REPORT_DRILL_DOWN");
+            assertExportScopeDenied(exportService, empty);
+        }
+        verify(store, never()).insert(any(), any());
+        verifyNoInteractions(encoder);
+    }
+
+    @Test
     void exportStatusFailsClosedAfterThePersistedScopeIsRevoked() {
         CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);
@@ -188,7 +474,7 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 mock(AttendanceReportExportEncoder.class);
         AuditService audit = mock(AuditService.class);
         CurrentPrincipalProvider principal = () -> PRINCIPAL;
-        when(encoder.encode(any(), eq(PERIOD))).thenReturn(
+        when(encoder.encode(any(), any(ExportContext.class))).thenReturn(
                 new EncodedExport(
                         "application/octet-stream",
                         "xlsx",
@@ -205,24 +491,39 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 audit,
                 CLOCK,
                 Duration.ofHours(24));
-        String expectedScopeDigest = reportRepository.loadAuthorizedSnapshot(
+        ReportFilter exportFilter = new ReportFilter(
+                PERIOD, COMPANY_A, null, null, null);
+        var exportSnapshot = reportRepository.loadAuthorizedSnapshot(
                         PRINCIPAL,
                         CapabilityCodes.ATTENDANCE_REPORT_READ,
-                        new ReportFilter(PERIOD, COMPANY_A, null, null, null),
+                        exportFilter,
                         AUTHORIZATION_TIME)
-                .orElseThrow()
-                .scope()
-                .authorizationDigest();
+                .orElseThrow();
+        String expectedScopeDigest =
+                exportSnapshot.scope().authorizationDigest();
+        var exportDataSet = new AttendanceReportCalculator().calculate(
+                ReportType.ATTENDANCE_DETAIL, exportSnapshot);
+        String exportFingerprint = AttendanceReportQueryService.fingerprint(
+                ReportType.ATTENDANCE_DETAIL,
+                exportSnapshot.filter(),
+                exportSnapshot.projectionVersion(),
+                exportSnapshot.scope().authorizationDigest(),
+                exportDataSet.calculationFormulaVersion());
+        var exportBinding = new RequestedExportBinding(
+                exportSnapshot.projectionVersion(),
+                exportFingerprint,
+                exportSnapshot.scope().reference(),
+                exportSnapshot.scope().reference(),
+                exportDataSet.exportAllowlist().stream()
+                        .map(field -> field.key())
+                        .toList());
         ArgumentCaptor<ExportJob> jobCaptor =
                 ArgumentCaptor.forClass(ExportJob.class);
 
         service.create(
                 ReportType.ATTENDANCE_DETAIL,
-                PERIOD,
-                COMPANY_A,
-                null,
-                null,
-                null,
+                exportFilter,
+                exportBinding,
                 "跨公司范围导出复核",
                 "Current#Password123");
 
@@ -258,6 +559,34 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
         assertThat(snapshot.exceptions())
                 .extracting(AttendanceDashboardRepository.ExceptionItem::employeeNumber)
                 .containsExactly(expectedEmployeeNumber);
+    }
+
+    private static void assertExportScopeDenied(
+            AttendanceReportExportService service,
+            AttendanceReportPage page) {
+        RequestedExportBinding binding = binding(page);
+
+        assertThatThrownBy(() -> service.create(
+                page.reportType(),
+                page.filters(),
+                binding,
+                "范围分离导出测试",
+                "Current#Password123"))
+                .isInstanceOf(ApiProblemException.class)
+                .extracting("code")
+                .isEqualTo("RESOURCE_NOT_AVAILABLE");
+    }
+
+    private static RequestedExportBinding binding(
+            AttendanceReportPage page) {
+        return new RequestedExportBinding(
+                page.projectionVersion(),
+                page.queryFingerprint(),
+                page.scope().reference(),
+                page.scope().reference(),
+                page.exportAllowlist().stream()
+                        .map(field -> field.key())
+                        .toList());
     }
 
     private void seedCompanyBOrganizationsAndEmployees() {

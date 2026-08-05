@@ -13,6 +13,7 @@ import type {
   DashboardLoadResult,
   FeedbackProjection,
   LeaveProjection,
+  ReportExportRequest,
   ReportProjection,
   SelfAttendanceDashboardProjection,
   TodayProjection,
@@ -27,6 +28,7 @@ import {
   normalizeReportExportPurpose,
   parseAttendanceDashboardResponse,
   parseSelfAttendanceDashboardResponse,
+  reportColumnKeys,
 } from './wave7Contracts';
 
 export interface ReportQuery {
@@ -34,16 +36,14 @@ export interface ReportQuery {
   period: string;
   companyId?: string;
   status?: ReportExceptionState;
+  expectedProjectionVersion?: string;
   page?: number;
   size?: number;
 }
 
-export interface ReportExportCreateRequest {
+export interface ReportExportCreateRequest extends ReportExportRequest {
   reportType: AttendanceReportType;
-  period: string;
-  companyId?: string | null;
-  status?: ReportExceptionState | null;
-  purpose: string;
+  filters: ReportExportRequest['filters'] & { companyId: string };
   currentPassword: string;
 }
 
@@ -51,6 +51,7 @@ export interface AttendanceMonthMatrixQuery {
   period: string;
   companyId?: string;
   organizationId?: string;
+  expectedProjectionVersion?: string;
   page?: number;
   size?: number;
 }
@@ -179,6 +180,12 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     if (normalized.status !== undefined) {
       parameters.set('status', normalized.status);
     }
+    if (normalized.expectedProjectionVersion !== undefined) {
+      parameters.set(
+        'expectedProjectionVersion',
+        normalized.expectedProjectionVersion,
+      );
+    }
     parameters.set('page', String(normalized.page));
     parameters.set('size', String(normalized.size));
 
@@ -202,6 +209,11 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
       || !hasNoReportIdentityFilter(response.filters)
       || (response.filters.status ?? null)
         !== (normalized.status ?? null)
+      || (
+        normalized.expectedProjectionVersion !== undefined
+        && response.metadata.projectionVersion
+          !== normalized.expectedProjectionVersion
+      )
       || response.page !== normalized.page
       || response.size !== normalized.size
     ) {
@@ -218,6 +230,12 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     }
     if (normalized.organizationId !== undefined) {
       parameters.set('organizationId', normalized.organizationId);
+    }
+    if (normalized.expectedProjectionVersion !== undefined) {
+      parameters.set(
+        'expectedProjectionVersion',
+        normalized.expectedProjectionVersion,
+      );
     }
     parameters.set('page', String(normalized.page));
     parameters.set('size', String(normalized.size));
@@ -239,6 +257,11 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
       || (response.filters.organizationId ?? undefined)
         !== normalized.organizationId
       || !hasNoReportIdentityFilter(response.filters)
+      || (
+        normalized.expectedProjectionVersion !== undefined
+        && response.metadata.projectionVersion
+          !== normalized.expectedProjectionVersion
+      )
       || response.page !== normalized.page
       || response.size !== normalized.size
     ) {
@@ -265,11 +288,8 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     }
     if (
       response.reportType !== normalized.reportType
-      || response.period !== normalized.period
-      || (
-        normalized.companyId !== undefined
-        && response.companyId !== normalized.companyId
-      )
+      || response.period !== normalized.filters.period
+      || response.companyId !== normalized.filters.companyId
       || response.purpose !== normalized.purpose
     ) {
       throw invalidReportExportResponse();
@@ -333,6 +353,7 @@ interface NormalizedReportQuery {
   period: string;
   companyId?: string;
   status?: ReportExceptionState;
+  expectedProjectionVersion?: string;
   page: number;
   size: number;
 }
@@ -341,6 +362,7 @@ interface NormalizedAttendanceMonthMatrixQuery {
   period: string;
   companyId?: string;
   organizationId?: string;
+  expectedProjectionVersion?: string;
   page: number;
   size: number;
 }
@@ -356,6 +378,7 @@ function normalizeAttendanceMonthMatrixQuery(
         'period',
         'companyId',
         'organizationId',
+        'expectedProjectionVersion',
         'page',
         'size',
       ],
@@ -382,6 +405,10 @@ function normalizeAttendanceMonthMatrixQuery(
       query.organizationId,
       36,
     ),
+    expectedProjectionVersion: normalizeOptionalQueryFilter(
+      query.expectedProjectionVersion,
+      128,
+    ),
     page,
     size,
   };
@@ -397,6 +424,7 @@ function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {
         'period',
         'companyId',
         'status',
+        'expectedProjectionVersion',
         'page',
         'size',
       ],
@@ -437,6 +465,10 @@ function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {
     period: query.period,
     companyId,
     status: normalizedStatus || undefined,
+    expectedProjectionVersion: normalizeOptionalQueryFilter(
+      query.expectedProjectionVersion,
+      128,
+    ),
     page,
     size,
   };
@@ -503,26 +535,74 @@ function normalizeReportExportCreateRequest(
       request,
       [
         'reportType',
-        'period',
-        'companyId',
-        'status',
+        'projectionVersion',
+        'queryFingerprint',
+        'scopeReference',
+        'filters',
+        'selectedFields',
         'purpose',
         'currentPassword',
       ],
     )
     || !attendanceReportTypes.includes(request.reportType)
-    || !isYearMonth(request.period)
+    || !isSafeRequiredText(request.projectionVersion, 128)
+    || typeof request.queryFingerprint !== 'string'
+    || !/^[a-f0-9]{64}$/.test(request.queryFingerprint)
+    || !isSafeRequiredText(request.scopeReference, 128)
+    || !hasOnlyKeys(
+      request.filters,
+      [
+        'period',
+        'scopeReference',
+        'companyId',
+        'organizationId',
+        'employeeId',
+        'status',
+      ],
+    )
+    || !isYearMonth(request.filters.period)
+    || !isSafeRequiredText(request.filters.scopeReference, 128)
+    || request.filters.scopeReference !== request.scopeReference
+    || !Array.isArray(request.selectedFields)
+    || request.selectedFields.length === 0
+    || request.selectedFields.length > reportColumnKeys.length
+    || new Set(request.selectedFields).size !== request.selectedFields.length
+    || !request.selectedFields.every((field) => (
+      typeof field === 'string'
+      && reportColumnKeys.includes(
+        field as typeof reportColumnKeys[number],
+      )
+    ))
   ) {
     throw invalidReportExportRequest();
   }
-  const normalizedStatus = normalizeOptionalFilter(request.status, 32);
+  const normalizedStatus = normalizeOptionalFilter(
+    request.filters.status,
+    32,
+  );
   const companyId = normalizeOptionalFilter(
-    request.companyId,
+    request.filters.companyId,
     36,
   );
   if (
-    typeof companyId === 'string'
-    && companyId !== companyId.trim()
+    typeof companyId !== 'string'
+    || companyId !== companyId.trim()
+  ) {
+    throw invalidReportExportRequest();
+  }
+  const organizationId = normalizeOptionalFilter(
+    request.filters.organizationId,
+    36,
+  );
+  const employeeId = normalizeOptionalFilter(
+    request.filters.employeeId,
+    36,
+  );
+  if (
+    (typeof organizationId === 'string'
+      && organizationId !== organizationId.trim())
+    || (typeof employeeId === 'string'
+      && employeeId !== employeeId.trim())
   ) {
     throw invalidReportExportRequest();
   }
@@ -550,12 +630,32 @@ function normalizeReportExportCreateRequest(
   validateCurrentPassword(request.currentPassword);
   return {
     reportType: request.reportType,
-    period: request.period,
-    companyId,
-    status,
+    projectionVersion: request.projectionVersion,
+    queryFingerprint: request.queryFingerprint,
+    scopeReference: request.scopeReference,
+    filters: {
+      period: request.filters.period,
+      scopeReference: request.filters.scopeReference,
+      companyId,
+      organizationId,
+      employeeId,
+      status,
+    },
+    selectedFields: [...request.selectedFields],
     purpose,
     currentPassword: request.currentPassword,
   };
+}
+
+function isSafeRequiredText(
+  value: unknown,
+  maximumLength: number,
+): value is string {
+  return typeof value === 'string'
+    && value.length <= maximumLength
+    && value.trim() !== ''
+    && value === value.trim()
+    && !hasC0OrC1ControlCharacter(value);
 }
 
 function normalizeOptionalQueryFilter(

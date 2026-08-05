@@ -74,7 +74,17 @@ describe('WAVE-7 frontend source contract', () => {
     ]) {
       expect(gatewaySource).toContain(method);
     }
-    expect(gatewaySource).not.toMatch(/employeeId|employeeNo|employee_id/i);
+    const selfGatewayStart = gatewaySource.indexOf(
+      'loadSelfDashboard: async',
+    );
+    const selfGatewayEnd = gatewaySource.indexOf(
+      'loadDashboard: async',
+      selfGatewayStart,
+    );
+    expect(selfGatewayStart).toBeGreaterThanOrEqual(0);
+    expect(selfGatewayEnd).toBeGreaterThan(selfGatewayStart);
+    expect(gatewaySource.slice(selfGatewayStart, selfGatewayEnd))
+      .not.toMatch(/employeeId|employeeNo|employee_id/i);
   });
 });
 

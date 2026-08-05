@@ -48,6 +48,21 @@ final class AttendanceReportVisibilityDigest {
             ReportType reportType,
             ReportSourceSnapshot snapshot,
             ReportDataSet dataSet) {
+        return calculate(reportType, snapshot, dataSet, true);
+    }
+
+    static String calculateScopeIndependent(
+            ReportType reportType,
+            ReportSourceSnapshot snapshot,
+            ReportDataSet dataSet) {
+        return calculate(reportType, snapshot, dataSet, false);
+    }
+
+    private static String calculate(
+            ReportType reportType,
+            ReportSourceSnapshot snapshot,
+            ReportDataSet dataSet,
+            boolean includeAuthorizationScope) {
         Objects.requireNonNull(reportType, "reportType");
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(dataSet, "dataSet");
@@ -62,9 +77,13 @@ final class AttendanceReportVisibilityDigest {
         digest.add(snapshot.projectionVersion());
         digest.add(snapshot.periodState());
         digest.add(snapshot.dataAsOf());
-        digest.add(snapshot.scope().type().name());
-        digest.add(snapshot.scope().reference());
-        digest.add(snapshot.scope().authorizationDigest());
+        if (includeAuthorizationScope) {
+            digest.add(snapshot.scope().type().name());
+            digest.add(snapshot.scope().reference());
+            digest.add(snapshot.scope().authorizationDigest());
+        } else {
+            digest.add("AUTHORIZATION_SCOPE_EXCLUDED");
+        }
         appendFilter(digest, snapshot.filter());
         digest.add(dataSet.calculationFormulaVersion());
         appendStrings(digest, snapshot.sourceVersions());

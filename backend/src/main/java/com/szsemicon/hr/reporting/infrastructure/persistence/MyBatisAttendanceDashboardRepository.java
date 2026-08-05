@@ -2,6 +2,7 @@ package com.szsemicon.hr.reporting.infrastructure.persistence;
 
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository;
+import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.AuthorizedDashboardSnapshot;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -59,7 +60,7 @@ public class MyBatisAttendanceDashboardRepository
     }
 
     @Override
-    public Optional<DashboardSnapshot> loadAuthorizedToday(
+    public Optional<AuthorizedDashboardSnapshot> loadAuthorizedToday(
             String principalId,
             String companyId,
             LocalDate businessDate,
@@ -116,29 +117,59 @@ public class MyBatisAttendanceDashboardRepository
                 businessDate,
                 authorizationTime,
                 summary.toDomain());
-        List<DashboardRows.ExceptionRow> rows =
-                mapper.listDashboardExceptions(
+        List<ReportRows.ScopeRow> reportScopes = nullSafe(
+                mapper.listAuthorizedScopes(
                         principalId,
-                        CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
                         projection.projectionId(),
                         companyId,
-                        businessDate,
-                        authorizationTime);
-        List<ExceptionItem> exceptions = rows == null
-                ? List.of()
-                : rows.stream()
+                        authorizationTime));
+        boolean employeeDetailsAuthorized = !reportScopes.isEmpty()
+                && !nullSafe(mapper
+                        .listAuthorizedEmployeeIdsInScopeIntersection(
+                                companyId,
+                                reportScopes(scopeRows),
+                                reportScopes,
+                                authorizationTime))
+                        .isEmpty();
+        List<ExceptionItem> exceptions = employeeDetailsAuthorized
+                ? nullSafe(mapper.listDashboardExceptions(
+                                principalId,
+                                CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                                projection.projectionId(),
+                                companyId,
+                                businessDate,
+                                authorizationTime,
+                                reportScopes))
+                        .stream()
                         .map(DashboardRows.ExceptionRow::toDomain)
-                        .toList();
-        return Optional.of(new DashboardSnapshot(
-                companyId,
-                projection.projectionVersion(),
-                sourceVersions(projection.sourceVersionsJson()),
-                projection.dataAsOf(),
-                projection.periodState(),
-                authorizedScope(scopeRows),
-                summary.toDomain(),
-                analytics,
-                exceptions));
+                        .toList()
+                : List.of();
+        return Optional.of(new AuthorizedDashboardSnapshot(
+                new DashboardSnapshot(
+                        companyId,
+                        projection.projectionVersion(),
+                        sourceVersions(projection.sourceVersionsJson()),
+                        projection.dataAsOf(),
+                        projection.periodState(),
+                        authorizedScope(scopeRows),
+                        summary.toDomain(),
+                        analytics,
+                        exceptions),
+                employeeDetailsAuthorized));
+    }
+
+    private static List<ReportRows.ScopeRow> reportScopes(
+            List<DashboardRows.ScopeRow> rows) {
+        return nullSafe(rows).stream()
+                .map(row -> new ReportRows.ScopeRow(
+                        row.scopeId(),
+                        row.scopeType(),
+                        row.companyId(),
+                        row.organizationId(),
+                        row.includeDescendants(),
+                        row.principalEmployeeId()))
+                .toList();
     }
 
     private DashboardAnalytics loadAnalytics(

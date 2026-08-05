@@ -387,6 +387,8 @@ export const zhCNMessages = {
   'login.locked': '账号已锁定',
   'login.lockedDescription': '请在锁定到期后重试或联系有权限的管理员解锁。',
   'login.networkError': '网络连接不可用',
+  'login.serviceUnavailable': '登录服务暂时不可用，请稍后重试或联系系统管理员。',
+  'login.requestRejected': '登录请求未被接受，请刷新页面后重试；如仍失败请联系系统管理员。',
   'login.success': '登录成功，正在进入系统。',
   'login.passwordChanged': '密码已修改',
   'login.passwordChangedReloginRequired': '自动登录未完成，请使用新密码重新登录。',

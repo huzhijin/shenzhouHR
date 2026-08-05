@@ -30,6 +30,8 @@ type LoginState =
   | 'password-changed-login-required'
   | 'session-expired'
   | 'network-error'
+  | 'service-error'
+  | 'request-error'
   | 'success';
 
 export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
@@ -130,6 +132,18 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
         // Correlation metadata remains on ApiRequestError for logs, never in the login UI.
         setErrorDescription(undefined);
         setState('session-expired');
+      } else if (
+        caught instanceof ApiRequestError
+        && caught.status >= 500
+      ) {
+        setFirstChangeError(t('login.serviceUnavailable'));
+        setState('first-password-change');
+      } else if (
+        caught instanceof ApiRequestError
+        && caught.status > 0
+      ) {
+        setFirstChangeError(t('login.requestRejected'));
+        setState('first-password-change');
       } else {
         setFirstChangeError(t('login.connectionFailed'));
         setState('first-password-change');
@@ -169,6 +183,8 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
           {state === 'locked' ? <Alert id="login-error" showIcon type="error" title={t('login.locked')} description={errorDescription ?? t('login.lockedDescription')} /> : null}
           {state === 'password-changed-login-required' ? <Alert id="login-error" showIcon type="warning" title={t('login.passwordChanged')} description={errorDescription} /> : null}
           {state === 'network-error' ? <Alert id="login-error" showIcon type="error" title={t('login.networkError')} description={errorDescription} action={<Button size="small" icon={<IconRefresh stroke={2} />} onClick={() => setState('idle')}>{t('state.retry')}</Button>} /> : null}
+          {state === 'service-error' ? <Alert id="login-error" showIcon type="error" title={t('login.serviceUnavailable')} description={errorDescription} action={<Button size="small" icon={<IconRefresh stroke={2} />} onClick={() => setState('idle')}>{t('state.retry')}</Button>} /> : null}
+          {state === 'request-error' ? <Alert id="login-error" showIcon type="error" title={t('login.requestRejected')} description={errorDescription} action={<Button size="small" icon={<IconRefresh stroke={2} />} onClick={() => setState('idle')}>{t('state.retry')}</Button>} /> : null}
           {state === 'success' ? <Alert showIcon type="success" title={t('login.success')} /> : null}
           {state === 'first-password-change' ? (
             <Form layout="vertical" onFinish={(values) => void submitFirstChange(values)}>
@@ -262,12 +278,14 @@ function handleLoginError(
     setState('first-password-change');
   } else if (caught.code === 'SESSION_EXPIRED') {
     setState('session-expired');
-  } else if (caught.status === 0 || caught.status >= 500) {
+  } else if (caught.status === 0) {
     setState('network-error');
+  } else if (caught.status >= 500) {
+    setState('service-error');
   } else if (caught.code === 'INVALID_CREDENTIALS' || caught.code === 'AUTHENTICATION_FAILED' || caught.status === 401) {
     setState('wrong-password');
   } else {
-    setState('wrong-password');
+    setState('request-error');
   }
   // Keep request metadata available to diagnostics without exposing internal identifiers to employees.
   setDescription(undefined);

@@ -87,6 +87,8 @@ class AttendanceDashboardSqlContractTest {
                         "fact.exception_case_id"
                                 + " AS exception_reference")
                 .contains("fact.safe_evidence_summary AS evidence_summary")
+                .contains(
+                        "<include refid=\"reportScopeFactVisibility\"/>")
                 .contains("LIMIT 10")
                 .doesNotContain("fact.employee_id,")
                 .doesNotContain("raw_punch")
@@ -94,6 +96,33 @@ class AttendanceDashboardSqlContractTest {
                 .doesNotContain("latitude")
                 .doesNotContain("longitude")
                 .doesNotContain("payroll");
+    }
+
+    @Test
+    void employeeDetailsRequireDashboardAndReportScopeIntersection()
+            throws Exception {
+        String xml = Files.readString(MAPPER);
+        String intersection = select(
+                xml, "listAuthorizedEmployeeIdsInScopeIntersection");
+        String reportFactVisibility = between(
+                xml,
+                "<sql id=\"reportScopeFactVisibility\">",
+                "</sql>");
+
+        assertThat(intersection)
+                .contains("candidate_employee.company_id = #{companyId}")
+                .contains(
+                        "<include refid=\"firstScopeEmployeeVisibility\"/>")
+                .contains(
+                        "<include refid=\"secondScopeEmployeeVisibility\"/>")
+                .doesNotContain("${");
+        assertThat(reportFactVisibility)
+                .contains("collection=\"reportScopes\"")
+                .contains("fact.employee_id")
+                .contains("fact.company_id")
+                .contains("employment_assignment")
+                .contains("organization_current_closure")
+                .doesNotContain("${");
     }
 
     @Test

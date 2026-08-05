@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+set +x
 umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +13,7 @@ DB_HOST="127.0.0.1"
 DB_PORT="3306"
 DB_NAME="shenzhou_hr"
 ACCOUNT_HOST="127.0.0.1"
+BACKEND_PORT="18080"
 APP_USER="shenzhouhr_app"
 MIGRATOR_USER="shenzhouhr_migrator"
 EXPECTED_VERSION="8.0.45"
@@ -32,6 +34,7 @@ Usage: provision.sh [options]
   --db-port PORT               MySQL port (default 3306)
   --db-name NAME               Database name (default shenzhou_hr)
   --account-host HOST          MySQL account host (default 127.0.0.1)
+  --backend-port PORT          Private Spring Boot port (default 18080)
   --app-user NAME              App DB user (default shenzhouhr_app)
   --migrator-user NAME         Migration DB user (default shenzhouhr_migrator)
   --expected-version VERSION   Exact core version (default 8.0.45)
@@ -42,6 +45,15 @@ USAGE
 
 valid_identifier() {
   [[ "$1" =~ ^[A-Za-z0-9_]+$ ]]
+}
+
+mysql_option_value() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  printf '"%s"' "$value"
 }
 
 write_env() {
@@ -66,6 +78,7 @@ while (($#)); do
     --db-port) DB_PORT="$2"; shift 2 ;;
     --db-name) DB_NAME="$2"; shift 2 ;;
     --account-host) ACCOUNT_HOST="$2"; shift 2 ;;
+    --backend-port) BACKEND_PORT="$2"; shift 2 ;;
     --app-user) APP_USER="$2"; shift 2 ;;
     --migrator-user) MIGRATOR_USER="$2"; shift 2 ;;
     --expected-version) EXPECTED_VERSION="$2"; shift 2 ;;
@@ -82,11 +95,21 @@ valid_identifier "$APP_USER" || die "Unsafe app username: $APP_USER"
 valid_identifier "$MIGRATOR_USER" || die "Unsafe migrator username: $MIGRATOR_USER"
 [[ "$DB_PORT" =~ ^[0-9]+$ ]] || die "Invalid database port: $DB_PORT"
 [[ "$DB_PORT" -ge 1 && "$DB_PORT" -le 65535 ]] || die "Invalid database port: $DB_PORT"
+[[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] || die "Invalid backend port: $BACKEND_PORT"
+[[ "$BACKEND_PORT" -ge 1024 && "$BACKEND_PORT" -le 65535 ]] \
+  || die "Backend port must be between 1024 and 65535: $BACKEND_PORT"
 [[ "$EXPECTED_VERSION" =~ ^8\.0\.[0-9]+$ ]] || die "Invalid expected MySQL version: $EXPECTED_VERSION"
 [[ "$SESSION_COOKIE_SECURE" == "true" || "$SESSION_COOKIE_SECURE" == "false" ]] \
   || die 'session-cookie-secure must be true or false'
+[[ "$DB_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] || die 'Unsafe database host'
+[[ "$DB_HOST" == "127.0.0.1" || "$DB_HOST" == "localhost" ]] \
+  || die 'This Baota release requires MySQL on the same server (127.0.0.1 or localhost)'
 [[ "$ACCOUNT_HOST" =~ ^[A-Za-z0-9._:-]+$ ]] || die 'Unsafe MySQL account host'
 [[ "$ACCOUNT_HOST" != "%" ]] || die 'Refusing a wildcard MySQL account host; use the fixed app server IP'
+[[ ! -e "$ENV_FILE" ]] \
+  || die "Existing app env found: $ENV_FILE. Refusing to change database credentials; use upgrade.sh for an existing installation."
+[[ ! -e "$MIGRATOR_ENV_FILE" ]] \
+  || die "Existing migrator env found: $MIGRATOR_ENV_FILE. Refusing to change database credentials; use upgrade.sh for an existing installation."
 
 read -r -p 'MySQL root user [root]: ' MYSQL_ROOT_USER
 MYSQL_ROOT_USER="${MYSQL_ROOT_USER:-root}"
@@ -98,14 +121,14 @@ printf '\n'
 MYSQL_DEFAULTS="$(mktemp /tmp/shenzhouhr-mysql.XXXXXX.cnf)"
 trap 'rm -f -- "$MYSQL_DEFAULTS"' EXIT
 chmod 600 "$MYSQL_DEFAULTS"
-cat > "$MYSQL_DEFAULTS" <<EOF
-[client]
-user=$MYSQL_ROOT_USER
-password=$MYSQL_ROOT_PASSWORD
-host=$DB_HOST
-port=$DB_PORT
-protocol=tcp
-EOF
+{
+  printf '[client]\n'
+  printf 'user=%s\n' "$(mysql_option_value "$MYSQL_ROOT_USER")"
+  printf 'password=%s\n' "$(mysql_option_value "$MYSQL_ROOT_PASSWORD")"
+  printf 'host=%s\n' "$(mysql_option_value "$DB_HOST")"
+  printf 'port=%s\n' "$DB_PORT"
+  printf 'protocol=tcp\n'
+} > "$MYSQL_DEFAULTS"
 unset MYSQL_ROOT_PASSWORD
 
 MYSQL_VERSION="$($MYSQL_BIN --defaults-extra-file="$MYSQL_DEFAULTS" --batch --skip-column-names \
@@ -118,7 +141,7 @@ provisioning_generate_pepper || die "$PROVISIONING_ENV_ERROR"
 PROVISIONING_PEPPER="$PROVISIONING_GENERATED_PEPPER"
 PROVISIONING_KEY_ID="v1"
 PROVISIONING_RECOVERY_WINDOW="PT1H"
-DB_URL="jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&sslMode=DISABLED"
+DB_URL="jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&sslMode=DISABLED&allowPublicKeyRetrieval=true"
 
 "$MYSQL_BIN" --defaults-extra-file="$MYSQL_DEFAULTS" --batch --skip-column-names <<SQL
 CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
@@ -135,7 +158,7 @@ SQL
 
 write_env "$ENV_FILE" "SPRING_PROFILES_ACTIVE=prod
 SHENZHOUHR_SERVER_ADDRESS=127.0.0.1
-SHENZHOUHR_SERVER_PORT=8080
+SHENZHOUHR_SERVER_PORT=$BACKEND_PORT
 SHENZHOUHR_DB_URL='$DB_URL'
 SHENZHOUHR_DB_USERNAME=$APP_USER
 SHENZHOUHR_DB_PASSWORD=$APP_PASSWORD
@@ -154,7 +177,7 @@ SHENZHOUHR_PAYROLL_RESERVATION_ENABLED=false"
 
 write_env "$MIGRATOR_ENV_FILE" "SPRING_PROFILES_ACTIVE=prod
 SHENZHOUHR_SERVER_ADDRESS=127.0.0.1
-SHENZHOUHR_SERVER_PORT=8080
+SHENZHOUHR_SERVER_PORT=$BACKEND_PORT
 SHENZHOUHR_DB_URL='$DB_URL'
 SHENZHOUHR_DB_USERNAME=$MIGRATOR_USER
 SHENZHOUHR_DB_PASSWORD=$MIGRATOR_PASSWORD

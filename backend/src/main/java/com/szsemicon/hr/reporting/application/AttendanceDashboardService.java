@@ -2,6 +2,7 @@ package com.szsemicon.hr.reporting.application;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
+import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.AuthorizedDashboardSnapshot;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.CompanyOption;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.DashboardSnapshot;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
@@ -66,7 +67,7 @@ public class AttendanceDashboardService {
                         .orElseThrow(
                                 AttendanceDashboardService
                                         ::projectionNotReady);
-        DashboardSnapshot snapshot =
+        AuthorizedDashboardSnapshot authorizedSnapshot =
                 repository.loadAuthorizedToday(
                                 principalId,
                                 selected.companyId(),
@@ -75,6 +76,7 @@ public class AttendanceDashboardService {
                         .orElseThrow(
                                 AttendanceDashboardService
                                         ::projectionNotReady);
+        DashboardSnapshot snapshot = authorizedSnapshot.snapshot();
         if (!selected.companyId().equals(snapshot.companyId())) {
             throw projectionNotReady();
         }
@@ -83,10 +85,10 @@ public class AttendanceDashboardService {
         if (snapshot.dataAsOf().isBefore(businessDayStart)) {
             throw projectionNotReady();
         }
-        List<String> allowedActions = capabilities.currentCapabilities()
-                .contains(CapabilityCodes.ATTENDANCE_REPORT_READ)
-                        ? List.of("DASHBOARD_DRILL_DOWN")
-                        : List.of();
+        List<String> allowedActions = authorizedSnapshot
+                        .employeeDetailsAuthorized()
+                ? List.of("DASHBOARD_DRILL_DOWN")
+                : List.of();
         return new Ready(
                 businessDate,
                 selected,

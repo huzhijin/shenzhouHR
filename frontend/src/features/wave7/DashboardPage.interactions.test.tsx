@@ -68,7 +68,74 @@ describe('attendance dashboard visualization and drill-through', () => {
       reportType: 'EXCEPTIONS',
       period: '2026-07',
       companyId: 'company-a',
+      projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
     });
+  });
+
+  it('keeps aggregate KPIs but never renders employee details without permission', () => {
+    const projection = dashboardProjection();
+    render(
+      <MemoryRouter>
+        <DashboardView
+          projection={{
+            ...projection,
+            metadata: {
+              ...projection.metadata,
+              allowedActions: [],
+            },
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    const summary = screen.getByLabelText('今日异常汇总指标');
+    expect(within(summary).getByText('未处理异常').nextElementSibling)
+      .toHaveTextContent('2');
+    const anomalyList = screen.getByRole('region', {
+      name: '今日异常考勤',
+    });
+    expect(anomalyList).toHaveTextContent(
+      '当前账号仅可查看汇总指标，无权查看员工异常明细',
+    );
+    expect(anomalyList).not.toHaveTextContent('张三');
+    expect(anomalyList).not.toHaveTextContent('SZ001');
+    expect(anomalyList).not.toHaveTextContent('今日没有未处理的异常考勤');
+    expect(screen.queryByRole('button', { name: '查看异常报表' }))
+      .not.toBeInTheDocument();
+  });
+
+  it('closes previously rendered employee details after permission is revoked', () => {
+    const projection = dashboardProjection();
+    const { rerender } = render(
+      <MemoryRouter>
+        <DashboardView projection={projection} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getAllByRole('button', {
+      name: '查看张三的异常详情',
+    })[0]!);
+    expect(screen.getByRole('dialog')).toHaveTextContent('张三');
+
+    rerender(
+      <MemoryRouter>
+        <DashboardView
+          projection={{
+            ...projection,
+            metadata: {
+              ...projection.metadata,
+              allowedActions: [],
+            },
+            exceptions: [],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('张三')).not.toBeInTheDocument();
+    expect(screen.getByText(
+      '当前账号仅可查看汇总指标，无权查看员工异常明细',
+    )).toBeInTheDocument();
   });
 });
 

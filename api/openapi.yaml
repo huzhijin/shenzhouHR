@@ -4759,7 +4759,8 @@ paths:
         按 Asia/Shanghai 当前业务日，从当前公司最新已发布的不可变考勤报表投影中，
         在服务端应用公司、组织后代或本人数据范围后汇总未解决异常、趋势、严重级别、
         异常类型和组织排行。未发布投影不能伪装为零异常；多公司授权且未指定
-        companyId 时返回显式公司选择状态。
+        companyId 时返回显式公司选择状态。只有同时具有 ATTENDANCE_REPORT:READ
+        时才返回员工异常明细；否则仍返回授权聚合，exceptions 为空且不得解释为零异常。
       parameters:
         - name: companyId
           in: query
@@ -4831,6 +4832,7 @@ paths:
           schema:
             type: string
             maxLength: 32
+        - { $ref: '#/components/parameters/ExpectedProjectionVersion' }
         - { $ref: '#/components/parameters/Page' }
         - name: size
           in: query
@@ -4882,6 +4884,7 @@ paths:
           in: query
           required: false
           schema: { type: string, maxLength: 36 }
+        - { $ref: '#/components/parameters/ExpectedProjectionVersion' }
         - { $ref: '#/components/parameters/Page' }
         - name: size
           in: query
@@ -5117,6 +5120,17 @@ components:
         以避免 HTTP Header 的 ByteString 限制；未加前缀的 ASCII 值保持兼容。
         服务端解码后的变更原因长度必须为 2 至 500 个字符。
       schema: { type: string, minLength: 2, maxLength: 4510 }
+    ExpectedProjectionVersion:
+      name: expectedProjectionVersion
+      in: query
+      required: false
+      description: |
+        客户端已绑定的正式报表投影版本。提供时，服务端只返回同一版本；
+        若授权范围内的最新投影已变化，则返回 409，且不披露新版本。
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
     Page:
       name: page
       in: query
@@ -8608,6 +8622,10 @@ components:
         exceptions:
           type: array
           maxItems: 10
+          x-detail-capability: ATTENDANCE_REPORT:READ
+          description: |
+            仅在 metadata.allowedActions 包含 DASHBOARD_DRILL_DOWN 时返回个人明细。
+            未包含时本数组必须为空，汇总是否为零以 summary 为准。
           items:
             $ref: '#/components/schemas/AttendanceDashboardException'
         companies:
@@ -8925,20 +8943,37 @@ components:
     AttendanceReportExportCreateRequest:
       type: object
       additionalProperties: false
-      required: [reportType, period, purpose, currentPassword]
+      required:
+        - reportType
+        - projectionVersion
+        - queryFingerprint
+        - scopeReference
+        - filters
+        - selectedFields
+        - purpose
+        - currentPassword
       properties:
         reportType:
           $ref: '#/components/schemas/AttendanceReportType'
-        period:
+        projectionVersion:
           type: string
-          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
-        companyId:
-          type: [string, 'null']
-          maxLength: 36
-          description: 单公司授权可省略；多公司授权必须从授权公司目录显式选择。
-        organizationId: { type: [string, 'null'], maxLength: 36 }
-        employeeId: { type: [string, 'null'], maxLength: 36 }
-        status: { type: [string, 'null'], maxLength: 32 }
+          minLength: 1
+          maxLength: 128
+        queryFingerprint:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        scopeReference:
+          type: string
+          minLength: 1
+          maxLength: 128
+        filters:
+          $ref: '#/components/schemas/AttendanceReportFilters'
+        selectedFields:
+          type: array
+          minItems: 1
+          maxItems: 64
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 64 }
         purpose: { type: string, minLength: 2, maxLength: 200 }
         currentPassword:
           type: string

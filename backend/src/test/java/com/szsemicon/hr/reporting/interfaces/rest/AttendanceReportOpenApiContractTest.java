@@ -75,6 +75,35 @@ class AttendanceReportOpenApiContractTest {
     }
 
     @Test
+    void reportPagesCanBindToOneOpaqueProjectionVersion()
+            throws Exception {
+        String contract = Files.readString(OPEN_API);
+        String queryRoutes = between(
+                contract,
+                "  /attendance-reports:",
+                "  /attendance-reports/companies:");
+        String parameter = between(
+                contract,
+                "    ExpectedProjectionVersion:",
+                "    Page:");
+
+        assertThat(queryRoutes)
+                .containsOnlyOnce("operationId: getAttendanceReport")
+                .containsOnlyOnce("operationId: getAttendanceMonthMatrix")
+                .contains(
+                        "$ref: '#/components/parameters/"
+                                + "ExpectedProjectionVersion'");
+        assertThat(parameter)
+                .contains("name: expectedProjectionVersion")
+                .contains("in: query")
+                .contains("required: false")
+                .contains("minLength: 1")
+                .contains("maxLength: 128")
+                .contains("返回 409")
+                .contains("不披露新版本");
+    }
+
+    @Test
     void companySelectionIsBoundAcrossQueryResponseAndExport()
             throws Exception {
         String contract = Files.readString(OPEN_API);
@@ -104,12 +133,37 @@ class AttendanceReportOpenApiContractTest {
                 .contains("companyId:")
                 .contains("minLength: 1");
         assertThat(create)
-                .contains("companyId:")
-                .contains("多公司授权必须从授权公司目录显式选择");
+                .contains("filters:")
+                .contains(
+                        "$ref: '#/components/schemas/"
+                                + "AttendanceReportFilters'")
+                .doesNotContain("companyId:");
         assertThat(view)
                 .contains("- companyId")
                 .contains("companyId:")
                 .contains("minLength: 1");
+    }
+
+    @Test
+    void exportCreationRequiresTheCurrentProjectionAndFieldSelection()
+            throws Exception {
+        String contract = Files.readString(OPEN_API);
+        String create = between(
+                contract,
+                "    AttendanceReportExportCreateRequest:",
+                "    ReportExportReauthenticationRequest:");
+
+        assertThat(create)
+                .contains(
+                        "- projectionVersion",
+                        "- queryFingerprint",
+                        "- scopeReference",
+                        "- filters",
+                        "- selectedFields",
+                        "pattern: '^[a-f0-9]{64}$'",
+                        "uniqueItems: true",
+                        "writeOnly: true")
+                .doesNotContain("period:", "organizationId:", "employeeId:");
     }
 
     @Test

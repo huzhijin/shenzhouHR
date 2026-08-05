@@ -16,11 +16,26 @@ public interface AttendanceDashboardRepository {
             YearMonth period,
             Instant authorizationTime);
 
-    Optional<DashboardSnapshot> loadAuthorizedToday(
+    Optional<AuthorizedDashboardSnapshot> loadAuthorizedToday(
             String principalId,
             String companyId,
             LocalDate businessDate,
             Instant authorizationTime);
+
+    record AuthorizedDashboardSnapshot(
+            DashboardSnapshot snapshot,
+            boolean employeeDetailsAuthorized) {
+
+        public AuthorizedDashboardSnapshot {
+            Objects.requireNonNull(snapshot, "snapshot");
+            if (!employeeDetailsAuthorized
+                    && !snapshot.exceptions().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "unauthorized dashboard snapshot"
+                                + " must not contain employee details");
+            }
+        }
+    }
 
     record CompanyOption(String companyId, String companyName) {
 

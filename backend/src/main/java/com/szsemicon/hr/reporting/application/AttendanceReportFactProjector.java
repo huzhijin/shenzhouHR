@@ -53,9 +53,8 @@ public final class AttendanceReportFactProjector {
                 .mapToLong(RuleHit::includedMinutes)
                 .sum();
         int missing = (int) result.items().stream()
-                .filter(value -> value.category()
-                                == ResultCategory.MISSING_PUNCH_PENDING
-                        || value.category() == ResultCategory.ABSENCE)
+                .filter(value -> isExplicitMissingPunch(
+                        value.reasonCode()))
                 .map(ResultItem::exceptionFingerprint)
                 .filter(Objects::nonNull)
                 .distinct()
@@ -227,6 +226,11 @@ public final class AttendanceReportFactProjector {
                         result.calculationVersionId()))
                 .sorted(Comparator.comparing(ExceptionFact::caseId))
                 .toList();
+    }
+
+    private static boolean isExplicitMissingPunch(String reasonCode) {
+        return reasonCode != null
+                && reasonCode.startsWith("MISSING_PUNCH_");
     }
 
     private ExceptionDescriptor descriptor(ResultItem item) {

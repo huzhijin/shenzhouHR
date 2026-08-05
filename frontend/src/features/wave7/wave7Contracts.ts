@@ -804,16 +804,98 @@ export function assertLiveReportProjection(
   if (!attendanceReportTypes.includes(candidate.reportType as AttendanceReportType)) {
     throw new TypeError('report.reportType is invalid');
   }
-  assertString(candidate.formulaVersion, 'report.formulaVersion');
+  if (
+    typeof candidate.queryFingerprint !== 'string'
+    || !/^[a-f0-9]{64}$/.test(candidate.queryFingerprint)
+  ) {
+    throw new TypeError('report.queryFingerprint is invalid');
+  }
+  assertBoundedString(candidate.reportTitle, 'report.reportTitle', 100);
+  assertBoundedString(candidate.formulaVersion, 'report.formulaVersion', 128);
   const filters = asRecord(candidate.filters, 'report.filters');
+  assertYearMonth(filters.period, 'report.filters.period');
+  assertBoundedString(
+    filters.scopeReference,
+    'report.filters.scopeReference',
+    128,
+  );
   assertBoundedString(
     filters.companyId,
     'report.filters.companyId',
     36,
   );
+  assertNullableBoundedString(
+    filters.organizationId,
+    'report.filters.organizationId',
+    36,
+  );
+  assertNullableBoundedString(
+    filters.employeeId,
+    'report.filters.employeeId',
+    36,
+  );
+  assertNullableBoundedString(
+    filters.status,
+    'report.filters.status',
+    32,
+  );
+
+  const exportFieldAllowlist = candidate.exportFieldAllowlist as unknown[];
+  if (
+    exportFieldAllowlist.length === 0
+    || new Set(exportFieldAllowlist).size !== exportFieldAllowlist.length
+  ) {
+    throw new TypeError(
+      'report.exportFieldAllowlist must be non-empty and unique',
+    );
+  }
+
+  const rowReferences = new Set<string>();
+  for (const [index, value] of (candidate.rows as unknown[]).entries()) {
+    const row = asRecord(value, `report.rows[${index}]`);
+    assertBoundedString(
+      row.rowReference,
+      `report.rows[${index}].rowReference`,
+      256,
+    );
+    if (rowReferences.has(row.rowReference)) {
+      throw new TypeError('report.rows contains a duplicate rowReference');
+    }
+    rowReferences.add(row.rowReference);
+    if (
+      row.drillDownReference !== undefined
+      && row.drillDownReference !== null
+    ) {
+      assertBoundedString(
+        row.drillDownReference,
+        `report.rows[${index}].drillDownReference`,
+        256,
+      );
+    }
+    const values = asRecord(row.values, `report.rows[${index}].values`);
+    if (Object.values(values).some((cell) => typeof cell !== 'string')) {
+      throw new TypeError('live report row value must be a string');
+    }
+  }
+
   assertNonNegativeInteger(candidate.page, 'report.page');
   assertPositiveInteger(candidate.size, 'report.size');
   assertNonNegativeInteger(candidate.totalPages, 'report.totalPages');
+  if ((candidate.size as number) > 200) {
+    throw new TypeError('report.size exceeds the service limit');
+  }
+  const rows = candidate.rows as unknown[];
+  const rowCount = candidate.rowCount as number;
+  const expectedTotalPages = rowCount === 0
+    ? 0
+    : Math.ceil(rowCount / (candidate.size as number));
+  if (
+    rows.length > (candidate.size as number)
+    || rows.length > rowCount
+    || candidate.totalPages !== expectedTotalPages
+  ) {
+    throw new TypeError('report pagination is inconsistent');
+  }
 }
 
 export function assertAttendanceMonthMatrixProjection(
@@ -1262,7 +1344,7 @@ function assertReportProjection(candidate: Record<string, unknown>): void {
     }
   }
 
-  assertNonNegativeInteger(candidate.rowCount, 'report.rowCount');
+  assertNonNegativeSafeInteger(candidate.rowCount, 'report.rowCount');
   assertArray(candidate.rows, 'report.rows');
   for (const [index, value] of candidate.rows.entries()) {
     const row = asRecord(value, `report.rows[${index}]`);
@@ -1441,6 +1523,19 @@ function assertLiveDashboardFields(
   }
 
   assertArray(candidate.exceptions, 'dashboard.exceptions');
+  const detailMetadata = asRecord(
+    candidate.metadata,
+    'dashboard.metadata',
+  );
+  const metadataActions = detailMetadata.allowedActions as unknown[];
+  if (
+    !metadataActions.includes('DASHBOARD_DRILL_DOWN')
+    && candidate.exceptions.length > 0
+  ) {
+    throw new TypeError(
+      'dashboard.exceptions requires dashboard drill-down permission',
+    );
+  }
   if (candidate.exceptions.length > 10) {
     throw new TypeError(
       'dashboard.exceptions must contain at most 10 items',
@@ -2469,6 +2564,25 @@ function assertStringArray(value: unknown, label: string): asserts value is stri
 function assertNullableString(value: unknown, label: string): void {
   if (value !== undefined && value !== null && typeof value !== 'string') {
     throw new TypeError(`${label} must be a string or null`);
+  }
+}
+
+function assertNullableBoundedString(
+  value: unknown,
+  label: string,
+  maximumLength: number,
+): void {
+  assertNullableString(value, label);
+  if (
+    typeof value === 'string'
+    && (
+      value.length > maximumLength
+      || hasUnsafeTextControl(value)
+    )
+  ) {
+    throw new TypeError(
+      `${label} must be at most ${maximumLength} safe characters or null`,
+    );
   }
 }
 

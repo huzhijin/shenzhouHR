@@ -18,15 +18,18 @@ import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.EncodedExport;
+import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.ExportContext;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.DeliveryMode;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.ExportJob;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.ExportStatus;
+import com.szsemicon.hr.reporting.application.AttendanceReportExportService.RequestedExportBinding;
 import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportField;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportDataSet;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
@@ -59,16 +62,26 @@ class AttendanceReportExportServiceSecurityTest {
         YearMonth period = YearMonth.of(2026, 7);
         ReportFilter filter =
                 new ReportFilter(
-                        period, null, null, null, null);
+                        period, "legal-1", null, null, null);
+        ReportSourceSnapshot currentSnapshot = snapshot(filter);
         when(fixture.source.loadAuthorizedSnapshot(
                 PRINCIPAL,
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 filter,
-                NOW)).thenReturn(Optional.of(snapshot(filter)));
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.source.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                currentSnapshot,
+                true,
+                NOW)).thenReturn(Optional.of(currentSnapshot));
         byte[] content = new byte[] {1, 2, 3};
-        when(fixture.encoder.encode(any(), eq(period)))
+        when(fixture.encoder.encode(
+                any(), any(ExportContext.class)))
                 .thenReturn(new EncodedExport(
                         "application/octet-stream", "xlsx", content));
+        ArgumentCaptor<ExportContext> context =
+                ArgumentCaptor.forClass(ExportContext.class);
         ArgumentCaptor<ExportJob> job =
                 ArgumentCaptor.forClass(ExportJob.class);
         ArgumentCaptor<byte[]> storedContent =
@@ -76,12 +89,9 @@ class AttendanceReportExportServiceSecurityTest {
 
         var result = fixture.service.create(
                 ReportType.ATTENDANCE_DETAIL,
-                period,
-                null,
-                null,
-                null,
-                null,
-                "  月度薪资核对  ",
+                filter,
+                binding(currentSnapshot),
+                "  月度考勤核对  ",
                 PASSWORD);
 
         verify(fixture.authentication)
@@ -90,8 +100,9 @@ class AttendanceReportExportServiceSecurityTest {
                         "ATTENDANCE_REPORT_EXPORT_CREATE");
         verify(fixture.store).insert(
                 job.capture(), storedContent.capture());
+        verify(fixture.encoder).encode(any(), context.capture());
         assertThat(job.getValue().purpose())
-                .isEqualTo("月度薪资核对");
+                .isEqualTo("月度考勤核对");
         assertThat(job.getValue().filter().companyId())
                 .isEqualTo("legal-1");
         assertThat(result.companyId()).isEqualTo("legal-1");
@@ -101,7 +112,28 @@ class AttendanceReportExportServiceSecurityTest {
         assertThat(job.getValue().visibleContentDigest())
                 .matches("[0-9a-f]{64}")
                 .isNotEqualTo(job.getValue().queryFingerprint());
-        assertThat(result.purpose()).isEqualTo("月度薪资核对");
+        assertThat(result.purpose()).isEqualTo("月度考勤核对");
+        assertThat(context.getValue().exportId())
+                .isEqualTo(job.getValue().exportId());
+        assertThat(context.getValue().principalId())
+                .isEqualTo(PRINCIPAL);
+        assertThat(context.getValue().purpose())
+                .isEqualTo("月度考勤核对");
+        assertThat(context.getValue().filter()).isEqualTo(filter);
+        assertThat(context.getValue().authorizationScope())
+                .isEqualTo(currentSnapshot.scope());
+        assertThat(context.getValue().projectionVersion())
+                .isEqualTo(currentSnapshot.projectionVersion());
+        assertThat(context.getValue().sourceVersions())
+                .containsExactlyElementsOf(currentSnapshot.sourceVersions());
+        assertThat(context.getValue().dataAsOf())
+                .isEqualTo(currentSnapshot.dataAsOf());
+        assertThat(context.getValue().periodState())
+                .isEqualTo(currentSnapshot.periodState());
+        assertThat(context.getValue().createdAt()).isEqualTo(NOW);
+        assertThat(context.getValue().generatedAt()).isEqualTo(NOW);
+        assertThat(context.getValue().selectedFields())
+                .containsExactlyElementsOf(job.getValue().exportFields());
         assertThat(mockingDetails(fixture.audit).getInvocations())
                 .allSatisfy(invocation ->
                         assertThat(invocation.toString())
@@ -128,6 +160,244 @@ class AttendanceReportExportServiceSecurityTest {
     }
 
     @Test
+    void createRejectsStaleProjectionFingerprintScopeAndUnknownField() {
+        Fixture fixture = new Fixture();
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7),
+                "legal-1",
+                null,
+                null,
+                null);
+        ReportSourceSnapshot currentSnapshot = snapshot(filter);
+        when(fixture.source.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        RequestedExportBinding current = binding(currentSnapshot);
+        List<RequestedExportBinding> staleBindings = List.of(
+                new RequestedExportBinding(
+                        "projection-stale",
+                        current.queryFingerprint(),
+                        current.scopeReference(),
+                        current.filterScopeReference(),
+                        current.selectedFieldKeys()),
+                new RequestedExportBinding(
+                        current.projectionVersion(),
+                        "b".repeat(64),
+                        current.scopeReference(),
+                        current.filterScopeReference(),
+                        current.selectedFieldKeys()),
+                new RequestedExportBinding(
+                        current.projectionVersion(),
+                        current.queryFingerprint(),
+                        "authorized-scope-set:" + "b".repeat(64),
+                        current.filterScopeReference(),
+                        current.selectedFieldKeys()),
+                new RequestedExportBinding(
+                        current.projectionVersion(),
+                        current.queryFingerprint(),
+                        current.scopeReference(),
+                        current.filterScopeReference(),
+                        List.of("unknown-safe-field")));
+
+        for (RequestedExportBinding stale : staleBindings) {
+            assertThatThrownBy(() -> fixture.service.create(
+                    ReportType.ATTENDANCE_DETAIL,
+                    filter,
+                    stale,
+                    "月度考勤核对",
+                    PASSWORD))
+                    .isInstanceOf(ApiProblemException.class)
+                    .extracting("status", "code")
+                    .containsExactly(
+                            org.springframework.http.HttpStatus.CONFLICT,
+                            "ATTENDANCE_REPORT_EXPORT_BINDING_STALE");
+        }
+
+        verify(fixture.store, never()).insert(any(), any());
+        verifyNoInteractions(fixture.encoder);
+    }
+
+    @Test
+    void createRejectsReadScopeNotFullyCoveredByCreateScope() {
+        Fixture fixture = new Fixture();
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7),
+                "legal-1",
+                null,
+                null,
+                null);
+        ReportSourceSnapshot currentSnapshot = snapshot(
+                filter, fact("fact-a", "employee-a", "0001"));
+        when(fixture.source.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.source.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                currentSnapshot,
+                false,
+                NOW)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> fixture.service.create(
+                ReportType.ATTENDANCE_DETAIL,
+                filter,
+                binding(currentSnapshot),
+                "月度考勤核对",
+                PASSWORD))
+                .isInstanceOf(ApiProblemException.class)
+                .extracting("code")
+                .isEqualTo("RESOURCE_NOT_AVAILABLE");
+
+        verify(fixture.store, never()).insert(any(), any());
+        verifyNoInteractions(fixture.encoder);
+    }
+
+    @Test
+    void createExportsOnlyTheRequestedAllowlistedFieldsInRequestOrder() {
+        Fixture fixture = new Fixture();
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7),
+                "legal-1",
+                null,
+                null,
+                null);
+        ReportSourceSnapshot currentSnapshot = snapshot(
+                filter, fact("fact-a", "employee-a", "0001"));
+        List<ReportField> selected = List.of(
+                ReportField.EMPLOYEE_NAME,
+                ReportField.EMPLOYEE_NUMBER);
+        when(fixture.source.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.source.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                currentSnapshot,
+                false,
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.encoder.encode(
+                any(), any(ExportContext.class)))
+                .thenReturn(new EncodedExport(
+                        "application/octet-stream",
+                        "xlsx",
+                        new byte[] {1, 2, 3}));
+        ArgumentCaptor<ReportDataSet> encodedDataSet =
+                ArgumentCaptor.forClass(ReportDataSet.class);
+        ArgumentCaptor<ExportContext> context =
+                ArgumentCaptor.forClass(ExportContext.class);
+        ArgumentCaptor<ExportJob> job =
+                ArgumentCaptor.forClass(ExportJob.class);
+
+        fixture.service.create(
+                ReportType.ATTENDANCE_DETAIL,
+                filter,
+                binding(currentSnapshot, selected),
+                "月度考勤核对",
+                PASSWORD);
+
+        verify(fixture.encoder).encode(
+                encodedDataSet.capture(), context.capture());
+        verify(fixture.store).insert(job.capture(), any(byte[].class));
+        assertThat(encodedDataSet.getValue().exportAllowlist())
+                .containsExactlyElementsOf(selected);
+        assertThat(job.getValue().exportFields())
+                .containsExactlyElementsOf(selected);
+        assertThat(context.getValue().selectedFields())
+                .containsExactlyElementsOf(selected);
+    }
+
+    @Test
+    void asyncBuildEncodesThePersistedJobAndRevalidatedSnapshotContext() {
+        Fixture fixture = new Fixture();
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7),
+                "legal-1",
+                "org-1",
+                "employee-a",
+                null);
+        ReportSourceSnapshot sourceSnapshot = snapshot(
+                filter, fact("fact-a", "employee-a", "0001"));
+        ExportJob building = jobForSnapshot(
+                sourceSnapshot, ExportStatus.BUILDING);
+        when(fixture.store.claimNextQueued(NOW))
+                .thenReturn(Optional.of(building));
+        when(fixture.capabilities.activeCapabilities(PRINCIPAL, NOW))
+                .thenReturn(Set.of(
+                        CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(fixture.source.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(sourceSnapshot));
+        when(fixture.source.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                sourceSnapshot,
+                false,
+                NOW)).thenReturn(Optional.of(sourceSnapshot));
+        byte[] content = new byte[] {4, 5, 6};
+        when(fixture.encoder.encode(
+                any(), any(ExportContext.class)))
+                .thenReturn(new EncodedExport(
+                        "application/octet-stream", "xlsx", content));
+        ArgumentCaptor<ReportDataSet> encodedDataSet =
+                ArgumentCaptor.forClass(ReportDataSet.class);
+        ArgumentCaptor<ExportContext> context =
+                ArgumentCaptor.forClass(ExportContext.class);
+
+        assertThat(fixture.service.processNextQueued()).isTrue();
+
+        verify(fixture.encoder).encode(
+                encodedDataSet.capture(), context.capture());
+        assertThat(encodedDataSet.getValue().exportAllowlist())
+                .containsExactlyElementsOf(building.exportFields());
+        assertThat(context.getValue().exportId())
+                .isEqualTo(building.exportId());
+        assertThat(context.getValue().principalId())
+                .isEqualTo(building.principalId());
+        assertThat(context.getValue().purpose())
+                .isEqualTo(building.purpose());
+        assertThat(context.getValue().filter())
+                .isEqualTo(building.filter());
+        assertThat(context.getValue().authorizationScope())
+                .isEqualTo(sourceSnapshot.scope());
+        assertThat(context.getValue().projectionVersion())
+                .isEqualTo(building.projectionVersion());
+        assertThat(context.getValue().formulaVersion())
+                .isEqualTo(building.formulaVersion());
+        assertThat(context.getValue().sourceVersions())
+                .containsExactlyElementsOf(sourceSnapshot.sourceVersions());
+        assertThat(context.getValue().dataAsOf())
+                .isEqualTo(sourceSnapshot.dataAsOf());
+        assertThat(context.getValue().periodState())
+                .isEqualTo(sourceSnapshot.periodState());
+        assertThat(context.getValue().queryFingerprint())
+                .isEqualTo(building.queryFingerprint());
+        assertThat(context.getValue().visibleContentDigest())
+                .isEqualTo(building.visibleContentDigest());
+        assertThat(context.getValue().createdAt())
+                .isEqualTo(building.createdAt());
+        assertThat(context.getValue().generatedAt()).isEqualTo(NOW);
+        assertThat(context.getValue().selectedFields())
+                .containsExactlyElementsOf(building.exportFields());
+        verify(fixture.store).markReady(
+                eq("export-1"),
+                eq(content),
+                eq("application/octet-stream"),
+                eq("xlsx"),
+                any(String.class),
+                eq(building.visibleContentDigest()),
+                eq(NOW));
+    }
+
+    @Test
     void asyncBuildRechecksCreateAndReadCapabilitiesBeforeSourceAccess() {
         Fixture fixture = new Fixture();
         ExportJob building = job(ExportStatus.BUILDING);
@@ -144,6 +414,46 @@ class AttendanceReportExportServiceSecurityTest {
                 "AUTHORIZATION_OR_SOURCE_CHANGED",
                 NOW);
         verifyNoInteractions(fixture.source, fixture.encoder);
+    }
+
+    @Test
+    void asyncBuildFailsWhenCreateScopeNoLongerCoversReadScope() {
+        Fixture fixture = new Fixture();
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7),
+                "legal-1",
+                null,
+                null,
+                null);
+        ReportSourceSnapshot currentSnapshot = snapshot(
+                filter, fact("fact-a", "employee-a", "0001"));
+        ExportJob building = jobForSnapshot(
+                currentSnapshot, ExportStatus.BUILDING);
+        when(fixture.store.claimNextQueued(NOW))
+                .thenReturn(Optional.of(building));
+        when(fixture.capabilities.activeCapabilities(PRINCIPAL, NOW))
+                .thenReturn(Set.of(
+                        CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(fixture.source.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.source.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                currentSnapshot,
+                false,
+                NOW)).thenReturn(Optional.empty());
+
+        assertThat(fixture.service.processNextQueued()).isTrue();
+
+        verify(fixture.store).markFailed(
+                "export-1",
+                "AUTHORIZATION_OR_SOURCE_CHANGED",
+                NOW);
+        verifyNoInteractions(fixture.encoder);
     }
 
     @Test
@@ -213,6 +523,81 @@ class AttendanceReportExportServiceSecurityTest {
         verify(fixture.audit).recordFailure(
                 PRINCIPAL,
                 "ATTENDANCE_REPORT_EXPORT_STATUS_DENIED",
+                "ATTENDANCE_REPORT_EXPORT",
+                "export-1",
+                "DENIED",
+                "AUTHORIZATION_OR_SOURCE_CHANGED");
+    }
+
+    @Test
+    void statusRequiresCreateScopeToStillCoverThePersistedReadScope() {
+        Fixture fixture = new Fixture();
+        ReportSourceSnapshot currentSnapshot = snapshot(
+                job(ExportStatus.READY).filter(),
+                fact("fact-a", "employee-a", "0001"));
+        ExportJob ready = jobForSnapshot(
+                currentSnapshot, ExportStatus.READY);
+        when(fixture.store.findOwnedJob("export-1", PRINCIPAL))
+                .thenReturn(Optional.of(ready));
+        when(fixture.source.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                ready.filter(),
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.source.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                currentSnapshot,
+                false,
+                NOW)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> fixture.service.status("export-1"))
+                .isInstanceOf(ApiProblemException.class)
+                .extracting("code")
+                .isEqualTo("RESOURCE_NOT_AVAILABLE");
+
+        verify(fixture.audit).recordFailure(
+                PRINCIPAL,
+                "ATTENDANCE_REPORT_EXPORT_STATUS_DENIED",
+                "ATTENDANCE_REPORT_EXPORT",
+                "export-1",
+                "DENIED",
+                "AUTHORIZATION_OR_SOURCE_CHANGED");
+    }
+
+    @Test
+    void downloadRequiresDownloadScopeBeforeLoadingTheBlob() {
+        Fixture fixture = new Fixture();
+        ReportSourceSnapshot currentSnapshot = snapshot(
+                job(ExportStatus.READY).filter(),
+                fact("fact-a", "employee-a", "0001"));
+        ExportJob ready = jobForSnapshot(
+                currentSnapshot, ExportStatus.READY);
+        when(fixture.store.findOwnedJob("export-1", PRINCIPAL))
+                .thenReturn(Optional.of(ready));
+        when(fixture.source.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                ready.filter(),
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.source.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD,
+                currentSnapshot,
+                false,
+                NOW)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                fixture.service.download("export-1", PASSWORD))
+                .isInstanceOf(ApiProblemException.class)
+                .extracting("code")
+                .isEqualTo("RESOURCE_NOT_AVAILABLE");
+
+        verify(fixture.store, never()).findOwnedReady(
+                any(), any(), any(), any(), any());
+        verify(fixture.audit).recordFailure(
+                PRINCIPAL,
+                "ATTENDANCE_REPORT_EXPORT_DOWNLOAD_DENIED",
                 "ATTENDANCE_REPORT_EXPORT",
                 "export-1",
                 "DENIED",
@@ -300,7 +685,7 @@ class AttendanceReportExportServiceSecurityTest {
                         null,
                         null,
                         null),
-                "月度薪资核对",
+                "月度考勤核对",
                 "projection-1",
                 DIGEST,
                 DIGEST,
@@ -342,7 +727,7 @@ class AttendanceReportExportServiceSecurityTest {
                 PRINCIPAL,
                 ReportType.ATTENDANCE_DETAIL,
                 snapshot.filter(),
-                "月度薪资核对",
+                "月度考勤核对",
                 snapshot.projectionVersion(),
                 snapshot.scope().authorizationDigest(),
                 fingerprint,
@@ -360,6 +745,32 @@ class AttendanceReportExportServiceSecurityTest {
                 NOW.plusSeconds(3_600),
                 NOW.minusSeconds(60),
                 ready ? NOW : null);
+    }
+
+    private static RequestedExportBinding binding(
+            ReportSourceSnapshot snapshot) {
+        var dataSet = new AttendanceReportCalculator().calculate(
+                ReportType.ATTENDANCE_DETAIL, snapshot);
+        return binding(snapshot, dataSet.exportAllowlist());
+    }
+
+    private static RequestedExportBinding binding(
+            ReportSourceSnapshot snapshot,
+            List<ReportField> selectedFields) {
+        var dataSet = new AttendanceReportCalculator().calculate(
+                ReportType.ATTENDANCE_DETAIL, snapshot);
+        String fingerprint = AttendanceReportQueryService.fingerprint(
+                ReportType.ATTENDANCE_DETAIL,
+                snapshot.filter(),
+                snapshot.projectionVersion(),
+                snapshot.scope().authorizationDigest(),
+                dataSet.calculationFormulaVersion());
+        return new RequestedExportBinding(
+                snapshot.projectionVersion(),
+                fingerprint,
+                snapshot.scope().reference(),
+                snapshot.scope().reference(),
+                selectedFields.stream().map(ReportField::key).toList());
     }
 
     private static ReportSourceSnapshot snapshot(ReportFilter filter) {

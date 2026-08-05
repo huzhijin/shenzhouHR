@@ -62,6 +62,7 @@ interface DashboardReportContext {
   reportType: 'EXCEPTIONS';
   period: string;
   companyId: string;
+  projectionVersion: string;
 }
 
 type DashboardFilter =
@@ -114,21 +115,23 @@ export function DashboardRoute({
             <DashboardView
               projection={result}
               onCompanyChange={setCompanyId}
-              onDrillDown={() => navigate('/attendance/reports')}
+              onDrillDown={() => {
+                if (!hasLiveDashboardProjection(result)) {
+                  navigate('/attendance/reports');
+                  return;
+                }
+                navigate(attendanceReportsPath({
+                  reportType: 'EXCEPTIONS',
+                  period: result.businessDate.slice(0, 7),
+                  companyId: result.selectedCompanyId,
+                  projectionVersion: result.metadata.projectionVersion,
+                }));
+              }}
               onOpenScreen={isSyntheticMetadata(result.metadata)
                 ? () => navigate('/attendance/screen')
                 : undefined}
               onOpenReports={(context) => {
-                if (!context) {
-                  navigate('/attendance/reports');
-                  return;
-                }
-                const query = new URLSearchParams({
-                  reportType: context.reportType,
-                  period: context.period,
-                  companyId: context.companyId,
-                });
-                navigate(`/attendance/reports?${query.toString()}`);
+                navigate(attendanceReportsPath(context));
               }}
             />
           )}
@@ -162,6 +165,7 @@ export function DashboardView({
         reportType: 'EXCEPTIONS' as const,
         period: liveProjection.businessDate.slice(0, 7),
         companyId: liveProjection.selectedCompanyId,
+        projectionVersion: projection.metadata.projectionVersion,
       }
     : undefined;
 
@@ -191,6 +195,7 @@ export function DashboardView({
           <DashboardAnomalyList
             businessDate={liveProjection.businessDate}
             exceptions={liveProjection.exceptions}
+            canViewExceptionDetails={canOpenReports}
             activeFilter={activeFilter}
             onClearFilter={() => setActiveFilter(undefined)}
             onSelectException={setSelectedException}
@@ -219,16 +224,33 @@ export function DashboardView({
           />
         </section>
       ) : null}
-      <DashboardExceptionDrawer
-        exception={selectedException}
-        projection={projection}
-        onClose={() => setSelectedException(undefined)}
-        onOpenReports={canOpenReports && onOpenReports
-          ? () => onOpenReports(reportContext)
-          : undefined}
-      />
+      {canOpenReports ? (
+        <DashboardExceptionDrawer
+          exception={selectedException}
+          projection={projection}
+          onClose={() => setSelectedException(undefined)}
+          onOpenReports={onOpenReports
+            ? () => onOpenReports(reportContext)
+            : undefined}
+        />
+      ) : null}
     </main>
   );
+}
+
+function attendanceReportsPath(
+  context?: DashboardReportContext,
+): string {
+  if (context === undefined) {
+    return '/attendance/reports';
+  }
+  const query = new URLSearchParams({
+    reportType: context.reportType,
+    period: context.period,
+    companyId: context.companyId,
+    expectedProjectionVersion: context.projectionVersion,
+  });
+  return `/attendance/reports?${query.toString()}`;
 }
 
 function DashboardHero({
@@ -882,6 +904,7 @@ function DashboardPanel({
 function DashboardAnomalyList({
   businessDate,
   exceptions,
+  canViewExceptionDetails,
   activeFilter,
   onClearFilter,
   onSelectException,
@@ -889,6 +912,7 @@ function DashboardAnomalyList({
 }: {
   businessDate: string;
   exceptions: DashboardAnomalyProjection[];
+  canViewExceptionDetails: boolean;
   activeFilter?: DashboardFilter;
   onClearFilter: () => void;
   onSelectException: (exception: DashboardAnomalyProjection) => void;
@@ -912,7 +936,9 @@ function DashboardAnomalyList({
         <div>
           <h2 id="wave7-dashboard-anomaly-heading">今日异常考勤</h2>
           <p>
-            {businessDate} · 按处理优先级显示前 10 条，点击“查看详情”查看考勤依据
+            {canViewExceptionDetails
+              ? `${businessDate} · 按处理优先级显示前 10 条，点击“查看详情”查看考勤依据`
+              : `${businessDate} · 员工异常明细已按当前账号权限隐藏`}
           </p>
         </div>
         {activeFilter ? (
@@ -930,7 +956,11 @@ function DashboardAnomalyList({
         ) : null}
       </div>
       <div className="attendance-dashboard__list-body">
-        {exceptions.length === 0 ? (
+        {!canViewExceptionDetails ? (
+          <Empty
+            description="当前账号仅可查看汇总指标，无权查看员工异常明细"
+          />
+        ) : exceptions.length === 0 ? (
           <Empty description="今日没有未处理的异常考勤" />
         ) : visibleExceptions.length === 0 ? (
           <Empty

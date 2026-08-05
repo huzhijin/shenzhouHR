@@ -77,7 +77,13 @@ class AttendanceMonthMatrixControllerTest {
                 1,
                 1);
         when(service.queryMonthMatrix(
-                period, companyId, null, null, 0, 20))
+                period,
+                companyId,
+                null,
+                null,
+                "projection-a",
+                0,
+                20))
                 .thenReturn(page);
         var controller = new AttendanceReportController(
                 service,
@@ -85,6 +91,8 @@ class AttendanceMonthMatrixControllerTest {
                         Instant.parse("2026-07-31T01:00:00Z"),
                         ZoneOffset.UTC));
 
+        var parameters = new LinkedMultiValueMap<String, String>();
+        parameters.add("expectedProjectionVersion", "projection-a");
         var response = controller.monthMatrix(
                 period,
                 companyId,
@@ -92,10 +100,16 @@ class AttendanceMonthMatrixControllerTest {
                 null,
                 0,
                 20,
-                new LinkedMultiValueMap<>());
+                parameters);
 
         verify(service).queryMonthMatrix(
-                period, companyId, null, null, 0, 20);
+                period,
+                companyId,
+                null,
+                null,
+                "projection-a",
+                0,
+                20);
         assertThat(response.getHeaders().getCacheControl())
                 .isEqualTo("no-store");
         assertThat(response.getBody()).isNotNull();

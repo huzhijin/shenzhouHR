@@ -69,9 +69,12 @@ sealed interface AttendanceDashboardResponse
                                 item.exceptionCount(),
                                 item.blockingCount()))
                         .toList());
-        List<ExceptionItem> exceptions = snapshot.exceptions().stream()
-                .map(AttendanceDashboardResponse::toExceptionItem)
-                .toList();
+        List<ExceptionItem> exceptions = ready.allowedActions().contains(
+                        "DASHBOARD_DRILL_DOWN")
+                ? snapshot.exceptions().stream()
+                        .map(AttendanceDashboardResponse::toExceptionItem)
+                        .toList()
+                : List.of();
         return new Ready(
                 "DASHBOARD",
                 "今日异常考勤",

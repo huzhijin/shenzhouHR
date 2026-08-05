@@ -6,6 +6,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -64,7 +65,7 @@ export function ReportsRoute({
   initialReportType?: AttendanceReportType;
   initialPeriod?: string;
 }) {
-  const [searchParameters] = useSearchParams();
+  const [searchParameters, setSearchParameters] = useSearchParams();
   const [reportType, setReportType] =
     useState<AttendanceReportType>(() => initialReportTypeFromSearch(
       searchParameters,
@@ -76,9 +77,19 @@ export function ReportsRoute({
   ));
   const [companyId, setCompanyId] = useState(() =>
     initialCompanyIdFromSearch(searchParameters));
-  const [exceptionStatus] = useState<ReportExceptionState | undefined>(
-    () => initialExceptionStatusFromSearch(searchParameters),
-  );
+  const [reportPage, setReportPage] = useState(0);
+  const [exceptionStatus, setExceptionStatus] =
+    useState<ReportExceptionState | undefined>(
+      () => initialExceptionStatusFromSearch(searchParameters),
+    );
+  const expectedProjectionVersion =
+    initialExpectedProjectionVersionFromSearch(searchParameters);
+  const clearExpectedProjectionVersion = useCallback(() => {
+    if (!searchParameters.has('expectedProjectionVersion')) return;
+    const next = new URLSearchParams(searchParameters);
+    next.delete('expectedProjectionVersion');
+    setSearchParameters(next, { replace: true });
+  }, [searchParameters, setSearchParameters]);
   const loadCompanies = useCallback(
     () => gateway.loadReportCompanies(period),
     [gateway, period],
@@ -94,8 +105,12 @@ export function ReportsRoute({
             <select
               aria-label="报表类型"
               value={reportType}
-              onChange={(event) =>
-                setReportType(event.target.value as AttendanceReportType)}
+              onChange={(event) => {
+                setReportPage(0);
+                setReportType(
+                  event.target.value as AttendanceReportType,
+                );
+              }}
             >
               {reportTypeOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -112,12 +127,36 @@ export function ReportsRoute({
               value={period}
               onChange={(event) => {
                 if (event.target.value) {
+                  setReportPage(0);
                   setCompanyId('');
+                  clearExpectedProjectionVersion();
                   setPeriod(event.target.value);
                 }
               }}
             />
           </label>
+          {reportType === 'EXCEPTIONS' ? (
+            <label>
+              <span>异常状态</span>
+              <select
+                aria-label="异常状态"
+                value={exceptionStatus ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setReportPage(0);
+                  setExceptionStatus(
+                    isReportExceptionState(value) ? value : undefined,
+                  );
+                }}
+              >
+                {reportExceptionStatusOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
         <p>切换月份后会重新读取当前账号可查看的公司和考勤数据。</p>
       </section>
@@ -133,9 +172,15 @@ export function ReportsRoute({
             directory={directory}
             selectedCompanyId={companyId}
             onSelectCompany={setCompanyId}
+            expectedProjectionVersion={expectedProjectionVersion}
+            onClearExpectedProjectionVersion={
+              clearExpectedProjectionVersion
+            }
             reportType={reportType}
             period={period}
             exceptionStatus={exceptionStatus}
+            reportPage={reportPage}
+            onReportPageChange={setReportPage}
             capabilities={capabilities}
             gateway={gateway}
           />
@@ -149,22 +194,35 @@ function AuthorizedCompanyReport({
   directory,
   selectedCompanyId,
   onSelectCompany,
+  expectedProjectionVersion,
+  onClearExpectedProjectionVersion,
   reportType,
   period,
   exceptionStatus,
+  reportPage,
+  onReportPageChange,
   capabilities,
   gateway,
 }: {
   directory: AttendanceReportCompanyDirectory;
   selectedCompanyId: string;
   onSelectCompany: (companyId: string) => void;
+  expectedProjectionVersion?: string;
+  onClearExpectedProjectionVersion: () => void;
   reportType: AttendanceReportType;
   period: string;
   exceptionStatus?: ReportExceptionState;
+  reportPage: number;
+  onReportPageChange: (page: number) => void;
   capabilities: readonly string[];
   gateway: Wave7ProjectionGateway;
 }) {
   const [matrixPage, setMatrixPage] = useState(0);
+  const [versionEpoch, setVersionEpoch] = useState(0);
+  const projectionVersion = useRef(expectedProjectionVersion);
+  const expectedVersionFromUrl = useRef(expectedProjectionVersion);
+  const automaticRebaseAttempted = useRef(false);
+  const reportRequestGeneration = useRef(0);
   const selectedIsAuthorized = directory.companies.some(
     (option) => option.companyId === selectedCompanyId,
   );
@@ -178,60 +236,139 @@ function AuthorizedCompanyReport({
     setMatrixPage(0);
   }, [effectiveCompanyId, period, reportType]);
 
+  useEffect(() => {
+    if (expectedVersionFromUrl.current === expectedProjectionVersion) {
+      return;
+    }
+    expectedVersionFromUrl.current = expectedProjectionVersion;
+    projectionVersion.current = expectedProjectionVersion;
+    automaticRebaseAttempted.current = false;
+    setMatrixPage(0);
+    onReportPageChange(0);
+    setVersionEpoch((value) => value + 1);
+  }, [expectedProjectionVersion, onReportPageChange]);
+
+  const queryKey =
+    `${reportType}:${period}:${effectiveCompanyId}:${
+      reportType === 'EXCEPTIONS' ? exceptionStatus ?? '' : ''
+    }:${reportPage}:${matrixPage}:${versionEpoch}`;
+
+  useLayoutEffect(() => {
+    reportRequestGeneration.current += 1;
+    return () => {
+      reportRequestGeneration.current += 1;
+    };
+  }, [queryKey]);
+
   const loadReport = useCallback(
     async () => {
-      const reportPromise = gateway.loadReport({
-        reportType,
-        period,
-        companyId: effectiveCompanyId,
-        ...(reportType === 'EXCEPTIONS' && exceptionStatus !== undefined
-          ? { status: exceptionStatus }
-          : {}),
-        page: 0,
-        size: 50,
-      });
+      const requestGeneration = reportRequestGeneration.current + 1;
+      reportRequestGeneration.current = requestGeneration;
+      const isCurrentRequest = () =>
+        reportRequestGeneration.current === requestGeneration;
       const matrixLoader = gateway.loadAttendanceMonthMatrix;
-      const matrixPromise = reportType === 'ATTENDANCE_DETAIL'
-        && matrixLoader !== undefined
-        ? matrixLoader({
+      const shouldLoadMatrix = reportType === 'ATTENDANCE_DETAIL'
+        && matrixLoader !== undefined;
+      const requestedProjectionVersion = projectionVersion.current;
+      let requestUsedProjectionPrecondition =
+        requestedProjectionVersion !== undefined;
+      try {
+        const reportQuery = {
+          reportType,
           period,
           companyId: effectiveCompanyId,
-          page: matrixPage,
-          size: 20,
-        })
-        : Promise.resolve(null);
-      const [projection, monthMatrix] = await Promise.all([
-        reportPromise,
-        matrixPromise,
-      ]);
-      if (
-        monthMatrix !== null
-        && !attendanceReportMatrixSnapshotsMatch(
-          projection,
-          monthMatrix,
-        )
-      ) {
-        throw new ApiRequestError(409, {
-          code: 'ATTENDANCE_REPORT_MATRIX_SNAPSHOT_MISMATCH',
-          message: attendanceReportMatrixSnapshotMismatchMessage,
-          retryable: true,
-        });
+          ...(reportType === 'EXCEPTIONS'
+            && exceptionStatus !== undefined
+            ? { status: exceptionStatus }
+            : {}),
+          ...(requestedProjectionVersion !== undefined
+            ? {
+                expectedProjectionVersion:
+                  requestedProjectionVersion,
+              }
+            : {}),
+          page: reportPage,
+          size: 50,
+        };
+        let projection: ReportProjection;
+        let monthMatrix: AttendanceMonthMatrixProjection | null;
+        if (requestedProjectionVersion !== undefined) {
+          [projection, monthMatrix] = await Promise.all([
+            gateway.loadReport(reportQuery),
+            shouldLoadMatrix
+              ? matrixLoader({
+                  period,
+                  companyId: effectiveCompanyId,
+                  expectedProjectionVersion:
+                    requestedProjectionVersion,
+                  page: matrixPage,
+                  size: 20,
+                })
+              : Promise.resolve(null),
+          ]);
+        } else {
+          projection = await gateway.loadReport(reportQuery);
+          const establishedProjectionVersion =
+            projection.metadata.projectionVersion;
+          requestUsedProjectionPrecondition = shouldLoadMatrix;
+          monthMatrix = shouldLoadMatrix
+            ? await matrixLoader({
+                period,
+                companyId: effectiveCompanyId,
+                expectedProjectionVersion: establishedProjectionVersion,
+                page: matrixPage,
+                size: 20,
+              })
+            : null;
+        }
+        if (
+          monthMatrix !== null
+          && !attendanceReportMatrixSnapshotsMatch(
+            projection,
+            monthMatrix,
+          )
+        ) {
+          throw new ApiRequestError(409, {
+            code: 'ATTENDANCE_REPORT_MATRIX_SNAPSHOT_MISMATCH',
+            message: attendanceReportMatrixSnapshotMismatchMessage,
+            retryable: true,
+          });
+        }
+        if (isCurrentRequest()) {
+          projectionVersion.current =
+            projection.metadata.projectionVersion;
+          automaticRebaseAttempted.current = false;
+        }
+        return { projection, monthMatrix };
+      } catch (caught: unknown) {
+        if (
+          isCurrentRequest()
+          && requestUsedProjectionPrecondition
+          && isProjectionVersionChanged(caught)
+          && !automaticRebaseAttempted.current
+        ) {
+          automaticRebaseAttempted.current = true;
+          projectionVersion.current = undefined;
+          setMatrixPage(0);
+          onReportPageChange(0);
+          onClearExpectedProjectionVersion();
+          setVersionEpoch((value) => value + 1);
+        }
+        throw caught;
       }
-      return { projection, monthMatrix };
     },
     [
       effectiveCompanyId,
       exceptionStatus,
       gateway,
       matrixPage,
+      onClearExpectedProjectionVersion,
+      onReportPageChange,
       period,
+      reportPage,
       reportType,
     ],
   );
-  const queryKey =
-    `${reportType}:${period}:${effectiveCompanyId}:${
-      reportType === 'EXCEPTIONS' ? exceptionStatus ?? '' : ''
-    }:${matrixPage}`;
 
   return (
     <>
@@ -248,7 +385,13 @@ function AuthorizedCompanyReport({
               value={effectiveCompanyId}
               disabled={directory.companies.length === 1}
               onChange={(event) => {
+                reportRequestGeneration.current += 1;
+                projectionVersion.current = undefined;
+                automaticRebaseAttempted.current = false;
                 setMatrixPage(0);
+                onReportPageChange(0);
+                onClearExpectedProjectionVersion();
+                setVersionEpoch((value) => value + 1);
                 onSelectCompany(event.target.value);
               }}
             >
@@ -283,7 +426,7 @@ function AuthorizedCompanyReport({
           loader={loadReport}
           isEmpty={(value) => value.monthMatrix !== null
             ? value.monthMatrix.employeeCount === 0
-            : value.projection.rows.length === 0}
+            : value.projection.rowCount === 0}
         >
           {({ projection, monthMatrix }) => (
             hasLiveReportMetadata(projection)
@@ -293,6 +436,7 @@ function AuthorizedCompanyReport({
                     projection={projection}
                     monthMatrix={monthMatrix}
                     onMatrixPageChange={setMatrixPage}
+                    onReportPageChange={onReportPageChange}
                     capabilities={capabilities}
                     gateway={gateway}
                   />
@@ -302,6 +446,7 @@ function AuthorizedCompanyReport({
                     projection={projection}
                     monthMatrix={monthMatrix}
                     onMatrixPageChange={setMatrixPage}
+                    onReportPageChange={onReportPageChange}
                     canCreateExport={capabilities.includes(
                       'ATTENDANCE_REPORT:EXPORT_CREATE',
                     )}
@@ -327,6 +472,17 @@ export const reportTypeOptions: ReadonlyArray<{
   { value: 'MISSED_PUNCH', label: '未打卡统计' },
   { value: 'ATTENDANCE_RATE', label: '出勤率统计' },
   { value: 'ANNUAL_LEAVE', label: '年假统计' },
+];
+
+const reportExceptionStatusOptions: ReadonlyArray<{
+  value: '' | ReportExceptionState;
+  label: string;
+}> = [
+  { value: '', label: '全部状态' },
+  { value: 'OPEN', label: '待处理' },
+  { value: 'PENDING_EVIDENCE', label: '待补充材料' },
+  { value: 'PENDING_REVIEW', label: '待复核' },
+  { value: 'RESOLVED', label: '已处理' },
 ];
 
 function initialReportTypeFromSearch(
@@ -372,6 +528,22 @@ function initialExceptionStatusFromSearch(
     : undefined;
 }
 
+function initialExpectedProjectionVersionFromSearch(
+  parameters: URLSearchParams,
+): string | undefined {
+  const value = singleSearchParameter(
+    parameters,
+    'expectedProjectionVersion',
+  );
+  return value !== undefined
+    && value === value.trim()
+    && value.length >= 1
+    && value.length <= 128
+    && !hasControlCharacter(value)
+    ? value
+    : undefined;
+}
+
 function singleSearchParameter(
   parameters: URLSearchParams,
   name: string,
@@ -395,6 +567,12 @@ export const reportExportPollIntervalMs = 3_000;
 
 export const attendanceReportMatrixSnapshotMismatchMessage =
   '考勤矩阵与平铺明细不是同一份正式数据快照，系统已停止展示和导出。请刷新后重试。';
+
+function isProjectionVersionChanged(error: unknown): boolean {
+  return error instanceof ApiRequestError
+    && error.status === 409
+    && error.code === 'ATTENDANCE_REPORT_PROJECTION_CHANGED';
+}
 
 export function attendanceReportMatrixSnapshotsMatch(
   projection: ReportProjection,
@@ -476,12 +654,14 @@ function FormalReportWorkspace({
   projection,
   monthMatrix,
   onMatrixPageChange,
+  onReportPageChange,
   capabilities,
   gateway,
 }: {
   projection: LiveReportProjection;
   monthMatrix: AttendanceMonthMatrixProjection | null;
   onMatrixPageChange: (page: number) => void;
+  onReportPageChange: (page: number) => void;
   capabilities: readonly string[];
   gateway: FormalReportExportGateway;
 }) {
@@ -521,13 +701,14 @@ function FormalReportWorkspace({
     setStatusError(undefined);
     const created = await gateway.createReportExport({
       reportType: projection.reportType,
-      period: projection.filters.period,
-      companyId: projection.filters.companyId,
-      status: projection.reportType === 'EXCEPTIONS'
-        && typeof projection.filters.status === 'string'
-        && isReportExceptionState(projection.filters.status)
-        ? projection.filters.status
-        : null,
+      projectionVersion: request.projectionVersion,
+      queryFingerprint: request.queryFingerprint,
+      scopeReference: request.scopeReference,
+      filters: {
+        ...request.filters,
+        companyId: projection.filters.companyId,
+      },
+      selectedFields: [...request.selectedFields],
       purpose: request.purpose,
       currentPassword,
     });
@@ -633,6 +814,7 @@ function FormalReportWorkspace({
         projection={projection}
         monthMatrix={monthMatrix}
         onMatrixPageChange={onMatrixPageChange}
+        onReportPageChange={onReportPageChange}
         canCreateExport={canCreateExport}
         requireCurrentPassword
         onCreateExport={createExport}
@@ -659,6 +841,7 @@ export function ReportView({
   projection,
   monthMatrix = null,
   onMatrixPageChange,
+  onReportPageChange,
   canCreateExport,
   onCreateExport,
   requireCurrentPassword = false,
@@ -666,6 +849,7 @@ export function ReportView({
   projection: ReportProjection;
   monthMatrix?: AttendanceMonthMatrixProjection | null;
   onMatrixPageChange?: (page: number) => void;
+  onReportPageChange?: (page: number) => void;
   canCreateExport: boolean;
   onCreateExport?: (
     request: ReportExportRequest,
@@ -804,6 +988,16 @@ export function ReportView({
       <FrozenHistoryNotice
         metadata={monthMatrix?.metadata ?? projection.metadata}
       />
+      {liveMetadata?.reportType === 'ATTENDANCE_RATE'
+        && liveMetadata.formulaVersion
+          === 'ATTENDANCE_RATE_CONFIRMED_OVER_SCHEDULED_V1_PROVISIONAL'
+        ? (
+            <OperationFeedback
+              kind="info"
+              message="当前出勤率为暂行口径：排班内确认工作分钟 ÷ 原始应出勤分钟 × 100%。最终分子、分母及请假处理仍须业务签字确认。"
+            />
+          )
+        : null}
       {monthMatrix ? (
         <OperationFeedback
           kind="info"
@@ -843,6 +1037,17 @@ export function ReportView({
             <dd>{monthMatrix?.metadata.scope.label
               ?? projection.metadata.scope.label}</dd>
           </div>
+          {monthMatrix || liveMetadata ? (
+            <div>
+              <dt>计算公式版本</dt>
+              <dd>
+                <code>
+                  {monthMatrix?.formulaVersion
+                    ?? liveMetadata?.formulaVersion}
+                </code>
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt>{monthMatrix ? '员工总数' : '记录数'}</dt>
             <dd>{monthMatrix?.employeeCount ?? projection.rowCount}</dd>
@@ -886,6 +1091,12 @@ export function ReportView({
             rowKey={(row) => row.rowReference}
             columns={reportColumns}
           />
+          {liveMetadata ? (
+            <FormalReportPagination
+              projection={liveMetadata}
+              onPageChange={onReportPageChange}
+            />
+          ) : null}
         </section>
       )}
       <ConfirmationDialog
@@ -959,6 +1170,59 @@ export function ReportView({
         )}
       />
     </>
+  );
+}
+
+function FormalReportPagination({
+  projection,
+  onPageChange,
+}: {
+  projection: LiveReportProjection;
+  onPageChange?: (page: number) => void;
+}) {
+  const pageOutOfRange = projection.totalPages > 0
+    && projection.page >= projection.totalPages;
+  useEffect(() => {
+    if (pageOutOfRange && onPageChange !== undefined) {
+      onPageChange(projection.totalPages - 1);
+    }
+  }, [
+    onPageChange,
+    pageOutOfRange,
+    projection.totalPages,
+  ]);
+
+  if (pageOutOfRange) {
+    return (
+      <OperationFeedback
+        kind="info"
+        message="当前页码已超出有效范围，正在返回最后一页。"
+      />
+    );
+  }
+  return (
+    <div className="wave7-report__pagination" aria-label="报表分页">
+      <Button
+        disabled={projection.page === 0 || onPageChange === undefined}
+        onClick={() => onPageChange?.(projection.page - 1)}
+      >
+        上一页
+      </Button>
+      <span>
+        第 {projection.page + 1} / {Math.max(projection.totalPages, 1)} 页
+        {' · '}
+        每页 {projection.size} 行
+      </span>
+      <Button
+        disabled={
+          projection.page + 1 >= projection.totalPages
+          || onPageChange === undefined
+        }
+        onClick={() => onPageChange?.(projection.page + 1)}
+      >
+        下一页
+      </Button>
+    </div>
   );
 }
 
@@ -1401,16 +1665,23 @@ export function createReportExportRequest(
 ): ReportExportRequest {
   const normalizedPurpose = normalizeReportExportPurpose(purpose);
   const allowlist = new Set(projection.exportFieldAllowlist);
-  if (!selectedFields.every((field) => (
-    allowlist.has(field) && isBusinessReportColumn(field)
-  ))) {
+  if (
+    selectedFields.length === 0
+    || new Set(selectedFields).size !== selectedFields.length
+    || !selectedFields.every((field) => (
+      allowlist.has(field) && isBusinessReportColumn(field)
+    ))
+  ) {
     throw new TypeError('导出字段超出当前报表白名单');
   }
   return {
     queryFingerprint: projection.queryFingerprint,
     projectionVersion: projection.metadata.projectionVersion,
     scopeReference: projection.metadata.scope.reference,
-    filters: projection.filters,
+    filters: {
+      ...projection.filters,
+      scopeReference: projection.metadata.scope.reference,
+    },
     selectedFields: [...selectedFields],
     purpose: normalizedPurpose,
   };
@@ -1461,7 +1732,7 @@ const reportColumnLabels = {
   'exception-minutes': '异常分钟',
   'evidence-summary': '异常说明',
   'late-event-count': '迟到次数',
-  'attendance-rate': '出勤率',
+  'attendance-rate': '出勤率（%）',
   'rate-formula-version': '计算规则',
   'account-type': '账户类型',
   'opening-hours': '期初',

@@ -144,6 +144,7 @@ class AttendanceReportFactProjectorTest {
         assertThat(projected.exceptionFacts())
                 .extracting(value -> value.exceptionType())
                 .containsExactly("AMBIGUOUS_PUNCH_MATCH");
+        assertThat(projected.dailyFact().missingPunchCount()).isZero();
         assertThat(projected.exceptionFacts())
                 .extracting(value -> value.state())
                 .containsExactly(

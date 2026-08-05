@@ -469,6 +469,7 @@ describe('App session and route authorization', () => {
         session: {
           capabilities: [
             'ATTENDANCE_DASHBOARD:READ',
+            'ATTENDANCE_REPORT:READ',
             'ATTENDANCE_SELF:READ',
           ],
           menu: [],
@@ -719,7 +720,7 @@ function attendanceDashboardResponse() {
         reference: 'authorized-scope-set:app-test',
         label: '公司授权范围',
       },
-      allowedActions: [],
+      allowedActions: ['DASHBOARD_DRILL_DOWN'],
     },
     summary: {
       unresolvedCount: 1,

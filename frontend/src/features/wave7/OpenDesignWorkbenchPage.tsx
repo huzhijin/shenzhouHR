@@ -130,7 +130,7 @@ const searchItems = [
   { label: '考勤工作台', description: '查看优先事项与数据新鲜度', path: '/workbench' },
   { label: '在线考勤来源', description: '查看设备、办公系统与最近同步时间', path: '/sources/online' },
   { label: '考勤电子表格导入', description: '上传、预检并发布离线打卡', path: '/sources/attendance-excel' },
-  { label: '考勤报表中心', description: '查询并导出八张独立报表', path: '/attendance/reports' },
+  { label: '考勤报表中心', description: '查询并导出九张独立报表', path: '/attendance/reports' },
   { label: '考勤运行大屏', description: '查看公司与部门聚合指标', path: '/attendance/screen' },
   { label: '员工反馈中心', description: '查看并提交本人考勤反馈', path: '/me/feedback' },
 ] as const;

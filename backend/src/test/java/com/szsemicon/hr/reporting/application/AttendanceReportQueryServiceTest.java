@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 class AttendanceReportQueryServiceTest {
 
@@ -80,11 +81,18 @@ class AttendanceReportQueryServiceTest {
         when(capabilities.currentCapabilities()).thenReturn(Set.of(
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE));
+        ReportSourceSnapshot authorizedSnapshot = snapshot(filter);
         when(repository.loadAuthorizedSnapshot(
                 PRINCIPAL,
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 filter,
-                NOW)).thenReturn(Optional.of(snapshot(filter)));
+                NOW)).thenReturn(Optional.of(authorizedSnapshot));
+        when(repository.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                authorizedSnapshot,
+                false,
+                NOW)).thenReturn(Optional.of(authorizedSnapshot));
         var service = new AttendanceReportQueryService(
                 capabilities,
                 principal(),
@@ -162,6 +170,129 @@ class AttendanceReportQueryServiceTest {
                 .isEqualTo("ATTENDANCE_MONTH_MATRIX_V1");
         assertThat(result.allowedActions())
                 .containsExactly("REPORT_DRILL_DOWN");
+    }
+
+    @Test
+    void reportAndMonthMatrixAcceptTheSameExpectedProjectionVersion() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7), COMPANY, null, null, null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(repository.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(snapshot(filter)));
+        var service = new AttendanceReportQueryService(
+                capabilities, principal(), repository, CLOCK);
+
+        AttendanceReportPage report = service.query(
+                ReportType.ATTENDANCE_DETAIL,
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                null,
+                "projection-1",
+                0,
+                50);
+        AttendanceMonthMatrixPage matrix = service.queryMonthMatrix(
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                "projection-1",
+                0,
+                20);
+
+        assertThat(report.projectionVersion()).isEqualTo("projection-1");
+        assertThat(matrix.projectionVersion()).isEqualTo("projection-1");
+    }
+
+    @Test
+    void staleExpectedProjectionVersionReturnsOpaqueNonRetryableConflict() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7), COMPANY, null, null, null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(repository.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(snapshot(filter)));
+        var service = new AttendanceReportQueryService(
+                capabilities, principal(), repository, CLOCK);
+
+        assertProjectionChanged(() -> service.query(
+                ReportType.ATTENDANCE_DETAIL,
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                null,
+                "older-projection",
+                0,
+                50));
+        assertProjectionChanged(() -> service.queryMonthMatrix(
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                "older-projection",
+                0,
+                20));
+
+        verify(repository, org.mockito.Mockito.times(2))
+                .loadAuthorizedSnapshot(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        filter,
+                        NOW);
+    }
+
+    @Test
+    void invalidExpectedProjectionVersionIsRejectedBeforeAuthorization() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        var service = new AttendanceReportQueryService(
+                capabilities, principal(), repository, CLOCK);
+
+        for (String invalid : List.of(
+                " ",
+                " projection-1",
+                "projection\u0000-1",
+                "p".repeat(129))) {
+            assertThatThrownBy(() -> service.query(
+                    ReportType.ATTENDANCE_DETAIL,
+                    YearMonth.of(2026, 7),
+                    COMPANY,
+                    null,
+                    null,
+                    null,
+                    invalid,
+                    0,
+                    50)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> service.queryMonthMatrix(
+                    YearMonth.of(2026, 7),
+                    COMPANY,
+                    null,
+                    null,
+                    invalid,
+                    0,
+                    20)).isInstanceOf(IllegalArgumentException.class);
+        }
+
+        verifyNoInteractions(capabilities, repository);
     }
 
     @Test
@@ -357,6 +488,22 @@ class AttendanceReportQueryServiceTest {
 
     private CurrentPrincipalProvider principal() {
         return () -> PRINCIPAL;
+    }
+
+    private static void assertProjectionChanged(
+            org.assertj.core.api.ThrowableAssert.ThrowingCallable operation) {
+        assertThatThrownBy(operation)
+                .isInstanceOfSatisfying(
+                        ApiProblemException.class,
+                        problem -> {
+                            assertThat(problem.status())
+                                    .isEqualTo(HttpStatus.CONFLICT);
+                            assertThat(problem.code()).isEqualTo(
+                                    "ATTENDANCE_REPORT_PROJECTION_CHANGED");
+                            assertThat(problem.retryable()).isFalse();
+                            assertThat(problem.getMessage())
+                                    .doesNotContain("projection-1");
+                        });
     }
 
     private ReportSourceSnapshot snapshot(ReportFilter filter) {

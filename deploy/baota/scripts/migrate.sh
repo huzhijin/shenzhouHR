@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+set +x
 
 JAR_PATH=""
 MIGRATOR_ENV_FILE="/etc/shenzhouhr/shenzhouhr-migrator.env"
@@ -34,6 +35,10 @@ JAVA_BIN="${JAVA_BIN:-$(command -v java || true)}"
 [[ -n "$JAVA_BIN" ]] || die 'Java 21 is required'
 JAVA_MAJOR="$($JAVA_BIN -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -1)"
 [[ "$JAVA_MAJOR" == "21" ]] || die "Java 21 is required; detected: ${JAVA_MAJOR:-unknown}"
+JAR_BIN="${JAR_BIN:-$(dirname -- "$JAVA_BIN")/jar}"
+[[ -x "$JAR_BIN" ]] || die "A full JDK 21 is required; jar tool not found: $JAR_BIN"
+"$JAR_BIN" tf "$JAR_PATH" | grep '^BOOT-INF/lib/spring-boot-flyway-.*\.jar$' >/dev/null \
+  || die 'Jar is missing Spring Boot Flyway auto-configuration; migration cannot run'
 
 set -a
 # shellcheck disable=SC1090
@@ -53,7 +58,11 @@ cleanup() {
 trap cleanup EXIT
 
 printf 'Running one-time database migration...\n'
-"$JAVA_BIN" -jar "$JAR_PATH" --spring.main.web-application-type=none >"$LOG_FILE" 2>&1 &
+"$JAVA_BIN" -jar "$JAR_PATH" \
+  --server.address=127.0.0.1 \
+  --server.port=0 \
+  --shenzhouhr.reporting.export-worker-enabled=false \
+  >"$LOG_FILE" 2>&1 &
 PID=$!
 STARTED=0
 DEADLINE=$((SECONDS + TIMEOUT_SEC))

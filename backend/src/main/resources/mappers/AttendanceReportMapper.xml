@@ -471,6 +471,268 @@
         )
     </sql>
 
+    <!--
+      Employee-level dashboard content is more sensitive than the aggregate
+      dashboard itself. These explicit scope predicates are built only from
+      scope rows that were independently authorized for the dashboard and
+      report capabilities at the same authorization instant.
+    -->
+    <sql id="firstScopeEmployeeVisibility">
+        (
+            <foreach collection="firstScopes" item="scope"
+                     separator=" OR ">
+                (
+                    (
+                        #{scope.scopeType} = 'COMPANY'
+                        AND #{scope.companyId} =
+                            candidate_employee.company_id
+                    )
+                    OR (
+                        #{scope.scopeType} = 'SELF'
+                        AND #{scope.principalEmployeeId} =
+                            candidate_employee.employee_id
+                    )
+                    OR (
+                        #{scope.scopeType} = 'ORGANIZATION'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employment_assignment current_assignment
+                            JOIN organization_identity
+                                current_assignment_organization
+                              ON current_assignment_organization.organization_id =
+                                 current_assignment.organization_id
+                             AND current_assignment_organization.company_id =
+                                 candidate_employee.company_id
+                             AND current_assignment_organization.identity_status =
+                                 'ACTIVE'
+                            JOIN organization_current_projection
+                                current_assignment_projection
+                              ON current_assignment_projection.organization_id =
+                                 current_assignment_organization.organization_id
+                            JOIN organization_version
+                                current_assignment_version
+                              ON current_assignment_version.organization_version_id =
+                                 current_assignment_projection.current_version_id
+                             AND current_assignment_version.organization_id =
+                                 current_assignment_organization.organization_id
+                             AND current_assignment_version.status = 'ACTIVE'
+                             AND current_assignment_version.effective_from
+                                 &lt;= #{authorizationTime}
+                             AND (
+                                    current_assignment_version.effective_to
+                                        IS NULL
+                                    OR current_assignment_version.effective_to
+                                        &gt; #{authorizationTime}
+                             )
+                            WHERE current_assignment.employee_id =
+                                candidate_employee.employee_id
+                              AND current_assignment.record_status = 'ACTIVE'
+                              AND current_assignment.version_valid_to IS NULL
+                              AND current_assignment.effective_from
+                                  &lt;= #{authorizationTime}
+                              AND (
+                                    current_assignment.effective_to IS NULL
+                                    OR current_assignment.effective_to
+                                        &gt; #{authorizationTime}
+                              )
+                              AND (
+                                    (
+                                        #{scope.includeDescendants} = FALSE
+                                        AND #{scope.organizationId} =
+                                            current_assignment.organization_id
+                                    )
+                                    OR (
+                                        #{scope.includeDescendants} = TRUE
+                                        AND EXISTS (
+                                            SELECT 1
+                                            FROM organization_current_closure
+                                                closure
+                                            WHERE
+                                                closure.ancestor_organization_id =
+                                                    #{scope.organizationId}
+                                              AND
+                                                closure.descendant_organization_id =
+                                                    current_assignment.organization_id
+                                        )
+                                    )
+                              )
+                        )
+                    )
+                )
+            </foreach>
+        )
+    </sql>
+
+    <sql id="secondScopeEmployeeVisibility">
+        (
+            <foreach collection="secondScopes" item="scope"
+                     separator=" OR ">
+                (
+                    (
+                        #{scope.scopeType} = 'COMPANY'
+                        AND #{scope.companyId} =
+                            candidate_employee.company_id
+                    )
+                    OR (
+                        #{scope.scopeType} = 'SELF'
+                        AND #{scope.principalEmployeeId} =
+                            candidate_employee.employee_id
+                    )
+                    OR (
+                        #{scope.scopeType} = 'ORGANIZATION'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employment_assignment current_assignment
+                            JOIN organization_identity
+                                current_assignment_organization
+                              ON current_assignment_organization.organization_id =
+                                 current_assignment.organization_id
+                             AND current_assignment_organization.company_id =
+                                 candidate_employee.company_id
+                             AND current_assignment_organization.identity_status =
+                                 'ACTIVE'
+                            JOIN organization_current_projection
+                                current_assignment_projection
+                              ON current_assignment_projection.organization_id =
+                                 current_assignment_organization.organization_id
+                            JOIN organization_version
+                                current_assignment_version
+                              ON current_assignment_version.organization_version_id =
+                                 current_assignment_projection.current_version_id
+                             AND current_assignment_version.organization_id =
+                                 current_assignment_organization.organization_id
+                             AND current_assignment_version.status = 'ACTIVE'
+                             AND current_assignment_version.effective_from
+                                 &lt;= #{authorizationTime}
+                             AND (
+                                    current_assignment_version.effective_to
+                                        IS NULL
+                                    OR current_assignment_version.effective_to
+                                        &gt; #{authorizationTime}
+                             )
+                            WHERE current_assignment.employee_id =
+                                candidate_employee.employee_id
+                              AND current_assignment.record_status = 'ACTIVE'
+                              AND current_assignment.version_valid_to IS NULL
+                              AND current_assignment.effective_from
+                                  &lt;= #{authorizationTime}
+                              AND (
+                                    current_assignment.effective_to IS NULL
+                                    OR current_assignment.effective_to
+                                        &gt; #{authorizationTime}
+                              )
+                              AND (
+                                    (
+                                        #{scope.includeDescendants} = FALSE
+                                        AND #{scope.organizationId} =
+                                            current_assignment.organization_id
+                                    )
+                                    OR (
+                                        #{scope.includeDescendants} = TRUE
+                                        AND EXISTS (
+                                            SELECT 1
+                                            FROM organization_current_closure
+                                                closure
+                                            WHERE
+                                                closure.ancestor_organization_id =
+                                                    #{scope.organizationId}
+                                              AND
+                                                closure.descendant_organization_id =
+                                                    current_assignment.organization_id
+                                        )
+                                    )
+                              )
+                        )
+                    )
+                )
+            </foreach>
+        )
+    </sql>
+
+    <sql id="reportScopeFactVisibility">
+        (
+            <foreach collection="reportScopes" item="scope"
+                     separator=" OR ">
+                (
+                    (
+                        #{scope.scopeType} = 'COMPANY'
+                        AND #{scope.companyId} = fact.company_id
+                    )
+                    OR (
+                        #{scope.scopeType} = 'SELF'
+                        AND #{scope.principalEmployeeId} = fact.employee_id
+                    )
+                    OR (
+                        #{scope.scopeType} = 'ORGANIZATION'
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employment_assignment current_assignment
+                            JOIN organization_identity
+                                current_assignment_organization
+                              ON current_assignment_organization.organization_id =
+                                 current_assignment.organization_id
+                             AND current_assignment_organization.company_id =
+                                 fact.company_id
+                             AND current_assignment_organization.identity_status =
+                                 'ACTIVE'
+                            JOIN organization_current_projection
+                                current_assignment_projection
+                              ON current_assignment_projection.organization_id =
+                                 current_assignment_organization.organization_id
+                            JOIN organization_version
+                                current_assignment_version
+                              ON current_assignment_version.organization_version_id =
+                                 current_assignment_projection.current_version_id
+                             AND current_assignment_version.organization_id =
+                                 current_assignment_organization.organization_id
+                             AND current_assignment_version.status = 'ACTIVE'
+                             AND current_assignment_version.effective_from
+                                 &lt;= #{authorizationTime}
+                             AND (
+                                    current_assignment_version.effective_to
+                                        IS NULL
+                                    OR current_assignment_version.effective_to
+                                        &gt; #{authorizationTime}
+                             )
+                            WHERE current_assignment.employee_id =
+                                fact.employee_id
+                              AND current_assignment.record_status = 'ACTIVE'
+                              AND current_assignment.version_valid_to IS NULL
+                              AND current_assignment.effective_from
+                                  &lt;= #{authorizationTime}
+                              AND (
+                                    current_assignment.effective_to IS NULL
+                                    OR current_assignment.effective_to
+                                        &gt; #{authorizationTime}
+                              )
+                              AND (
+                                    (
+                                        #{scope.includeDescendants} = FALSE
+                                        AND #{scope.organizationId} =
+                                            current_assignment.organization_id
+                                    )
+                                    OR (
+                                        #{scope.includeDescendants} = TRUE
+                                        AND EXISTS (
+                                            SELECT 1
+                                            FROM organization_current_closure
+                                                closure
+                                            WHERE
+                                                closure.ancestor_organization_id =
+                                                    #{scope.organizationId}
+                                              AND
+                                                closure.descendant_organization_id =
+                                                    current_assignment.organization_id
+                                        )
+                                    )
+                              )
+                        )
+                    )
+                )
+            </foreach>
+        )
+    </sql>
+
     <select id="listDashboardAuthorizedCompanies"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$CompanyRow">
         SELECT DISTINCT projection.company_id,
@@ -740,6 +1002,61 @@
         LIMIT 5
     </select>
 
+    <select id="listAuthorizedEmployeeIdsInScopeIntersection"
+            resultType="string">
+        SELECT DISTINCT candidate_employee.employee_id
+        FROM employee candidate_employee
+        WHERE candidate_employee.company_id = #{companyId}
+          AND <include refid="firstScopeEmployeeVisibility"/>
+          AND <include refid="secondScopeEmployeeVisibility"/>
+        ORDER BY candidate_employee.employee_id
+    </select>
+
+    <select id="countCurrentOrganizationAncestor" resultType="long">
+        SELECT COUNT(*)
+        FROM organization_current_closure closure
+        JOIN organization_identity ancestor
+          ON ancestor.organization_id =
+             closure.ancestor_organization_id
+         AND ancestor.company_id = #{companyId}
+         AND ancestor.identity_status = 'ACTIVE'
+        JOIN organization_identity descendant
+          ON descendant.organization_id =
+             closure.descendant_organization_id
+         AND descendant.company_id = #{companyId}
+         AND descendant.identity_status = 'ACTIVE'
+        JOIN organization_current_projection ancestor_projection
+          ON ancestor_projection.organization_id = ancestor.organization_id
+        JOIN organization_version ancestor_version
+          ON ancestor_version.organization_version_id =
+             ancestor_projection.current_version_id
+         AND ancestor_version.organization_id = ancestor.organization_id
+         AND ancestor_version.status = 'ACTIVE'
+         AND ancestor_version.effective_from &lt;= #{authorizationTime}
+         AND (
+                ancestor_version.effective_to IS NULL
+                OR ancestor_version.effective_to &gt; #{authorizationTime}
+         )
+        JOIN organization_current_projection descendant_projection
+          ON descendant_projection.organization_id =
+             descendant.organization_id
+        JOIN organization_version descendant_version
+          ON descendant_version.organization_version_id =
+             descendant_projection.current_version_id
+         AND descendant_version.organization_id =
+             descendant.organization_id
+         AND descendant_version.status = 'ACTIVE'
+         AND descendant_version.effective_from &lt;= #{authorizationTime}
+         AND (
+                descendant_version.effective_to IS NULL
+                OR descendant_version.effective_to &gt; #{authorizationTime}
+         )
+        WHERE closure.ancestor_organization_id =
+            #{ancestorOrganizationId}
+          AND closure.descendant_organization_id =
+            #{descendantOrganizationId}
+    </select>
+
     <select id="listDashboardExceptions"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardRows$ExceptionRow">
         SELECT fact.exception_case_id AS exception_reference,
@@ -771,6 +1088,7 @@
                 'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
           )
           AND <include refid="dashboardFactVisibility"/>
+          AND <include refid="reportScopeFactVisibility"/>
         ORDER BY CASE fact.severity
                      WHEN 'ERROR' THEN 0
                      WHEN 'WARNING' THEN 1
@@ -869,7 +1187,11 @@
         JOIN auth_capability capability
           ON capability.capability_id = role_capability.capability_id
          AND capability.capability_code = #{capabilityCode}
-         AND capability.capability_code = 'ATTENDANCE_REPORT:READ'
+         AND capability.capability_code IN (
+                'ATTENDANCE_REPORT:READ',
+                'ATTENDANCE_REPORT:EXPORT_CREATE',
+                'ATTENDANCE_REPORT:EXPORT_DOWNLOAD'
+         )
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
         WHERE projection.attendance_report_projection_id = #{projectionId}

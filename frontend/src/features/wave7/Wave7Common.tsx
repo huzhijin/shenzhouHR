@@ -61,8 +61,33 @@ export function ProjectionMetadata({ metadata }: { metadata: Wave7ProjectionMeta
         <dt>数据截至</dt>
         <dd><time dateTime={metadata.dataAsOf}>{formatDateTime(metadata.dataAsOf)}</time></dd>
       </div>
+      <div>
+        <dt>期间状态</dt>
+        <dd>{periodStateLabel(metadata.periodState)}</dd>
+      </div>
+      <div>
+        <dt>数据版本</dt>
+        <dd><code>{metadata.projectionVersion}</code></dd>
+      </div>
+      <div>
+        <dt>来源版本</dt>
+        <dd title={metadata.sourceVersions.join('；')}>
+          {metadata.sourceVersions.length === 1
+            ? metadata.sourceVersions[0]
+            : `${metadata.sourceVersions.length} 个来源版本`}
+        </dd>
+      </div>
     </dl>
   );
+}
+
+function periodStateLabel(state: Wave7ProjectionMetadata['periodState']): string {
+  return ({
+    OPEN: '进行中（暂算）',
+    FROZEN: '已冻结',
+    CLOSED: '已月结',
+    REOPENED: '已重新打开（暂算）',
+  } as const)[state];
 }
 
 export function FrozenHistoryNotice({ metadata }: { metadata: Wave7ProjectionMetadata }) {

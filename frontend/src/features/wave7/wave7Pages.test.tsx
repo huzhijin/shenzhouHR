@@ -8,7 +8,7 @@ import {
   within,
 } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
@@ -99,8 +99,8 @@ describe('Wave 7 fixture-driven pages', () => {
       .toHaveTextContent('本月数据已冻结');
     expect(screen.getByRole('region', { name: '本人每日考勤记录' })).toBeInTheDocument();
     expect(document.querySelectorAll('.record-card')).toHaveLength(recordsFixture.records.length);
-    expect(screen.queryByText(recordsFixture.metadata.projectionVersion))
-      .not.toBeInTheDocument();
+    expect(screen.getByText(recordsFixture.metadata.projectionVersion))
+      .toBeInTheDocument();
     expect(screen.queryByText(recordsFixture.records[0]!.explanationReference!))
       .not.toBeInTheDocument();
   });
@@ -171,7 +171,12 @@ describe('Wave 7 fixture-driven pages', () => {
     expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
       .toHaveTextContent('待复核');
     fireEvent.click(screen.getByRole('button', { name: '查看异常报表' }));
-    expect(onOpenReports).toHaveBeenCalledOnce();
+    expect(onOpenReports).toHaveBeenCalledWith({
+      reportType: 'EXCEPTIONS',
+      period: '2026-07',
+      companyId: 'company-a',
+      projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+    });
     expect(screen.queryByRole('button', { name: '打开考勤大屏' }))
       .not.toBeInTheDocument();
   });
@@ -249,6 +254,31 @@ describe('Wave 7 fixture-driven pages', () => {
       name: '今日异常考勤列表',
     })).toHaveTextContent('张三');
     expect(loadDashboard).toHaveBeenLastCalledWith('company-b');
+  });
+
+  it('carries the dashboard projection version into formal reports', async () => {
+    renderWithRouter(
+      <>
+        <DashboardRoute
+          gateway={gateway({
+            loadDashboard: async () => liveDashboard(),
+          })}
+        />
+        <LocationProbe />
+      </>,
+      '/workbench',
+    );
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: '查看异常报表',
+    }));
+
+    expect(await screen.findByTestId('location')).toHaveTextContent(
+      '/attendance/reports?reportType=EXCEPTIONS'
+      + '&period=2026-07&companyId=company-a'
+      + '&expectedProjectionVersion='
+      + 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+    );
   });
 
   it('creates an export request from the visible bound query and allowlist', async () => {
@@ -592,7 +622,8 @@ describe('Wave 7 formal report route', () => {
       />,
       '/attendance/reports?reportType=EXCEPTIONS'
         + '&period=2026-06&companyId=company-b'
-        + '&status=PENDING_REVIEW',
+        + '&status=PENDING_REVIEW'
+        + '&expectedProjectionVersion=FORMAL-DASHBOARD-V1',
     );
 
     expect(await screen.findByRole('heading', {
@@ -600,6 +631,7 @@ describe('Wave 7 formal report route', () => {
     })).toBeInTheDocument();
     expect(screen.getByLabelText('报表类型')).toHaveValue('EXCEPTIONS');
     expect(screen.getByLabelText('月份')).toHaveValue('2026-06');
+    expect(screen.getByLabelText('异常状态')).toHaveValue('PENDING_REVIEW');
     expect(screen.getByLabelText('公司')).toHaveValue('company-b');
     expect(loadReportCompanies).toHaveBeenCalledWith('2026-06');
     expect(loadReport).toHaveBeenCalledWith({
@@ -607,8 +639,495 @@ describe('Wave 7 formal report route', () => {
       period: '2026-06',
       companyId: 'company-b',
       status: 'PENDING_REVIEW',
+      expectedProjectionVersion: 'FORMAL-DASHBOARD-V1',
       page: 0,
       size: 50,
+    });
+  });
+
+  it('labels the provisional attendance-rate formula before business sign-off', async () => {
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({
+          loadReport: async (query) => formalReport(query, {
+            formulaVersion:
+              'ATTENDANCE_RATE_CONFIRMED_OVER_SCHEDULED_V1_PROVISIONAL',
+          }),
+        })}
+        initialReportType="ATTENDANCE_RATE"
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: 'ATTENDANCE_RATE · 2026-07',
+    })).toBeInTheDocument();
+    expect(screen.getByText(/当前出勤率为暂行口径/))
+      .toHaveTextContent('排班内确认工作分钟 ÷ 原始应出勤分钟 × 100%');
+    expect(screen.getByText('计算公式版本').nextElementSibling)
+      .toHaveTextContent(
+        'ATTENDANCE_RATE_CONFIRMED_OVER_SCHEDULED_V1_PROVISIONAL',
+      );
+  });
+
+  it('filters the exception report by a visible status selector', async () => {
+    const loadReport = vi.fn(async (query?: ReportQuery) =>
+      formalReport(query));
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({ loadReport })}
+        initialReportType="EXCEPTIONS"
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: 'EXCEPTIONS · 2026-07',
+    })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('异常状态'), {
+      target: { value: 'PENDING_EVIDENCE' },
+    });
+
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'EXCEPTIONS',
+        period: '2026-07',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        status: 'PENDING_EVIDENCE',
+        expectedProjectionVersion: 'FORMAL-EXCEPTIONS-2026-07-V1',
+        page: 0,
+        size: 50,
+      });
+    });
+  });
+
+  it('pages through every ordinary formal report instead of stopping at the first 50 rows', async () => {
+    const loadReport = vi.fn(async (query?: ReportQuery) =>
+      formalReport(query, {
+        rowCount: 120,
+        totalPages: 3,
+      }));
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({ loadReport })}
+        initialReportType="LEAVE"
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: 'LEAVE · 2026-07',
+    })).toBeInTheDocument();
+    let pagination = screen.getByLabelText('报表分页');
+    expect(pagination).toHaveTextContent('第 1 / 3 页 · 每页 50 行');
+    expect(within(pagination).getByRole('button', { name: '上一页' }))
+      .toBeDisabled();
+
+    fireEvent.click(within(pagination).getByRole('button', {
+      name: '下一页',
+    }));
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'LEAVE',
+        period: '2026-07',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        expectedProjectionVersion: 'FORMAL-LEAVE-2026-07-V1',
+        page: 1,
+        size: 50,
+      });
+    });
+    pagination = await screen.findByLabelText('报表分页');
+    expect(pagination).toHaveTextContent('第 2 / 3 页 · 每页 50 行');
+
+    fireEvent.click(within(pagination).getByRole('button', {
+      name: '下一页',
+    }));
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'LEAVE',
+        period: '2026-07',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        expectedProjectionVersion: 'FORMAL-LEAVE-2026-07-V1',
+        page: 2,
+        size: 50,
+      });
+    });
+    pagination = await screen.findByLabelText('报表分页');
+    expect(within(pagination).getByRole('button', { name: '下一页' }))
+      .toBeDisabled();
+
+    fireEvent.click(within(pagination).getByRole('button', {
+      name: '上一页',
+    }));
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'LEAVE',
+        period: '2026-07',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        expectedProjectionVersion: 'FORMAL-LEAVE-2026-07-V1',
+        page: 1,
+        size: 50,
+      });
+    });
+  });
+
+  it('clears combined results and reloads page one after a projection change', async () => {
+    const newestProjection = deferred<LiveReportProjection>();
+    const loadReport = vi.fn((query?: ReportQuery) => {
+      const call = loadReport.mock.calls.length;
+      if (call === 1) {
+        return Promise.resolve(formalReport(query, {
+          rows: [{
+            rowReference: 'old-row',
+            values: { scope: '旧版授权结果' },
+          }],
+          rowCount: 120,
+          totalPages: 3,
+        }));
+      }
+      if (call === 2) {
+        return Promise.reject(new ApiRequestError(409, {
+          code: 'ATTENDANCE_REPORT_PROJECTION_CHANGED',
+          message: '报表数据版本已更新',
+          retryable: false,
+        }));
+      }
+      return newestProjection.promise;
+    });
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({ loadReport })}
+        initialReportType="LEAVE"
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports',
+    );
+
+    expect(await screen.findAllByText('旧版授权结果'))
+      .not.toHaveLength(0);
+    fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
+      'button',
+      { name: '下一页' },
+    ));
+
+    await waitFor(() => expect(loadReport).toHaveBeenCalledTimes(3));
+    expect(loadReport.mock.calls[1]?.[0]).toMatchObject({
+      page: 1,
+      expectedProjectionVersion: 'FORMAL-LEAVE-2026-07-V1',
+    });
+    expect(loadReport.mock.calls[2]?.[0]).toMatchObject({
+      page: 0,
+    });
+    expect(loadReport.mock.calls[2]?.[0])
+      .not.toHaveProperty('expectedProjectionVersion');
+    expect(screen.queryAllByText('旧版授权结果')).toHaveLength(0);
+    expect(screen.getByLabelText('正在加载')).toBeInTheDocument();
+
+    const latestQuery = loadReport.mock.calls[2]?.[0];
+    const latest = formalReport(latestQuery, {
+      rows: [{
+        rowReference: 'latest-row',
+        values: { scope: '新版授权结果' },
+      }],
+      rowCount: 120,
+      totalPages: 3,
+    });
+    newestProjection.resolve({
+      ...latest,
+      metadata: {
+        ...latest.metadata,
+        projectionVersion: 'FORMAL-LEAVE-2026-07-V2',
+      },
+    });
+
+    expect((await screen.findAllByText('新版授权结果')).length)
+      .toBeGreaterThan(0);
+    expect(screen.getByLabelText('报表分页'))
+      .toHaveTextContent('第 1 / 3 页');
+  });
+
+  it('drops a stale dashboard version from the URL before rebasing', async () => {
+    const loadReport = vi.fn(async (query?: ReportQuery) => {
+      if (query?.expectedProjectionVersion !== undefined) {
+        throw new ApiRequestError(409, {
+          code: 'ATTENDANCE_REPORT_PROJECTION_CHANGED',
+          message: '报表数据版本已更新',
+          retryable: false,
+        });
+      }
+      return formalReport(query);
+    });
+    renderWithRouter(
+      <>
+        <ReportsRoute
+          gateway={gateway({ loadReport })}
+          initialReportType="LEAVE"
+          initialPeriod="2026-07"
+        />
+        <LocationProbe />
+      </>,
+      '/attendance/reports?reportType=LEAVE&period=2026-07'
+        + '&companyId=30000000-0000-0000-0000-000000000001'
+        + '&expectedProjectionVersion=STALE-DASHBOARD-V1',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: 'LEAVE · 2026-07',
+    })).toBeInTheDocument();
+    expect(loadReport.mock.calls[0]?.[0]).toMatchObject({
+      expectedProjectionVersion: 'STALE-DASHBOARD-V1',
+      page: 0,
+    });
+    expect(loadReport.mock.calls.at(-1)?.[0])
+      .not.toHaveProperty('expectedProjectionVersion');
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent)
+        .not.toContain('expectedProjectionVersion');
+    });
+  });
+
+  it('resets ordinary report pagination when type, month, or exception status changes', async () => {
+    const loadReport = vi.fn(async (query?: ReportQuery) =>
+      formalReport(query, {
+        rowCount: 120,
+        totalPages: 3,
+      }));
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({ loadReport })}
+        initialReportType="LEAVE"
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports',
+    );
+
+    await screen.findByRole('heading', { name: 'LEAVE · 2026-07' });
+    fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
+      'button',
+      { name: '下一页' },
+    ));
+    await waitFor(() => {
+      expect(loadReport.mock.calls.at(-1)?.[0]?.page).toBe(1);
+    });
+
+    fireEvent.change(screen.getByLabelText('报表类型'), {
+      target: { value: 'EXCEPTIONS' },
+    });
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'EXCEPTIONS',
+        period: '2026-07',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        expectedProjectionVersion: 'FORMAL-LEAVE-2026-07-V1',
+        page: 0,
+        size: 50,
+      });
+    });
+
+    fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
+      'button',
+      { name: '下一页' },
+    ));
+    await waitFor(() => {
+      expect(loadReport.mock.calls.at(-1)?.[0]?.page).toBe(1);
+    });
+    fireEvent.change(screen.getByLabelText('异常状态'), {
+      target: { value: 'PENDING_REVIEW' },
+    });
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'EXCEPTIONS',
+        period: '2026-07',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        status: 'PENDING_REVIEW',
+        expectedProjectionVersion: 'FORMAL-EXCEPTIONS-2026-07-V1',
+        page: 0,
+        size: 50,
+      });
+    });
+
+    fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
+      'button',
+      { name: '下一页' },
+    ));
+    await waitFor(() => {
+      expect(loadReport.mock.calls.at(-1)?.[0]?.page).toBe(1);
+    });
+    fireEvent.change(screen.getByLabelText('月份'), {
+      target: { value: '2026-06' },
+    });
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'EXCEPTIONS',
+        period: '2026-06',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        status: 'PENDING_REVIEW',
+        page: 0,
+        size: 50,
+      });
+    });
+  });
+
+  it('resets ordinary report pagination when the authorized company changes', async () => {
+    const loadReport = vi.fn(async (query?: ReportQuery) =>
+      formalReport(query, {
+        rowCount: 120,
+        totalPages: 3,
+      }));
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({
+          loadReportCompanies: async (period) => ({
+            period,
+            companies: [
+              { companyId: 'company-a', companyName: '神州半导体' },
+              { companyId: 'company-b', companyName: '神州科技' },
+            ],
+          }),
+          loadReport,
+        })}
+        initialReportType="LEAVE"
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports',
+    );
+
+    expect(await screen.findByText('请选择公司后查询正式报表。'))
+      .toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('公司'), {
+      target: { value: 'company-a' },
+    });
+    await screen.findByRole('heading', { name: 'LEAVE · 2026-07' });
+    fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
+      'button',
+      { name: '下一页' },
+    ));
+    await waitFor(() => {
+      expect(loadReport.mock.calls.at(-1)?.[0]?.page).toBe(1);
+    });
+
+    fireEvent.change(screen.getByLabelText('公司'), {
+      target: { value: 'company-b' },
+    });
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'LEAVE',
+        period: '2026-07',
+        companyId: 'company-b',
+        page: 0,
+        size: 50,
+      });
+    });
+  });
+
+  it('keeps the new company projection after an older request returns late', async () => {
+    const lateCompanyA = deferred<LiveReportProjection>();
+    let lateCompanyAQuery: ReportQuery | undefined;
+    const projectionFor = (
+      query: ReportQuery,
+      projectionVersion: string,
+      rowLabel: string,
+    ): LiveReportProjection => {
+      const projection = formalReport(query, {
+        rows: [{
+          rowReference: `${query.companyId}:${query.page ?? 0}`,
+          values: { scope: rowLabel },
+        }],
+        rowCount: 120,
+        totalPages: 3,
+      });
+      return {
+        ...projection,
+        metadata: {
+          ...projection.metadata,
+          projectionVersion,
+        },
+      };
+    };
+    const loadReport = vi.fn((query?: ReportQuery) => {
+      if (query === undefined) {
+        throw new TypeError('report query is required');
+      }
+      if (query.companyId === 'company-a' && query.page === 1) {
+        lateCompanyAQuery = query;
+        return lateCompanyA.promise;
+      }
+      const isCompanyA = query.companyId === 'company-a';
+      return Promise.resolve(projectionFor(
+        query,
+        isCompanyA ? 'PROJ-A' : 'PROJ-B',
+        isCompanyA ? '公司 A 当前结果' : '公司 B 当前结果',
+      ));
+    });
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({
+          loadReportCompanies: async (period) => ({
+            period,
+            companies: [
+              { companyId: 'company-a', companyName: '神州半导体' },
+              { companyId: 'company-b', companyName: '神州科技' },
+            ],
+          }),
+          loadReport,
+        })}
+        initialReportType="LEAVE"
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports',
+    );
+
+    await screen.findByText('请选择公司后查询正式报表。');
+    fireEvent.change(screen.getByLabelText('公司'), {
+      target: { value: 'company-a' },
+    });
+    expect((await screen.findAllByText('公司 A 当前结果')).length)
+      .toBeGreaterThan(0);
+    fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
+      'button',
+      { name: '下一页' },
+    ));
+    await waitFor(() => {
+      expect(loadReport.mock.calls.at(-1)?.[0]).toMatchObject({
+        companyId: 'company-a',
+        expectedProjectionVersion: 'PROJ-A',
+        page: 1,
+      });
+    });
+
+    fireEvent.change(screen.getByLabelText('公司'), {
+      target: { value: 'company-b' },
+    });
+    expect((await screen.findAllByText('公司 B 当前结果')).length)
+      .toBeGreaterThan(0);
+
+    const capturedLateCompanyAQuery = lateCompanyAQuery;
+    expect(capturedLateCompanyAQuery).toBeDefined();
+    if (capturedLateCompanyAQuery === undefined) {
+      throw new TypeError('company A page-two query was not captured');
+    }
+    await act(async () => {
+      lateCompanyA.resolve(projectionFor(
+        capturedLateCompanyAQuery,
+        'PROJ-A',
+        '公司 A 迟到结果',
+      ));
+      await lateCompanyA.promise;
+    });
+
+    fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
+      'button',
+      { name: '下一页' },
+    ));
+    await waitFor(() => {
+      expect(loadReport.mock.calls.at(-1)?.[0]).toMatchObject({
+        companyId: 'company-b',
+        expectedProjectionVersion: 'PROJ-B',
+        page: 1,
+      });
     });
   });
 
@@ -659,6 +1178,8 @@ describe('Wave 7 formal report route', () => {
     expect(await screen.findByRole('heading', {
       name: 'ATTENDANCE_DETAIL · 2026-07',
     })).toBeInTheDocument();
+    expect(screen.getByText('计算公式版本').nextElementSibling)
+      .toHaveTextContent('ATTENDANCE_DETAIL_FORMULA_V1');
 
     for (const option of reportTypeOptions.slice(1)) {
       fireEvent.change(typeSelect, { target: { value: option.value } });
@@ -719,6 +1240,8 @@ describe('Wave 7 formal report route', () => {
     expect(loadAttendanceMonthMatrix).toHaveBeenCalledWith({
       period: '2026-06',
       companyId: '30000000-0000-0000-0000-000000000001',
+      expectedProjectionVersion:
+        'FORMAL-ATTENDANCE_DETAIL-2026-06-V1',
       page: 0,
       size: 20,
     });
@@ -728,6 +1251,8 @@ describe('Wave 7 formal report route', () => {
       expect(loadAttendanceMonthMatrix).toHaveBeenLastCalledWith({
         period: '2026-06',
         companyId: '30000000-0000-0000-0000-000000000001',
+        expectedProjectionVersion:
+          'FORMAL-ATTENDANCE_DETAIL-2026-06-V1',
         page: 1,
         size: 20,
       });
@@ -1065,15 +1590,29 @@ describe('Wave 7 formal report route', () => {
 
     expect(createReportExport).toHaveBeenCalledWith({
       reportType: 'ATTENDANCE_DETAIL',
-      period: '2026-07',
-      companyId: '30000000-0000-0000-0000-000000000001',
-      status: null,
+      projectionVersion: 'FORMAL-ATTENDANCE_DETAIL-2026-07-V1',
+      queryFingerprint: 'f'.repeat(64),
+      scopeReference: 'scope:server-authorized',
+      filters: {
+        period: '2026-07',
+        scopeReference: 'scope:server-authorized',
+        companyId: '30000000-0000-0000-0000-000000000001',
+        status: null,
+      },
+      selectedFields: [
+        'scope',
+        'scheduled-hours',
+        'confirmed-hours',
+        'late-count',
+        'recognized-overtime-hours',
+        'leave-hours',
+      ],
       purpose: '月度考勤复核',
       currentPassword: 'Current#Password123',
     });
     const request = createReportExport.mock.calls[0]?.[0];
-    expect(request).not.toHaveProperty('organizationId');
-    expect(request).not.toHaveProperty('employeeId');
+    expect(request?.filters).not.toHaveProperty('organizationId');
+    expect(request?.filters).not.toHaveProperty('employeeId');
     expect(passwordInput).toHaveValue('');
     expect(window.location.href).not.toContain('Current#Password123');
     expect(storageContents()).not.toContain('Current#Password123');
@@ -1311,6 +1850,15 @@ function renderWithRouter(element: ReactNode, initialPath = '/') {
   );
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <output data-testid="location">
+      {location.pathname}{location.search}
+    </output>
+  );
+}
+
 function gateway(
   overrides: Partial<Wave7ProjectionGateway>,
 ): Wave7ProjectionGateway {
@@ -1516,7 +2064,7 @@ function formalReport(
     },
     reportType: query.reportType,
     reportTitle: `${query.reportType} · ${query.period}`,
-    queryFingerprint: `formal:${query.reportType}:${query.period}`,
+    queryFingerprint: 'f'.repeat(64),
     formulaVersion: `${query.reportType}_FORMULA_V1`,
     filters: {
       period: query.period,

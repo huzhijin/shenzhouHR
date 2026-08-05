@@ -34,6 +34,7 @@ public class AttendanceReportController {
             "organizationId",
             "employeeId",
             "status",
+            "expectedProjectionVersion",
             "page",
             "size");
     private static final Set<String> MONTH_MATRIX_PARAMETERS = Set.of(
@@ -41,6 +42,7 @@ public class AttendanceReportController {
             "companyId",
             "organizationId",
             "employeeId",
+            "expectedProjectionVersion",
             "page",
             "size");
 
@@ -100,6 +102,9 @@ public class AttendanceReportController {
                 organizationId,
                 employeeId,
                 status,
+                parameterValue(
+                        requestParameters,
+                        "expectedProjectionVersion"),
                 page,
                 size);
         return ResponseEntity.ok()
@@ -127,6 +132,9 @@ public class AttendanceReportController {
                 companyId,
                 organizationId,
                 employeeId,
+                parameterValue(
+                        requestParameters,
+                        "expectedProjectionVersion"),
                 page,
                 size);
         var metadata = new AttendanceMonthMatrixResponse.ProjectionMetadata(
@@ -250,6 +258,14 @@ public class AttendanceReportController {
                 HttpStatus.BAD_REQUEST,
                 "VALIDATION_ERROR",
                 "请求包含不支持的查询参数");
+    }
+
+    private static String parameterValue(
+            MultiValueMap<String, String> requestParameters,
+            String name) {
+        return requestParameters == null
+                ? null
+                : requestParameters.getFirst(name);
     }
 
     record CompanyDirectoryResponse(

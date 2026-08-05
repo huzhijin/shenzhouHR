@@ -36,6 +36,9 @@ class AttendanceReportMapperXmlTest {
                                 + "listDashboardSeverityDistribution",
                         NAMESPACE + "listDashboardTypeDistribution",
                         NAMESPACE + "listDashboardOrganizationRanking",
+                        NAMESPACE
+                                + "listAuthorizedEmployeeIdsInScopeIntersection",
+                        NAMESPACE + "countCurrentOrganizationAncestor",
                         NAMESPACE + "listDashboardExceptions",
                         NAMESPACE + "listAuthorizedCompanies",
                         NAMESPACE + "listLatestAuthorizedProjections",

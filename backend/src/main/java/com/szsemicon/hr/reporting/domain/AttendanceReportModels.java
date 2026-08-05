@@ -103,7 +103,7 @@ public final class AttendanceReportModels {
         EXCEPTION_MINUTES("exception-minutes", "异常分钟"),
         EVIDENCE_SUMMARY("evidence-summary", "证据摘要"),
         LATE_EVENT_COUNT("late-event-count", "迟到次数"),
-        ATTENDANCE_RATE("attendance-rate", "出勤率"),
+        ATTENDANCE_RATE("attendance-rate", "出勤率（%）"),
         RATE_FORMULA_VERSION("rate-formula-version", "出勤率公式版本"),
         ACCOUNT_TYPE("account-type", "账户类型"),
         OPENING_HOURS("opening-hours", "期初"),

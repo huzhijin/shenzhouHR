@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
+import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.AuthorizedDashboardSnapshot;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.AuthorizedScope;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.CompanyOption;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.DailyTrendPoint;
@@ -58,10 +59,12 @@ class AttendanceDashboardServiceTest {
                 .thenReturn(List.of(company));
         when(repository.loadAuthorizedToday(
                         PRINCIPAL, COMPANY, BUSINESS_DATE, NOW))
-                .thenReturn(Optional.of(snapshot(
-                        NOW,
-                        new ExceptionSummary(2, 1, 1),
-                        List.of(exception("case-a")))));
+                .thenReturn(Optional.of(new AuthorizedDashboardSnapshot(
+                        snapshot(
+                                NOW,
+                                new ExceptionSummary(2, 1, 1),
+                                List.of(exception("case-a"))),
+                        true)));
         when(capabilities.currentCapabilities()).thenReturn(Set.of(
                 CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
                 CapabilityCodes.ATTENDANCE_REPORT_READ));
@@ -108,10 +111,12 @@ class AttendanceDashboardServiceTest {
                 .thenReturn(List.of(company));
         when(repository.loadAuthorizedToday(
                         PRINCIPAL, COMPANY, BUSINESS_DATE, NOW))
-                .thenReturn(Optional.of(snapshot(
-                        NOW,
-                        new ExceptionSummary(0, 0, 0),
-                        List.of())));
+                .thenReturn(Optional.of(new AuthorizedDashboardSnapshot(
+                        snapshot(
+                                NOW,
+                                new ExceptionSummary(0, 0, 0),
+                                List.of()),
+                        false)));
         when(capabilities.currentCapabilities()).thenReturn(
                 Set.of(CapabilityCodes.ATTENDANCE_DASHBOARD_READ));
 
@@ -133,6 +138,59 @@ class AttendanceDashboardServiceTest {
     }
 
     @Test
+    void dashboardOnlyRepositoryResultKeepsAggregatesWithoutEmployeeDetails() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceDashboardRepository repository =
+                mock(AttendanceDashboardRepository.class);
+        CompanyOption company =
+                new CompanyOption(COMPANY, "神州半导体");
+        DashboardSnapshot sourceSnapshot = snapshot(
+                NOW,
+                new ExceptionSummary(2, 1, 1),
+                List.of());
+        when(repository.listAuthorizedCompanies(
+                        PRINCIPAL,
+                        YearMonth.of(2026, 7),
+                        NOW))
+                .thenReturn(List.of(company));
+        when(repository.loadAuthorizedToday(
+                        PRINCIPAL, COMPANY, BUSINESS_DATE, NOW))
+                .thenReturn(Optional.of(new AuthorizedDashboardSnapshot(
+                        sourceSnapshot, false)));
+        when(capabilities.currentCapabilities()).thenReturn(
+                Set.of(CapabilityCodes.ATTENDANCE_DASHBOARD_READ));
+
+        var result = service(capabilities, repository).query(null);
+
+        assertThat(result)
+                .isInstanceOfSatisfying(
+                        AttendanceDashboardService.Ready.class,
+                        ready -> {
+                            assertThat(ready.snapshot().summary())
+                                    .isEqualTo(
+                                            new ExceptionSummary(2, 1, 1));
+                            assertThat(ready.snapshot().analytics())
+                                    .isEqualTo(sourceSnapshot.analytics());
+                            assertThat(ready.snapshot().exceptions())
+                                    .isEmpty();
+                            assertThat(ready.allowedActions()).isEmpty();
+                        });
+    }
+
+    @Test
+    void repositoryAccessMarkerCannotCarryUnauthorizedEmployeeDetails() {
+        assertThatThrownBy(() -> new AuthorizedDashboardSnapshot(
+                        snapshot(
+                                NOW,
+                                new ExceptionSummary(1, 1, 1),
+                                List.of(exception("case-sensitive"))),
+                        false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must not contain employee details");
+    }
+
+    @Test
     void staleMonthlyProjectionCannotMasqueradeAsTodayZero() {
         CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);
@@ -147,10 +205,12 @@ class AttendanceDashboardServiceTest {
                 .thenReturn(List.of(company));
         when(repository.loadAuthorizedToday(
                         PRINCIPAL, COMPANY, BUSINESS_DATE, NOW))
-                .thenReturn(Optional.of(snapshot(
-                        Instant.parse("2026-07-28T15:59:59Z"),
-                        new ExceptionSummary(0, 0, 0),
-                        List.of())));
+                .thenReturn(Optional.of(new AuthorizedDashboardSnapshot(
+                        snapshot(
+                                Instant.parse("2026-07-28T15:59:59Z"),
+                                new ExceptionSummary(0, 0, 0),
+                                List.of()),
+                        false)));
 
         assertProjectionNotReady(() ->
                 service(capabilities, repository).query(null));

@@ -152,6 +152,41 @@ describe('LoginPage first-password-change flow', () => {
     expect(screen.queryByText(/关联 ID|关联标识/)).not.toBeInTheDocument();
   });
 
+  it('distinguishes a server failure from an unavailable network', async () => {
+    loginMock.mockRejectedValueOnce(new ApiRequestError(503, {
+      code: 'AUTH_SERVICE_UNAVAILABLE',
+      correlationId: 'login-request-internal-503',
+      retryable: true,
+    }));
+
+    renderLoginPage(vi.fn());
+    submitCredentials('synthetic.local.admin', 'Temporary-Password-2026!');
+
+    expect(await screen.findByText(
+      '登录服务暂时不可用，请稍后重试或联系系统管理员。',
+    )).toBeInTheDocument();
+    expect(screen.queryByText('网络连接不可用')).not.toBeInTheDocument();
+    expect(screen.queryByText(/login-request-internal-503/)).not.toBeInTheDocument();
+  });
+
+  it('does not misreport an unexpected client response as a wrong password', async () => {
+    loginMock.mockRejectedValueOnce(new ApiRequestError(403, {
+      code: 'REQUEST_REJECTED',
+      correlationId: 'login-request-internal-403',
+      retryable: false,
+    }));
+
+    renderLoginPage(vi.fn());
+    submitCredentials('synthetic.local.admin', 'Temporary-Password-2026!');
+
+    expect(await screen.findByText(
+      '登录请求未被接受，请刷新页面后重试；如仍失败请联系系统管理员。',
+    )).toBeInTheDocument();
+    expect(screen.queryByText('用户名或密码错误')).not.toBeInTheDocument();
+    expect(screen.queryByText('网络连接不可用')).not.toBeInTheDocument();
+    expect(screen.queryByText(/login-request-internal-403/)).not.toBeInTheDocument();
+  });
+
   it('keeps correlation metadata out of first-password-change failures', async () => {
     loginMock.mockResolvedValueOnce(sessionView({
       firstPasswordChangeRequired: true,
@@ -180,7 +215,9 @@ describe('LoginPage first-password-change flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '完成修改并登录' }));
 
     expect(
-      await screen.findByText('无法连接到登录服务，请检查网络后重试。'),
+      await screen.findByText(
+        '登录服务暂时不可用，请稍后重试或联系系统管理员。',
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/password-change-request-internal-503/)).not.toBeInTheDocument();
     expect(screen.queryByText(/关联 ID|关联标识/)).not.toBeInTheDocument();

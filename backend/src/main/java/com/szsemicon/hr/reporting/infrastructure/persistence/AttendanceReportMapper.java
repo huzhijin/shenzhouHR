@@ -81,13 +81,27 @@ interface AttendanceReportMapper {
                     @Param("authorizationTime")
                             Instant authorizationTime);
 
+    List<String> listAuthorizedEmployeeIdsInScopeIntersection(
+            @Param("companyId") String companyId,
+            @Param("firstScopes") List<ReportRows.ScopeRow> firstScopes,
+            @Param("secondScopes") List<ReportRows.ScopeRow> secondScopes,
+            @Param("authorizationTime") Instant authorizationTime);
+
+    long countCurrentOrganizationAncestor(
+            @Param("companyId") String companyId,
+            @Param("ancestorOrganizationId") String ancestorOrganizationId,
+            @Param("descendantOrganizationId")
+                    String descendantOrganizationId,
+            @Param("authorizationTime") Instant authorizationTime);
+
     List<DashboardRows.ExceptionRow> listDashboardExceptions(
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,
             @Param("projectionId") String projectionId,
             @Param("companyId") String companyId,
             @Param("businessDate") LocalDate businessDate,
-            @Param("authorizationTime") Instant authorizationTime);
+            @Param("authorizationTime") Instant authorizationTime,
+            @Param("reportScopes") List<ReportRows.ScopeRow> reportScopes);
 
     List<ReportRows.CompanyRow> listAuthorizedCompanies(
             @Param("principalId") String principalId,

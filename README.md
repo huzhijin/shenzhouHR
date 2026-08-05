@@ -8,13 +8,14 @@
 
 单个授权公司可以安全自动选中；存在多个授权公司时必须显式选择，系统不猜测第一家公司。V1～V8、V10 及冻结验证证据保留原始字节与历史术语；V9 仅对 MySQL 8.4 保留字 `row_number` 做了有记录的标识符引用修正，已有 V9 Flyway history 的数据库不得静默 `repair`。V11 是一次性前向迁移桥，最新数据库、后端、OpenAPI、前端和当前交付文档只使用公司语义。
 
-面向管理员的简明操作说明见 [`docs/user-guide/README.md`](docs/user-guide/README.md)。
+面向普通员工、部门负责人、HR、高管、系统管理员和审计人员的客户使用说明见 [`docs/user-guide/README.md`](docs/user-guide/README.md)。当前部署、外部取数、期初数据和报表生产就绪度见 [`docs/contracts/2026-08-06-customer-deployment-readiness.md`](docs/contracts/2026-08-06-customer-deployment-readiness.md)；技术环境可运行不等于考勤业务链已经生产就绪。
+需要客户拍板的出勤率、日报/周报/月报、汇总、工作台和导出口径集中在 [`docs/contracts/2026-08-06-reporting-business-confirmation.md`](docs/contracts/2026-08-06-reporting-business-confirmation.md)；本轮逐项代码结论和已修/未完范围记录在 [`docs/contracts/2026-08-06-reporting-code-audit.md`](docs/contracts/2026-08-06-reporting-code-audit.md)。
 
 ## 当前部署迁移状态
 
-仓库已按原始 Git 对象恢复并校验 V12～V28，但本机现有 V30 数据库对应的权威 V29、V30 迁移源文件仍待恢复。该缺口不影响当前本机数据库和服务继续验收，但会阻止从空库完整、可审计地部署到 V30；不得编造同名迁移或用 Flyway `repair` 掩盖 checksum 差异。
+仓库现已恢复连续的 V1～V31 迁移链。V12～V28 来自原始 Git 对象；V29、V30 来自保留的原始工作树，并已逐字节核对旧构建产物，其 Flyway checksum 与本机历史库记录一致。不得修改已经执行过的迁移，也不得用 Flyway `repair` 掩盖 checksum 差异。全新客户库可以按 V1～V31 顺序迁移；下述现有本机基线收口脚本不属于空库安装流程。
 
-[`deploy/mysql/usability-finalization-post-v30.sql`](deploy/mysql/usability-finalization-post-v30.sql) 只用于已经准确执行过 V30 且包含 W3 基线的现有数据库；干净数据库不得运行。它负责停用 W3 验证公司、停用旧合成管理员并撤销会话、移除制造中心主管/主任角色，以及按精确标识清理浏览器验收产生的合成员工与组织。脚本会先核对数据形状，发现真实授权或异常依赖时立即回滚。在权威 V29、V30 恢复前，它保持为 Flyway 外的可重复执行收口脚本。
+[`deploy/mysql/usability-finalization-post-v30.sql`](deploy/mysql/usability-finalization-post-v30.sql) 只用于已经准确执行过 V30 且包含 W3 基线的现有数据库；干净数据库不得运行。它负责停用 W3 验证公司、停用旧合成管理员并撤销会话、移除制造中心主管/主任角色，以及按精确标识清理浏览器验收产生的合成员工与组织。脚本会先核对数据形状，发现真实授权或异常依赖时立即回滚；它保持为 Flyway 外的可重复执行收口脚本。
 
 完成上述收口后，现有本机基线必须按固定顺序执行共享地点升级：先由 Flyway 执行并记录纯结构迁移 [`V31__shared_physical_location_catalog.sql`](backend/src/main/resources/db/migration/V31__shared_physical_location_catalog.sql)，再运行 [`deploy/mysql/four-company-finalization-post-v30.sql`](deploy/mysql/four-company-finalization-post-v30.sql)，将已确认的上海昇州、上海晟州聚能、江苏神州和江苏芯越建立为 4 家独立公司并初始化公司级班次、工作日历、考勤组、规则、年假策略和管理员公司范围；随后运行 [`deploy/mysql/shared-location-convergence-post-v30.sql`](deploy/mysql/shared-location-convergence-post-v30.sql)，将内部 28 条公司兼容投影收敛为 7 条集团共享地点主数据和 28 条公司可用关系；最后运行只读验收脚本 [`deploy/mysql/verify-four-company-finalization.sql`](deploy/mysql/verify-four-company-finalization.sql)。顺序必须是 `V31 → 四公司收口 → 共享地点收敛 → 只读验收`，全部检查均为 `PASS` 才可继续。这些脚本均有严格的版本和数据形状保护，不能用于空库或未经确认的环境。
 
@@ -41,7 +42,7 @@ python3 scripts/release/verify_wave9.py \
 
 - 前端：React 19、TypeScript、Vite、Ant Design、Tabler Icons
 - 后端：OpenJDK 21、Spring Boot 4.1、Maven、MyBatis
-- 数据库：MySQL 8.4 LTS 生产基线、Flyway 前向迁移
+- 数据库：仓库核心验证基线为 MySQL 8.4 LTS、Flyway 前向迁移；当前客户宝塔包另行固定为 MySQL 8.0.45。两者尚未统一，必须先选定客户权威版本并在同一最终提交上重跑 V1～V31、安装、升级和恢复验收，不能仅凭任一侧本地测试声明生产就绪。
 - 本地联调：直接连接 `127.0.0.1:3306`，不使用 Docker、Podman 或 Testcontainers
 
 ## WAVE-1 路由

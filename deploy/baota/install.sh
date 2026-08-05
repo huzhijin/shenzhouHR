@@ -6,13 +6,38 @@ RELEASE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BAOTA_ROOT="$RELEASE_ROOT/deploy/baota"
 APP_ROOT="/opt/shenzhouhr"
 APP_DIR="$APP_ROOT/app"
-WEB_ROOT_BASE="/www/wwwroot"
+readonly WEB_ROOT_BASE="/www/wwwroot"
 ENV_ROOT="/etc/shenzhouhr"
-BACKEND_PORT="8080"
+BACKEND_PORT="${BACKEND_PORT:-18080}"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+verify_release_integrity() {
+  local checksum_file="$RELEASE_ROOT/SHA256SUMS"
+  [[ -f "$checksum_file" && ! -L "$checksum_file" ]] \
+    || die "Release checksum manifest is missing or unsafe: $checksum_file"
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$RELEASE_ROOT" && sha256sum --check --quiet SHA256SUMS) \
+      || die 'Release integrity verification failed; do not continue installation'
+  elif command -v shasum >/dev/null 2>&1; then
+    (cd "$RELEASE_ROOT" && shasum -a 256 --check SHA256SUMS >/dev/null) \
+      || die 'Release integrity verification failed; do not continue installation'
+  else
+    die 'sha256sum or shasum is required to verify the release package'
+  fi
+  printf '%s\n' 'Release integrity verification passed.'
+}
+
+load_release_contract() {
+  local manifest="$RELEASE_ROOT/BUILD-MANIFEST.txt"
+  [[ -f "$manifest" && ! -L "$manifest" ]] \
+    || die "Release manifest is missing or unsafe: $manifest"
+  PACKAGE_MYSQL_EXPECTED="$(sed -n 's/^mysql_expected=//p' "$manifest" | head -1)"
+  [[ "$PACKAGE_MYSQL_EXPECTED" == "8.0.45" ]] \
+    || die "Unsupported or missing MySQL release contract: ${PACKAGE_MYSQL_EXPECTED:-unknown}"
 }
 
 need_root() {
@@ -21,6 +46,30 @@ need_root() {
 
 valid_domain() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]] && [[ "$1" != *..* ]]
+}
+
+validate_web_root() {
+  local require_existing="${1:-false}"
+  local expected="$WEB_ROOT_BASE/$DOMAIN"
+  [[ "$WEB_ROOT" == "$expected" ]] \
+    || die "Frontend directory must be exactly $expected"
+  [[ "$WEB_ROOT" != "/" && "$WEB_ROOT" != "/www" && "$WEB_ROOT" != "$WEB_ROOT_BASE" ]] \
+    || die "Refusing broad frontend directory: $WEB_ROOT"
+  [[ -d /www && ! -L /www ]] \
+    || die 'Baota /www directory must be a real directory, not a symbolic link'
+  [[ -d "$WEB_ROOT_BASE" && ! -L "$WEB_ROOT_BASE" ]] \
+    || die "Baota web root must be a real directory, not a symbolic link: $WEB_ROOT_BASE"
+  if [[ -e "$WEB_ROOT" || -L "$WEB_ROOT" ]]; then
+    [[ -d "$WEB_ROOT" && ! -L "$WEB_ROOT" ]] \
+      || die "Frontend directory must be a real directory, not a symbolic link: $WEB_ROOT"
+  elif [[ "$require_existing" == "true" ]]; then
+    die "Frontend directory was not found: $WEB_ROOT"
+  fi
+}
+
+clear_web_root() {
+  validate_web_root true
+  find "$WEB_ROOT" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 }
 
 detect_java() {
@@ -68,16 +117,29 @@ detect_mysql() {
 }
 
 need_root
+verify_release_integrity
+load_release_contract
 [[ -f "$RELEASE_ROOT/backend/shenzhou-hr.jar" ]] || die 'Release backend jar is missing'
 [[ -d "$RELEASE_ROOT/web" ]] || die 'Release frontend files are missing'
 [[ -d "$RELEASE_ROOT/db/migration" ]] || die 'Release migration files are missing'
 command -v systemctl >/dev/null 2>&1 || die 'systemd/systemctl is required on the customer server'
 command -v curl >/dev/null 2>&1 || die 'curl is required'
 command -v openssl >/dev/null 2>&1 || die 'openssl is required'
+command -v ss >/dev/null 2>&1 || die 'ss is required to verify the private backend port'
+[[ "$BACKEND_PORT" =~ ^[0-9]+$ ]] || die "Invalid backend port: $BACKEND_PORT"
+((BACKEND_PORT >= 1024 && BACKEND_PORT <= 65535)) \
+  || die "Backend port must be between 1024 and 65535: $BACKEND_PORT"
+[[ ! -e "$ENV_ROOT/shenzhouhr.env" && ! -e "$ENV_ROOT/shenzhouhr-migrator.env" ]] \
+  || die "Existing ShenzhouHR environment found under $ENV_ROOT; use upgrade.sh or stop and diagnose an interrupted installation."
+if ss -H -ltn "sport = :$BACKEND_PORT" | grep -q .; then
+  die "Backend port $BACKEND_PORT is already in use; choose a free private port before installation"
+fi
 
 read -r -p "Customer domain (for example hr.example.com): " DOMAIN
 DOMAIN="${DOMAIN:-${SHENZHOUHR_DOMAIN:-}}"
 valid_domain "$DOMAIN" || die "Invalid domain: $DOMAIN"
+WEB_ROOT="$WEB_ROOT_BASE/$DOMAIN"
+validate_web_root false
 
 read -r -p 'Enable HTTPS for this site? [y/N]: ' ENABLE_SSL
 ENABLE_SSL="${ENABLE_SSL:-N}"
@@ -110,6 +172,7 @@ NGINX_BIN="$(detect_nginx)"
 printf 'Using Java: %s\n' "$JAVA_BIN"
 printf 'Using JAR tool: %s\n' "$JAR_BIN"
 printf 'Using MySQL client: %s\n' "$MYSQL_BIN"
+printf 'Using private backend port: %s\n' "$BACKEND_PORT"
 
 if [[ -d /www/server/panel/vhost/nginx ]]; then
   NGINX_VHOST_DIR="/www/server/panel/vhost/nginx"
@@ -124,7 +187,6 @@ else
   VHOST_CONFIG="$NGINX_VHOST_DIR/shenzhouhr.conf"
 fi
 
-WEB_ROOT="$WEB_ROOT_BASE/$DOMAIN"
 CERT_DIR="/www/server/panel/vhost/cert/$DOMAIN"
 SSL_CERT="${SSL_CERT:-$CERT_DIR/fullchain.pem}"
 SSL_KEY="${SSL_KEY:-$CERT_DIR/privkey.pem}"
@@ -146,6 +208,7 @@ fi
 INSTALL_STAMP="$(date -u +%Y%m%d%H%M%S)"
 BACKUP_DIR="$APP_ROOT/backups/$INSTALL_STAMP"
 mkdir -p "$APP_DIR" "$WEB_ROOT" "$ENV_ROOT" "$BACKUP_DIR"
+validate_web_root true
 if [[ -f "$APP_DIR/shenzhou-hr.jar" ]]; then
   cp -a "$APP_DIR/shenzhou-hr.jar" "$BACKUP_DIR/"
 fi
@@ -164,6 +227,8 @@ fi
   --db-port "$DB_PORT" \
   --db-name "$DB_NAME" \
   --account-host "$ACCOUNT_HOST" \
+  --backend-port "$BACKEND_PORT" \
+  --expected-version "$PACKAGE_MYSQL_EXPECTED" \
   --session-cookie-secure "$SESSION_COOKIE_SECURE"
 
 install -o shenzhouhr -g shenzhouhr -m 0750 "$RELEASE_ROOT/backend/shenzhou-hr.jar" "$APP_DIR/shenzhou-hr.jar"
@@ -181,7 +246,7 @@ if [[ "$CREATE_ADMIN" =~ ^[Yy]$ ]]; then
     --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env"
 fi
 
-rm -rf -- "$WEB_ROOT"/*
+clear_web_root
 cp -a "$RELEASE_ROOT/web/." "$WEB_ROOT/"
 find "$WEB_ROOT" -type d -exec chmod 0755 {} +
 find "$WEB_ROOT" -type f -exec chmod 0644 {} +
@@ -221,7 +286,10 @@ for attempt in {1..30}; do
   sleep 2
 done
 
-"$BAOTA_ROOT/scripts/verify.sh" --env-file "$ENV_ROOT/shenzhouhr.env"
+"$BAOTA_ROOT/scripts/verify.sh" \
+  --env-file "$ENV_ROOT/shenzhouhr.env" \
+  --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env" \
+  --health-url "http://127.0.0.1:$BACKEND_PORT/actuator/health"
 systemctl reload nginx
 
 printf '\nDeployment completed.\n'
@@ -234,3 +302,5 @@ printf 'Backend: http://127.0.0.1:%s (not publicly exposed)\n' "$BACKEND_PORT"
 printf 'Service: systemctl status shenzhouhr\n'
 printf 'Logs: journalctl -u shenzhouhr -f\n'
 printf 'Backup: %s\n' "$BACKUP_DIR"
+printf '%s\n' 'Opening business data is not embedded in the code package.'
+printf '%s\n' 'Import approved organization, employee and employment files separately after login.'

@@ -5,12 +5,16 @@ import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.EncodedExport;
+import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.ExportContext;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.DeliveryMode;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.ExportArtifact;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.ExportJob;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.ExportStatus;
 import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportDataSet;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportField;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
@@ -20,7 +24,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -108,39 +117,35 @@ public class AttendanceReportExportService {
 
     public ExportView create(
             ReportType reportType,
-            YearMonth period,
-            String companyId,
-            String organizationId,
-            String employeeId,
-            String status,
+            ReportFilter filter,
+            RequestedExportBinding requestedBinding,
             String purpose,
             String currentPassword) {
-        if (reportType == null || period == null) {
+        if (reportType == null
+                || filter == null
+                || requestedBinding == null) {
             throw new IllegalArgumentException(
-                    "report type and period are required");
+                    "report type, filter, and export binding are required");
         }
-        if (status != null && reportType != ReportType.EXCEPTIONS) {
+        if (filter.status() != null
+                && reportType != ReportType.EXCEPTIONS) {
             throw new IllegalArgumentException(
                     "status is only supported by the exception report");
         }
-        ReportFilter filter = new ReportFilter(
-                period,
-                companyId,
-                organizationId,
-                employeeId,
-                status);
         String normalizedPurpose = ExportJob.normalizePurpose(purpose);
         authenticationService.reauthenticateCurrentAccount(
                 currentPassword, "ATTENDANCE_REPORT_EXPORT_CREATE");
         return transactions.readCommitted(() -> createAuthorized(
                 reportType,
                 filter,
+                requestedBinding,
                 normalizedPurpose));
     }
 
     private ExportView createAuthorized(
             ReportType reportType,
             ReportFilter filter,
+            RequestedExportBinding requestedBinding,
             String normalizedPurpose) {
         capabilities.require(
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE);
@@ -160,17 +165,51 @@ public class AttendanceReportExportService {
                 snapshot.projectionVersion(),
                 snapshot.scope().authorizationDigest(),
                 dataSet.calculationFormulaVersion());
+        List<ReportField> selectedFields = requireCurrentBinding(
+                filter,
+                requestedBinding,
+                snapshot,
+                dataSet,
+                queryFingerprint);
+        ReportDataSet exportDataSet = withExportFields(
+                dataSet, selectedFields);
+        if (!capabilityCoversVisibleExport(
+                principalId,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                reportType,
+                snapshot,
+                exportDataSet,
+                now)) {
+            throw unavailable();
+        }
         String visibleContentDigest =
                 AttendanceReportVisibilityDigest.calculate(
-                        reportType, snapshot, dataSet);
+                        reportType, snapshot, exportDataSet);
         DeliveryMode deliveryMode =
                 dataSet.rows().size() <= SYNCHRONOUS_ROW_LIMIT
                         ? DeliveryMode.SYNC
                         : DeliveryMode.ASYNC;
-        EncodedExport encoded = deliveryMode == DeliveryMode.SYNC
-                ? encoder.encode(dataSet, filter.period())
-                : null;
         String exportId = UUID.randomUUID().toString();
+        EncodedExport encoded = deliveryMode == DeliveryMode.SYNC
+                ? encoder.encode(
+                        exportDataSet,
+                        new ExportContext(
+                                exportId,
+                                principalId,
+                                normalizedPurpose,
+                                snapshot.filter(),
+                                snapshot.scope(),
+                                snapshot.projectionVersion(),
+                                dataSet.calculationFormulaVersion(),
+                                snapshot.sourceVersions(),
+                                snapshot.dataAsOf(),
+                                snapshot.periodState(),
+                                queryFingerprint,
+                                visibleContentDigest,
+                                now,
+                                now,
+                                selectedFields))
+                : null;
         ExportJob job = new ExportJob(
                 exportId,
                 principalId,
@@ -182,7 +221,7 @@ public class AttendanceReportExportService {
                 queryFingerprint,
                 visibleContentDigest,
                 dataSet.calculationFormulaVersion(),
-                dataSet.exportAllowlist(),
+                selectedFields,
                 dataSet.rows().size(),
                 deliveryMode,
                 encoded == null
@@ -226,6 +265,7 @@ public class AttendanceReportExportService {
                 job,
                 principalId,
                 now,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
                 "ATTENDANCE_REPORT_EXPORT_STATUS_DENIED");
         return ExportView.from(job, now);
     }
@@ -265,6 +305,7 @@ public class AttendanceReportExportService {
                 job,
                 principalId,
                 now,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD,
                 "ATTENDANCE_REPORT_EXPORT_DOWNLOAD_DENIED");
         if (!job.expiresAt().isAfter(clock.instant())) {
             throw new ApiProblemException(
@@ -355,10 +396,36 @@ public class AttendanceReportExportService {
         try {
             var dataSet = calculator.calculate(
                     job.reportType(), authorizedSnapshot);
+            if (!authorizedSnapshot.filter().equals(job.filter())
+                    || !job.projectionVersion().equals(
+                            authorizedSnapshot.projectionVersion())
+                    || !constantTimeEquals(
+                            job.authorizationDigest(),
+                            authorizedSnapshot
+                                    .scope()
+                                    .authorizationDigest())
+                    || !exportFieldsAreCurrentlyAllowed(
+                            job.exportFields(),
+                            dataSet.exportAllowlist())) {
+                failBuild(job, "AUTHORIZATION_OR_SOURCE_CHANGED");
+                return true;
+            }
+            ReportDataSet exportDataSet = withExportFields(
+                    dataSet, job.exportFields());
+            if (!capabilityCoversVisibleExport(
+                    job.principalId(),
+                    CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                    job.reportType(),
+                    authorizedSnapshot,
+                    exportDataSet,
+                    now)) {
+                failBuild(job, "AUTHORIZATION_OR_SOURCE_CHANGED");
+                return true;
+            }
             String currentFingerprint =
                     AttendanceReportQueryService.fingerprint(
                             job.reportType(),
-                            job.filter(),
+                            authorizedSnapshot.filter(),
                             authorizedSnapshot.projectionVersion(),
                             authorizedSnapshot
                                     .scope()
@@ -368,20 +435,34 @@ public class AttendanceReportExportService {
                     AttendanceReportVisibilityDigest.calculate(
                             job.reportType(),
                             authorizedSnapshot,
-                            dataSet);
+                            exportDataSet);
             if (!constantTimeEquals(
                             job.queryFingerprint(), currentFingerprint)
                     || !constantTimeEquals(
                             job.visibleContentDigest(),
                             currentVisibleContentDigest)
-                    || job.rowCount() != dataSet.rows().size()
-                    || !job.exportFields().equals(
-                            dataSet.exportAllowlist())) {
+                    || job.rowCount() != dataSet.rows().size()) {
                 failBuild(job, "AUTHORIZATION_OR_SOURCE_CHANGED");
                 return true;
             }
             encoded = encoder.encode(
-                    dataSet, job.filter().period());
+                    exportDataSet,
+                    new ExportContext(
+                            job.exportId(),
+                            job.principalId(),
+                            job.purpose(),
+                            job.filter(),
+                            authorizedSnapshot.scope(),
+                            job.projectionVersion(),
+                            job.formulaVersion(),
+                            authorizedSnapshot.sourceVersions(),
+                            authorizedSnapshot.dataAsOf(),
+                            authorizedSnapshot.periodState(),
+                            job.queryFingerprint(),
+                            job.visibleContentDigest(),
+                            job.createdAt(),
+                            clock.instant(),
+                            job.exportFields()));
         } catch (RuntimeException exception) {
             failBuild(job, "EXPORT_BUILD_FAILED");
             return true;
@@ -425,6 +506,7 @@ public class AttendanceReportExportService {
             ExportJob job,
             String principalId,
             Instant now,
+            String requiredCapabilityCode,
             String deniedAuditAction) {
         var currentSnapshotResult =
                 sourceRepository.loadAuthorizedSnapshot(
@@ -445,10 +527,33 @@ public class AttendanceReportExportService {
         var currentSnapshot = currentSnapshotResult.orElseThrow();
         var currentDataSet =
                 calculator.calculate(job.reportType(), currentSnapshot);
+        if (!currentSnapshot.filter().equals(job.filter())
+                || !job.projectionVersion().equals(
+                        currentSnapshot.projectionVersion())
+                || !constantTimeEquals(
+                        job.authorizationDigest(),
+                        currentSnapshot.scope().authorizationDigest())
+                || !exportFieldsAreCurrentlyAllowed(
+                        job.exportFields(),
+                        currentDataSet.exportAllowlist())) {
+            denyCurrentAuthorization(job, principalId, deniedAuditAction);
+        }
+        ReportDataSet currentExportDataSet = withExportFields(
+                currentDataSet, job.exportFields());
+        if (!capabilityCoversVisibleExport(
+                principalId,
+                requiredCapabilityCode,
+                job.reportType(),
+                currentSnapshot,
+                currentExportDataSet,
+                now)) {
+            denyCurrentAuthorization(
+                    job, principalId, deniedAuditAction);
+        }
         String currentFingerprint =
                 AttendanceReportQueryService.fingerprint(
                         job.reportType(),
-                        job.filter(),
+                        currentSnapshot.filter(),
                         currentSnapshot.projectionVersion(),
                         currentSnapshot.scope().authorizationDigest(),
                         currentDataSet.calculationFormulaVersion());
@@ -456,24 +561,122 @@ public class AttendanceReportExportService {
                 AttendanceReportVisibilityDigest.calculate(
                         job.reportType(),
                         currentSnapshot,
-                        currentDataSet);
+                        currentExportDataSet);
         if (!constantTimeEquals(
                         job.queryFingerprint(), currentFingerprint)
                 || !constantTimeEquals(
                         job.visibleContentDigest(),
                         currentVisibleContentDigest)
-                || job.rowCount() != currentDataSet.rows().size()
-                || !job.exportFields().equals(
-                        currentDataSet.exportAllowlist())) {
-            auditService.recordFailure(
-                    principalId,
-                    deniedAuditAction,
-                    "ATTENDANCE_REPORT_EXPORT",
-                    job.exportId(),
-                    "DENIED",
-                    "AUTHORIZATION_OR_SOURCE_CHANGED");
-            throw unavailable();
+                || job.rowCount() != currentDataSet.rows().size()) {
+            denyCurrentAuthorization(job, principalId, deniedAuditAction);
         }
+    }
+
+    private boolean capabilityCoversVisibleExport(
+            String principalId,
+            String capabilityCode,
+            ReportType reportType,
+            ReportSourceSnapshot readSnapshot,
+            ReportDataSet readExportDataSet,
+            Instant authorizationTime) {
+        return sourceRepository.loadAuthorizedSnapshotIntersection(
+                        principalId,
+                        capabilityCode,
+                        readSnapshot,
+                        readExportDataSet.rows().isEmpty(),
+                        authorizationTime)
+                .map(candidate -> {
+                    ReportDataSet candidateDataSet = calculator.calculate(
+                            reportType, candidate);
+                    if (!exportFieldsAreCurrentlyAllowed(
+                            readExportDataSet.exportAllowlist(),
+                            candidateDataSet.exportAllowlist())) {
+                        return false;
+                    }
+                    ReportDataSet candidateExportDataSet = withExportFields(
+                            candidateDataSet,
+                            readExportDataSet.exportAllowlist());
+                    String expected = AttendanceReportVisibilityDigest
+                            .calculateScopeIndependent(
+                                    reportType,
+                                    readSnapshot,
+                                    readExportDataSet);
+                    String actual = AttendanceReportVisibilityDigest
+                            .calculateScopeIndependent(
+                                    reportType,
+                                    candidate,
+                                    candidateExportDataSet);
+                    return constantTimeEquals(expected, actual);
+                })
+                .orElse(false);
+    }
+
+    private List<ReportField> requireCurrentBinding(
+            ReportFilter requestedFilter,
+            RequestedExportBinding requestedBinding,
+            ReportSourceSnapshot snapshot,
+            ReportDataSet dataSet,
+            String currentQueryFingerprint) {
+        if (!snapshot.filter().equals(requestedFilter)
+                || !snapshot.projectionVersion().equals(
+                        requestedBinding.projectionVersion())
+                || !snapshot.scope().reference().equals(
+                        requestedBinding.scopeReference())
+                || !snapshot.scope().reference().equals(
+                        requestedBinding.filterScopeReference())
+                || !constantTimeEquals(
+                        currentQueryFingerprint,
+                        requestedBinding.queryFingerprint())) {
+            throw bindingStale();
+        }
+        var fieldsByKey = new HashMap<String, ReportField>();
+        for (ReportField field : dataSet.exportAllowlist()) {
+            fieldsByKey.put(field.key(), field);
+        }
+        var selectedFields = new ArrayList<ReportField>();
+        for (String key : requestedBinding.selectedFieldKeys()) {
+            ReportField field = fieldsByKey.get(key);
+            if (field == null) {
+                throw bindingStale();
+            }
+            selectedFields.add(field);
+        }
+        return List.copyOf(selectedFields);
+    }
+
+    private static boolean exportFieldsAreCurrentlyAllowed(
+            List<ReportField> selectedFields,
+            List<ReportField> currentAllowlist) {
+        return selectedFields != null
+                && !selectedFields.isEmpty()
+                && new HashSet<>(selectedFields).size()
+                        == selectedFields.size()
+                && currentAllowlist.containsAll(selectedFields);
+    }
+
+    private static ReportDataSet withExportFields(
+            ReportDataSet dataSet, List<ReportField> selectedFields) {
+        return new ReportDataSet(
+                dataSet.type(),
+                dataSet.title(),
+                dataSet.columns(),
+                selectedFields,
+                dataSet.rows(),
+                dataSet.calculationFormulaVersion());
+    }
+
+    private void denyCurrentAuthorization(
+            ExportJob job,
+            String principalId,
+            String deniedAuditAction) {
+        auditService.recordFailure(
+                principalId,
+                deniedAuditAction,
+                "ATTENDANCE_REPORT_EXPORT",
+                job.exportId(),
+                "DENIED",
+                "AUTHORIZATION_OR_SOURCE_CHANGED");
+        throw unavailable();
     }
 
     private static String sha256(byte[] content) {
@@ -502,6 +705,14 @@ public class AttendanceReportExportService {
                 HttpStatus.CONFLICT,
                 "ATTENDANCE_REPORT_PROJECTION_NOT_READY",
                 "当前期间尚无已发布的报表投影",
+                true);
+    }
+
+    private static ApiProblemException bindingStale() {
+        return new ApiProblemException(
+                HttpStatus.CONFLICT,
+                "ATTENDANCE_REPORT_EXPORT_BINDING_STALE",
+                "报表已更新或导出条件不再匹配，请刷新报表后重试",
                 true);
     }
 
@@ -551,6 +762,53 @@ public class AttendanceReportExportService {
         @Override
         public byte[] content() {
             return content.clone();
+        }
+    }
+
+    public record RequestedExportBinding(
+            String projectionVersion,
+            String queryFingerprint,
+            String scopeReference,
+            String filterScopeReference,
+            List<String> selectedFieldKeys) {
+
+        public RequestedExportBinding {
+            requireSafeText(projectionVersion, "projectionVersion", 128);
+            requireDigest(queryFingerprint, "queryFingerprint");
+            requireSafeText(scopeReference, "scopeReference", 128);
+            requireSafeText(
+                    filterScopeReference, "filterScopeReference", 128);
+            selectedFieldKeys = List.copyOf(Objects.requireNonNull(
+                    selectedFieldKeys, "selectedFieldKeys"));
+            if (selectedFieldKeys.isEmpty()
+                    || selectedFieldKeys.size() > 64
+                    || new HashSet<>(selectedFieldKeys).size()
+                            != selectedFieldKeys.size()) {
+                throw new IllegalArgumentException(
+                        "selected export fields are invalid");
+            }
+            for (String field : selectedFieldKeys) {
+                requireSafeText(field, "selectedField", 64);
+            }
+        }
+
+        private static void requireSafeText(
+                String value, String field, int maximumLength) {
+            if (value == null
+                    || value.isBlank()
+                    || value.length() > maximumLength
+                    || !value.equals(value.strip())
+                    || value.chars().anyMatch(Character::isISOControl)) {
+                throw new IllegalArgumentException(
+                        field + " is invalid");
+            }
+        }
+
+        private static void requireDigest(String value, String field) {
+            if (value == null || !value.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException(
+                        field + " must be a lowercase SHA-256 digest");
+            }
         }
     }
 }
