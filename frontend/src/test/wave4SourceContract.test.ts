@@ -49,6 +49,17 @@ describe('WAVE-4 frontend source contract', () => {
     expect(`${sourceDemo}\n${importDemo}`).toContain('synthetic');
     expect(`${sourceDemo}\n${importDemo}`).not.toMatch(/真实员工|生产员工|身份证号/);
   });
+
+  it('explains source prerequisites instead of presenting unexplained empty pages', () => {
+    const overview = source('features/attendanceSources/SourceOverviewPage.tsx');
+    const oa = source('features/attendanceSources/OaSourcesPage.tsx');
+    const jobs = source('features/attendanceSources/SourceJobsPage.tsx');
+
+    expect(overview).toContain('启用 Deli E+ 配置、注册来源并建立员工绑定');
+    expect(oa).toContain('仅连接 OA 数据库不会自动展示');
+    expect(oa).toContain('还需完成映射确认与同步入库');
+    expect(jobs).toContain('先注册并启用考勤来源');
+  });
 });
 
 function source(relativePath: string): string {

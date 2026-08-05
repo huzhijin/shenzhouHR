@@ -271,6 +271,39 @@ export function AttendancePolicyLifecyclePanel({
         </AccessibleButton>
       </div>
       <AttendanceSetupNotice notice={notice} />
+      {canManage ? (
+        <div className="attendance-draft-creator">
+          <div>
+            <h3>{t('attendanceSetup.createPolicyDraft')}</h3>
+            <p>{t('attendanceSetup.createPolicyDraftDescription')}</p>
+          </div>
+          <div className="form-grid">
+            <label>
+              <span>{t('attendanceSetup.effectiveFrom')}</span>
+              <Input
+                type="date"
+                value={draftEffectiveFrom}
+                onChange={changeDraftEffectiveFrom}
+              />
+            </label>
+            <label>
+              <span>{t('attendanceSetup.reason')}</span>
+              <Input
+                value={draftReason}
+                onChange={changeDraftReason}
+              />
+            </label>
+          </div>
+          <AccessibleButton
+            label={t('attendanceSetup.createPolicyDraft')}
+            type="primary"
+            loading={processing}
+            onClick={createDraft}
+          >
+            {t('attendanceSetup.createPolicyDraft')}
+          </AccessibleButton>
+        </div>
+      ) : null}
       {versions.resource.status === 'loading' || versions.resource.status === 'partial-loading'
         ? <StatePanel state={versions.resource.status} />
         : null}
@@ -511,36 +544,6 @@ export function AttendancePolicyLifecyclePanel({
               </div>
             </div>
           ) : null}
-        </div>
-      ) : null}
-      {canManage ? (
-        <div className="attendance-draft-creator">
-          <h3>{t('attendanceSetup.createPolicyDraft')}</h3>
-          <div className="form-grid">
-            <label>
-              <span>{t('attendanceSetup.effectiveFrom')}</span>
-              <Input
-                type="date"
-                value={draftEffectiveFrom}
-                onChange={changeDraftEffectiveFrom}
-              />
-            </label>
-            <label>
-              <span>{t('attendanceSetup.reason')}</span>
-              <Input
-                value={draftReason}
-                onChange={changeDraftReason}
-              />
-            </label>
-          </div>
-          <AccessibleButton
-            label={t('attendanceSetup.createPolicyDraft')}
-            type="primary"
-            loading={processing}
-            onClick={createDraft}
-          >
-            {t('attendanceSetup.createPolicyDraft')}
-          </AccessibleButton>
         </div>
       ) : null}
     </section>

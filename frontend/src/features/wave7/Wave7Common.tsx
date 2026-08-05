@@ -13,10 +13,14 @@ import type {
 export function Wave7AsyncBoundary<T>({
   loader,
   isEmpty,
+  emptyTitle,
+  emptyDescription = '当前授权范围内暂无可显示数据。',
   children,
 }: {
   loader: () => Promise<T>;
   isEmpty: (projection: T) => boolean;
+  emptyTitle?: string;
+  emptyDescription?: string;
   children: (projection: T) => ReactNode;
 }) {
   const { resource, reload } = useAsyncResource(loader, isEmpty, [loader]);
@@ -25,7 +29,13 @@ export function Wave7AsyncBoundary<T>({
     return <StatePanel state={resource.status} />;
   }
   if (resource.status === 'empty') {
-    return <StatePanel state="empty" description="当前授权范围内暂无可显示数据。" />;
+    return (
+      <StatePanel
+        state="empty"
+        title={emptyTitle}
+        description={emptyDescription}
+      />
+    );
   }
   if ('error' in resource) {
     return <Wave7ErrorState error={resource.error} onRetry={reload} />;
@@ -186,7 +196,7 @@ function Wave7ErrorState({ error, onRetry }: {
       <StatePanel
         state="empty"
         title="今日异常考勤尚未生成"
-        description="当前公司的今日考勤结果尚未生成。完成数据同步和考勤计算后再刷新。"
+        description="当前公司的今日考勤结果尚未生成。完成数据同步后，还需完成考勤计算并发布正式投影，再刷新查看。"
         onRetry={error.retryable ? onRetry : undefined}
       />
     );
@@ -199,7 +209,7 @@ function Wave7ErrorState({ error, onRetry }: {
       <StatePanel
         state="empty"
         title="本人考勤工作台尚未生成"
-        description="本人的当月考勤结果尚未生成或尚未发布，请稍后刷新。"
+        description="本人的当月考勤结果尚未生成或尚未发布。完成数据同步后，还需完成考勤计算并发布正式投影，再刷新查看。"
         onRetry={error.retryable ? onRetry : undefined}
       />
     );

@@ -27,4 +27,8 @@ describe('i18n interpolation', () => {
       (metric) => i18n.t(`peopleImport.metric.${metric}`),
     )).toEqual(['新增', '修改', '不变', '冲突', '错误']);
   });
+
+  it('labels the employee assignment column with the business department term', () => {
+    expect(i18n.t('employee.column.organization')).toBe('所在部门');
+  });
 });

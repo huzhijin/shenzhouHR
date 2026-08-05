@@ -80,7 +80,12 @@ function DocumentTable({ documents }: { documents: OaDocumentView[] }) {
     },
   ];
   if (documents.length === 0) {
-    return <StatePanel state="empty" description="当前来源尚无可读取的办公系统考勤单据。" />;
+    return (
+      <StatePanel
+        state="empty"
+        description="当前来源尚无已同步的办公系统考勤单据。仅连接数据库不会自动生成单据，还需完成映射确认与同步入库。"
+      />
+    );
   }
   return (
     <DataTable
@@ -100,7 +105,12 @@ function AsyncState({
   onRetry: () => void;
 }) {
   if (resource.status === 'empty') {
-    return <StatePanel state="empty" description="当前可用范围内没有办公系统考勤来源。" />;
+    return (
+      <StatePanel
+        state="empty"
+        description="尚未注册办公系统考勤来源。仅连接 OA 数据库不会自动展示，需先确认表字段与状态映射，并实现、启用同步入库。"
+      />
+    );
   }
   if (resource.status === 'loading' || resource.status === 'partial-loading') {
     return <StatePanel state={resource.status} />;

@@ -107,7 +107,7 @@ describe('attendance policy route and impact isolation', () => {
     });
     expect(screen.queryByText('策略版本生命周期')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '运行试算' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '新建策略绑定' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '绑定规则到考勤组' })).toBeDisabled();
 
     await act(async () => {
       routeB.resolve(lateVersion);
@@ -146,7 +146,7 @@ describe('attendance policy route and impact isolation', () => {
     });
     expect(screen.queryByText('策略版本生命周期')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '运行试算' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '新建策略绑定' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '绑定规则到考勤组' })).toBeDisabled();
   }, 30_000);
 });
 

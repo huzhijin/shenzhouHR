@@ -228,10 +228,9 @@ a:hover {
   border-bottom: var(--border-width-default) solid var(--color-border);
 }
 
-.app-topbar__title {
+.app-topbar__spacer {
   flex: 1;
-  font-size: var(--text-base);
-  font-weight: var(--font-weight-semibold);
+  min-width: var(--space-0);
 }
 
 .app-environment {
@@ -335,12 +334,6 @@ a:hover {
   color: var(--demo-od-deep);
   background: #fff;
   border-bottom-color: var(--demo-od-border);
-}
-
-.app-layout--demo-open-design .app-topbar__title {
-  color: var(--demo-od-deep);
-  font-size: 15px;
-  font-weight: 600;
 }
 
 .app-layout--demo-open-design .app-environment--demo {
@@ -1865,10 +1858,6 @@ a:hover {
     grid-template-columns: 1fr;
   }
 
-  .app-topbar__title {
-    display: none;
-  }
-
   .login-page {
     display: block;
   }
@@ -1943,10 +1932,6 @@ a:hover {
 
   .mobile-menu-trigger {
     display: inline-flex;
-  }
-
-  .app-topbar__title {
-    display: none;
   }
 
   .app-topbar__action-label {
@@ -2200,6 +2185,28 @@ a:hover {
   grid-template-columns: minmax(10rem, 0.7fr) minmax(16rem, 1.3fr) auto;
   gap: var(--space-3);
   align-items: start;
+}
+
+.simulation-punch-list {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.simulation-punch-list > .ant-btn {
+  justify-self: start;
+}
+
+.policy-simulation-actions {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+
+.policy-simulation-note {
+  margin: var(--space-0);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
 }
 
 .attendance-row-action {

@@ -9,7 +9,6 @@ import {
 import { MemoryRouter } from 'react-router-dom';
 import {
   afterEach,
-  beforeEach,
   describe,
   expect,
   it,
@@ -18,7 +17,6 @@ import {
 
 import '../../shared/i18n/i18n';
 import { changePassword } from '../../features/auth/authApi';
-import { listReferenceCompanies } from '../../features/referenceData/referenceDataApi';
 import { AppShell, ResponsiveNavigation } from './AppShell';
 
 vi.mock('../../features/auth/authApi', () => ({
@@ -29,21 +27,12 @@ vi.mock('../../features/session/sessionApi', () => ({
   logout: vi.fn(),
 }));
 
-vi.mock('../../features/referenceData/referenceDataApi', () => ({
-  listReferenceCompanies: vi.fn(),
-}));
-
 vi.mock('../config/runtimeMode', () => ({
   isDemoMode: () => false,
 }));
 
 const changePasswordMock = vi.mocked(changePassword);
-const listReferenceCompaniesMock = vi.mocked(listReferenceCompanies);
 const passwordPolicy = '新密码须为 12 至 256 位，且至少包含 1 个大写字母、1 个小写字母、1 个数字和 1 个符号';
-
-beforeEach(() => {
-  listReferenceCompaniesMock.mockResolvedValue([]);
-});
 
 describe('AppShell password change', () => {
   afterEach(() => {
@@ -132,17 +121,11 @@ describe('AppShell navigation icons', () => {
   });
 });
 
-describe('AppShell company context', () => {
+describe('AppShell topbar', () => {
   afterEach(cleanup);
 
-  it('shows the single company visible to the current account', async () => {
-    listReferenceCompaniesMock.mockResolvedValue([{
-      companyId: 'company-a',
-      companyName: '江苏神州半导体科技股份有限公司',
-      companyCode: 'SZSC',
-    }]);
-
-    render(
+  it('keeps company and system copy out of the topbar while retaining action alignment', () => {
+    const view = render(
       <MemoryRouter>
         <AppShell
           menu={[{ key: 'accounts', label: '账号管理', path: '/access/accounts' }]}
@@ -153,65 +136,15 @@ describe('AppShell company context', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('当前公司：江苏神州半导体科技股份有限公司'))
-      .toBeInTheDocument();
-  });
-
-  it('uses an honest company count when more than one company is visible', async () => {
-    listReferenceCompaniesMock.mockResolvedValue([
-      { companyId: 'company-a', companyName: '公司甲' },
-      { companyId: 'company-b', companyName: '公司乙' },
-    ]);
-
-    render(
-      <MemoryRouter>
-        <AppShell
-          menu={[{ key: 'accounts', label: '账号管理', path: '/access/accounts' }]}
-          onSessionChanged={vi.fn()}
-        >
-          <div>页面内容</div>
-        </AppShell>
-      </MemoryRouter>,
-    );
-
-    expect(await screen.findByText('可管理 2 家公司'))
-      .toBeInTheDocument();
-  });
-
-  it('clears company context when switching to an employee-only menu', async () => {
-    listReferenceCompaniesMock.mockResolvedValue([{
-      companyId: 'company-a',
-      companyName: '江苏神州半导体科技股份有限公司',
-      companyCode: 'SZSC',
-    }]);
-
-    const { rerender } = render(
-      <MemoryRouter>
-        <AppShell
-          menu={[{ key: 'accounts', label: '账号管理', path: '/access/accounts' }]}
-          onSessionChanged={vi.fn()}
-        >
-          <div>页面内容</div>
-        </AppShell>
-      </MemoryRouter>,
-    );
-
-    expect(await screen.findByText('当前公司：江苏神州半导体科技股份有限公司'))
-      .toBeInTheDocument();
-
-    rerender(
-      <MemoryRouter>
-        <AppShell
-          menu={[{ key: 'personal-workbench', label: '我的考勤工作台', path: '/workbench' }]}
-          onSessionChanged={vi.fn()}
-        >
-          <div>页面内容</div>
-        </AppShell>
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText('神州 HR 管理系统')).toBeInTheDocument();
-    expect(screen.queryByText('当前公司：江苏神州半导体科技股份有限公司'))
+    const topbar = view.container.querySelector('.app-topbar');
+    expect(topbar).not.toBeNull();
+    expect(topbar?.querySelector('.app-topbar__title')).toBeNull();
+    expect(topbar?.querySelector('.app-topbar__spacer')).not.toBeNull();
+    expect(within(topbar as HTMLElement).queryByText(/可管理|当前公司|神州 HR 管理系统/))
       .not.toBeInTheDocument();
+    expect(within(topbar as HTMLElement).getByRole('button', { name: '修改密码' }))
+      .toBeInTheDocument();
+    expect(within(topbar as HTMLElement).getByRole('button', { name: '退出' }))
+      .toBeInTheDocument();
   });
 });

@@ -47,7 +47,7 @@ export function SourceOverviewPage() {
         <SourceState
           resource={sources.resource}
           onRetry={sources.reload}
-          emptyDescription="当前可用范围内没有在线考勤来源。"
+          emptyDescription="尚未注册在线考勤来源。得力 API 需先在服务端启用 Deli E+ 配置、注册来源并建立员工绑定，再发起同步。"
         />
       )}
     </>

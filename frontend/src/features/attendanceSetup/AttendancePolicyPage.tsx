@@ -367,13 +367,16 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
         ]}
         actions={canManage ? (
           <AccessibleButton
-            label={t('attendanceSetup.createBinding')}
+            label={t('attendanceSetup.bindPolicyToGroup')}
             type="primary"
             icon={<IconLink aria-hidden="true" stroke={2} />}
             disabled={!effectiveVersionId}
+            title={!effectiveVersionId
+              ? t('attendanceSetup.bindPolicyDisabledHint')
+              : undefined}
             onClick={openBindingCreator}
           >
-            {t('attendanceSetup.createBinding')}
+            {t('attendanceSetup.bindPolicyToGroup')}
           </AccessibleButton>
         ) : undefined}
       />
@@ -385,6 +388,15 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
         title={t('attendanceSetup.frozenTitle')}
         description={t('attendanceSetup.frozenDescription')}
       />
+      {!canManage ? (
+        <Alert
+          className="attendance-boundary-note"
+          showIcon
+          type="info"
+          title={t('attendanceSetup.policyReadOnlyTitle')}
+          description={t('attendanceSetup.policyReadOnlyDescription')}
+        />
+      ) : null}
       <section className="attendance-policy-selector" aria-label={t('attendanceSetup.policyCatalog')}>
         <Segmented<AttendancePolicyKind>
           block
@@ -413,6 +425,15 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
           </span>
         </div>
       </section>
+      {!versionId && !selectedCompanyId ? (
+        <Alert
+          className="attendance-boundary-note"
+          showIcon
+          type="info"
+          title={t('attendanceSetup.companyRequiredForPolicyTitle')}
+          description={t('attendanceSetup.companyRequiredForPolicyDescription')}
+        />
+      ) : null}
       {catalogAndBindings.resource.status === 'loading'
         || catalogAndBindings.resource.status === 'partial-loading'
         ? <StatePanel state={catalogAndBindings.resource.status} />

@@ -18,14 +18,13 @@ import {
   IconUser,
 } from '@tabler/icons-react';
 import { Drawer, Form, Input, Layout, Menu, Modal, message, type MenuProps } from 'antd';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import type { MenuItem } from '../../features/session/sessionApi';
 import { logout } from '../../features/session/sessionApi';
 import { changePassword } from '../../features/auth/authApi';
-import { listReferenceCompanies } from '../../features/referenceData/referenceDataApi';
 import { selectedMenuKey } from '../../app/routeAuthorization';
 import { BrandLogo } from './BrandLogo';
 import { AccessibleButton } from './AccessibleButton';
@@ -106,57 +105,17 @@ const navigationGroups = [
   },
 ] as const;
 
-const personalMenuKeys = new Set([
-  'personal-workbench',
-  'my-attendance',
-  'my-leave',
-  'attendance-feedback',
-  'self-today',
-  'self-records',
-  'self-leave',
-  'self-feedback',
-]);
-
 export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordProcessing, setPasswordProcessing] = useState(false);
-  const [visibleCompanyNames, setVisibleCompanyNames] = useState<string[]>([]);
   const [passwordForm] = Form.useForm();
   const navigate = useNavigate();
   const location = useLocation();
   const demoMode = isDemoMode();
   const selectedKey = selectedMenuKey(menu, location.pathname);
-  const showsCompanyContext = menu.length > 0
-    && menu.some((item) => !personalMenuKeys.has(item.key));
-  const topbarTitle = showsCompanyContext && visibleCompanyNames.length === 1
-    ? t('app.currentCompany', { name: visibleCompanyNames[0] })
-    : showsCompanyContext && visibleCompanyNames.length > 1
-      ? t('app.multipleCompanies', { count: visibleCompanyNames.length })
-      : t('app.name');
-
-  useEffect(() => {
-    setVisibleCompanyNames([]);
-    if (!showsCompanyContext) {
-      return undefined;
-    }
-    let active = true;
-    void listReferenceCompanies()
-      .then((companies) => {
-        if (!active) return;
-        setVisibleCompanyNames(companies
-          .map((company) => company.companyName.trim())
-          .filter((companyName) => companyName.length > 0));
-      })
-      .catch(() => {
-        // Company context is helpful orientation, but must never block navigation.
-      });
-    return () => {
-      active = false;
-    };
-  }, [menu, showsCompanyContext]);
 
   const openMenuItem = ({ key }: { key: string }) => {
     const item = menu.find((candidate) => candidate.key === key);
@@ -228,7 +187,7 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
           <span id="mobile-menu-trigger-label" className="sr-only">
             {translate('app.openNavigation')}
           </span>
-          <span className="app-topbar__title" title={topbarTitle}>{topbarTitle}</span>
+          <span className="app-topbar__spacer" aria-hidden="true" />
           {demoMode ? (
             <span className="app-environment app-environment--demo">
               {translate('app.demoEnvironment')}

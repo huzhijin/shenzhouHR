@@ -654,6 +654,21 @@ describe('attendance setup demo pages', () => {
     expect(screen.queryByText('晚餐窗口开始')).not.toBeInTheDocument();
   });
 
+  it('shows the policy draft creator before the existing version history', async () => {
+    const view = renderPolicyPage();
+
+    const creatorHeading = await screen.findByRole('heading', { name: '创建策略草稿' });
+    const creator = requiredElement(view.container, '.attendance-draft-creator');
+    const versionButton = (await screen.findAllByRole('button', { name: '版本 1' }))[0]!;
+
+    expect(creator).toContainElement(creatorHeading);
+    expect(within(creator).getByText(
+      '先创建草稿版本，再保存规则参数、校验并发布；发布后才能绑定考勤组。',
+    )).toBeInTheDocument();
+    expect(creator.compareDocumentPosition(versionButton)
+      & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
   it('fails a missing direct policy-version route closed', async () => {
     const view = renderPolicyPage('missing-policy-version');
 
@@ -663,7 +678,7 @@ describe('attendance setup demo pages', () => {
     expect(screen.queryByText('策略版本生命周期')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '运行试算' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '预览影响' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '新建策略绑定' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '绑定规则到考勤组' })).toBeDisabled();
   });
 
   it('submits a local-current-day simulation using a selected employee and no default punches', async () => {
@@ -704,6 +719,28 @@ describe('attendance setup demo pages', () => {
       beforeRender.getTime() - 1_000,
     );
     expect(Date.parse(submitted.correctionAsOf)).toBeLessThanOrEqual(after.getTime());
+  });
+
+  it('keeps simulation guidance and submission controls in a dedicated action group', () => {
+    const view = render(
+      <PolicySimulationPanel
+        policyKind="MEAL_DEDUCTION"
+        policyVersionId="policy-version"
+        processing={false}
+        onSimulate={vi.fn()}
+      />,
+    );
+
+    const note = screen.getByText('试算仅用于预览，不会修改正式考勤结果。');
+    const actions = requiredElement(view.container, '.policy-simulation-actions');
+    const punchList = requiredElement(view.container, '.simulation-punch-list');
+
+    expect(note).toHaveClass('policy-simulation-note');
+    expect(note).not.toHaveClass('form-help');
+    expect(actions).toContainElement(note);
+    expect(within(actions).getByRole('button', { name: '运行试算' })).toBeInTheDocument();
+    expect(punchList).not.toContainElement(note);
+    expect(within(punchList).getByRole('button', { name: '添加打卡' })).toBeInTheDocument();
   });
 
   it('requires the user-friendly data cutoff field without exposing RFC3339 rules', async () => {
@@ -1128,7 +1165,9 @@ describe('attendance setup demo pages', () => {
     expect(screen.getByText('当前策略版本：V1')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '运行试算' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '预览影响' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '新建策略绑定' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '绑定规则到考勤组' }))
+      .not.toBeInTheDocument();
+    expect(screen.getByText('当前账号为只读权限')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '创建策略草稿' })).not.toBeInTheDocument();
   });
 });

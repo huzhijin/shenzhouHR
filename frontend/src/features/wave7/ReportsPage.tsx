@@ -125,6 +125,8 @@ export function ReportsRoute({
         key={`companies:${period}`}
         loader={loadCompanies}
         isEmpty={(value) => value.companies.length === 0}
+        emptyTitle="所选月份暂无可查看报表"
+        emptyDescription="所选月份无已发布正式投影。连接数据库或已有原始数据不会自动生成报表，需完成考勤计算与正式投影发布。"
       >
         {(directory) => (
           <AuthorizedCompanyReport

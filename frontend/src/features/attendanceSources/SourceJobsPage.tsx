@@ -141,7 +141,12 @@ function JobsState({
   onRetry: () => void;
 }) {
   if (resource.status === 'empty') {
-    return <StatePanel state="empty" description="当前可用范围内没有来源同步任务。" />;
+    return (
+      <StatePanel
+        state="empty"
+        description="尚未创建来源同步任务。请先注册并启用考勤来源，再通过受控同步入口发起任务。"
+      />
+    );
   }
   if (resource.status === 'loading' || resource.status === 'partial-loading') {
     return <StatePanel state={resource.status} />;

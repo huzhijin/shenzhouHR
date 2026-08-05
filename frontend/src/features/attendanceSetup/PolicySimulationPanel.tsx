@@ -111,15 +111,17 @@ export function PolicySimulationPanel({
             </div>
           )}
         </Form.List>
-        <p className="form-help">试算仅用于预览，不会修改正式考勤结果。</p>
-        <AccessibleButton
-          label={t('attendanceSetup.runSimulation')}
-          type="primary"
-          htmlType="submit"
-          loading={processing}
-        >
-          {t('attendanceSetup.runSimulation')}
-        </AccessibleButton>
+        <div className="policy-simulation-actions">
+          <p className="policy-simulation-note">试算仅用于预览，不会修改正式考勤结果。</p>
+          <AccessibleButton
+            label={t('attendanceSetup.runSimulation')}
+            type="primary"
+            htmlType="submit"
+            loading={processing}
+          >
+            {t('attendanceSetup.runSimulation')}
+          </AccessibleButton>
+        </div>
       </Form>
       <section className="policy-simulation-result" aria-live="polite">
         {processing ? (

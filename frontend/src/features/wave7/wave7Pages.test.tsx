@@ -509,7 +509,7 @@ describe('Wave 7 async states', () => {
     expect(await screen.findByRole('heading', {
       name: '今日异常考勤尚未生成',
     })).toBeInTheDocument();
-    expect(screen.getByText(/完成数据同步和考勤计算后再刷新/))
+    expect(screen.getByText(/完成数据同步后，还需完成考勤计算并发布正式投影/))
       .toBeInTheDocument();
     expect(screen.queryByText('服务端内部投影说明'))
       .not.toBeInTheDocument();
@@ -546,6 +546,30 @@ describe('Wave 7 async states', () => {
 describe('Wave 7 formal report route', () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it('explains that an empty company directory requires calculation and publication', async () => {
+    const loadReport = vi.fn(async (query?: ReportQuery) => formalReport(query));
+    renderWithRouter(
+      <ReportsRoute
+        gateway={gateway({
+          loadReportCompanies: async (period) => ({ period, companies: [] }),
+          loadReport,
+        })}
+        initialPeriod="2026-07"
+      />,
+      '/attendance/reports',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: '所选月份暂无可查看报表',
+    })).toBeInTheDocument();
+    expect(screen.getByText(
+      '所选月份无已发布正式投影。'
+      + '连接数据库或已有原始数据不会自动生成报表，'
+      + '需完成考勤计算与正式投影发布。',
+    )).toBeInTheDocument();
+    expect(loadReport).not.toHaveBeenCalled();
   });
 
   it('initializes an authorized exception report from URL query parameters', async () => {
