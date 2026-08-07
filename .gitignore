@@ -11,8 +11,11 @@
 .ruff_cache/
 .tmp/
 .umadev/
-knowledge/.umadev/
+knowledge/
 w3-real-pgid-*/
+
+# Release packages (build artifacts — rebuild from source, never commit)
+/release/
 
 # Generated dependencies and temporary files
 node_modules/

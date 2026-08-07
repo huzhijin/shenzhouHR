@@ -120,14 +120,16 @@
 
   /* Attendance matrix states are presentation hints, never calculation inputs. */
   --color-attendance-matrix-header: #dcebf2;
+  --color-on-attendance-matrix-header: var(--palette-ink-900);
   --color-attendance-matrix-identity-header: #c8e1eb;
+  --color-on-attendance-matrix-identity-header: var(--palette-ink-900);
   --color-attendance-late: #ff8578;
   --color-on-attendance-late: #491512;
   --color-attendance-early-departure: #5aa3ea;
   --color-on-attendance-early-departure: #102f52;
   --color-attendance-missing-punch: #be6cbb;
-  --color-on-attendance-missing-punch: #3c153a;
-  --color-attendance-recognized-overtime: #3f8850;
+  --color-on-attendance-missing-punch: #340e32;
+  --color-attendance-recognized-overtime: #3a7f48;
   --color-on-attendance-recognized-overtime: #ffffff;
 
   /* High-contrast editorial typography: display serif + geometric sans + mono data. */
