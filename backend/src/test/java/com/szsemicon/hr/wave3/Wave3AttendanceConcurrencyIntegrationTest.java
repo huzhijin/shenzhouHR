@@ -73,6 +73,22 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 """
                 {"enabled":true,"graceMinutes":15,"monthlyUses":1,"resetOnGroupChange":false}
                 """);
+        insertPolicy(
+                "96000000-0000-0000-0000-000000000004",
+                "PUNCH_WINDOW",
+                "97000000-0000-0000-0000-000000000004",
+                """
+                {"arrivalBeforeMinutes":30,"arrivalAfterMinutes":30,
+                 "departureBeforeMinutes":30,"departureAfterMinutes":30}
+                """);
+        insertPolicy(
+                "96000000-0000-0000-0000-000000000005",
+                "PERIOD_CLOSE",
+                "97000000-0000-0000-0000-000000000005",
+                """
+                {"closeDayOfNextMonth":5,"reopenAllowed":false,
+                 "reopenRequiresApproval":false,"maxReopenCount":0}
+                """);
     }
 
     @Test
