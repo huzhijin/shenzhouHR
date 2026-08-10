@@ -59,6 +59,49 @@ public class DeliPunchSyncApplicationService {
         this.clock = clock;
     }
 
+    public void runScheduled() {
+        List<String> sourceIds = repository.findAllActiveDeliSourceIds();
+        for (String sourceId : sourceIds) {
+            String jobId = UUID.randomUUID().toString();
+            String correlationId = "SCHEDULED:" + jobId;
+            Instant at = clock.instant();
+            AttendanceSourceSyncRepository.StartResult result;
+            try {
+                result = repository.createScheduledDeliJob(
+                        sourceId, jobId, correlationId, at);
+            } catch (RuntimeException exception) {
+                org.slf4j.LoggerFactory.getLogger(getClass())
+                        .error("Scheduled sync: failed to create job for source {}",
+                                sourceId, exception);
+                continue;
+            }
+            if (result.state()
+                    == AttendanceSourceSyncRepository.StartState.ALREADY_RUNNING) {
+                org.slf4j.LoggerFactory.getLogger(getClass())
+                        .info("Scheduled sync: source {} already has a running job, skipping",
+                                sourceId);
+                continue;
+            }
+            if (result.state()
+                    != AttendanceSourceSyncRepository.StartState.CREATED) {
+                org.slf4j.LoggerFactory.getLogger(getClass())
+                        .warn("Scheduled sync: source {} unavailable ({}), skipping",
+                                sourceId, result.state());
+                continue;
+            }
+            try {
+                execute(Objects.requireNonNull(result.job()),
+                        "SYSTEM",
+                        correlationId,
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN);
+            } catch (RuntimeException exception) {
+                org.slf4j.LoggerFactory.getLogger(getClass())
+                        .error("Scheduled sync: execution failed for source {}",
+                                sourceId, exception);
+            }
+        }
+    }
+
     public AttendanceSourceSyncModels.JobStatus run(
             String sourceId, String correlationId) {
         requireReference(sourceId, 36);

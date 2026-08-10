@@ -82,12 +82,15 @@ public class DeliPunchPageTransaction {
         validatePage(page);
 
         Instant committedAt = clock.instant();
-        var pageState = syncRepository.lockPageForCommit(
-                job.jobId(),
-                job.sourceId(),
-                principalId,
-                executionCapability,
-                committedAt);
+        var pageState = "SYSTEM".equals(principalId)
+                ? syncRepository.lockSystemPageForCommit(
+                        job.jobId(), job.sourceId())
+                : syncRepository.lockPageForCommit(
+                        job.jobId(),
+                        job.sourceId(),
+                        principalId,
+                        executionCapability,
+                        committedAt);
         if (pageState == null) {
             throw failure("ATTENDANCE_SOURCE_SCOPE_REVOKED");
         }

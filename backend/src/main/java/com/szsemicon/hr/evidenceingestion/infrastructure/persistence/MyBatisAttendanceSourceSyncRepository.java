@@ -225,6 +225,58 @@ public class MyBatisAttendanceSourceSyncRepository
     }
 
     @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AttendanceSourceSyncModels.PageState lockSystemPageForCommit(
+            String jobId, String sourceId) {
+        return mapper.lockSystemPageForCommit(jobId, sourceId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<String> findAllActiveDeliSourceIds() {
+        return mapper.findAllActiveDeliSourceIds();
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public StartResult createScheduledDeliJob(
+            String sourceId,
+            String jobId,
+            String correlationId,
+            Instant at) {
+        var source = mapper.lockSystemDeliSource(sourceId, at);
+        if (source == null) {
+            return StartResult.resourceUnavailable();
+        }
+        int recoveredStaleJobs = mapper.expireStaleActiveJobs(
+                sourceId, at.minus(ACTIVE_JOB_LEASE), at);
+        if (mapper.countActiveJobs(sourceId) != 0) {
+            return StartResult.alreadyRunning();
+        }
+        mapper.insertWatermarkIfAbsent(sourceId);
+        mapper.insertJob(
+                jobId,
+                sourceId,
+                source.committedCursor(),
+                correlationId,
+                "SYSTEM",
+                at);
+        return StartResult.created(
+                new AttendanceSourceSyncModels.SourceJobStart(
+                        jobId,
+                        source.sourceId(),
+                        source.companyId(),
+                        source.displayName(),
+                        source.secretReferenceName(),
+                        source.sourceTimeZone(),
+                        source.pageSize(),
+                        source.rateLimitPerMinute(),
+                        source.backoffSeconds(),
+                        source.committedCursor()),
+                recoveredStaleJobs);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<AttendanceSourceSyncModels.JobStatus> findCreatedJob(
             String jobId, String requestedBy) {

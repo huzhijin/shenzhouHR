@@ -37,6 +37,21 @@ public interface AttendanceSourceSyncRepository {
             String capability,
             Instant authorizationTime);
 
+    /** Lock page for commit without principal auth check (scheduled jobs). */
+    AttendanceSourceSyncModels.PageState lockSystemPageForCommit(
+            String jobId,
+            String sourceId);
+
+    /** Return IDs of every active DELI_CLOUD source (for scheduled jobs). */
+    java.util.List<String> findAllActiveDeliSourceIds();
+
+    /** Create a sync job with SYSTEM principal — no capability check. */
+    StartResult createScheduledDeliJob(
+            String sourceId,
+            String jobId,
+            String correlationId,
+            Instant at);
+
     void insertCommittedPage(AttendanceSourceSyncModels.CommittedPage page);
 
     void advanceWatermark(

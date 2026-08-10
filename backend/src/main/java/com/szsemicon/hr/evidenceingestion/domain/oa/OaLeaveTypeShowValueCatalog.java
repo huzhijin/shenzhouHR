@@ -42,13 +42,18 @@ public final class OaLeaveTypeShowValueCatalog {
     public static final String BREASTFEEDING_TIME = "BREASTFEEDING_TIME";
     public static final String PRENATAL_EXAM_TIME = "PRENATAL_EXAM_TIME";
 
+    /** Family planning leave (计划生育). */
+    public static final String FAMILY_PLANNING_LEAVE = "FAMILY_PLANNING_LEAVE";
+    /** Catch-all for OA leave types that do not map to a known code. */
+    public static final String OTHER_LEAVE            = "OTHER_LEAVE";
+
     /**
      * Set of leave codes that count as paid attendance under the current
      * company policy (年假/调休/婚/产/陪产/丧/工伤). Used by the attendance
      * calculation engine when deciding whether a leave day contributes to the
      * confirmed-attendance numerator.
      *
-     * <p>病假 and 事假 are explicitly absent — they are unpaid and must not
+     * <p>病假 and 事假 are explicitly absent -- they are unpaid and must not
      * count as attended.</p>
      */
     public static final java.util.Set<String> PAID_ATTENDANCE_LEAVE_CODES =
@@ -83,7 +88,9 @@ public final class OaLeaveTypeShowValueCatalog {
             Map.entry("哺乳时间", BREASTFEEDING_TIME),
             Map.entry("哺乳假", BREASTFEEDING_TIME),    // alternate label
             Map.entry("产检时间", PRENATAL_EXAM_TIME),
-            Map.entry("孕检假", PRENATAL_EXAM_TIME)     // alternate label
+            Map.entry("孕检假", PRENATAL_EXAM_TIME),    // alternate label
+            Map.entry("计生假", FAMILY_PLANNING_LEAVE),
+            Map.entry("其他",   OTHER_LEAVE)
     );
 
     private OaLeaveTypeShowValueCatalog() {

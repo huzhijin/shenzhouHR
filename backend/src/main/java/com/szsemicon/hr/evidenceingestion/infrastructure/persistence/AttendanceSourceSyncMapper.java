@@ -63,6 +63,19 @@ interface AttendanceSourceSyncMapper {
             @Param("capability") String capability,
             @Param("at") Instant at);
 
+    /** Lock a single active DELI_CLOUD source without principal auth check. */
+    AuthorizedDeliSourceRow lockSystemDeliSource(
+            @Param("sourceId") String sourceId,
+            @Param("at") Instant at);
+
+    /** List IDs of every ACTIVE DELI_CLOUD source for scheduler use. */
+    java.util.List<String> findAllActiveDeliSourceIds();
+
+    /** Lock page for commit without principal auth check (scheduled jobs). */
+    AttendanceSourceSyncModels.PageState lockSystemPageForCommit(
+            @Param("jobId") String jobId,
+            @Param("sourceId") String sourceId);
+
     RetryCandidateRow lockAuthorizedDeliRetryCandidate(
             @Param("originalJobId") String originalJobId,
             @Param("principalId") String principalId,

@@ -285,6 +285,49 @@
         FOR UPDATE
     </select>
 
+    <!-- System-mode lock: same as lockAuthorizedDeliSource but no auth check. -->
+    <select id="lockSystemDeliSource"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$AuthorizedDeliSourceRow">
+        SELECT source.attendance_source_id AS source_id,
+               source.company_id,
+               source.display_name,
+               configuration.secret_reference_name,
+               configuration.source_time_zone,
+               configuration.page_size,
+               configuration.rate_limit_per_minute,
+               configuration.backoff_seconds,
+               watermark.committed_cursor
+        FROM attendance_source source
+        JOIN attendance_source_config_revision configuration
+          ON configuration.source_config_revision_id = (
+              SELECT candidate.source_config_revision_id
+              FROM attendance_source_config_revision candidate
+              WHERE candidate.attendance_source_id =
+                    source.attendance_source_id
+                AND candidate.effective_from &lt;= #{at}
+              ORDER BY candidate.revision_number DESC,
+                       candidate.source_config_revision_id DESC
+              LIMIT 1
+          )
+        LEFT JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+          AND configuration.endpoint_kind = 'DELI_EPLUS_CHECKIN_QUERY'
+          AND configuration.secret_reference_name IS NOT NULL
+        FOR UPDATE
+    </select>
+
+    <!-- Return IDs of every active DELI_CLOUD source (for scheduled jobs). -->
+    <select id="findAllActiveDeliSourceIds" resultType="string">
+        SELECT source.attendance_source_id
+        FROM attendance_source source
+        WHERE source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+        ORDER BY source.attendance_source_id
+    </select>
+
     <select id="lockAuthorizedDeliRetryCandidate"
             resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$RetryCandidateRow">
         SELECT job.attendance_sync_job_id AS original_job_id,
@@ -498,6 +541,29 @@
           AND source.status = 'ACTIVE'
           AND job.status = 'RUNNING'
           AND <include refid="companyCapability"/>
+        FOR UPDATE
+    </select>
+
+    <!-- System-mode page lock: no auth check (scheduled jobs only). -->
+    <select id="lockSystemPageForCommit"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$PageState">
+        SELECT job.attendance_sync_job_id AS job_id,
+               source.attendance_source_id AS source_id,
+               source.company_id,
+               job.status AS job_status,
+               job.page_count AS committed_pages,
+               watermark.committed_cursor,
+               watermark.row_version AS watermark_version
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{jobId}
+          AND source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+          AND job.status = 'RUNNING'
         FOR UPDATE
     </select>
 
