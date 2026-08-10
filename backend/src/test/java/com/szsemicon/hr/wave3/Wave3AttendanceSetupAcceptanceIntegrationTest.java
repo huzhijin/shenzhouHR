@@ -188,7 +188,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 .andExpect(jsonPath("$.status").value("RESOLVED"))
                 .andExpect(jsonPath("$.groupId").value(setup.firstGroupId()))
                 .andExpect(jsonPath("$.shiftVersion.status").value("PUBLISHED"))
-                .andExpect(jsonPath("$.policyBindings.length()").value(3))
+                .andExpect(jsonPath("$.policyBindings.length()").value(5))
                 .andReturn();
         MvcResult afterChange = read(
                 "/api/v1/attendance-setup/resolve",
@@ -200,7 +200,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 .andExpect(jsonPath("$.policyBindings[1].policyKind")
                         .value("LATE_GRACE"))
                 .andExpect(jsonPath("$.policyBindings[1].priority").doesNotExist())
-                .andExpect(jsonPath("$.policyBindings.length()").value(3))
+                .andExpect(jsonPath("$.policyBindings.length()").value(5))
                 .andReturn();
 
         assertThat(value(beforeChange, "$.monthlyContextKey"))
@@ -2831,7 +2831,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 WHERE attendance_group_id = ?
                 """,
                 Long.class,
-                setup.firstGroupId())).isEqualTo(3L);
+                setup.firstGroupId())).isEqualTo(5L);
         assertThat(jdbc.queryForObject(
                 """
                 SELECT COUNT(*)
@@ -2844,7 +2844,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 """,
                 Long.class,
                 setup.firstGroupId(),
-                successorGroupRevisionId)).isEqualTo(3L);
+                successorGroupRevisionId)).isEqualTo(5L);
         assertThat(jdbc.queryForList(
                 """
                 SELECT binding_family_id
@@ -2869,7 +2869,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.groupRevisionId")
                         .value(successorGroupRevisionId))
-                .andExpect(jsonPath("$.policyBindings.length()").value(3));
+                .andExpect(jsonPath("$.policyBindings.length()").value(5));
     }
 
     @Test
@@ -2973,7 +2973,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                   AND binding_revision.supersedes_binding_revision_id IS NOT NULL
                 """,
                 Long.class,
-                successorLocationRevisionId)).isEqualTo(6L);
+                successorLocationRevisionId)).isEqualTo(10L);
     }
 
     @Test
@@ -3414,7 +3414,7 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                         finiteGroup.groupRevisionId(),
                         LocalDate.parse("2026-08-31"),
                         firstKnowledge))
-                .hasSize(3)
+                .hasSize(5)
                 .allSatisfy(binding ->
                         assertThat(binding.effectiveTo())
                                 .isEqualTo(LocalDate.parse("2026-09-01")));
