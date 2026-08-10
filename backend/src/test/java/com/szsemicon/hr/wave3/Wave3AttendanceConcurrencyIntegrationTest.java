@@ -400,7 +400,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 WHERE family.attendance_group_id = ?
                 """,
                 Long.class,
-                rolloverGroupId)).isEqualTo(6L);
+                rolloverGroupId)).isEqualTo(10L);
         assertThat(jdbc.queryForObject(
                 """
                 SELECT COUNT(*)
