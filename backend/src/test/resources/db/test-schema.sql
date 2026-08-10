@@ -989,7 +989,9 @@ CREATE TABLE attendance_policy_template (
         CHECK (template_code IN (
             'MEAL_DEDUCTION',
             'LATE_GRACE',
-            'MONTHLY_LATE_EXEMPTION'
+            'MONTHLY_LATE_EXEMPTION',
+            'PUNCH_WINDOW',
+            'PERIOD_CLOSE'
         ))
 );
 
