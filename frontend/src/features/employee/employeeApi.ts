@@ -313,3 +313,101 @@ export function recalculatePriorService(
     },
   );
 }
+
+// ── 年假管理 API ───────────────────────────────────────────────────────────────
+
+export interface AnnualLeaveLedgerEntry {
+  entryId: string;
+  entryType: string;
+  entryTypeLabel: string;
+  amountHours: number;
+  sourceType: string;
+  businessDate: string;
+  effectiveFrom: string;
+  expiresOn: string | null;
+  occurredAt: string;
+}
+
+export interface AnnualLeaveAccount {
+  accountId: string | null;
+  employeeId: string;
+  year: number;
+  balanceHours: number;
+  equivalentDays: number;
+  rowVersion: number;
+  entries: AnnualLeaveLedgerEntry[];
+  totalEntries: number;
+}
+
+export function getAnnualLeaveAccount(
+  employeeId: string,
+  year: number,
+): Promise<AnnualLeaveAccount> {
+  if (isDemoMode()) {
+    return Promise.resolve({
+      accountId: `demo-account-${employeeId}-${year}`,
+      employeeId,
+      year,
+      balanceHours: 40,
+      equivalentDays: 5,
+      rowVersion: 0,
+      entries: [
+        {
+          entryId: 'demo-entry-1',
+          entryType: 'OPENING',
+          entryTypeLabel: '期初录入',
+          amountHours: 40,
+          sourceType: 'HR_OPENING_IMPORT',
+          businessDate: `${year}-01-01`,
+          effectiveFrom: `${year}-01-01`,
+          expiresOn: `${year}-12-31`,
+          occurredAt: `${year}-01-01T08:00:00Z`,
+        },
+      ],
+      totalEntries: 1,
+    });
+  }
+  return requestJson<AnnualLeaveAccount>(
+    `${basePath}/${encodeURIComponent(employeeId)}/annual-leave?year=${year}&page=0&size=20`,
+  );
+}
+
+export function setAnnualLeaveOpeningBalance(
+  employeeId: string,
+  balanceHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<AnnualLeaveAccount> {
+  if (isDemoMode()) {
+    return getAnnualLeaveAccount(employeeId, year);
+  }
+  return requestJson<AnnualLeaveAccount>(
+    `${basePath}/${encodeURIComponent(employeeId)}/annual-leave/opening`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ balanceHours, year, reason }),
+    },
+  );
+}
+
+export function adjustAnnualLeaveBalance(
+  employeeId: string,
+  adjustmentHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<AnnualLeaveAccount> {
+  if (isDemoMode()) {
+    return getAnnualLeaveAccount(employeeId, year);
+  }
+  return requestJson<AnnualLeaveAccount>(
+    `${basePath}/${encodeURIComponent(employeeId)}/annual-leave/adjust`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ adjustmentHours, year, reason }),
+    },
+  );
+}

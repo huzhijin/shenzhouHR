@@ -88,6 +88,10 @@ public final class CapabilityCodes {
             "ATTENDANCE_SELF:READ";
     public static final String LEAVE_SELF_READ =
             "LEAVE_SELF:READ";
+    public static final String ANNUAL_LEAVE_READ =
+            "ANNUAL_LEAVE:READ";
+    public static final String ANNUAL_LEAVE_ADJUST =
+            "ANNUAL_LEAVE:ADJUST";
     public static final String ATTENDANCE_FEEDBACK_READ =
             "ATTENDANCE_FEEDBACK:READ";
     public static final String ATTENDANCE_FEEDBACK_CREATE =

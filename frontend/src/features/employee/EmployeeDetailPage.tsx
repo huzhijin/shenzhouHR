@@ -15,6 +15,8 @@ import {
   Modal,
   Select,
   Space,
+  Table,
+  Tag,
   Timeline,
 } from 'antd';
 import dayjs from 'dayjs';
@@ -41,14 +43,19 @@ import {
   type OrganizationNode,
 } from '../organization/organizationApi';
 import {
+  adjustAnnualLeaveBalance,
   createEmploymentPeriod,
   createPriorServiceAdjustment,
+  getAnnualLeaveAccount,
   getEmployee,
   listEmploymentPeriods,
   listPriorServiceRecords,
   recalculatePriorService,
+  setAnnualLeaveOpeningBalance,
   updateEmploymentPeriod,
   updateLocalEmployee,
+  type AnnualLeaveAccount,
+  type AnnualLeaveLedgerEntry,
   type EmployeeDetail,
   type EmployeeStatus,
   type EmployeeUpdateRequest,
@@ -67,10 +74,11 @@ type DetailState =
       organizations: OrganizationNode[];
       periods?: EmploymentPeriodView[];
       priorService?: PriorServiceRecordPage;
+      annualLeave?: AnnualLeaveAccount;
     }
   | { status: 'error'; error: ApiRequestError };
 
-type DialogMode = 'edit' | 'period-create' | 'period-edit' | 'prior-adjust' | 'prior-recalculate';
+type DialogMode = 'edit' | 'period-create' | 'period-edit' | 'prior-adjust' | 'prior-recalculate' | 'leave-opening' | 'leave-adjust';
 
 type EmployeeFormValues = {
   employeeNumber: string;
@@ -117,6 +125,10 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
   const mutationKey = useRef<string | undefined>(undefined);
   const canReadEmployment = capabilities.includes('EMPLOYMENT:READ');
   const canReadPriorService = capabilities.includes('PRIOR_SERVICE:READ');
+  const canReadLeave = capabilities.includes('ANNUAL_LEAVE:READ');
+  const canAdjustLeave = capabilities.includes('ANNUAL_LEAVE:ADJUST');
+  const currentYear = new Date().getFullYear();
+  const [leaveForm] = Form.useForm<{ balanceHours: number; adjustmentHours: number; reason: string }>();
 
   const load = useCallback(() => {
     setState((previous) => previous.status === 'ready'
@@ -127,19 +139,21 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
       canReadEmployment ? listEmploymentPeriods(employeeId) : Promise.resolve(undefined),
       canReadPriorService ? listPriorServiceRecords(employeeId) : Promise.resolve(undefined),
       getCurrentOrganizationTree(true),
+      canReadLeave ? getAnnualLeaveAccount(employeeId, currentYear) : Promise.resolve(undefined),
     ])
-      .then(([detail, periodPage, priorService, organizations]) => setState({
+      .then(([detail, periodPage, priorService, organizations, annualLeave]) => setState({
         status: 'ready',
         detail,
         organizations,
         periods: periodPage?.items,
         priorService,
+        annualLeave,
       }))
       .catch((error: unknown) => setState({
         status: 'error',
         error: asApiError(error, 'EMPLOYEE_DETAIL_UNAVAILABLE'),
       }));
-  }, [canReadEmployment, canReadPriorService, employeeId]);
+  }, [canReadEmployment, canReadPriorService, canReadLeave, employeeId]);
 
   useEffect(() => {
     load();
@@ -148,7 +162,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
   if (state.status === 'error') return <ApiErrorState error={state.error} onRetry={load} />;
   if (state.status !== 'ready') return <StatePanel state={state.status} />;
 
-  const { detail, organizations, periods, priorService } = state;
+  const { detail, organizations, periods, priorService, annualLeave } = state;
   const organizationOptions = employeeOrganizationOptions(
     organizations,
     periods?.map((period) => period.organizationId) ?? [],
@@ -479,12 +493,109 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
           />
         )}
       </section>
+
+      {/* ── 年假账户 ──────────────────────────────────────── */}
+      {canReadLeave && (
+        <section className="content-surface section-spaced" aria-labelledby="annual-leave-title">
+          <div className="section-heading">
+            <div>
+              <h2 id="annual-leave-title">年休假账户（{currentYear} 年）</h2>
+              <p>查看本年年假余额、发放和使用记录；HR 可设置期初余额或手动调整。</p>
+            </div>
+            {canAdjustLeave && (
+              <Space wrap>
+                <AccessibleButton
+                  label="设置期初余额"
+                  icon={<IconPlus aria-hidden="true" stroke={2} />}
+                  onClick={() => {
+                    leaveForm.resetFields();
+                    leaveForm.setFieldsValue({
+                      balanceHours: annualLeave?.balanceHours ?? 0,
+                      reason: '期初年假余额录入',
+                    });
+                    openDialog('leave-opening');
+                  }}
+                >
+                  设置期初
+                </AccessibleButton>
+                <AccessibleButton
+                  label="手动调整余额"
+                  icon={<IconCalculator aria-hidden="true" stroke={2} />}
+                  onClick={() => {
+                    leaveForm.resetFields();
+                    leaveForm.setFieldsValue({ reason: '手动调整' });
+                    openDialog('leave-adjust');
+                  }}
+                >
+                  手动调整
+                </AccessibleButton>
+              </Space>
+            )}
+          </div>
+          {!annualLeave ? (
+            <StatePanel state="empty" description="暂无年假账户记录" />
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 32, marginBottom: 16, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>当前余额</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--color-brand-primary)' }}>
+                    {annualLeave.balanceHours.toFixed(1)} 小时
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+                    ≈ {annualLeave.equivalentDays.toFixed(1)} 天（8 小时制）
+                  </div>
+                </div>
+              </div>
+              {annualLeave.entries.length > 0 && (
+                <Table<AnnualLeaveLedgerEntry>
+                  size="small"
+                  dataSource={annualLeave.entries}
+                  rowKey="entryId"
+                  pagination={false}
+                  columns={[
+                    {
+                      title: '类型',
+                      dataIndex: 'entryTypeLabel',
+                      width: 100,
+                      render: (label: string, row) => (
+                        <Tag color={row.amountHours >= 0 ? 'green' : 'red'}>{label}</Tag>
+                      ),
+                    },
+                    {
+                      title: '小时数',
+                      dataIndex: 'amountHours',
+                      width: 90,
+                      render: (h: number) => (
+                        <strong style={{ color: h >= 0 ? '#389e0d' : '#cf1322' }}>
+                          {h >= 0 ? `+${h.toFixed(2)}` : h.toFixed(2)}
+                        </strong>
+                      ),
+                    },
+                    { title: '业务日期', dataIndex: 'businessDate', width: 110 },
+                    { title: '到期日', dataIndex: 'expiresOn', width: 110,
+                      render: (d: string | null) => d ?? '不过期' },
+                    { title: '来源', dataIndex: 'sourceType', width: 160 },
+                    {
+                      title: '记录时间',
+                      dataIndex: 'occurredAt',
+                      render: (ts: string) => formatDateTime(ts),
+                    },
+                  ]}
+                />
+              )}
+            </>
+          )}
+        </section>
+      )}
+
       <EmployeeDialogs
         dialog={dialog}
         employeeForm={employeeForm}
         periodForm={periodForm}
         priorForm={priorForm}
         reasonForm={reasonForm}
+        leaveForm={leaveForm}
         processing={processing}
         error={writeError}
         organizationOptions={organizationOptions}
@@ -493,6 +604,32 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
         onSavePeriod={submitPeriod}
         onSavePrior={submitPriorAdjustment}
         onRecalculate={submitPriorRecalculation}
+        onSaveLeaveOpening={async () => {
+          const values = await leaveForm.validateFields();
+          await execute(async () => {
+            await setAnnualLeaveOpeningBalance(
+              employeeId,
+              values.balanceHours,
+              currentYear,
+              values.reason.trim(),
+              createIdempotencyKey('leave-opening-' + employeeId),
+            );
+            setFeedback('期初年假余额已设置');
+          });
+        }}
+        onSaveLeaveAdjust={async () => {
+          const values = await leaveForm.validateFields();
+          await execute(async () => {
+            await adjustAnnualLeaveBalance(
+              employeeId,
+              values.adjustmentHours,
+              currentYear,
+              values.reason.trim(),
+              createIdempotencyKey('leave-adjust-' + employeeId),
+            );
+            setFeedback('年假余额已调整');
+          });
+        }}
       />
     </section>
   );
@@ -506,6 +643,7 @@ function EmployeeDialogs({
   periodForm,
   priorForm,
   reasonForm,
+  leaveForm,
   processing,
   error,
   organizationOptions,
@@ -514,12 +652,15 @@ function EmployeeDialogs({
   onSavePeriod,
   onSavePrior,
   onRecalculate,
+  onSaveLeaveOpening,
+  onSaveLeaveAdjust,
 }: {
   dialog?: DialogMode;
   employeeForm: ReturnType<typeof Form.useForm<EmployeeFormValues>>[0];
   periodForm: ReturnType<typeof Form.useForm<PeriodFormValues>>[0];
   priorForm: ReturnType<typeof Form.useForm<PriorServiceFormValues>>[0];
   reasonForm: ReturnType<typeof Form.useForm<{ reason: string }>>[0];
+  leaveForm: ReturnType<typeof Form.useForm<{ balanceHours: number; adjustmentHours: number; reason: string }>>[0];
   processing: boolean;
   error?: ApiRequestError;
   organizationOptions: EmployeeOrganizationOption[];
@@ -528,6 +669,8 @@ function EmployeeDialogs({
   onSavePeriod: () => void;
   onSavePrior: () => void;
   onRecalculate: () => void;
+  onSaveLeaveOpening: () => void;
+  onSaveLeaveAdjust: () => void;
 }) {
   const { t } = useTranslation();
   const save = dialog === 'edit'
@@ -635,6 +778,46 @@ function EmployeeDialogs({
           <ReasonField />
         </Form>
       ) : null}
+      {dialog === 'leave-opening' ? (
+        <Form form={leaveForm} layout="vertical">
+          <Alert
+            showIcon
+            type="info"
+            title="设置期初余额"
+            description="此操作将把该员工本年年假余额重置为指定小时数（40小时=5天，80小时=10天）。如已有期初记录，系统将自动补差。"
+          />
+          <Form.Item
+            name="balanceHours"
+            label="期初余额（小时）"
+            rules={[{ required: true }, { type: 'number', min: 0, max: 9999 }]}
+          >
+            <InputNumber precision={2} min={0} max={9999} step={8} addonAfter="h" />
+          </Form.Item>
+          <Form.Item name="reason" label="原因" rules={[{ required: true, min: 2 }, { max: 500 }]}>
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      ) : null}
+      {dialog === 'leave-adjust' ? (
+        <Form form={leaveForm} layout="vertical">
+          <Alert
+            showIcon
+            type="info"
+            title="手动调整余额"
+            description="正数增加余额，负数扣减余额（如已使用但未及时录入）。调整后余额不低于0。"
+          />
+          <Form.Item
+            name="adjustmentHours"
+            label="调整小时数"
+            rules={[{ required: true }, { type: 'number', min: -9999, max: 9999 }]}
+          >
+            <InputNumber precision={2} min={-9999} max={9999} step={8} addonAfter="h" />
+          </Form.Item>
+          <Form.Item name="reason" label="原因" rules={[{ required: true, min: 2 }, { max: 500 }]}>
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      ) : null}
     </Modal>
   );
 }
@@ -653,7 +836,29 @@ function dialogTitle(dialog?: DialogMode) {
   if (dialog === 'period-create') return 'employee.rehireTitle';
   if (dialog === 'period-edit') return 'employee.editPeriodTitle';
   if (dialog === 'prior-adjust') return 'employee.adjustPriorTitle';
+  if (dialog === 'leave-opening') return '年假期初余额';
+  if (dialog === 'leave-adjust') return '手动调整年假余额';
   return 'employee.recalculateTitle';
+}
+
+function dialogSaveHandler(
+  dialog: DialogMode | undefined,
+  handlers: {
+    onSaveEmployee: () => void;
+    onSavePeriod: () => void;
+    onSavePrior: () => void;
+    onRecalculate: () => void;
+    onSaveLeaveOpening: () => void;
+    onSaveLeaveAdjust: () => void;
+  },
+): (() => void) | undefined {
+  if (dialog === 'edit') return handlers.onSaveEmployee;
+  if (dialog === 'period-create' || dialog === 'period-edit') return handlers.onSavePeriod;
+  if (dialog === 'prior-adjust') return handlers.onSavePrior;
+  if (dialog === 'prior-recalculate') return handlers.onRecalculate;
+  if (dialog === 'leave-opening') return handlers.onSaveLeaveOpening;
+  if (dialog === 'leave-adjust') return handlers.onSaveLeaveAdjust;
+  return undefined;
 }
 
 function toEmployeeRequest(values: EmployeeFormValues): EmployeeUpdateRequest {
