@@ -679,7 +679,11 @@ function EmployeeDialogs({
       ? onSavePeriod
       : dialog === 'prior-adjust'
         ? onSavePrior
-        : onRecalculate;
+        : dialog === 'leave-opening'
+          ? onSaveLeaveOpening
+          : dialog === 'leave-adjust'
+            ? onSaveLeaveAdjust
+            : onRecalculate;
   const chooseStatus = (status: EmployeeStatus) => () => {
     employeeForm.setFieldValue('status', status);
   };
@@ -839,26 +843,6 @@ function dialogTitle(dialog?: DialogMode) {
   if (dialog === 'leave-opening') return '年假期初余额';
   if (dialog === 'leave-adjust') return '手动调整年假余额';
   return 'employee.recalculateTitle';
-}
-
-function dialogSaveHandler(
-  dialog: DialogMode | undefined,
-  handlers: {
-    onSaveEmployee: () => void;
-    onSavePeriod: () => void;
-    onSavePrior: () => void;
-    onRecalculate: () => void;
-    onSaveLeaveOpening: () => void;
-    onSaveLeaveAdjust: () => void;
-  },
-): (() => void) | undefined {
-  if (dialog === 'edit') return handlers.onSaveEmployee;
-  if (dialog === 'period-create' || dialog === 'period-edit') return handlers.onSavePeriod;
-  if (dialog === 'prior-adjust') return handlers.onSavePrior;
-  if (dialog === 'prior-recalculate') return handlers.onRecalculate;
-  if (dialog === 'leave-opening') return handlers.onSaveLeaveOpening;
-  if (dialog === 'leave-adjust') return handlers.onSaveLeaveAdjust;
-  return undefined;
 }
 
 function toEmployeeRequest(values: EmployeeFormValues): EmployeeUpdateRequest {
