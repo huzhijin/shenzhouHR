@@ -70,7 +70,7 @@ public class AnnualLeaveManagementController {
                 : java.time.Year.now().getValue();
         var command = new OpeningBalanceCommand(
                 employeeId, request.balanceHours(), year,
-                request.reason(), requestId);
+                request.openingDate(), request.reason(), requestId);
         LeaveAccountView view = service.setOpeningBalance(command);
         return ResponseEntity.status(HttpStatus.OK)
                 .cacheControl(CacheControl.noStore())
@@ -102,6 +102,8 @@ public class AnnualLeaveManagementController {
     record OpeningBalanceRequest(
             @NotNull @DecimalMin("0.00") @DecimalMax("9999.00") BigDecimal balanceHours,
             Integer year,
+            /** Optional; defaults to 1 August of the account year. */
+            LocalDate openingDate,
             @NotBlank @Size(min = 2, max = 500) String reason) {
     }
 

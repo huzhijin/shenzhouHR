@@ -78,7 +78,9 @@ public class AnnualLeaveManagementService {
         TimeAccountRow current = repository.findTimeAccount(command.employeeId(), command.year())
                 .orElseThrow(() -> new IllegalStateException("account not found after creation"));
 
-        LocalDate businessDate = at.atZone(ZoneOffset.UTC).toLocalDate();
+        // The annual-leave cycle starts on 1 August, so the opening entry is
+        // booked on that date rather than on the day the import runs.
+        LocalDate businessDate = command.openingDate();
         LocalDate expiresOn = AnnualLeaveManagementModels.yearEnd(command.year());
 
         // Remove any previous OPENING entry for this year by inserting a reversal if needed

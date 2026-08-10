@@ -40,6 +40,7 @@ public final class AnnualLeaveManagementModels {
             String employeeId,
             BigDecimal balanceHours,
             int year,
+            LocalDate openingDate,
             String reason,
             String requestId) {
 
@@ -56,6 +57,13 @@ public final class AnnualLeaveManagementModels {
             }
             if (year < 2000 || year > 2100) {
                 throw new IllegalArgumentException("year out of range");
+            }
+            if (openingDate == null) {
+                openingDate = defaultOpeningDate(year);
+            }
+            if (openingDate.getYear() != year) {
+                throw new IllegalArgumentException(
+                        "opening date must fall inside the account year");
             }
         }
     }
@@ -84,6 +92,17 @@ public final class AnnualLeaveManagementModels {
     /** Derive year-end expiry date for opening/grant entries. */
     public static LocalDate yearEnd(int year) {
         return LocalDate.of(year, 12, 31);
+    }
+
+    /**
+     * Default business date for an opening-balance entry.
+     *
+     * <p>The customer's annual-leave cycle starts on 1 August, so opening
+     * balances are booked on that date rather than on the calendar-year
+     * boundary or on the day the import happens.</p>
+     */
+    public static LocalDate defaultOpeningDate(int year) {
+        return LocalDate.of(year, 8, 1);
     }
 
     /** Entry type labels in Chinese. */

@@ -108,11 +108,16 @@ class HrApiClient:
         return None
 
     def set_opening_balance(self, employee_id: str, balance_hours: float,
-                            year: int, reason: str) -> dict:
+                            year: int, opening_date: str, reason: str) -> dict:
         idempotency_key = str(uuid.uuid4())
         resp = self.session.post(
             f"{self.base}/api/v1/employees/{employee_id}/annual-leave/opening",
-            json={"balanceHours": balance_hours, "year": year, "reason": reason},
+            json={
+                "balanceHours": balance_hours,
+                "year": year,
+                "openingDate": opening_date,
+                "reason": reason,
+            },
             headers={"Idempotency-Key": idempotency_key},
             timeout=15)
         resp.raise_for_status()
@@ -147,7 +152,7 @@ def run(args):
                 skip += 1
                 continue
             result = client.set_opening_balance(
-                emp_id, rec["balance_hours"], args.year, rec["reason"])
+                emp_id, rec["balance_hours"], args.year, args.opening_date, rec["reason"])
             bal = result.get("balanceHours", "?")
             print(f"  [{idx}/{len(records)}] {emp_num:<12s} ✓  余额={bal:.2f}h")
             ok += 1
@@ -168,5 +173,9 @@ if __name__ == "__main__":
     parser.add_argument("--username", required=True)
     parser.add_argument("--password", required=True)
     parser.add_argument("--year", type=int, default=2026)
+    parser.add_argument(
+        "--opening-date", default="2026-08-01",
+        help="期初记账日期（默认 2026-08-01，即年假周期起始日）",
+    )
     parser.add_argument("--dry-run", action="store_true", help="仅解析，不提交")
     run(parser.parse_args())
