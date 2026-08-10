@@ -162,7 +162,11 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
         headers.put("Api-Cmd", "checkin_query");
 
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("next_id", Long.parseLong(inputNextId));
+        // Deli E+ next_id fits in a signed 64-bit integer for real data, but
+        // the test fixtures use values larger than Long.MAX_VALUE to exercise
+        // the cursor-passing logic.  Serialize as a BigInteger so Jackson emits
+        // a plain JSON integer regardless of magnitude.
+        payload.put("next_id", new java.math.BigInteger(inputNextId));
         payload.put("page_size", pageSize);
         DeliEplusHttpRequest request = new DeliEplusHttpRequest(
                 endpoint(),

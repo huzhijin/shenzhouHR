@@ -16,7 +16,9 @@ class AttendancePolicyCatalogValidationTest {
                 .containsExactly(
                         "MEAL_DEDUCTION",
                         "LATE_GRACE",
-                        "MONTHLY_LATE_EXEMPTION");
+                        "MONTHLY_LATE_EXEMPTION",
+                        "PUNCH_WINDOW",
+                        "PERIOD_CLOSE");
 
         assertThat(templates.get(0).fields())
                 .extracting(
