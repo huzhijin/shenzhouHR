@@ -1429,6 +1429,8 @@ async function changePolicyRoute(policyKind: AttendancePolicyKind) {
     MEAL_DEDUCTION: '用餐时段扣除',
     LATE_GRACE: '迟到宽限',
     MONTHLY_LATE_EXEMPTION: '每月迟到豁免',
+    PUNCH_WINDOW: '打卡取卡窗口',
+    PERIOD_CLOSE: '月结封账',
   };
   selectPolicyKind(labels[policyKind]);
   const company = await screen.findByLabelText('公司') as HTMLSelectElement;
