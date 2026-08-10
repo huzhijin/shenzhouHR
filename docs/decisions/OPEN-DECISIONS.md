@@ -176,3 +176,107 @@
 - **Current leaning**: 由 UmaDev 将规则升级为语言感知/数据流判定，并支持带审计证据的 rule+realpath+construct 精确裁决。
 - **Blocked by**: 当前 CLI 仅返回文件级结果，项目没有合法的精确 waiver 或基线机制；修改业务源码只能制造扫描器导向的语义污染。
 - **Resolves when**: 上游规则能区分上传入口与字段传播、DOM/集合删除与数据删除、密码 hash 与明文密码、负向合同字符串与执行路径，且本仓 `umadev ci` 在零 exclusions/disabled 下通过。
+
+## OPEN — waiting-on-external-condition — GitHub 推送因 pack 体积失败
+- **Date**: 2026-08-07
+- **Source**: Task A 收尾（用户终端截图）
+- **Open item**: `git push` 在写入 9.09 MiB 时返回 `RPC failed; HTTP 400 curl 22` 与 `send-pack: unexpected disconnect while reading sideband packet`；本地 commit 与 `main` fast-forward 合并均已成功，但 `origin/main` 未更新，当前 41 个 commit 未推送。末尾 `Everything up-to-date` 为误导性输出，不代表推送成功。
+- **Related constraints**: 推送是对外动作，需用户点头；不得使用强制推送或历史改写来绕过体积问题。
+- **Current leaning**: 提高 `http.postBuffer`，或改用 SSH 传输避开 HTTP 缓冲上限；若仍失败则分批推送。仓库含大体积构建产物历史（`release/` 直到 `df3b7b5` 才被忽略），是 pack 偏大的可能原因，待核实。
+- **Blocked by**: 用户明确表示本轮先不处理推送。
+- **Resolves when**: `origin/main` 与本地 HEAD 一致，且 `git status` 显示无未推送 commit。
+
+## OPEN — waiting-on-external-condition — OA 加班类别枚举与主从关联列
+- **Date**: 2026-08-07
+- **Source**: Task B / B-5 加班认定；`docs/contracts/oa-attendance-form-mapping-signoff-matrix.md`
+- **Open item**: 加班认定需要的两类事实未确认：(1) `formson_0172.field0096` 加班类别的原始值到"义务加班/加班费/调休"三选项的封闭映射（`OA-ENUM` 类，枚举未确认）；(2) `formmain_0171` 与 `formson_0172` 的真实主从关联列（`OA-FK-01`，候选列名 `formmain_id` 明确不得使用）。同类缺口还有 `OA-STATUS-01/02` 审批状态列名与"最终批准"取值、LEAVE `field0089` 请假类别枚举。
+- **Related constraints**: 签字矩阵第 13 行要求 `NOT_VERIFIED` 项必须阻断有效考勤证据，不得使用猜测值；OA 侧一律只读；本地 fixture 与 H2 测试不能把状态改为 `VERIFIED`。表与字段目录已在仓库内记录，无需用户重新提供。
+- **Current leaning**: B-5 加班认定按"单据授权 × 打卡证据"双侧结构先建骨架，枚举映射与关联列以配置化映射表注入，确认前对未知值 fail-closed 而非猜测归类。
+- **Blocked by**: 缺少批准环境的脱敏样本：`field0096` / `field0089` 的全量 distinct 值、审批状态全量 distinct 值、主从表 0/1/N 基数证明。
+- **Resolves when**: 上述 distinct 值与关联列由 OA 流程管理员签字确认，签字矩阵对应行从 `NOT_VERIFIED` 转为 `VERIFIED`。
+
+## OPEN — design-decision-to-evaluate — 得力凭据从进程级下移到按源存储
+- **Date**: 2026-08-07
+- **Source**: Task B / B-2 多台考勤机前台配置
+- **Open item**: 现状 `DeliEplusProperties`（`shenzhouhr.integrations.deli-eplus`）为进程级单套凭据，经 `application.yml` 环境变量注入，变量名 `DELI_EPLUS_APP_KEY` / `DELI_EPLUS_APP_SECRET`。需求为多台考勤机各自独立 key 且管理员可在前台配置，需将凭据下移到按 `attendance_source_id` 存储。静态加密方式（应用层信封加密 vs MySQL 侧）与主密钥托管位置未定。
+- **Related constraints**: 凭据值不得入仓库、日志、API 响应；`deli_source_operation`（V27）、`deli_employee_binding_revision` 与 `deli_source_connection_probe`（V28）已按 `attendance_source_id` 建模，可复用；配置入口仅管理员可见。
+- **Current leaning**: 应用层信封加密，密文入库、主密钥经环境变量注入；响应只回凭据引用名与 available/missing 状态，绝不回显密文或明文。
+- **Blocked by**: 主密钥托管位置需与部署方式（宝塔面板 MySQL 8.0.45）一并确认；进程级配置在迁移期的兼容处置未定。
+- **Resolves when**: 按源凭据可增删改查、探测按源独立返回结果，且凭据值在响应与日志中均不可见的验证通过。
+
+## OPEN — design-decision-to-evaluate — 出勤率公式方向与用户口述口径冲突
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 口述答复 C；`docs/contracts/2026-08-06-reporting-business-confirmation.md` R01/R02
+- **Open item**: 用户两次明确表述出勤率为「应出勤天数 ÷ 实际出勤天数」，对应 R01 选项 `C`（保留 V30 文本）。该方向在数学上会随缺勤增加而升高并可超过 100%：满勤时 = 1，缺勤一天时 > 1。R01 已就此列为不可同时成立的三份口径之一，并建议选项 `A`。用户第二句「带薪的假期算出勤」独立成立且清晰，对应 R02 选项 `B`。
+- **Related constraints**: V30 必须按既有数据库 checksum 原字节保留，只能通过 V32 前向修正，不得改写；`ATTENDANCE_RATE_CONFIRMED_OVER_SCHEDULED_V1_PROVISIONAL` 为当前 Java 常量，方向与用户口述相反；报表口径变更必须带 `formulaVersion`，历史投影不可静默改写。
+- **Current leaning**: 判断为口述时的分子分母顺序倒置，真实意图应为 `实际出勤 ÷ 应出勤`（即 R01 选项 `B`，或按分钟计的 `A`）。未取得书面确认前不改动现有常量与实现，不按字面实现会产出 >100% 的比率。
+- **Blocked by**: 需用户书面确认分子分母方向：`实际 ÷ 应该`（建议）还是字面的 `应该 ÷ 实际`；以及按天还是按分钟计。
+- **Resolves when**: 方向与粒度书面签字，`formulaVersion` 落定，并在 V32 前向迁移中体现，边界用例（满勤 / 半天缺勤 / 全月请假 / 零应出勤）全部通过。
+
+## RESOLVED — waiting-on-external-condition — 得力只读联调凭据
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 提供得力 E+ key/secret 及接口文档地址
+- **Resolution**: 用户提供的 key/secret 与仓库外既有 `.env.deli.local`（`0600`、Git 忽略）中已保存的值逐字节一致，无需改动。接口文档为 `http://doc.delicloud.com/v3/integration/oa.html`。凭据值不入仓库、日志与响应的约束继续有效。本条仅关闭「凭据是否可用」，得力租户初始化游标与人员绑定确认仍在上文 2026-07-29 条目中保持 OPEN。
+
+## OPEN — waiting-on-external-condition — OA 只读凭据已提供但本机网络不可达
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 提供 OA 只读数据源
+- **Open item**: 用户提供 `192.168.2.169:3308`、库 `szoa`、账号 `kaoqin2026`，已写入仓库外 `0600` 的 `.env.oa.local` 与 `~/.shenzhouhr-oa-readonly.cnf`（均 Git 忽略，值不入仓库）。本机 MySQL 客户端握手在读取初始通信包阶段即失败（`ERROR 2013`，SSL 关闭后同样失败）。`nc -z` 探测不可用于判定连通：对同主机确定关闭的 3999 端口同样返回 OPEN，属假阳性，不得作为可达证据。
+- **Related constraints**: OA 一律只读；未确认项必须阻断有效考勤证据，不得使用猜测值。
+- **Current leaning**: 待在能实际路由到该内网段的环境中执行只读查询。
+- **Blocked by**: 当前执行环境到 `192.168.2.169:3308` 无实际 MySQL 层可达性。
+- **Resolves when**: 同一凭据在可达环境完成握手，并取得下条所需的三类 distinct 值与基数证明。
+
+## OPEN — waiting-on-external-condition — OA 枚举/审批/绑定的用户口述方法待实库验证
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 口述 OA 查询方法
+- **Open item**: 用户给出三条方法，已记入 `docs/contracts/oa-attendance-form-mapping-signoff-matrix.md` 第 9 节，状态保持 `NOT_VERIFIED`（口述不构成实库证据）：(1) 枚举经 `ctp_enum_item` 按枚举 id 查 `showvalue` 取中文，加班类别为「义务加班 / 加班费 / 调休」三选项；(2) 审批状态经 `formmain_xxxx.id = col_summary.form_recordid` 关联 `col_summary.state`，`3` = 结束（有效）、`0` = 发起中、`2` = 撤销、`NULL` = 保存待发；(3) 工号绑定为 `org_member.code` ↔ 得力 `employee_number`，OA 表单存 `org_member.id`。此方法若成立，可一次性关闭 `OA-ENUM-01/02/03`、`OA-STATUS-01/02`、`OA-MEMBER-02`；`OA-FK-01`（`formmain_0171` ↔ `formson_0172` 真实关联列）仍未被该方法覆盖，候选列名 `formmain_id` 明确不得使用。
+- **Related constraints**: 加班认定必须同时体现单据授权与实际打卡证据两侧，不以填报值为准（用户 2026-08-08 明确）；未知枚举值 fail-closed，不得降级为默认类别。
+- **Current leaning**: 按上述方法建立配置化映射表，取得 distinct 值后一次性签字。
+- **Blocked by**: 上条 OA 网络可达性。
+- **Resolves when**: `ctp_enum_item.showvalue` 全量 distinct、`col_summary.state` 全量 distinct、`formmain_0171`/`formson_0172` 的 0/1/N 基数证明取得，签字矩阵对应行转 `VERIFIED`。
+
+## OPEN — deployment-safety-decision — dev/test/生产库现状未盘点
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 要求核对 dev / test / 生产三库
+- **Open item**: 本机 MySQL 8.0.34 在 3306 监听，但当前执行环境无任何可用管理凭据（`root` 无密码认证失败，仓库外未发现凭据文件），与上文 2026-07-25 的 `SHENZHOUHR_MYSQL_ROOT_PASSWORD = missing` 一致。因此 `shenzhou_hr_dev`、`shenzhou_hr_test` 及生产库的存在性、Flyway history 停留版本、期初人员数据是否已导入均未盘点。另需注意本机为 8.0.34，而仓库核心验证基线为 MySQL 8.4 LTS、客户宝塔包为 8.0.45，三者版本均不一致。
+- **Related constraints**: 只允许操作 `shenzhou_hr_dev` 与 `shenzhou_hr_test`；不得修改已执行迁移，不得用 Flyway `repair` 掩盖 checksum 差异。
+- **Current leaning**: 取得 root 凭据后先执行只读盘点（`flyway_schema_history` 最大版本、`employee`/`organization` 行数），再决定是否需要补导期初数据。
+- **Blocked by**: 本机 MySQL 管理凭据在当前执行环境不可用。
+- **Resolves when**: 三库的 Flyway 版本与期初人员行数完成只读盘点并记录。
+
+## OPEN — existing-design-boundary — 期初部门人员数据源文件位置
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 指明期初数据文件
+- **Open item**: 用户指明期初部门与人员数据为本机 `~/Downloads/人员列表_seeyon1.xls`（252,928 B）与 `~/Downloads/departments_seeyon1.xls`（50,688 B），并表示 dev 环境已导入、正式环境同源。两文件均为旧式 `.xls`，而 `docs/decisions/OPEN-DECISIONS.md` 2026-07-24 条目记载 `.xls`/CSV 是否作为首期原生输入尚未裁决，当前 `peopleImport` 首期只支持标准 `.xlsx`。文件位于仓库外，未复制入仓库。
+- **Related constraints**: 不得用姓名/部门唯一匹配；不得导入计算结果；真实人员数据不得进入仓库。
+- **Current leaning**: 确认 dev 库实际导入行数后，再决定是否需要 `.xls` 原生支持或先行转换为 `.xlsx`。
+- **Resolves when**: dev 库人员/组织行数与两份源文件行数核对一致，且 `.xls` 支持范围形成书面决策。
+
+## OPEN — design-decision-to-evaluate — 用户 2026-08-08 口述答复 D/F/G 的题号绑定
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 答复「D、方案2」「F、方案3」「G、策略绑定不重要可不做」
+- **Open item**: 用户以 `A`–`G` 编号答复，但该编号来自仓库外的 Codex 会话，仓库内 `docs/contracts/2026-08-06-reporting-business-confirmation.md` 使用 `R01`–`R43` 编号，两套编号无法可靠对应。已可确定的是：C 为出勤率（见上文冲突条目）；G 指策略绑定，用户明确其优先级低、不影响整体流程时可不做；E 为 dev/test/生产库盘点（见上文条目）。D 的「方案2」与 F 的「方案3」所对应的具体问题及选项内容在仓库内无对应记录，不做猜测实现。
+- **Current leaning**: 报表优先（用户明确「这几个报表一定要优先」），策略绑定按用户意见降级。
+- **Blocked by**: 需用户重新给出 D 与 F 的问题原文，或改用 `R01`–`R43` 编号重述。
+- **Resolves when**: D/F 的问题与所选方案在仓库内有可复核记录。
+
+## RESOLVED — design-decision-to-evaluate — 打卡配对规则
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 确认
+- **Resolution**: 按班次时间窗口，同人同日最早一条打卡记录判为上班卡、最晚一条判为下班卡；跨午夜班次按 `startDayOffset` 处理；中间多余打卡记为其他打卡保留原始记录不丢弃。
+
+## RESOLVED — design-decision-to-evaluate — 打卡去重窗口
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 确认
+- **Resolution**: 同人 + 同设备 + 60 秒内重复打卡合并为一条，保留最早时间戳，其余物理行标记为 DEDUPLICATED 但不删除，以保留原始证据。
+
+## RESOLVED — design-decision-to-evaluate — 非标工号前缀（SZSTSX）人员是否纳入考勤
+- **Date**: 2026-08-08
+- **Source**: 用户 2026-08-08 确认
+- **Resolution**: `SZSTSX` 前缀人员（得力员工表里有、系统 employee 表里无对应记录）**不纳入考勤核算范围**。系统在绑定阶段遇到此类工号 fail-closed，不产生报表行，但保留原始打卡记录以备人工核查。
+
+## RESOLVED — design-decision-to-evaluate — 得力 employee_query 接口作为工号回填来源
+- **Date**: 2026-08-08
+- **Source**: 实测验证 2026-08-08
+- **Resolution**: `POST https://v2-api.delicloud.com/v2.0/employee/query`（`limit`/`offset` 分页，无 Api-Module 头，签名与 CHECKIN 相同）返回得力 `id` ↔ `employee_num` 映射，585 人全覆盖，工号格式与系统一致（SZST/SZJN 等）。打卡记录 `check_data.employee_num` 为空时，用此接口按 `user_id` 回填工号。样本数据在 `tmp/deli-sample/deli-employees.csv`（Git ignore，含真实姓名工号，确认后删除）。

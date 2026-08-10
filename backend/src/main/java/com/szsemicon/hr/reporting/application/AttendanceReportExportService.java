@@ -3,7 +3,6 @@ package com.szsemicon.hr.reporting.application;
 import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.identityaccess.application.AuthenticationService;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.EncodedExport;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.ExportContext;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.DeliveryMode;
@@ -46,7 +45,6 @@ public class AttendanceReportExportService {
 
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principalProvider;
-    private final AuthenticationService authenticationService;
     private final AttendanceReportSourceRepository sourceRepository;
     private final AttendanceReportExportStore exportStore;
     private final AttendanceReportExportEncoder encoder;
@@ -60,7 +58,6 @@ public class AttendanceReportExportService {
     public AttendanceReportExportService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principalProvider,
-            AuthenticationService authenticationService,
             AttendanceReportSourceRepository sourceRepository,
             AttendanceReportExportStore exportStore,
             AttendanceReportExportEncoder encoder,
@@ -72,7 +69,6 @@ public class AttendanceReportExportService {
         this(
                 capabilities,
                 principalProvider,
-                authenticationService,
                 sourceRepository,
                 exportStore,
                 encoder,
@@ -86,7 +82,6 @@ public class AttendanceReportExportService {
     AttendanceReportExportService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principalProvider,
-            AuthenticationService authenticationService,
             AttendanceReportSourceRepository sourceRepository,
             AttendanceReportExportStore exportStore,
             AttendanceReportExportEncoder encoder,
@@ -97,7 +92,6 @@ public class AttendanceReportExportService {
             Duration retention) {
         this.capabilities = capabilities;
         this.principalProvider = principalProvider;
-        this.authenticationService = authenticationService;
         this.sourceRepository = sourceRepository;
         this.exportStore = exportStore;
         this.encoder = encoder;
@@ -119,8 +113,7 @@ public class AttendanceReportExportService {
             ReportType reportType,
             ReportFilter filter,
             RequestedExportBinding requestedBinding,
-            String purpose,
-            String currentPassword) {
+            String purpose) {
         if (reportType == null
                 || filter == null
                 || requestedBinding == null) {
@@ -133,8 +126,6 @@ public class AttendanceReportExportService {
                     "status is only supported by the exception report");
         }
         String normalizedPurpose = ExportJob.normalizePurpose(purpose);
-        authenticationService.reauthenticateCurrentAccount(
-                currentPassword, "ATTENDANCE_REPORT_EXPORT_CREATE");
         return transactions.readCommitted(() -> createAuthorized(
                 reportType,
                 filter,
@@ -270,10 +261,7 @@ public class AttendanceReportExportService {
         return ExportView.from(job, now);
     }
 
-    public DownloadedExport download(
-            String exportId, String currentPassword) {
-        authenticationService.reauthenticateCurrentAccount(
-                currentPassword, "ATTENDANCE_REPORT_EXPORT_DOWNLOAD");
+    public DownloadedExport download(String exportId) {
         return transactions.serialized(
                 () -> downloadAuthorized(exportId));
     }

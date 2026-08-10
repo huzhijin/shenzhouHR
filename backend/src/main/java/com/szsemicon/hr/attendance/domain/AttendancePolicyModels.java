@@ -15,7 +15,11 @@ public final class AttendancePolicyModels {
     public enum PolicyKind {
         MEAL_DEDUCTION,
         LATE_GRACE,
-        MONTHLY_LATE_EXEMPTION
+        MONTHLY_LATE_EXEMPTION,
+        /** 打卡取卡窗口：管理类规则，有绑定则透传参数，无绑定不阻断试算。 */
+        PUNCH_WINDOW,
+        /** 月结封账：管理类规则，有绑定则透传参数，无绑定不阻断试算。 */
+        PERIOD_CLOSE
     }
 
     public enum SimulationStatus {

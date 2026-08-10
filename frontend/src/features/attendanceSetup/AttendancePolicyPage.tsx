@@ -419,6 +419,8 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
             { value: 'MEAL_DEDUCTION', label: t('attendanceSetup.policyMeal') },
             { value: 'LATE_GRACE', label: t('attendanceSetup.policyLateGrace') },
             { value: 'MONTHLY_LATE_EXEMPTION', label: t('attendanceSetup.policyMissingPunch') },
+            { value: 'PUNCH_WINDOW', label: '打卡取卡窗口' },
+            { value: 'PERIOD_CLOSE', label: '月结封账' },
           ]}
         />
         <div className="attendance-version-input">
@@ -671,5 +673,7 @@ function policyKindLabel(value: AttendancePolicyKind): string {
     MEAL_DEDUCTION: '用餐时段扣除',
     LATE_GRACE: '迟到宽限',
     MONTHLY_LATE_EXEMPTION: '每月迟到豁免',
+    PUNCH_WINDOW: '打卡取卡窗口',
+    PERIOD_CLOSE: '月结封账',
   } as const)[value];
 }

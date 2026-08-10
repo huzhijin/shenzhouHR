@@ -13,7 +13,7 @@ import java.util.Objects;
 public final class AttendanceReportModels {
 
     public static final String ATTENDANCE_RATE_FORMULA_VERSION =
-            "ATTENDANCE_RATE_CONFIRMED_OVER_SCHEDULED_V1_PROVISIONAL";
+            "ATTENDANCE_RATE_ACTUAL_OVER_REQUIRED_V1";
 
     private AttendanceReportModels() {
     }

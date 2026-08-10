@@ -4,8 +4,8 @@
 
 - 文档日期：2026-07-29
 - 当前状态：`OA_LIVE=NOT_VERIFIED`
-- 已有证据：用户提供的 OA 表单截图及字段转录
-- 未有证据：OA 实库只读查询、系统审批列、审批值、主从外键、业务枚举、时区、版本/撤销语义
+- 已有证据：用户提供的 OA 表单截图及字段转录；2026-08-10 实库证据批次当前为 [`PARTIAL`](../verification/oa-live/2026-08-10/EVIDENCE.md)，已审阅 `OA-B5-00` 环境结果，其余 18 项待采集
+- 未有可签字证据：实库结果值、系统审批列及语义、主从外键、业务枚举、时区、版本/撤销语义
 - 代码边界：已实现编译期静态表/列白名单、纯行转换、可选只读 OA MySQL 连接池，以及固定参数 SQL 的 `org_member.id -> code` 查询；审批状态、主从 FK 等未签字，因此尚未实现六类业务表查询，也没有真实 OA 凭据或连接验收
 
 截图字段可作为联调候选合同，但不能证明实库表结构、字段类型、审批状态或关联关系。`org_member` 适配器只执行固定的
@@ -69,9 +69,9 @@
 | OA-FK-02 | `formmain_0251` 与 `formson_0252` 的真实 FK/关联列 | `NOT_VERIFIED` | 同上 |  |  |  |  |  |
 | OA-FK-03 | `formmain_0201` 与 `formson_0202` 的真实 FK/关联列 | `NOT_VERIFIED` | 同上 |  |  |  |  |  |
 | OA-FK-04 | `formmain_0203` 与 `formson_0204` 的真实 FK/关联列 | `NOT_VERIFIED` | 同上 |  |  |  |  |  |
-| OA-FK-05 | 候选列名 `formmain_id` 是否真实、类型是否一致 | `NOT_VERIFIED` | 仅作调查提示；确认前不得进入代码或 SQL |  |  |  |  |  |
+| OA-FK-05 | 候选列名 `formmain_id` 是否真实、类型是否一致 | `NOT_VERIFIED` | 仅可在批准的只读取证 SQL 中验证；确认前不得进入生产查询或运行时代码 |  |  |  |  |  |
 | OA-STATUS-01 | 系统审批状态列名、SQL 类型、全部原始值 | `NOT_VERIFIED` | 全量 distinct 值、数量、脱敏样本和 OA 流程配置 |  |  |  |  |  |
-| OA-STATUS-02 | 哪些值精确代表最终批准，撤回/拒绝/终止/草稿语义 | `NOT_VERIFIED` | OA 产品/流程管理员签字的封闭映射及负例 |  |  |  |  |  |
+| OA-STATUS-02 | 哪些值精确代表最终批准，撤回/拒绝/终止/草稿语义 | `VERBAL_CONFIRMED` | state=3 结束/批准；NULL 草稿；0 发起中；2 撤销 — 客户口头确认 2026-08-10；state=1（1条）未说明，代码 fail-closed | 待补 |  | 2026-08-10 |  | 客户口头确认 |
 | OA-STATUS-03 | 修改、补录、撤销、重复提交和乱序版本语义 | `NOT_VERIFIED` | 同一业务单据的版本链脱敏样本与排序规则 |  |  |  |  |  |
 | OA-KEY-01 | 每类单据稳定业务主键、版本键和更新时间水位 | `NOT_VERIFIED` | 重放、修改、撤销、分页、水位边界样本 |  |  |  |  |  |
 | OA-ENUM-01 | LEAVE `field0089` 完整原始值到请假类别的封闭映射 | `NOT_VERIFIED` | distinct 值、业务字典、未知值负例 |  |  |  |  |  |
@@ -124,3 +124,65 @@ cd backend
 ```
 
 该测试通过只表示静态骨架自洽，不表示 `OA_CONTRACT_STUB=PASS`，更不表示 `OA_LIVE=PASS`。
+
+## 8. 客户口述线索与待执行的解析查询（2026-08-08）
+
+以下三条由客户在 2026-08-08 口述提供。**口述不是实库证据**，故第 5 节对应行保持
+`NOT_VERIFIED`；本节只记录解析路径，使具备内网访问者可以直接执行确认。
+
+| 线索 ID | 客户口述内容 | 对应签字行 | 当前状态 |
+|---|---|---|---|
+| LEAD-ENUM-01 | 枚举值不直接存中文，需按枚举 id 查 `ctp_enum_item`，再取 `showvalue` 字段判断 | OA-ENUM-01/02/03 | `LEAD_ONLY` |
+| LEAD-STATUS-01 | 审批状态在 `col_summary`，按 `formmain_xxxx.id = col_summary.form_recordid` 关联；`state` 取值 3=结束（有效）、0=发起中、2=撤销、NULL=保存待发 | OA-STATUS-01/02 | `LEAD_ONLY` |
+| LEAD-MEMBER-01 | 工号绑定为 `org_member.code` ↔ 得力 `employee_number`；OA 表单内存 `org_member.id`，须关联查询 | OA-MEMBER-02 | `LEAD_ONLY` |
+
+加班类别按客户口述为三个封闭选项：`义务加班`、`加班费`、`调休`。
+在 `showvalue` 的原始值到这三项的映射经签字前，未知值必须 fail closed，不得归入任一类别。
+
+### 待执行的只读解析查询
+
+连接参数记录在仓库外的 `.env.oa.local`（变量名 `OA_MYSQL_*`，值不入仓库）。
+以下全部为 `SELECT`，OA 侧一律只读：
+
+```sql
+-- 1. OA-ENUM-02：加班类别 field0096 的全量原始值及中文标签
+SELECT DISTINCT s.field0096 AS raw_value, e.showvalue AS label, COUNT(*) AS row_count
+FROM formson_0172 s
+LEFT JOIN ctp_enum_item e ON e.id = s.field0096
+GROUP BY s.field0096, e.showvalue
+ORDER BY row_count DESC;
+
+-- 2. OA-ENUM-01：请假类别 field0089
+SELECT DISTINCT m.field0089 AS raw_value, e.showvalue AS label, COUNT(*) AS row_count
+FROM formmain_0170 m
+LEFT JOIN ctp_enum_item e ON e.id = m.field0089
+GROUP BY m.field0089, e.showvalue
+ORDER BY row_count DESC;
+
+-- 3. OA-STATUS-01：审批状态全量取值分布
+SELECT c.state, COUNT(*) AS row_count
+FROM formmain_0171 m
+JOIN col_summary c ON c.form_recordid = m.id
+GROUP BY c.state
+ORDER BY row_count DESC;
+
+-- 4. OA-FK-01：加班主从关联列的真实名称（先看列清单，禁止假设 formmain_id）
+SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = 'szoa' AND TABLE_NAME = 'formson_0172'
+ORDER BY ORDINAL_POSITION;
+
+-- 5. OA-FK-01 基数证明：确认候选列后代入 <fk_column>
+SELECT s.<fk_column>, COUNT(*) AS detail_rows
+FROM formson_0172 s
+GROUP BY s.<fk_column>
+ORDER BY detail_rows DESC
+LIMIT 20;
+```
+
+### 本机可达性结论（2026-08-08）
+
+从当前开发机对 `192.168.2.169:3308` 的 `nc -z` 探测返回 OPEN，但**该结果为假阳性**：
+对同一主机确定关闭的 3999 端口探测同样返回 OPEN，说明链路上存在接受任意 TCP
+连接的中间设备。MySQL 握手实际在 `reading initial communication packet` 阶段失败。
+因此 OA 实库在当前网络位置不可达，上述查询必须在具备内网访问的环境执行。

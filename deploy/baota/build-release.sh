@@ -14,28 +14,6 @@ die() {
   exit 1
 }
 
-copy_markdown_tree() {
-  local source_root="$1"
-  local destination_root="$2"
-  local source_file relative_file destination_file copied
-  [[ -d "$source_root" && ! -L "$source_root" ]] \
-    || die "Markdown source must be a real directory: $source_root"
-  copied=0
-  while IFS= read -r -d '' source_file; do
-    [[ -f "$source_file" && ! -L "$source_file" ]] \
-      || die "Markdown source must be a regular file: $source_file"
-    relative_file="${source_file#"$source_root"/}"
-    case "$relative_file" in
-      ""|/*|../*|*/../*|*/..) die "Unsafe Markdown path: $source_file" ;;
-    esac
-    destination_file="$destination_root/$relative_file"
-    mkdir -p "$(dirname -- "$destination_file")"
-    install -m 0644 "$source_file" "$destination_file"
-    copied=$((copied + 1))
-  done < <(find "$source_root" -type f -name '*.md' -print0 | sort -z)
-  ((copied > 0)) || die "No Markdown documents found under: $source_root"
-}
-
 command -v bash >/dev/null || die 'bash is required'
 command -v sha256sum >/dev/null || command -v shasum >/dev/null || die 'sha256sum or shasum is required'
 command -v install >/dev/null || die 'install is required to stage customer documentation safely'
@@ -51,6 +29,7 @@ if [[ ! -x "$REPO_ROOT/backend/mvnw" ]]; then
 fi
 command -v node >/dev/null || die 'Node.js is required to build the frontend'
 command -v npm >/dev/null || die 'npm is required to build the frontend'
+command -v python3 >/dev/null || die 'Python 3 is required to run deployment release tests'
 
 JAVA_BIN="${JAVA_BIN:-$(command -v java || true)}"
 [[ -n "$JAVA_BIN" ]] || die 'Java 21 is required'
@@ -107,6 +86,12 @@ if [[ "$SOURCE_TREE_STATE" != "clean" && "$ALLOW_DIRTY_RELEASE" != "true" ]]; th
   die 'Refusing to build a customer release without a clean, committed source tree'
 fi
 
+while IFS= read -r -d '' shell_script; do
+  bash -n "$shell_script"
+done < <(find "$REPO_ROOT/deploy/baota" -type f -name '*.sh' -print0 | sort -z)
+cd "$REPO_ROOT"
+python3 -m unittest scripts.release.tests.test_baota_provisioning_environment
+
 cd "$REPO_ROOT/frontend"
 npm ci
 npm run check
@@ -127,6 +112,11 @@ done < <(find "$REPO_ROOT/backend/target" -maxdepth 1 -type f -name '*.jar' | so
 "$JAR_BIN" tf "$JAR_PATH" | grep '^BOOT-INF/lib/spring-boot-flyway-.*\.jar$' >/dev/null \
   || die "Backend output is missing Spring Boot Flyway auto-configuration: $JAR_PATH"
 [[ -d "$REPO_ROOT/frontend/dist/prod" ]] || die 'Frontend production output was not produced'
+[[ -f "$REPO_ROOT/frontend/dist/prod/index.html" \
+    && ! -L "$REPO_ROOT/frontend/dist/prod/index.html" ]] \
+  || die 'Frontend production output is missing a safe index.html'
+[[ -z "$(find "$REPO_ROOT/frontend/dist/prod" -type l -print -quit)" ]] \
+  || die 'Frontend production output contains a symbolic link'
 
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd -- "$OUTPUT_DIR" && pwd)"
@@ -138,20 +128,21 @@ ARCHIVE_CHECKSUM_PATH="$ARCHIVE_PATH.sha256"
 [[ ! -e "$ARCHIVE_CHECKSUM_PATH" ]] || die "Release checksum already exists: $ARCHIVE_CHECKSUM_PATH"
 
 mkdir -p "$RELEASE_ROOT/backend" "$RELEASE_ROOT/web" "$RELEASE_ROOT/db/migration" \
-  "$RELEASE_ROOT/deploy/baota" "$RELEASE_ROOT/docs/user-guide" \
-  "$RELEASE_ROOT/docs/contracts" "$RELEASE_ROOT/docs/reporting"
+  "$RELEASE_ROOT/deploy/baota" "$RELEASE_ROOT/docs/deployment"
 cp "$JAR_PATH" "$RELEASE_ROOT/backend/shenzhou-hr.jar"
 cp -R "$REPO_ROOT/frontend/dist/prod/." "$RELEASE_ROOT/web/"
 for migration in "${MIGRATION_FILES[@]}"; do
   cp "$migration" "$RELEASE_ROOT/db/migration/"
 done
 cp -R "$SCRIPT_DIR/." "$RELEASE_ROOT/deploy/baota/"
-copy_markdown_tree "$REPO_ROOT/docs/user-guide" "$RELEASE_ROOT/docs/user-guide"
-copy_markdown_tree "$REPO_ROOT/docs/contracts" "$RELEASE_ROOT/docs/contracts"
-copy_markdown_tree "$REPO_ROOT/docs/reporting" "$RELEASE_ROOT/docs/reporting"
+rm -rf -- "$RELEASE_ROOT/deploy/baota/systemd"
+rm -f -- "$RELEASE_ROOT/deploy/baota/nginx/shenzhouhr-site.conf"
 cp "$SCRIPT_DIR/install.sh" "$RELEASE_ROOT/install.sh"
 cp "$SCRIPT_DIR/upgrade.sh" "$RELEASE_ROOT/upgrade.sh"
 cp "$SCRIPT_DIR/README.md" "$RELEASE_ROOT/DEPLOYMENT-NOTES.md"
+install -m 0644 \
+  "$REPO_ROOT/docs/deployment/baota-deployment-guide.md" \
+  "$RELEASE_ROOT/docs/deployment/baota-deployment-guide.md"
 chmod +x "$RELEASE_ROOT/install.sh" "$RELEASE_ROOT/upgrade.sh" \
   "$RELEASE_ROOT/deploy/baota/"*.sh \
   "$RELEASE_ROOT/deploy/baota/mysql/"*.sh "$RELEASE_ROOT/deploy/baota/scripts/"*.sh
@@ -168,15 +159,17 @@ chmod +x "$RELEASE_ROOT/install.sh" "$RELEASE_ROOT/upgrade.sh" \
   printf 'migration_versions=%s\n' "$MIGRATION_VERSION_LIST"
   printf 'java_major=%s\n' "$JAVA_MAJOR"
   printf 'mysql_expected=%s\n' '8.0.45'
-  printf 'backend_port_default=%s\n' '18080'
+  printf 'baota_min_version=%s\n' '11.8'
+  printf 'customer_domain=%s\n' '192.168.160.226'
+  printf 'backend_address_default=%s\n' '0.0.0.0'
+  printf 'backend_port_default=%s\n' '8080'
+  printf 'site_port_default=%s\n' '23272'
+  printf 'process_manager_default=%s\n' 'baota'
+  printf 'session_cookie_secure_default=%s\n' 'false'
+  printf 'deployment_guide=%s\n' 'docs/deployment/baota-deployment-guide.md'
   printf 'initial_business_data=%s\n' 'not_included_import_approved_files_separately'
-  printf 'customer_guide=%s\n' 'docs/user-guide/README.md'
-  printf 'deployment_readiness=%s\n' \
-    'docs/contracts/2026-08-06-customer-deployment-readiness.md'
-  printf 'reporting_confirmation=%s\n' \
-    'docs/contracts/2026-08-06-reporting-business-confirmation.md'
-  printf 'reporting_code_audit=%s\n' \
-    'docs/contracts/2026-08-06-reporting-code-audit.md'
+  printf 'deployment_notes=%s\n' 'DEPLOYMENT-NOTES.md'
+  printf 'archive_owner=%s\n' 'root:root'
 } > "$RELEASE_ROOT/BUILD-MANIFEST.txt"
 
 cd "$RELEASE_ROOT"
@@ -186,7 +179,13 @@ else
   find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
 fi
 
-tar -C "$OUTPUT_DIR" -czf "$ARCHIVE_PATH" "$RELEASE_NAME"
+if tar --version 2>/dev/null | grep -qi 'bsdtar'; then
+  tar --uid 0 --gid 0 --uname root --gname root \
+    -C "$OUTPUT_DIR" -czf "$ARCHIVE_PATH" "$RELEASE_NAME"
+else
+  tar --owner=0 --group=0 --numeric-owner \
+    -C "$OUTPUT_DIR" -czf "$ARCHIVE_PATH" "$RELEASE_NAME"
+fi
 (
   cd "$OUTPUT_DIR"
   if command -v sha256sum >/dev/null; then
@@ -197,4 +196,4 @@ tar -C "$OUTPUT_DIR" -czf "$ARCHIVE_PATH" "$RELEASE_NAME"
 )
 printf '\nRelease ready:\n%s\n' "$ARCHIVE_PATH"
 printf 'Archive checksum:\n%s\n' "$ARCHIVE_CHECKSUM_PATH"
-printf 'Upload the archive, extract it, then run: sudo bash install.sh\n'
+printf 'Upload the archive, extract it, then follow: docs/deployment/baota-deployment-guide.md\n'

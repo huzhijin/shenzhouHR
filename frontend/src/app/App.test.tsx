@@ -580,12 +580,19 @@ describe('App session and route authorization', () => {
 
     expect(await screen.findByRole(
       'heading',
-      { name: reportFixture.reportTitle },
+      { name: '考勤报表中心' },
       { timeout: 5_000 },
     )).toBeInTheDocument();
     expect(screen.queryByText('ATTENDANCE_DETAIL_FORMULA_V1'))
       .not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // The production route must read the formal projection API, not demo data.
+    const requestedPaths = () => fetchMock.mock.calls.map(
+      (call) => new URL(String(call[0]), window.location.origin).pathname,
+    );
+    await waitFor(() => {
+      expect(requestedPaths()).toContain('/api/v1/attendance-reports/companies');
+      expect(requestedPaths()).toContain('/api/v1/attendance-reports/month-matrix');
+    });
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();
     expect(screen.getByTestId('current-location'))

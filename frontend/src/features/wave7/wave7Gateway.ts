@@ -44,7 +44,6 @@ export interface ReportQuery {
 export interface ReportExportCreateRequest extends ReportExportRequest {
   reportType: AttendanceReportType;
   filters: ReportExportRequest['filters'] & { companyId: string };
-  currentPassword: string;
 }
 
 export interface AttendanceMonthMatrixQuery {
@@ -84,7 +83,6 @@ export interface Wave7ProjectionGateway {
   ): Promise<AttendanceReportExportView>;
   downloadReportExport?(
     exportId: string,
-    currentPassword: string,
   ): Promise<DownloadedFile>;
 }
 
@@ -317,16 +315,15 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     }
     return response;
   },
-  downloadReportExport: async (exportId, currentPassword) => {
+  downloadReportExport: async (exportId) => {
     const normalizedExportId = normalizeExportId(exportId);
-    validateCurrentPassword(currentPassword);
     let file: DownloadedFile;
     try {
       file = await requestFile(
         `${reportExportBasePath}/${encodeURIComponent(normalizedExportId)}/download`,
         {
           method: 'POST',
-          body: JSON.stringify({ currentPassword }),
+          body: JSON.stringify({}),
         },
       );
     } catch (error: unknown) {
@@ -541,7 +538,6 @@ function normalizeReportExportCreateRequest(
         'filters',
         'selectedFields',
         'purpose',
-        'currentPassword',
       ],
     )
     || !attendanceReportTypes.includes(request.reportType)
@@ -627,7 +623,6 @@ function normalizeReportExportCreateRequest(
     void error;
     throw invalidReportExportRequest();
   }
-  validateCurrentPassword(request.currentPassword);
   return {
     reportType: request.reportType,
     projectionVersion: request.projectionVersion,
@@ -643,7 +638,6 @@ function normalizeReportExportCreateRequest(
     },
     selectedFields: [...request.selectedFields],
     purpose,
-    currentPassword: request.currentPassword,
   };
 }
 
@@ -718,16 +712,6 @@ export function isReportExceptionState(
     || value === 'PENDING_EVIDENCE'
     || value === 'PENDING_REVIEW'
     || value === 'RESOLVED';
-}
-
-function validateCurrentPassword(value: string): void {
-  if (
-    typeof value !== 'string'
-    || value.length > 256
-    || value.trim() === ''
-  ) {
-    throw invalidReportExportRequest();
-  }
 }
 
 function normalizeExportId(value: string): string {
@@ -811,9 +795,7 @@ function safeReportExportError(error: unknown): ApiRequestError {
   }
   let message = '报表导出服务暂时不可用。';
   if (error.status === 401) {
-    message = error.code === 'REAUTHENTICATION_FAILED'
-      ? '当前密码验证失败，操作未完成。'
-      : '会话已失效，请重新登录。';
+    message = '会话已失效，请重新登录。';
   } else if (error.status === 403 || error.status === 404) {
     message = '当前账号无权访问该导出，或导出不存在。';
   } else if (error.status === 409 || error.status === 410) {

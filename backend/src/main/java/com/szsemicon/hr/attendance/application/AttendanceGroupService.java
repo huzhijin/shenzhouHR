@@ -53,7 +53,9 @@ public class AttendanceGroupService {
     private static final List<PolicyKind> ROLLOVER_POLICY_KIND_ORDER = List.of(
             PolicyKind.MEAL_DEDUCTION,
             PolicyKind.LATE_GRACE,
-            PolicyKind.MONTHLY_LATE_EXEMPTION);
+            PolicyKind.MONTHLY_LATE_EXEMPTION,
+            PolicyKind.PUNCH_WINDOW,
+            PolicyKind.PERIOD_CLOSE);
     private static final Comparator<String> BINARY_ID_ORDER =
             AttendanceGroupService::compareBinaryIds;
     private static final int CALENDAR_DAY_VALIDATION_PAGE_SIZE = 100;

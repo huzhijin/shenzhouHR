@@ -42,7 +42,6 @@ const PersonalAttendanceDashboardRoute = lazy(
     .then((module) => ({ default: module.PersonalAttendanceDashboardRoute })),
 );
 const CustomerReportsRoute = lazy(() => import('../features/reports/CustomerReportCenterPage'));
-const ProjectionReportsRoute = lazy(() => import('../features/wave7/ReportsPage'));
 const AttendanceScreenRoute = lazy(() => import('../features/wave7/AttendanceBigScreenPage'));
 const EmployeeTodayRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
   .then((module) => ({ default: module.EmployeeTodayRoute })));
@@ -269,9 +268,7 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
             ? (
               <Route
                 path="/attendance/reports"
-                element={demoMode
-                  ? <CustomerReportsRoute capabilities={session.capabilities} />
-                  : <ProjectionReportsRoute capabilities={session.capabilities} />}
+                element={<CustomerReportsRoute capabilities={session.capabilities} />}
               />
             )
             : <Route path="/attendance/reports" element={<AccessDenied />} />}

@@ -30,6 +30,15 @@ public class DeliPunchPageTransaction {
     private static final LocalTime CROSS_DAY_CUTOFF = LocalTime.of(6, 0);
     private static final int MAX_CANDIDATE_DATES = 4;
 
+    /**
+     * Safe failure code raised when a punch's business date falls outside
+     * every published attendance period, leaving its period state
+     * undetermined. Such a record is quarantined on its own rather than
+     * aborting the page it travelled in.
+     */
+    private static final String PERIOD_PROTECTION_UNAVAILABLE =
+            "ATTENDANCE_PERIOD_PROTECTION_UNAVAILABLE";
+
     private final AttendanceSourceSyncRepository syncRepository;
     private final AttendanceEvidenceRepository evidenceRepository;
     private final EmployeeEmploymentResolverPort employeeResolver;
@@ -93,14 +102,36 @@ public class DeliPunchPageTransaction {
         int accepted = 0;
         int quarantined = 0;
         for (var record : page.records()) {
-            RecordOutcome outcome = ingestRecord(
-                    job,
-                    principalId,
-                    requestId,
-                    record,
-                    configurationResolver,
-                    periodProtection,
-                    committedAt);
+            RecordOutcome outcome;
+            try {
+                outcome = ingestRecord(
+                        job,
+                        principalId,
+                        requestId,
+                        record,
+                        configurationResolver,
+                        periodProtection,
+                        committedAt);
+            } catch (AttendanceSourceSyncFailure failure) {
+                // A punch whose business date falls outside every published
+                // attendance period cannot have its period state determined,
+                // so it is not admissible as effective evidence. Quarantine
+                // that single record instead of rolling back the whole page:
+                // one source page legitimately mixes dates from adjacent
+                // periods, and aborting would also reject the in-period
+                // records travelling alongside it.
+                //
+                // Only the UNDETERMINED case is tolerated here. A protected
+                // (closed) period, an unavailable configuration resolver, or
+                // any other failure still aborts the page — those indicate a
+                // system or authority problem, not per-record scope, and must
+                // not be silently absorbed.
+                if (!PERIOD_PROTECTION_UNAVAILABLE.equals(
+                        failure.safeCode())) {
+                    throw failure;
+                }
+                outcome = RecordOutcome.QUARANTINED;
+            }
             if (outcome == RecordOutcome.ACCEPTED) {
                 accepted++;
             } else {

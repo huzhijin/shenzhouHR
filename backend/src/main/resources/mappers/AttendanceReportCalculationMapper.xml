@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationMapper">
+
+    <!--
+      Identity intervals overlapping the period, one row per
+      employee-version / assignment / organization-version combination.
+      The predicates are the interval form of the per-day predicates in
+      AttendanceReportProjectionWriteMapper.insertDailyFact, so any day the
+      orchestrator accepts from a returned row is guaranteed insertable.
+      Column order matches EmployeeIdentityIntervalRow component order.
+    -->
+    <select id="findEmployeeIdentityIntervals"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$EmployeeIdentityIntervalRow">
+        SELECT
+            employee.employee_id,
+            employee_version.employee_version_id,
+            employee_version.employee_number,
+            employee_version.display_name AS employee_name,
+            employment.assignment_id AS employment_assignment_id,
+            organization.organization_id,
+            organization_version.organization_version_id,
+            organization_version.name AS organization_name,
+            employee_version.effective_from AS employee_version_from,
+            employee_version.effective_to AS employee_version_to,
+            DATE(employment.effective_from) AS employment_from,
+            DATE(employment.effective_to) AS employment_to,
+            DATE(organization_version.effective_from)
+                AS organization_version_from,
+            DATE(organization_version.effective_to)
+                AS organization_version_to
+        FROM employee employee
+        JOIN employee_version employee_version
+          ON employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt; #{periodEndExclusive}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{periodStart}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND DATE(employment.effective_from) &lt; #{periodEndExclusive}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{periodStart}
+         )
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.company_id = employee.company_id
+         AND organization.identity_status = 'ACTIVE'
+        JOIN organization_version organization_version
+          ON organization_version.organization_id =
+             organization.organization_id
+         AND organization_version.status = 'ACTIVE'
+         AND DATE(organization_version.effective_from)
+             &lt; #{periodEndExclusive}
+         AND (
+                organization_version.effective_to IS NULL
+                OR DATE(organization_version.effective_to) &gt; #{periodStart}
+         )
+        WHERE employee.company_id = #{companyId}
+        ORDER BY employee.employee_id,
+                 employee_version.employee_version_id,
+                 employment.assignment_id,
+                 organization_version.organization_version_id
+    </select>
+
+    <!--
+      Activated punch points for the whole company-month in one read. The
+      lifecycle subquery keeps reversed or superseded events out of the
+      projection, matching AttendanceEvidenceMapper.findExactEvents.
+    -->
+    <select id="findActivatedPunchEvents"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchEventRow">
+        SELECT event.employee_id,
+               event.point_instant
+        FROM effective_attendance_event event
+        WHERE event.company_id = #{companyId}
+          AND event.event_kind = 'PUNCH_POINT'
+          AND event.point_instant IS NOT NULL
+          AND event.point_instant &gt;= #{windowStart}
+          AND event.point_instant &lt; #{windowEndExclusive}
+          AND (
+                SELECT lifecycle.lifecycle_type
+                FROM effective_event_lifecycle_fact lifecycle
+                WHERE lifecycle.effective_attendance_event_id =
+                      event.effective_attendance_event_id
+                ORDER BY lifecycle.knowledge_at DESC,
+                         lifecycle.effective_event_lifecycle_fact_id DESC
+                LIMIT 1
+          ) = 'ACTIVATED'
+        ORDER BY event.employee_id, event.point_instant
+    </select>
+
+    <!--
+      Day types from the calendar version that is currently published for each
+      of the company's work calendars. DISTINCT collapses identical day types
+      across calendars; the orchestrator falls back to weekday classification
+      when a date is missing or the calendars disagree.
+    -->
+    <select id="findPublishedCalendarDays"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$CalendarDayRow">
+        SELECT DISTINCT
+            day.business_date,
+            day.day_type
+        FROM work_calendar calendar
+        JOIN calendar_publication_timeline timeline
+          ON timeline.calendar_publication_timeline_id = (
+                SELECT latest.calendar_publication_timeline_id
+                FROM calendar_publication_timeline latest
+                WHERE latest.work_calendar_id = calendar.work_calendar_id
+                  AND latest.state = 'PUBLISHED'
+                ORDER BY latest.event_sequence DESC,
+                         latest.calendar_publication_timeline_id DESC
+                LIMIT 1
+        )
+        JOIN work_calendar_day day
+          ON day.work_calendar_version_id = timeline.work_calendar_version_id
+         AND day.business_date &gt;= #{periodStart}
+         AND day.business_date &lt; #{periodEndExclusive}
+        WHERE calendar.company_id = #{companyId}
+        ORDER BY day.business_date, day.day_type
+    </select>
+</mapper>

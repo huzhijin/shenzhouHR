@@ -33,6 +33,16 @@ public final class AttendanceExceptionModels {
         CROSS_MIDNIGHT_REVIEW_REQUIRED(true),
         OVERTIME_DOCUMENT_MISSING_OR_LATE(false),
         EARLY_RETURN_CANDIDATE(false),
+        /**
+         * An approved outing or trip ran past the last scheduled off-time and
+         * no overtime document covers the overrun.
+         *
+         * <p>Raised as a prompt to file an overtime request. It is deliberately
+         * non-blocking and never converts the overrun into recognized overtime
+         * on its own — overtime still requires an approved document, so the
+         * payroll figure is unaffected.</p>
+         */
+        OUTING_OVERTIME_UNDECLARED(false),
         POST_CLOSE_SOURCE_CHANGE(true),
         INPUT_INTEGRITY_ERROR(true);
 

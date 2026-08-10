@@ -12,7 +12,6 @@ import static org.mockito.Mockito.when;
 import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.identityaccess.application.AuthenticationService;
 import com.szsemicon.hr.reporting.application.AttendanceDashboardRepository.DashboardSnapshot;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.EncodedExport;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.ExportContext;
@@ -296,7 +295,6 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
         var exportService = new AttendanceReportExportService(
                 capabilities,
                 principal,
-                mock(AuthenticationService.class),
                 reportRepository,
                 store,
                 encoder,
@@ -325,8 +323,7 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 historicalOrganization.reportType(),
                 historicalOrganization.filters(),
                 binding(historicalOrganization),
-                "调岗历史组织导出",
-                "Current#Password123");
+                "调岗历史组织导出");
         verify(store).insert(any(), any(byte[].class));
     }
 
@@ -392,14 +389,12 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
         CurrentPrincipalProvider principal = () -> PRINCIPAL;
         var queryService = new AttendanceReportQueryService(
                 capabilities, principal, reportRepository, CLOCK);
-        AuthenticationService authentication = mock(AuthenticationService.class);
         AttendanceReportExportStore store = mock(AttendanceReportExportStore.class);
         AttendanceReportExportEncoder encoder =
                 mock(AttendanceReportExportEncoder.class);
         var exportService = new AttendanceReportExportService(
                 capabilities,
                 principal,
-                authentication,
                 reportRepository,
                 store,
                 encoder,
@@ -468,7 +463,6 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
     void exportStatusFailsClosedAfterThePersistedScopeIsRevoked() {
         CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);
-        AuthenticationService authentication = mock(AuthenticationService.class);
         AttendanceReportExportStore store = mock(AttendanceReportExportStore.class);
         AttendanceReportExportEncoder encoder =
                 mock(AttendanceReportExportEncoder.class);
@@ -482,7 +476,6 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
         var service = new AttendanceReportExportService(
                 capabilities,
                 principal,
-                authentication,
                 reportRepository,
                 store,
                 encoder,
@@ -524,8 +517,7 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 ReportType.ATTENDANCE_DETAIL,
                 exportFilter,
                 exportBinding,
-                "跨公司范围导出复核",
-                "Current#Password123");
+                "跨公司范围导出复核");
 
         verify(store).insert(jobCaptor.capture(), any(byte[].class));
         ExportJob persisted = jobCaptor.getValue();
@@ -570,8 +562,7 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 page.reportType(),
                 page.filters(),
                 binding,
-                "范围分离导出测试",
-                "Current#Password123"))
+                "范围分离导出测试"))
                 .isInstanceOf(ApiProblemException.class)
                 .extracting("code")
                 .isEqualTo("RESOURCE_NOT_AVAILABLE");

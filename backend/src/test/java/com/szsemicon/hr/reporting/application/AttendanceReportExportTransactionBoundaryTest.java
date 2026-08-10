@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 class AttendanceReportExportTransactionBoundaryTest {
 
     @Test
-    void passwordConfirmedEntryPointsDoNotStartAnOuterTransaction()
+    void entryPointsDoNotStartAnOuterTransaction()
             throws Exception {
         assertThat(AttendanceReportExportService.class
                         .getMethod(
@@ -22,21 +22,19 @@ class AttendanceReportExportTransactionBoundaryTest {
                                 ReportType.class,
                                 ReportFilter.class,
                                 RequestedExportBinding.class,
-                                String.class,
                                 String.class)
                         .getAnnotation(Transactional.class))
                 .isNull();
         assertThat(AttendanceReportExportService.class
                         .getMethod(
                                 "download",
-                                String.class,
                                 String.class)
                         .getAnnotation(Transactional.class))
                 .isNull();
     }
 
     @Test
-    void postReauthenticationWorkUsesANewReadCommittedTransaction()
+    void authorizedExportWorkUsesANewReadCommittedTransaction()
             throws Exception {
         Transactional transactional =
                 AttendanceReportExportTransactions.class

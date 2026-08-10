@@ -1,6 +1,5 @@
 package com.szsemicon.hr.reporting.interfaces.rest;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportService;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportService.ExportView;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportService.RequestedExportBinding;
@@ -58,8 +57,7 @@ public class AttendanceReportExportController {
                         request.scopeReference(),
                         request.filters().scopeReference(),
                         request.selectedFields()),
-                request.purpose(),
-                request.currentPassword());
+                request.purpose());
         HttpStatus responseStatus = "READY".equals(result.status())
                 ? HttpStatus.CREATED
                 : HttpStatus.ACCEPTED;
@@ -82,10 +80,8 @@ public class AttendanceReportExportController {
     @PreAuthorize(
             "hasAuthority('ATTENDANCE_REPORT:EXPORT_DOWNLOAD')")
     ResponseEntity<byte[]> download(
-            @PathVariable String exportId,
-            @Valid @RequestBody ReauthenticationRequest request) {
-        var result = exportService.download(
-                exportId, request.currentPassword());
+            @PathVariable String exportId) {
+        var result = exportService.download(exportId);
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(result.fileName(), StandardCharsets.UTF_8)
                 .build();
@@ -109,10 +105,7 @@ public class AttendanceReportExportController {
             @Valid @NotNull ExportFilters filters,
             @NotEmpty @Size(max = 64)
                     List<@NotBlank @Size(max = 64) String> selectedFields,
-            @NotBlank @Size(min = 2, max = 200) String purpose,
-            @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
-                    @NotBlank @Size(max = 256)
-                    String currentPassword) {
+            @NotBlank @Size(min = 2, max = 200) String purpose) {
 
         @Override
         public String toString() {
@@ -128,7 +121,7 @@ public class AttendanceReportExportController {
                     + filters
                     + ", selectedFields="
                     + selectedFields
-                    + ", purpose=<redacted>, currentPassword=<redacted>]";
+                    + ", purpose=<redacted>]";
         }
     }
 
@@ -139,16 +132,5 @@ public class AttendanceReportExportController {
             @Size(max = 36) String organizationId,
             @Size(max = 36) String employeeId,
             @Size(max = 32) String status) {
-    }
-
-    record ReauthenticationRequest(
-            @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
-                    @NotBlank @Size(max = 256)
-                    String currentPassword) {
-
-        @Override
-        public String toString() {
-            return "ReauthenticationRequest[currentPassword=<redacted>]";
-        }
     }
 }

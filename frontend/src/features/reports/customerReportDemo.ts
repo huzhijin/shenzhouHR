@@ -63,11 +63,13 @@ export interface AttendanceDayCell {
   note?: string;
 }
 
+// 可选字段表示正式投影当前不产出该列（见 docs/reporting/task-b-attendance-reporting-prd.md
+// 的缺列清单）。渲染层必须回退为占位符，绝不允许用 0 或空串冒充真实值。
 export interface AttendanceDetailRow {
   employeeNo: string;
   department: string;
   employee: string;
-  position: string;
+  position?: string;
   days: AttendanceDayCell[];
 }
 
@@ -78,7 +80,7 @@ export interface LeaveReportRow {
   type: string;
   hours: number;
   period: string;
-  remark: string;
+  remark?: string;
   approvalState: string;
 }
 
@@ -88,8 +90,8 @@ export interface OvertimeReportRow {
   weekdayHours: number;
   weekendHours: number;
   statutoryHours: number;
-  exchangedHours: number;
-  dailyHours: number[];
+  exchangedHours?: number;
+  dailyHours?: number[];
 }
 
 export interface WorkHoursReportRow {
@@ -98,10 +100,10 @@ export interface WorkHoursReportRow {
   plannedHours: number;
   overtimeHours: number;
   leaveHours: number;
-  annualLeaveHours: number;
-  exchangedHours: number;
+  annualLeaveHours?: number;
+  exchangedHours?: number;
   actualHours: number;
-  note: string;
+  note?: string;
 }
 
 export interface ExceptionReportRow {
@@ -110,20 +112,42 @@ export interface ExceptionReportRow {
   department: string;
   count: number;
   details: string;
-  reviewer: string;
-  state: string;
+  reviewer?: string;
+  state?: string;
   lateMinutes?: number;
 }
 
+// 正式投影的 ExceptionType 有 22 个取值，多于原型稿的 8 类。折叠成 8 类会把
+// “缺卡待补签/缺卡超期”“证据冲突”等不同处置路径显示成同一个标签，因此按后端
+// 取值域逐一给出标签，不做有损归并。
 export type AttendanceExceptionType =
   | '迟到'
   | '早退'
   | '上班缺卡'
   | '下班缺卡'
+  | '缺卡待补签'
+  | '缺卡超期'
   | '旷工'
   | '排班缺失'
   | '请假与打卡冲突'
-  | '加班未审批';
+  | '加班未审批'
+  | '证据冲突'
+  | '外出出差不完整'
+  | 'OA审批状态未知'
+  | 'OA人员引用无效'
+  | '员工未匹配'
+  | '来源记录重复'
+  | '来源结构变更'
+  | '来源同步过期'
+  | '无考勤组'
+  | '无班次或日历'
+  | '打卡配对歧义'
+  | '跨午夜待复核'
+  | '提前返回待确认'
+  | '月结后来源变更'
+  | '输入完整性错误'
+  // 后端新增取值时的显式兜底，避免把未知类型伪装成某个已知类别。
+  | '未识别异常类型';
 
 export type AttendanceExceptionSeverity = '高' | '中' | '低';
 
@@ -142,54 +166,56 @@ export interface AttendanceExceptionReportRow {
   department: string;
   exceptionType: AttendanceExceptionType;
   severity: AttendanceExceptionSeverity;
-  shiftLabel: string;
-  scheduledWindow: string;
-  punchSummary: string;
+  shiftLabel?: string;
+  scheduledWindow?: string;
+  punchSummary?: string;
   exceptionMinutes?: number;
   evidenceSummary: string;
   state: AttendanceExceptionState;
-  owner: string;
-  dueAt: string;
+  owner?: string;
+  dueAt?: string;
 }
 
 export interface AttendanceRateReportRow {
   id: number;
   employee: string;
   department: string;
-  type: string;
+  type?: string;
   hours: number;
   rate: string;
-  note: string;
+  note?: string;
 }
 
 export interface AnnualLeaveReportRow {
   id: number;
-  departmentLevelOne: string;
-  departmentLevelTwo: string;
+  departmentLevelOne?: string;
+  departmentLevelTwo?: string;
   department: string;
   employee: string;
-  joinedOn: string;
-  companySeniority: number;
-  priorSeniority: number;
-  totalSeniority: number;
-  statutoryDays: number;
-  newHireDays: number;
+  joinedOn?: string;
+  companySeniority?: number;
+  priorSeniority?: number;
+  totalSeniority?: number;
+  statutoryDays?: number;
+  newHireDays?: number;
   availableDays: number;
   availableHours: number;
-  monthlyUsedDays: number[];
+  monthlyUsedDays?: number[];
   remainingDays: number;
-  note: string;
+  note?: string;
 }
 
 export interface CustomerReportDemo {
   metadata: {
-    isDemo: true;
+    isDemo: boolean;
     company: string;
     generatedAt: string;
     month: string;
     monthLabel: string;
     rowCount: number;
     dataScope: CustomerReportDataScope;
+    periodState?: 'OPEN' | 'FROZEN' | 'CLOSED' | 'REOPENED';
+    truncated?: boolean;
   };
   attendanceRows: AttendanceDetailRow[];
   leaveRows: LeaveReportRow[];
@@ -237,12 +263,25 @@ export const attendanceLegend: ReadonlyArray<{
   { key: 'corrected', label: '补签', color: '#ffffff' },
 ] as const;
 
+// Generate a rolling 24-month window: 12 months back → current month.
+// Updated at module-load time so the picker always covers today.
+function buildMonthOptions(): readonly { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let offset = 12; offset >= 0; offset--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    options.push({
+      value: `${year}-${month}`,
+      label: `${year}年${month}月`,
+    });
+  }
+  return options;
+}
+
 export const reportFilterOptions = {
-  months: [
-    { value: '2026-06', label: '2026年06月' },
-    { value: '2026-05', label: '2026年05月' },
-    { value: '2026-04', label: '2026年04月' },
-  ],
+  months: buildMonthOptions(),
   departments: ['全部部门', '制造中心', '研发中心', '职能中心'],
   employees: ['全部员工', '陈思远', '周晴', '张伟', '林晓雯', '赵凯', '蒋宁', '吴昊', '沈佳'],
 } as const;
@@ -502,7 +541,7 @@ function monthlyAttendanceExceptionRows(
   return rows.map((row) => ({
     ...row,
     businessDate: row.businessDate.replace('2026-06', month),
-    dueAt: row.dueAt.replace('2026-06', month),
+    dueAt: row.dueAt?.replace('2026-06', month),
   }));
 }
 
@@ -797,7 +836,7 @@ export function applyCustomerReportSpecificFilters(
         ...report,
         overtimeRows: report.overtimeRows.filter((row) => (
           matchesOvertimeType(row, filters.overtimeType)
-          && (selectedDay === undefined || (row.dailyHours[selectedDay - 1] ?? 0) > 0)
+          && (selectedDay === undefined || ((row.dailyHours ?? [])[selectedDay - 1] ?? 0) > 0)
         )),
       };
     }
@@ -807,9 +846,10 @@ export function applyCustomerReportSpecificFilters(
         workHoursRows: filters.employmentStatus === '全部状态'
           ? report.workHoursRows
           : report.workHoursRows.filter((row) => {
-            if (filters.employmentStatus === '本月入职') return row.note.includes('入职');
-            if (filters.employmentStatus === '本月离职') return row.note.includes('离职');
-            return !row.note.includes('入职') && !row.note.includes('离职');
+            const note = row.note ?? '';
+            if (filters.employmentStatus === '本月入职') return note.includes('入职');
+            if (filters.employmentStatus === '本月离职') return note.includes('离职');
+            return !note.includes('入职') && !note.includes('离职');
           }),
       };
     case 'exceptions':

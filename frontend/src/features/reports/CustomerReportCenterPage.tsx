@@ -3,9 +3,9 @@ import {
   IconInfoCircle,
   IconShieldCheck,
 } from '@tabler/icons-react';
-import { Button, Select, Tooltip } from 'antd';
+import { Button, Modal, Select, Tooltip } from 'antd';
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   applyCustomerReportSpecificFilters,
@@ -14,6 +14,7 @@ import {
   attendanceLegend,
   customerReportTabs,
   defaultCustomerReportSpecificFilters,
+  formatMonth,
   getCustomerReportDemo,
   normalizeAnnualLeaveFilters,
   reportFilterOptions,
@@ -40,6 +41,8 @@ import {
   buildCustomerReportCsv,
   downloadCustomerReportCsv,
 } from './customerReportExport';
+import { loadCustomerReport, loadCustomerReportScopes, exportCustomerReport } from './customerReportApi';
+import { isDemoMode } from '../../shared/config/runtimeMode';
 import './customerReports.css';
 
 export interface CustomerReportExportRequest {
@@ -57,40 +60,182 @@ export interface CustomerReportExportRequest {
 
 export function CustomerReportCenterPage({
   capabilities,
-  dataScopes = customerReportDemoScopes,
+  dataScopes,
   onExport,
 }: {
   capabilities?: readonly string[];
   dataScopes?: readonly CustomerReportDataScope[];
   onExport?: (request: CustomerReportExportRequest) => void;
 }) {
-  const availableDataScopes = dataScopes.length > 0
-    ? dataScopes
-    : [defaultCustomerReportDataScope];
+  const initialScopes = dataScopes ?? customerReportDemoScopes;
+  const fallbackScopes = initialScopes.length > 0 ? initialScopes : [defaultCustomerReportDataScope];
   const [activeScopeReference, setActiveScopeReference] = useState(
-    availableDataScopes[0]!.reference,
+    fallbackScopes[0]!.reference,
   );
-  const activeDataScope = availableDataScopes.find(
+  const [availableScopes, setAvailableScopes] = useState<readonly CustomerReportDataScope[]>(
+    () => (isDemoMode() ? fallbackScopes : []),
+  );
+  // Track scope loading errors so we can grey-out the selector instead of
+  // silently showing hardcoded presets as if they came from the server.
+  const [scopeLoadError, setScopeLoadError] = useState(false);
+  // In real mode scopes come exclusively from the server; demo mode uses presets.
+  // Guard: while the server scope is still loading (availableScopes=[]) fall back
+  // to the demo presets only to keep the component renderable — no data is shown
+  // until real scopes arrive.
+  const resolvedScopes = isDemoMode() || availableScopes.length === 0
+    ? fallbackScopes
+    : availableScopes;
+  const activeDataScope = resolvedScopes.find(
     (scope) => scope.reference === activeScopeReference,
-  ) ?? availableDataScopes[0]!;
-  const [filters, setFilters] = useState<CustomerReportFilters>({
-    month: '2026-06',
-    department: '全部部门',
-    employee: '全部员工',
+  ) ?? resolvedScopes[0]!;
+  const [filters, setFilters] = useState<CustomerReportFilters>(() => {
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return {
+      month: currentMonth,
+      department: '全部部门',
+      employee: '全部员工',
+    };
   });
   const [activeReport, setActiveReport] = useState<CustomerReportKey>('attendance-detail');
   const [exportFeedback, setExportFeedback] = useState('');
   const [specificFeedback, setSpecificFeedback] = useState('');
+  const [exportInProgress, setExportInProgress] = useState(false);
   const [draftSpecificFilters, setDraftSpecificFilters] = useState<CustomerReportSpecificFilters>({
     ...defaultCustomerReportSpecificFilters,
   });
   const [appliedSpecificFilters, setAppliedSpecificFilters] = useState<CustomerReportSpecificFilters>({
     ...defaultCustomerReportSpecificFilters,
   });
-  const sourceReport = useMemo(
+
+  // Demo/fallback report — always computed synchronously
+  const demoReport = useMemo(
     () => getCustomerReportDemo(filters, activeDataScope),
     [activeDataScope, filters],
   );
+
+  // Live API state (only used when !isDemoMode())
+  const [liveReport, setLiveReport] = useState<CustomerReportDemo | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  // Directory cache: unique departments and employees extracted from the
+  // attendance-detail matrix.  Kept in separate state so it survives tab
+  // switches — other tabs replace liveReport but we want the filter options
+  // to remain stable throughout the session for the active company-month.
+  const [liveDirectory, setLiveDirectory] = useState<{
+    departments: readonly string[];
+    employees: readonly string[];
+  } | null>(null);
+
+  /**
+   * Real mode must never borrow demo rows. Until the projection actually
+   * arrives, the sheet shows zero rows with real metadata, so the loading and
+   * error panels are the only thing the operator can act on. Fabricated numbers
+   * under an error banner would read as measured data.
+   */
+  const emptyLiveReport = useMemo<CustomerReportDemo>(() => ({
+    metadata: {
+      isDemo: false,
+      company: activeDataScope.label,
+      generatedAt: '',
+      month: filters.month,
+      monthLabel: formatMonth(filters.month),
+      rowCount: 0,
+      dataScope: activeDataScope,
+    },
+    attendanceRows: [],
+    leaveRows: [],
+    overtimeRows: [],
+    workHoursRows: [],
+    attendanceExceptionRows: [],
+    lateRows: [],
+    missedPunchRows: [],
+    attendanceRateRows: [],
+    annualLeaveRows: [],
+  }), [activeDataScope, filters.month]);
+
+  // Active report: live data in real mode, demo data only in demo mode.
+  const sourceReport = isDemoMode()
+    ? demoReport
+    : (liveReport ?? emptyLiveReport);
+
+  /**
+   * `generatedAt` is the projection's own `dataAsOf` in real mode. Before the
+   * first successful load there is no such instant, so the header says the data
+   * is not loaded rather than printing a plausible-looking timestamp.
+   */
+  const dataAsOfLabel = sourceReport.metadata.generatedAt === ''
+    ? '数据尚未加载'
+    : `数据截至 ${formatDataAsOf(sourceReport.metadata.generatedAt)}`;
+
+  // Bumped by the retry action to re-run the report effect with identical inputs.
+  const [reloadToken, setReloadToken] = useState(0);
+  const retryReport = useCallback(() => {
+    setReloadToken((token) => token + 1);
+  }, []);
+
+  // Load available scopes for the selected period (real mode only)
+  useEffect(() => {
+    if (isDemoMode()) return;
+    let cancelled = false;
+    setScopeLoadError(false);
+    loadCustomerReportScopes(filters.month)
+      .then((scopes) => {
+        if (cancelled) return;
+        setAvailableScopes(scopes);
+        if (scopes.length > 0) {
+          // Functional update keeps the check off a stale closure value.
+          setActiveScopeReference((current) => (
+            scopes.some((scope) => scope.reference === current)
+              ? current
+              : scopes[0]!.reference
+          ));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setScopeLoadError(true);
+      });
+    return () => { cancelled = true; };
+  }, [filters.month]);
+
+  // Load the active report sheet (real mode only)
+  useEffect(() => {
+    if (isDemoMode()) return;
+    let cancelled = false;
+    setReportLoading(true);
+    setReportError(null);
+    loadCustomerReport(activeReport, filters, activeDataScope)
+      .then((data) => {
+        if (!cancelled) {
+          setLiveReport(data);
+          setReportLoading(false);
+          // Cache departments and employees when attendance-detail is loaded —
+          // it is the only tab that returns one row per employee per day, so it
+          // produces the richest directory.  Keep the cache across tab switches
+          // so filter options remain stable even when the user moves to another
+          // tab (which replaces liveReport with different data).
+          if (activeReport === 'attendance-detail' && data.attendanceRows.length > 0) {
+            const depts = Array.from(
+              new Set(data.attendanceRows.map((r) => r.department).filter(Boolean)),
+            ).sort();
+            const emps = Array.from(
+              new Set(data.attendanceRows.map((r) => r.employee).filter(Boolean)),
+            ).sort();
+            setLiveDirectory({ departments: depts, employees: emps });
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setReportLoading(false);
+          setReportError(
+            error instanceof Error ? error.message : '加载报表失败，请重试。',
+          );
+        }
+      });
+    return () => { cancelled = true; };
+  }, [activeReport, filters, activeDataScope, reloadToken]);
+
   const report = useMemo(() => applyCustomerReportSpecificFilters(
     sourceReport,
     activeReport,
@@ -104,11 +249,39 @@ export function CustomerReportCenterPage({
     : canExport
       ? '授权导出'
       : '无导出权限';
-  const departmentOptions = authorizedDepartmentOptions(activeDataScope);
-  const employeeOptions = authorizedEmployeeOptions(
-    activeDataScope,
-    filters.department,
-  );
+
+  // Build department / employee filter options.
+  // Real mode: use the cached directory extracted from the attendance-detail
+  // matrix load (persists across tab switches).  Employee list is filtered by
+  // the currently-selected department.
+  // Demo / fallback: use the scope's allow-list as before.
+  const departmentOptions = useMemo(() => {
+    if (!isDemoMode() && liveDirectory !== null) {
+      return [
+        { value: '全部部门', label: '全部授权部门' },
+        ...liveDirectory.departments.map((d) => ({ value: d, label: d })),
+      ];
+    }
+    return authorizedDepartmentOptions(activeDataScope);
+  }, [activeDataScope, liveDirectory]);
+
+  const employeeOptions = useMemo(() => {
+    if (!isDemoMode() && liveDirectory !== null) {
+      const emps = filters.department === '全部部门'
+        ? liveDirectory.employees
+        : liveDirectory.employees.filter((e) => {
+            // We only have names not department membership in the directory cache;
+            // derive from the currently-loaded attendanceRows if available.
+            const rows = liveReport?.attendanceRows ?? [];
+            return rows.some((r) => r.employee === e && r.department === filters.department);
+          });
+      return [
+        { value: '全部员工', label: '全部授权员工' },
+        ...emps.map((e) => ({ value: e, label: e })),
+      ];
+    }
+    return authorizedEmployeeOptions(activeDataScope, filters.department);
+  }, [activeDataScope, filters.department, liveDirectory, liveReport]);
 
   const changeFilter = <K extends keyof CustomerReportFilters>(
     key: K,
@@ -159,15 +332,57 @@ export function CustomerReportCenterPage({
       dataScopeReference: activeDataScope.reference,
       dataScopeLabel: activeDataScope.label,
     };
-    downloadCustomerReportCsv(buildCustomerReportCsv({
-      ...request,
-      report,
-    }));
-    onExport?.(request);
-    setSpecificFeedback('');
-    setExportFeedback(
-      `“${activeTab.label}”已按当前筛选条件导出。`,
-    );
+    const writeCsv = () => {
+      downloadCustomerReportCsv(buildCustomerReportCsv({
+        ...request,
+        report,
+      }));
+    };
+
+    // Demo mode writes the CSV straight away: there is no server job to confirm,
+    // and a dialog would only add a step to a local file write.
+    if (isDemoMode()) {
+      writeCsv();
+      onExport?.(request);
+      setSpecificFeedback('');
+      setExportFeedback(
+        `“${activeTab.label}”已按当前筛选条件导出。`,
+      );
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认导出报表',
+      content: `导出“${activeTab.label}”${formatMonth(filters.month)}数据为 XLSX 文件，此操作将被记录。`,
+      okText: '确认导出',
+      cancelText: '取消',
+      onOk: async () => {
+        setExportInProgress(true);
+        setExportFeedback('');
+        try {
+          await exportCustomerReport(
+            {
+              reportKey: activeReport,
+              period: filters.month,
+              companyId: activeDataScope.reference,
+              reportTitle: activeTab.label,
+            },
+            writeCsv,
+          );
+          onExport?.(request);
+          setSpecificFeedback('');
+          setExportFeedback(
+            `“${activeTab.label}”导出任务已完成，文件已下载。`,
+          );
+        } catch (caught: unknown) {
+          setExportFeedback(
+            caught instanceof Error ? caught.message : '导出失败，请重试。',
+          );
+        } finally {
+          setExportInProgress(false);
+        }
+      },
+    });
   };
 
   const changeSpecificFilter = <K extends keyof CustomerReportSpecificFilters>(
@@ -188,7 +403,7 @@ export function CustomerReportCenterPage({
   };
 
   const changeDataScope = (reference: string) => {
-    const nextScope = availableDataScopes.find((scope) => scope.reference === reference);
+    const nextScope = resolvedScopes.find((scope) => scope.reference === reference);
     if (!nextScope) return;
     setActiveScopeReference(nextScope.reference);
     setFilters({
@@ -241,8 +456,10 @@ export function CustomerReportCenterPage({
       <header className="customer-report__hero">
         <div>
           <div className="customer-report__eyebrow">
-            <span className="customer-report__demo-badge">客户演示数据</span>
-            <span>数据截至 2026-07-28 13:45</span>
+            {isDemoMode() ? (
+              <span className="customer-report__demo-badge">客户演示数据</span>
+            ) : null}
+            <span>{dataAsOfLabel}</span>
           </div>
           <h1>考勤报表中心</h1>
           <p>
@@ -250,28 +467,35 @@ export function CustomerReportCenterPage({
           </p>
         </div>
         <div className="customer-report__hero-action">
-          <span className="customer-report__version">统计月份 · 2026 年 6 月</span>
+          <span className="customer-report__version">
+            统计月份 · {report.metadata.monthLabel}
+          </span>
           <Button
             type="primary"
             size="large"
-            icon={<IconDownload aria-hidden="true" stroke={2} />}
+            loading={exportInProgress}
+            icon={exportInProgress
+              ? undefined
+              : <IconDownload aria-hidden="true" stroke={2} />}
             onClick={handleExport}
             data-capability-mode={capabilityMode}
             disabled={!canExport}
             title={canExport ? undefined : '当前账号没有导出权限'}
           >
-            导出当前报表
+            {exportInProgress ? '导出中…' : '导出当前报表'}
           </Button>
         </div>
       </header>
 
-      <section className="customer-report__notice" aria-label="演示数据说明">
-        <IconInfoCircle aria-hidden="true" stroke={2} />
-        <p>
-          <strong>演示说明：</strong>
-          当前页面使用脱敏示例数据，字段、颜色和统计方式按现有电子表格样表呈现。
-        </p>
-      </section>
+      {isDemoMode() ? (
+        <section className="customer-report__notice" aria-label="演示数据说明">
+          <IconInfoCircle aria-hidden="true" stroke={2} />
+          <p>
+            <strong>演示说明：</strong>
+            当前页面使用脱敏示例数据，字段、颜色和统计方式按现有电子表格样表呈现。
+          </p>
+        </section>
+      ) : null}
 
       <section className="customer-report__scope-card" aria-label="数据权限">
         <div className="customer-report__scope-icon" aria-hidden="true">
@@ -284,19 +508,27 @@ export function CustomerReportCenterPage({
             系统已按{scopeTypeLabel(activeDataScope.type)}限制查询、明细和导出范围。
           </p>
         </div>
-        <label className="customer-report__scope-selector">
-          <span>权限角色</span>
-          <Select
-            aria-label="权限角色"
-            value={activeDataScope.reference}
-            options={availableDataScopes.map((scope) => ({
-              value: scope.reference,
-              label: scope.actorLabel,
-            }))}
-            onChange={changeDataScope}
-            popupMatchSelectWidth={false}
-          />
-        </label>
+        {/* Show scope selector only when there are multiple authorized scopes.
+            Never fall back to hardcoded presets — the server is the authority. */}
+        {!isDemoMode() && scopeLoadError ? (
+          <span className="customer-report__scope-error" aria-live="polite">
+            权限加载失败，请刷新页面
+          </span>
+        ) : resolvedScopes.length > 1 ? (
+          <label className="customer-report__scope-selector">
+            <span>权限角色</span>
+            <Select
+              aria-label="权限角色"
+              value={activeDataScope.reference}
+              options={resolvedScopes.map((scope) => ({
+                value: scope.reference,
+                label: scope.actorLabel,
+              }))}
+              onChange={changeDataScope}
+              popupMatchSelectWidth={false}
+            />
+          </label>
+        ) : null}
         <span className="customer-report__scope-lock">数据范围 · 已锁定</span>
       </section>
 
@@ -363,6 +595,28 @@ export function CustomerReportCenterPage({
           </div>
         </div>
       </section>
+
+      {!isDemoMode() && reportLoading ? (
+        <div className="customer-report__load-status" role="status" aria-live="polite">
+          <IconInfoCircle aria-hidden="true" stroke={2} />
+          正在加载报表数据…
+        </div>
+      ) : null}
+
+      {!isDemoMode() && reportError !== null ? (
+        <div className="customer-report__load-error" role="alert">
+          <IconInfoCircle aria-hidden="true" stroke={2} />
+          <span>{reportError}</span>
+          <Button size="small" onClick={retryReport}>重试</Button>
+        </div>
+      ) : null}
+
+      {!isDemoMode() && liveReport?.metadata.truncated ? (
+        <div className="customer-report__truncation-notice" role="alert">
+          <IconInfoCircle aria-hidden="true" stroke={2} />
+          当前报表超过最大加载行数，仅显示前部分数据。如需完整数据请使用导出功能。
+        </div>
+      ) : null}
 
       <section className="customer-report__metrics" aria-label="当前范围概览">
         <MetricCard
@@ -985,7 +1239,7 @@ function OvertimeReport({ report }: { report: CustomerReportDemo }) {
                 <td><strong>{row.employee}</strong></td>
                 <td>{row.weekdayHours || '—'}</td>
                 <td>{row.weekendHours || '—'}</td>
-                {row.dailyHours.slice(0, dayCount).map((hours, index) => (
+                {(row.dailyHours ?? []).slice(0, dayCount).map((hours, index) => (
                   <td key={index}>{hours || ''}</td>
                 ))}
               </tr>
@@ -1027,8 +1281,8 @@ function WorkHoursReport({ report }: { report: CustomerReportDemo }) {
                 <td>{row.plannedHours.toFixed(1)}</td>
                 <td>{row.overtimeHours.toFixed(1)}</td>
                 <td>{row.leaveHours.toFixed(1)}</td>
-                <td>{row.annualLeaveHours.toFixed(1)}</td>
-                <td>{row.exchangedHours.toFixed(1)}</td>
+                <td>{(row.annualLeaveHours ?? 0).toFixed(1)}</td>
+                <td>{(row.exchangedHours ?? 0).toFixed(1)}</td>
                 <td className="customer-report__number"><strong>{row.actualHours.toFixed(1)}</strong></td>
                 <td>{row.note}</td>
               </tr>
@@ -1191,7 +1445,7 @@ function ExceptionTable({ rows }: { rows: ExceptionReportRow[] }) {
               <td className="customer-report__number">{row.count}</td>
               <td>{row.details}</td>
               <td>{row.reviewer}</td>
-              <td><StatePill label={row.state} /></td>
+              <td><StatePill label={row.state ?? '—'} /></td>
             </tr>
           )) : <EmptyTableRow colSpan={7} />}
         </tbody>
@@ -1226,7 +1480,7 @@ function AttendanceRateReport({ report }: { report: CustomerReportDemo }) {
                 <td>{row.id}</td>
                 <td>{row.department}</td>
                 <td><strong>{row.employee}</strong></td>
-                <td><StatusPill label={row.type} /></td>
+                <td><StatusPill label={row.type ?? '—'} /></td>
                 <td>{row.hours.toFixed(1)}</td>
                 <td>
                   <div className="customer-report__rate">
@@ -1255,7 +1509,7 @@ function AnnualLeaveReport({ report }: { report: CustomerReportDemo }) {
     >
       <div className="customer-report__annual-summary">
         <span>可休总额 <strong>{sum(report.annualLeaveRows.map((row) => row.availableDays)).toFixed(1)} 天</strong></span>
-        <span>已使用 <strong>{sum(report.annualLeaveRows.flatMap((row) => row.monthlyUsedDays)).toFixed(1)} 天</strong></span>
+        <span>已使用 <strong>{sum(report.annualLeaveRows.flatMap((row) => row.monthlyUsedDays ?? [])).toFixed(1)} 天</strong></span>
         <span>剩余 <strong>{sum(report.annualLeaveRows.map((row) => row.remainingDays)).toFixed(1)} 天</strong></span>
       </div>
       <ScrollTable>
@@ -1303,14 +1557,14 @@ function AnnualLeaveRow({ row }: { row: AnnualLeaveReportRow }) {
       <td>{row.departmentLevelTwo}</td>
       <td><strong>{row.employee}</strong></td>
       <td>{row.joinedOn}</td>
-      <td>{row.companySeniority.toFixed(1)}</td>
-      <td>{row.priorSeniority.toFixed(1)}</td>
-      <td>{row.totalSeniority.toFixed(1)}</td>
-      <td>{row.statutoryDays.toFixed(1)}</td>
+      <td>{(row.companySeniority ?? 0).toFixed(1)}</td>
+      <td>{(row.priorSeniority ?? 0).toFixed(1)}</td>
+      <td>{(row.totalSeniority ?? 0).toFixed(1)}</td>
+      <td>{(row.statutoryDays ?? 0).toFixed(1)}</td>
       <td>{row.newHireDays ? row.newHireDays.toFixed(1) : '—'}</td>
       <td>{row.availableDays.toFixed(1)}</td>
       <td>{row.availableHours.toFixed(1)}</td>
-      {row.monthlyUsedDays.map((days, index) => (
+      {(row.monthlyUsedDays ?? []).map((days, index) => (
         <td key={index}>{days ? days.toFixed(1) : ''}</td>
       ))}
       <td className="customer-report__number"><strong>{row.remainingDays.toFixed(1)}</strong></td>
@@ -1342,7 +1596,7 @@ function ReportSheet({
         </div>
         <div className="customer-report__sheet-meta">
           <strong>{meta}</strong>
-          <span>示例数据 · 已脱敏</span>
+          {isDemoMode() ? <span>示例数据 · 已脱敏</span> : null}
         </div>
       </header>
       {children}
@@ -1558,6 +1812,28 @@ function rowCountForReport(report: CustomerReportDemo, key: CustomerReportKey): 
 function daysInMonth(month: string): number {
   const [year, monthNumber] = month.split('-').map(Number);
   return new Date(year!, monthNumber!, 0).getDate();
+}
+
+/**
+ * Renders the projection's `dataAsOf` instant in the business time zone. An
+ * unparseable value is shown verbatim rather than silently replaced, so a bad
+ * upstream timestamp stays visible instead of looking like a valid reading.
+ */
+function formatDataAsOf(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(parsed);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
 }
 
 function sum(values: number[]): number {

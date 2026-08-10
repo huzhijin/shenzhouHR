@@ -319,6 +319,23 @@ public final class AttendancePolicyParameterValidator {
                         "graceMinutes", Rule.integer(15, 15),
                         "monthlyUses", Rule.integer(1, 1),
                         "resetOnGroupChange", Rule.bool()));
+        // Management kinds: present → validate, absent → not blocking (handled in service).
+        rules.put(
+                PolicyKind.PUNCH_WINDOW,
+                orderedRules(
+                        "enabled", Rule.bool(),
+                        "arrivalBeforeMinutes", Rule.integer(0, 720),
+                        "arrivalAfterMinutes", Rule.integer(0, 720),
+                        "departureBeforeMinutes", Rule.integer(0, 720),
+                        "departureAfterMinutes", Rule.integer(0, 720)));
+        rules.put(
+                PolicyKind.PERIOD_CLOSE,
+                orderedRules(
+                        "enabled", Rule.bool(),
+                        "closeDayOfNextMonth", Rule.integer(1, 28),
+                        "reopenAllowed", Rule.bool(),
+                        "reopenRequiresApproval", Rule.bool(),
+                        "maxReopenCount", Rule.integer(0, 99)));
         return Map.copyOf(rules);
     }
 

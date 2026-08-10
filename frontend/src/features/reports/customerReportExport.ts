@@ -100,7 +100,7 @@ function visibleRowsForReport(
           row.type,
           row.hours.toFixed(1),
           row.period,
-          row.remark,
+          row.remark ?? '',
           row.approvalState,
         ]),
       };
@@ -125,10 +125,10 @@ function visibleRowsForReport(
           row.plannedHours.toFixed(1),
           row.overtimeHours.toFixed(1),
           row.leaveHours.toFixed(1),
-          row.annualLeaveHours.toFixed(1),
-          row.exchangedHours.toFixed(1),
+          row.annualLeaveHours !== undefined ? row.annualLeaveHours.toFixed(1) : '—',
+          row.exchangedHours !== undefined ? row.exchangedHours.toFixed(1) : '—',
           row.actualHours.toFixed(1),
-          row.note,
+          row.note ?? '',
         ]),
       };
     case 'exceptions':
@@ -156,14 +156,14 @@ function visibleRowsForReport(
           row.employeeNo,
           row.employee,
           row.department,
-          row.shiftLabel,
-          row.scheduledWindow,
-          row.punchSummary,
+          row.shiftLabel ?? '—',
+          row.scheduledWindow ?? '—',
+          row.punchSummary ?? '—',
           row.exceptionMinutes ?? '',
           row.evidenceSummary,
           row.state,
-          row.owner,
-          row.dueAt,
+          row.owner ?? '—',
+          row.dueAt ?? '—',
         ]),
       };
     case 'late':
@@ -177,10 +177,10 @@ function visibleRowsForReport(
           row.id,
           row.department,
           row.employee,
-          row.type,
+          row.type ?? '—',
           row.hours.toFixed(1),
           row.rate,
-          row.note,
+          row.note ?? '',
         ]),
       };
     case 'annual-leave':
@@ -224,7 +224,7 @@ function attendanceDetailRows(
       row.employeeNo,
       row.employee,
       row.department,
-      row.position,
+      row.position ?? '—',
       ...row.days.map((day) => {
         const status = day.status
           ? attendanceLegend.find((item) => item.key === day.status)?.label
@@ -243,7 +243,7 @@ function attendanceDetailRows(
 function overtimeReportRows(
   report: CustomerReportDemo,
 ): { headers: CsvCell[]; rows: CsvCell[][] } {
-  const dayCount = report.overtimeRows[0]?.dailyHours.length ?? daysInMonth(report.metadata.month);
+  const dayCount = report.overtimeRows[0]?.dailyHours?.length ?? daysInMonth(report.metadata.month);
   return {
     headers: [
       '部门',
@@ -260,8 +260,8 @@ function overtimeReportRows(
       row.weekdayHours.toFixed(1),
       row.weekendHours.toFixed(1),
       row.statutoryHours.toFixed(1),
-      row.exchangedHours.toFixed(1),
-      ...row.dailyHours.map((hours) => hours || ''),
+      optionalHours(row.exchangedHours),
+      ...(row.dailyHours ?? []).map((hours) => hours || ''),
     ]),
   };
 }
@@ -277,8 +277,8 @@ function exceptionRows(
       row.employee,
       row.count,
       row.details,
-      row.reviewer,
-      row.state,
+      row.reviewer ?? '',
+      row.state ?? '',
     ]),
   };
 }
@@ -306,22 +306,27 @@ function annualLeaveReportRows(
     ],
     rows: report.annualLeaveRows.map((row) => [
       row.id,
-      row.departmentLevelOne,
-      row.departmentLevelTwo,
+      row.departmentLevelOne ?? '—',
+      row.departmentLevelTwo ?? '—',
       row.employee,
-      row.joinedOn,
-      row.companySeniority.toFixed(1),
-      row.priorSeniority.toFixed(1),
-      row.totalSeniority.toFixed(1),
-      row.statutoryDays.toFixed(1),
-      row.newHireDays.toFixed(1),
+      row.joinedOn ?? '—',
+      optionalHours(row.companySeniority),
+      optionalHours(row.priorSeniority),
+      optionalHours(row.totalSeniority),
+      optionalHours(row.statutoryDays),
+      optionalHours(row.newHireDays),
       row.availableDays.toFixed(1),
       row.availableHours.toFixed(1),
-      ...row.monthlyUsedDays.map((days) => days.toFixed(1)),
+      ...(row.monthlyUsedDays ?? []).map((days) => days.toFixed(1)),
       row.remainingDays.toFixed(1),
-      row.note,
+      row.note ?? '',
     ]),
   };
+}
+
+/** Optional numeric column: return a formatted string or a dash placeholder. */
+function optionalHours(value: number | undefined): CsvCell {
+  return value !== undefined ? value.toFixed(1) : '—';
 }
 
 function toCsvRow(row: CsvCell[]): string {

@@ -264,7 +264,7 @@ x-delivery-contract:
         - { method: GET, path: /attendance-reports, responseSchema: AttendanceReportPage, errors: [401, 403] }
         - { method: POST, path: /attendance-reports/exports, requestSchema: AttendanceReportExportCreateRequest, responseSchema: AttendanceReportExportView, errors: [400, 401, 403, 409] }
         - { method: GET, path: '/attendance-reports/exports/{exportId}', responseSchema: AttendanceReportExportView, errors: [401, 403, 404] }
-        - { method: POST, path: '/attendance-reports/exports/{exportId}/download', requestSchema: ReportExportReauthenticationRequest, responseSchema: binary, errors: [400, 401, 403, 404, 409, 410] }
+        - { method: POST, path: '/attendance-reports/exports/{exportId}/download', responseSchema: binary, errors: [400, 401, 403, 404, 409, 410] }
         - { method: GET, path: /display/attendance, responseSchema: AttendanceDisplaySnapshotView, errors: [401, 403] }
 tags:
   - name: Authentication
@@ -4941,7 +4941,7 @@ paths:
       tags: [AttendanceReports]
       operationId: createAttendanceReportExport
       x-capability: ATTENDANCE_REPORT:EXPORT_CREATE
-      description: 创建时复核当前密码，并绑定当前投影、公式、筛选、范围摘要和字段白名单。
+      description: 创建时绑定当前投影、公式、筛选、范围摘要和字段白名单。
       parameters:
         - { $ref: '#/components/parameters/CsrfToken' }
       requestBody:
@@ -5008,16 +5008,10 @@ paths:
       operationId: downloadAttendanceReportExport
       x-capability: ATTENDANCE_REPORT:EXPORT_DOWNLOAD
       description: |
-        下载时再次复核当前密码、任务所有权、实时能力和数据范围，并重新校验
+        下载时复核任务所有权、实时能力和数据范围，并重新校验
         投影、公式、筛选、行数、字段白名单、文件长度及 SHA-256。
       parameters:
         - { $ref: '#/components/parameters/CsrfToken' }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ReportExportReauthenticationRequest'
       responses:
         '200':
           description: 授权且完整性验证通过的 XLSX
@@ -8951,7 +8945,6 @@ components:
         - filters
         - selectedFields
         - purpose
-        - currentPassword
       properties:
         reportType:
           $ref: '#/components/schemas/AttendanceReportType'
@@ -8975,21 +8968,6 @@ components:
           uniqueItems: true
           items: { type: string, minLength: 1, maxLength: 64 }
         purpose: { type: string, minLength: 2, maxLength: 200 }
-        currentPassword:
-          type: string
-          minLength: 1
-          maxLength: 256
-          writeOnly: true
-    ReportExportReauthenticationRequest:
-      type: object
-      additionalProperties: false
-      required: [currentPassword]
-      properties:
-        currentPassword:
-          type: string
-          minLength: 1
-          maxLength: 256
-          writeOnly: true
     AttendanceReportExportView:
       type: object
       additionalProperties: false

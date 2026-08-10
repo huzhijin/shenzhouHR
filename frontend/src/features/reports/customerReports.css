@@ -123,6 +123,55 @@
   margin: 0;
 }
 
+/* Live-API states: only rendered outside demo mode. */
+.customer-report__load-status,
+.customer-report__load-error,
+.customer-report__truncation-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 10px 12px;
+  border: 1px solid #cbd7ef;
+  border-radius: 8px;
+  background: var(--report-blue-soft);
+  color: #263f75;
+  font-size: 12px;
+}
+
+.customer-report__load-status svg,
+.customer-report__load-error svg,
+.customer-report__truncation-notice svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--report-blue);
+}
+
+.customer-report__truncation-notice {
+  border-color: #f3c894;
+  background: var(--report-orange-soft);
+  color: #7a4708;
+}
+
+.customer-report__truncation-notice svg {
+  color: var(--report-orange);
+}
+
+.customer-report__load-error {
+  border-color: #f0b4ac;
+  background: #fdf0ee;
+  color: #8c2f21;
+}
+
+.customer-report__load-error svg {
+  color: #c0392b;
+}
+
+.customer-report__load-error span {
+  flex: 1 1 auto;
+}
+
 .customer-report__scope-card {
   display: grid;
   grid-template-columns: auto minmax(260px, 1fr) minmax(180px, 230px) auto;

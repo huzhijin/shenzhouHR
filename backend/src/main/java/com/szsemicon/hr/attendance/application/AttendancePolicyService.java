@@ -403,7 +403,12 @@ public class AttendancePolicyService {
                         "POLICY_AMBIGUOUS", "同一策略类型解析出多个绑定");
             }
         }
-        if (bindings.size() != PolicyKind.values().length) {
+        // Only the three calculation-critical kinds are required for simulation.
+        // Management kinds (PUNCH_WINDOW, PERIOD_CLOSE) are pass-through: present
+        // → forwarded, absent → not blocking.
+        if (!bindings.containsKey(PolicyKind.MEAL_DEDUCTION)
+                || !bindings.containsKey(PolicyKind.LATE_GRACE)
+                || !bindings.containsKey(PolicyKind.MONTHLY_LATE_EXEMPTION)) {
             throw AttendanceSetupRules.conflict(
                     "POLICY_MISSING", "权威试算要求三类策略恰好各一个绑定");
         }
@@ -479,8 +484,12 @@ public class AttendancePolicyService {
         candidates.forEach(binding ->
                 byKind.computeIfAbsent(binding.policyKind(), ignored -> new ArrayList<>())
                         .add(binding));
+        // Calculation-critical kinds: required, error if absent or ambiguous.
         List<PolicyBinding> resolved = new ArrayList<>();
-        for (PolicyKind kind : PolicyKind.values()) {
+        for (PolicyKind kind : List.of(
+                PolicyKind.MEAL_DEDUCTION,
+                PolicyKind.LATE_GRACE,
+                PolicyKind.MONTHLY_LATE_EXEMPTION)) {
             List<PolicyBinding> matching = byKind.getOrDefault(kind, List.of());
             if (matching.isEmpty()) {
                 throw AttendanceSetupRules.conflict(
@@ -493,6 +502,21 @@ public class AttendancePolicyService {
                         "考勤基础策略解析出现多绑定歧义");
             }
             resolved.add(matching.getFirst());
+        }
+        // Management kinds (PUNCH_WINDOW, PERIOD_CLOSE): pass-through — present
+        // → forwarded, absent → not blocking.
+        for (PolicyKind kind : List.of(
+                PolicyKind.PUNCH_WINDOW,
+                PolicyKind.PERIOD_CLOSE)) {
+            List<PolicyBinding> matching = byKind.getOrDefault(kind, List.of());
+            if (matching.size() > 1) {
+                throw AttendanceSetupRules.conflict(
+                        "ATTENDANCE_POLICY_AMBIGUOUS",
+                        "考勤基础策略解析出现多绑定歧义");
+            }
+            if (matching.size() == 1) {
+                resolved.add(matching.getFirst());
+            }
         }
         return List.copyOf(resolved);
     }

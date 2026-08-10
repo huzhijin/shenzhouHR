@@ -80,6 +80,10 @@ public final class CapabilityCodes {
             "ATTENDANCE_REPORT:EXPORT_CREATE";
     public static final String ATTENDANCE_REPORT_EXPORT_DOWNLOAD =
             "ATTENDANCE_REPORT:EXPORT_DOWNLOAD";
+    public static final String ATTENDANCE_REPORT_PUBLISH =
+            "ATTENDANCE_REPORT:PUBLISH";
+    public static final String ATTENDANCE_REPORT_REFRESH =
+            "ATTENDANCE_REPORT:REFRESH";
     public static final String ATTENDANCE_SELF_READ =
             "ATTENDANCE_SELF:READ";
     public static final String LEAVE_SELF_READ =

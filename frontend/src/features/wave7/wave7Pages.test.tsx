@@ -650,8 +650,7 @@ describe('Wave 7 formal report route', () => {
       <ReportsRoute
         gateway={gateway({
           loadReport: async (query) => formalReport(query, {
-            formulaVersion:
-              'ATTENDANCE_RATE_CONFIRMED_OVER_SCHEDULED_V1_PROVISIONAL',
+            formulaVersion: 'ATTENDANCE_RATE_ACTUAL_OVER_REQUIRED_V1',
           }),
         })}
         initialReportType="ATTENDANCE_RATE"
@@ -663,12 +662,10 @@ describe('Wave 7 formal report route', () => {
     expect(await screen.findByRole('heading', {
       name: 'ATTENDANCE_RATE · 2026-07',
     })).toBeInTheDocument();
-    expect(screen.getByText(/当前出勤率为暂行口径/))
+    expect(screen.getByText(/当前出勤率口径/))
       .toHaveTextContent('排班内确认工作分钟 ÷ 原始应出勤分钟 × 100%');
     expect(screen.getByText('计算公式版本').nextElementSibling)
-      .toHaveTextContent(
-        'ATTENDANCE_RATE_CONFIRMED_OVER_SCHEDULED_V1_PROVISIONAL',
-      );
+      .toHaveTextContent('ATTENDANCE_RATE_ACTUAL_OVER_REQUIRED_V1');
   });
 
   it('filters the exception report by a visible status selector', async () => {
@@ -1545,7 +1542,7 @@ describe('Wave 7 formal report route', () => {
       .toBeInTheDocument();
   });
 
-  it('creates a formal export with a transient password and only visible filters', async () => {
+  it('creates a formal export with only visible filters', async () => {
     const pendingCreate = deferred<AttendanceReportExportView>();
     const createReportExport = vi.fn((
       request: ReportExportCreateRequest,
@@ -1582,10 +1579,6 @@ describe('Wave 7 formal report route', () => {
     fireEvent.change(screen.getByLabelText('导出用途'), {
       target: { value: ' 月度考勤复核 ' },
     });
-    const passwordInput = screen.getByLabelText('当前密码');
-    fireEvent.change(passwordInput, {
-      target: { value: 'Current#Password123' },
-    });
     fireEvent.click(screen.getByRole('button', { name: '创建导出' }));
 
     expect(createReportExport).toHaveBeenCalledWith({
@@ -1608,14 +1601,10 @@ describe('Wave 7 formal report route', () => {
         'leave-hours',
       ],
       purpose: '月度考勤复核',
-      currentPassword: 'Current#Password123',
     });
     const request = createReportExport.mock.calls[0]?.[0];
     expect(request?.filters).not.toHaveProperty('organizationId');
     expect(request?.filters).not.toHaveProperty('employeeId');
-    expect(passwordInput).toHaveValue('');
-    expect(window.location.href).not.toContain('Current#Password123');
-    expect(storageContents()).not.toContain('Current#Password123');
 
     await act(async () => {
       pendingCreate.resolve(formalExport());
@@ -1624,11 +1613,9 @@ describe('Wave 7 formal report route', () => {
     expect(await screen.findByRole('heading', { name: '导出任务' }))
       .toBeInTheDocument();
     expect(screen.getByText('已就绪')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('Current#Password123'))
-      .not.toBeInTheDocument();
   });
 
-  it('clears the current password when the formal create dialog closes', async () => {
+  it('closes the formal create dialog without retaining purpose state', async () => {
     renderWithRouter(
       <ReportsRoute
         gateway={formalExportGateway()}
@@ -1644,26 +1631,21 @@ describe('Wave 7 formal report route', () => {
     fireEvent.click(screen.getByRole('button', {
       name: '创建受控导出',
     }));
-    fireEvent.change(screen.getByLabelText('当前密码'), {
-      target: { value: 'Close#Password123' },
+    fireEvent.change(screen.getByLabelText('导出用途'), {
+      target: { value: '临时输入' },
     });
     fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }));
-    expect(screen.getByLabelText('当前密码')).toHaveValue('');
 
     fireEvent.click(screen.getByRole('button', {
       name: '创建受控导出',
     }));
-    for (const input of screen.getAllByLabelText('当前密码')) {
-      expect(input).toHaveValue('');
-    }
-    expect(window.location.href).not.toContain('Close#Password123');
-    expect(storageContents()).not.toContain('Close#Password123');
+    expect(screen.getByLabelText('导出用途')).toHaveValue('');
   });
 
-  it('does not render sensitive server details after reauthentication fails', async () => {
+  it('does not render sensitive server details when the 401 response arrives', async () => {
     const createReportExport = vi.fn(async () => Promise.reject(
       new ApiRequestError(401, {
-        code: 'REAUTHENTICATION_FAILED',
+        code: 'SESSION_EXPIRED',
         message: '服务端敏感凭证诊断信息',
         retryable: false,
       }),
@@ -1686,16 +1668,12 @@ describe('Wave 7 formal report route', () => {
     fireEvent.change(screen.getByLabelText('导出用途'), {
       target: { value: '月度复核' },
     });
-    fireEvent.change(screen.getByLabelText('当前密码'), {
-      target: { value: 'Wrong#Password123' },
-    });
     fireEvent.click(screen.getByRole('button', { name: '创建导出' }));
 
-    expect(await screen.findByText('当前密码验证失败，导出未创建。'))
+    expect(await screen.findByText('会话已失效，请重新登录。'))
       .toBeInTheDocument();
     expect(screen.queryByText('服务端敏感凭证诊断信息'))
       .not.toBeInTheDocument();
-    expect(screen.getByLabelText('当前密码')).toHaveValue('');
   });
 
   it('supports manual refresh through queued, building, and failed async states', async () => {
@@ -1729,7 +1707,7 @@ describe('Wave 7 formal report route', () => {
     expect(await screen.findByRole('heading', {
       name: 'ATTENDANCE_DETAIL · 2026-07',
     })).toBeInTheDocument();
-    await submitFormalExport('异步报表复核', 'Current#Password123');
+    await submitFormalExport('异步报表复核');
     expect(await screen.findByText('排队中')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', {
@@ -1754,7 +1732,7 @@ describe('Wave 7 formal report route', () => {
     );
   });
 
-  it('reauthenticates for XLSX download and clears the password immediately', async () => {
+  it('downloads XLSX after confirmation and saves the file', async () => {
     const pendingDownload = deferred<{
       blob: Blob;
       fileName: string;
@@ -1796,27 +1774,14 @@ describe('Wave 7 formal report route', () => {
       expect(await screen.findByRole('heading', {
         name: 'ATTENDANCE_DETAIL · 2026-07',
       })).toBeInTheDocument();
-      await submitFormalExport('下载复核', 'Create#Password123');
+      await submitFormalExport('下载复核');
       expect(await screen.findByText('已就绪')).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: '下载文件' }));
-      const passwordInput = screen.getByLabelText(
-        '当前密码',
-        { selector: '#wave7-download-current-password' },
-      );
-      fireEvent.change(passwordInput, {
-        target: { value: 'Download#Password123' },
-      });
       fireEvent.click(screen.getByRole('button', {
-        name: '验证并下载',
+        name: '确认下载',
       }));
 
-      expect(downloadReportExport).toHaveBeenCalledWith(
-        formalExportId,
-        'Download#Password123',
-      );
-      expect(passwordInput).toHaveValue('');
-      expect(window.location.href).not.toContain('Download#Password123');
-      expect(storageContents()).not.toContain('Download#Password123');
+      expect(downloadReportExport).toHaveBeenCalledWith(formalExportId);
 
       const file = {
         blob: new Blob(['xlsx'], { type: xlsxMediaType }),
@@ -1831,9 +1796,6 @@ describe('Wave 7 formal report route', () => {
       expect(revokeObjectUrl).toHaveBeenCalledWith(
         'blob:formal-report',
       );
-      for (const input of screen.getAllByLabelText('当前密码')) {
-        expect(input).toHaveValue('');
-      }
     } finally {
       anchorClick.mockRestore();
       restoreUrlMethod('createObjectURL', originalCreateObjectUrl);
@@ -1883,18 +1845,12 @@ function formalExportGateway(
   });
 }
 
-async function submitFormalExport(
-  purpose: string,
-  currentPassword: string,
-) {
+async function submitFormalExport(purpose: string) {
   fireEvent.click(screen.getByRole('button', {
     name: '创建受控导出',
   }));
   fireEvent.change(screen.getByLabelText('导出用途'), {
     target: { value: purpose },
-  });
-  fireEvent.change(screen.getByLabelText('当前密码'), {
-    target: { value: currentPassword },
   });
   fireEvent.click(screen.getByRole('button', { name: '创建导出' }));
   expect(await screen.findByRole('heading', { name: '导出任务' }))
@@ -1931,17 +1887,6 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
-}
-
-function storageContents(): string {
-  const entries: string[] = [];
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const key = window.localStorage.key(index);
-    if (key !== null) {
-      entries.push(`${key}=${window.localStorage.getItem(key) ?? ''}`);
-    }
-  }
-  return entries.join('\n');
 }
 
 function restoreUrlMethod(

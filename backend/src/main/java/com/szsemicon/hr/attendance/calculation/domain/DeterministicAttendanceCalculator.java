@@ -55,6 +55,7 @@ public final class DeterministicAttendanceCalculator {
         }
         calculateAuthorizedOvertime(
                 snapshot, consumedPunchIds, accumulator);
+        addUndeclaredOutingOvertime(snapshot, accumulator);
         AttendanceMetrics metrics = metrics(snapshot, accumulator.items);
         ExplanationGraph explanation = explanation(
                 calculationVersionId, snapshot, accumulator);
@@ -450,6 +451,83 @@ public final class DeterministicAttendanceCalculator {
                     null,
                     "recognized-overtime"));
         }
+    }
+
+    /**
+     * Flags an approved outing or business trip whose interval runs past the
+     * last scheduled work segment of the day without a matching approved
+     * overtime document.
+     *
+     * <p>The employee demonstrably worked past scheduled off-time, but the
+     * overtime-recognition policy pays zero minutes without an approved
+     * document. Emitting a rule hit surfaces this as a reviewable exception so
+     * the overtime form can be filed, while deliberately recognising zero
+     * minutes so payroll is never changed by inference.</p>
+     */
+    private void addUndeclaredOutingOvertime(
+            CalculationInputSnapshot snapshot,
+            Accumulator accumulator) {
+        if (snapshot.segments().isEmpty()) {
+            return;
+        }
+        Instant scheduledOffTime = snapshot.segments().stream()
+                .map(segment -> segment.interval().end())
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+        if (scheduledOffTime == null) {
+            return;
+        }
+        List<IntervalEvidence> declaredOvertime =
+                snapshot.intervalEvidence().stream()
+                        .filter(IntervalEvidence::effective)
+                        .filter(value -> value.kind() == EvidenceKind.OVERTIME)
+                        .toList();
+        List<IntervalEvidence> overruns = snapshot.intervalEvidence().stream()
+                .filter(IntervalEvidence::effective)
+                .filter(value -> value.kind() == EvidenceKind.OUTING
+                        || value.kind() == EvidenceKind.TRIP)
+                .filter(value ->
+                        value.interval().end().isAfter(scheduledOffTime))
+                .sorted(Comparator.comparing(IntervalEvidence::evidenceId))
+                .toList();
+        for (IntervalEvidence overrun : overruns) {
+            Instant overrunStart =
+                    overrun.interval().start().isAfter(scheduledOffTime)
+                            ? overrun.interval().start()
+                            : scheduledOffTime;
+            TimeInterval window =
+                    new TimeInterval(overrunStart, overrun.interval().end());
+            boolean alreadyDeclared = declaredOvertime.stream()
+                    .anyMatch(value -> covers(value.interval(), window));
+            if (alreadyDeclared || window.minutes() <= 0) {
+                continue;
+            }
+            String segmentId = outingOverrunSegmentId(overrun);
+            accumulator.ruleHits.add(new RuleHit(
+                    "rule-" + CanonicalAttendanceDigests.digestStrings(
+                                    "W5_RULE_HIT_ID_V1",
+                                    List.of(
+                                            segmentId,
+                                            "OUTING_OVERTIME_UNDECLARED"))
+                            .substring(0, 24),
+                    overrun.sourceReference(),
+                    segmentId,
+                    "OUTING_OVERTIME_UNDECLARED",
+                    window.minutes(),
+                    0,
+                    List.of(overrun.evidenceId())));
+        }
+    }
+
+    private String outingOverrunSegmentId(IntervalEvidence evidence) {
+        return "outing-overrun-"
+                + CanonicalAttendanceDigests.digestStrings(
+                                "W5_OUTING_OVERRUN_SEGMENT_V1",
+                                List.of(
+                                        evidence.evidenceId(),
+                                        evidence.interval().start().toString(),
+                                        evidence.interval().end().toString()))
+                        .substring(0, 20);
     }
 
     private List<PresenceSpan> pairPresence(List<PunchEvent> orderedPunches) {

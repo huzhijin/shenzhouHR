@@ -48,7 +48,7 @@ if [[ -z "$EXPECTED_FLYWAY_VERSION" ]]; then
   if [[ -r "$PACKAGE_MANIFEST" ]]; then
     EXPECTED_FLYWAY_VERSION="$(sed -n 's/^migration_files=V1\.\.V\([0-9][0-9]*\)$/\1/p' "$PACKAGE_MANIFEST" | head -1)"
   fi
-  EXPECTED_FLYWAY_VERSION="${EXPECTED_FLYWAY_VERSION:-31}"
+  EXPECTED_FLYWAY_VERSION="${EXPECTED_FLYWAY_VERSION:-35}"
 fi
 [[ -r "$ENV_FILE" ]] || die "App env not found: $ENV_FILE"
 [[ -r "$MIGRATOR_ENV_FILE" ]] || die "Migrator env not found: $MIGRATOR_ENV_FILE"
@@ -63,7 +63,7 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
-APP_SERVER_PORT="${SHENZHOUHR_SERVER_PORT:-18080}"
+APP_SERVER_PORT="${SHENZHOUHR_SERVER_PORT:-8080}"
 [[ "$APP_SERVER_PORT" =~ ^[0-9]+$ ]] \
   || die "Invalid application server port: $APP_SERVER_PORT"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:$APP_SERVER_PORT/actuator/health}"

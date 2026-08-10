@@ -1,6 +1,10 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// This suite covers the demo sheets, so the page must resolve to demo mode
+// regardless of the vitest runtime MODE.
+vi.mock('../../shared/config/runtimeMode', () => ({ isDemoMode: vi.fn(() => true) }));
+
 import {
   applyCustomerReportSpecificFilters,
   annualLevelOneOptions,
@@ -105,11 +109,11 @@ describe('customer report center demo', () => {
 
     expect(report.metadata.month).toBe(month);
     expect(report.attendanceRows.every((row) => row.days.length === dayCount)).toBe(true);
-    expect(report.overtimeRows.every((row) => row.dailyHours.length === dayCount)).toBe(true);
+    expect(report.overtimeRows.every((row) => (row.dailyHours ?? []).length === dayCount)).toBe(true);
     expect(report.leaveRows.every((row) => row.period.includes(`${monthNumber}-`))).toBe(true);
     expect(report.workHoursRows
-      .filter((row) => row.note.includes('入职') || row.note.includes('离职'))
-      .every((row) => row.note.startsWith(`${monthNumber}月`))).toBe(true);
+      .filter((row) => (row.note ?? '').includes('入职') || (row.note ?? '').includes('离职'))
+      .every((row) => (row.note ?? '').startsWith(`${monthNumber}月`))).toBe(true);
     expect(report.lateRows.every((row) => row.details.includes(`${monthNumber}月`))).toBe(true);
     expect(report.missedPunchRows.every((row) => row.details.includes(`${monthNumber}月`))).toBe(true);
   });
@@ -211,7 +215,6 @@ describe('customer report center demo', () => {
 
     expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
       reportKey: 'attendance-detail',
-      month: '2026-06',
     }));
     expect(screen.getByRole('status')).toHaveTextContent('“月度考勤明细矩阵”已按当前筛选条件导出');
   });

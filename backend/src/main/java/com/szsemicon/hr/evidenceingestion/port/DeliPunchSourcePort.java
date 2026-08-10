@@ -4,6 +4,7 @@ import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.Direction;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 
 public interface DeliPunchSourcePort {
 
@@ -47,6 +48,16 @@ public interface DeliPunchSourcePort {
         return null;
     }
 
+    /**
+     * Returns a snapshot of userId-to-employeeNumber mappings obtained from the
+     * Deli E+ employee directory before the paging loop begins. An empty map
+     * is a valid result: the caller will fall back to confirmed-binding
+     * resolution. Implementations must not throw; return an empty map instead.
+     */
+    default Map<String, String> fetchEmployeeDirectory(String sourceId) {
+        return Map.of();
+    }
+
     DeliPage fetchPage(String sourceId, String committedCursor);
 
     default DeliPage fetchPage(
@@ -56,7 +67,10 @@ public interface DeliPunchSourcePort {
         return fetchPage(sourceId, committedCursor);
     }
 
-    record FetchSettings(int pageSize, ZoneId sourceTimeZone) {
+    record FetchSettings(
+            int pageSize,
+            ZoneId sourceTimeZone,
+            Map<String, String> employeeDirectory) {
 
         public FetchSettings {
             if (pageSize < 1 || pageSize > 500) {
@@ -67,6 +81,14 @@ public interface DeliPunchSourcePort {
                 throw new IllegalArgumentException(
                         "Deli source time zone is required");
             }
+            employeeDirectory = (employeeDirectory != null)
+                    ? Map.copyOf(employeeDirectory)
+                    : Map.of();
+        }
+
+        /** Convenience constructor for callers that carry no directory. */
+        public FetchSettings(int pageSize, ZoneId sourceTimeZone) {
+            this(pageSize, sourceTimeZone, Map.of());
         }
     }
 

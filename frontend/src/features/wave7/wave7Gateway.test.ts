@@ -500,7 +500,6 @@ describe('Wave 7 production gateway', () => {
       method: 'POST',
       credentials: 'same-origin',
     });
-    expect(String(createTarget)).not.toContain('Current#Password123');
     expect(JSON.parse(String(createInit?.body))).toEqual({
       reportType: 'ATTENDANCE_DETAIL',
       projectionVersion: 'FORMAL-REPORT-2026-07-V1',
@@ -516,7 +515,6 @@ describe('Wave 7 production gateway', () => {
       },
       selectedFields: ['employee-number', 'employee-name'],
       purpose: '月度考勤复核',
-      currentPassword: 'Current#Password123',
     });
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       `/api/v1/attendance-reports/exports/${created.exportId}`,
@@ -545,7 +543,7 @@ describe('Wave 7 production gateway', () => {
     });
   });
 
-  it('downloads XLSX with password only in the POST body', async () => {
+  it('downloads XLSX without a password in the POST body', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(new Uint8Array([0x50, 0x4b, 0x03, 0x04]), {
         status: 200,
@@ -559,10 +557,7 @@ describe('Wave 7 production gateway', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await wave7ProjectionGateway.downloadReportExport?.(
-      exportId,
-      'Download#Password123',
-    );
+    const result = await wave7ProjectionGateway.downloadReportExport?.(exportId);
 
     expect(result?.fileName).toBe('attendance-detail-2026-07.xlsx');
     expect(result?.blob.size).toBe(4);
@@ -570,14 +565,11 @@ describe('Wave 7 production gateway', () => {
     expect(target).toBe(
       `/api/v1/attendance-reports/exports/${exportId}/download`,
     );
-    expect(String(target)).not.toContain('Download#Password123');
     expect(init).toMatchObject({
       method: 'POST',
       credentials: 'same-origin',
     });
-    expect(JSON.parse(String(init?.body))).toEqual({
-      currentPassword: 'Download#Password123',
-    });
+    expect(JSON.parse(String(init?.body))).toEqual({});
   });
 
   it('fails closed on malformed export JSON and non-XLSX files', async () => {
@@ -604,7 +596,6 @@ describe('Wave 7 production gateway', () => {
     });
     await expect(wave7ProjectionGateway.downloadReportExport?.(
       exportId,
-      'Current#Password123',
     )).rejects.toMatchObject({
       status: 502,
       code: 'INVALID_REPORT_EXPORT_FILE',
@@ -628,14 +619,13 @@ describe('Wave 7 production gateway', () => {
 
     await expect(wave7ProjectionGateway.downloadReportExport?.(
       exportId,
-      'Current#Password123',
     )).rejects.toMatchObject({
       status: 502,
       code: 'INVALID_REPORT_EXPORT_FILE',
     });
   });
 
-  it('sanitizes authorization errors and rejects secrets in URL inputs', async () => {
+  it('sanitizes authorization errors and rejects export IDs with embedded query strings', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
         code: 'REAUTHENTICATION_FAILED',
@@ -648,11 +638,10 @@ describe('Wave 7 production gateway', () => {
     await expect(wave7ProjectionGateway.createReportExport?.({
       ...exportCreateRequest(),
       purpose: '月度复核',
-      currentPassword: 'Wrong#Password',
     })).rejects.toMatchObject({
       status: 401,
       code: 'REAUTHENTICATION_FAILED',
-      message: '当前密码验证失败，操作未完成。',
+      message: '会话已失效，请重新登录。',
     });
     await expect(wave7ProjectionGateway.loadReportExport?.(
       `${exportId}/download?currentPassword=leak`,
@@ -661,8 +650,6 @@ describe('Wave 7 production gateway', () => {
       code: 'INVALID_REPORT_EXPORT_REFERENCE',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0]))
-      .not.toContain('Wrong#Password');
   });
 });
 
@@ -686,7 +673,6 @@ function exportCreateRequest(
     },
     selectedFields: ['employee-number', 'employee-name'],
     purpose: '月度考勤复核',
-    currentPassword: 'Current#Password123',
     ...overrides,
   };
 }

@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -278,7 +279,20 @@ public class DeliPunchSyncApplicationService {
 
         int quarantined = 0;
         try {
-            var fetchSettings = fetchSettings(job);
+            // Fetch employee directory once before paging. A failure returns
+            // an empty map, which causes records to fall back to confirmed-
+            // binding resolution instead of short-circuiting the whole sync.
+            Map<String, String> employeeDirectory;
+            try {
+                employeeDirectory = source.fetchEmployeeDirectory(
+                        job.sourceId());
+                if (employeeDirectory == null) {
+                    employeeDirectory = Map.of();
+                }
+            } catch (RuntimeException ignored) {
+                employeeDirectory = Map.of();
+            }
+            var fetchSettings = fetchSettings(job, employeeDirectory);
             repository.markRunning(jobId, clock.instant());
             String cursor = job.committedCursor();
             Set<String> seenCursors = new HashSet<>();
@@ -320,6 +334,9 @@ public class DeliPunchSyncApplicationService {
             return failAndRead(
                     jobId, principalId, failure.safeCode());
         } catch (RuntimeException exception) {
+            org.slf4j.LoggerFactory.getLogger(getClass())
+                    .error("Deli sync job {} failed with unexpected exception",
+                            jobId, exception);
             return failAndRead(
                     jobId, principalId, "DELI_SYNC_FAILED");
         }
@@ -363,7 +380,8 @@ public class DeliPunchSyncApplicationService {
     }
 
     private static DeliPunchSourcePort.FetchSettings fetchSettings(
-            AttendanceSourceSyncModels.SourceJobStart job) {
+            AttendanceSourceSyncModels.SourceJobStart job,
+            Map<String, String> employeeDirectory) {
         if (job.rateLimitPerMinute() < 60
                 || job.rateLimitPerMinute() > 10_000
                 || job.backoffSeconds() < 0
@@ -373,7 +391,9 @@ public class DeliPunchSyncApplicationService {
         }
         try {
             return new DeliPunchSourcePort.FetchSettings(
-                    job.pageSize(), ZoneId.of(job.sourceTimeZone()));
+                    job.pageSize(),
+                    ZoneId.of(job.sourceTimeZone()),
+                    employeeDirectory);
         } catch (RuntimeException exception) {
             throw new AttendanceSourceSyncFailure(
                     "DELI_RUNTIME_CONFIGURATION_INVALID");

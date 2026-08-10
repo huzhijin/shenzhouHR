@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
 import java.time.YearMonth;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.ObjectMapper;
 
 class AttendanceReportExportSensitiveDataContractTest {
 
@@ -13,9 +12,8 @@ class AttendanceReportExportSensitiveDataContractTest {
     private static final String SCOPE = "authorized-scope-set:" + FINGERPRINT;
 
     @Test
-    void requestStringRepresentationsRedactPurposeAndPassword() {
+    void requestStringRepresentationRedactsPurpose() {
         String purpose = "董事会专项复核";
-        String password = "Current#Password123";
         var create =
                 new AttendanceReportExportController.CreateExportRequest(
                         ReportType.ATTENDANCE_DETAIL,
@@ -24,52 +22,11 @@ class AttendanceReportExportSensitiveDataContractTest {
                         SCOPE,
                         filters(),
                         java.util.List.of("employee-number"),
-                        purpose,
-                        password);
-        var download =
-                new AttendanceReportExportController.ReauthenticationRequest(
-                        password);
+                        purpose);
 
         assertThat(create.toString())
                 .contains("purpose=<redacted>")
-                .contains("currentPassword=<redacted>")
-                .doesNotContain(purpose, password);
-        assertThat(download.toString())
-                .contains("currentPassword=<redacted>")
-                .doesNotContain(password);
-    }
-
-    @Test
-    void passwordIsWriteOnlyDuringStructuredSerialization()
-            throws Exception {
-        String password = "Current#Password123";
-        var mapper = new ObjectMapper();
-        var create =
-                new AttendanceReportExportController.CreateExportRequest(
-                        ReportType.ATTENDANCE_DETAIL,
-                        "projection-1",
-                        FINGERPRINT,
-                        SCOPE,
-                        filters(),
-                        java.util.List.of("employee-number"),
-                        "月度薪资核对",
-                        password);
-        var download =
-                new AttendanceReportExportController.ReauthenticationRequest(
-                        password);
-
-        assertThat(mapper.writeValueAsString(create))
-                .doesNotContain("currentPassword", password);
-        assertThat(mapper.writeValueAsString(download))
-                .doesNotContain("currentPassword", password);
-        assertThat(mapper.readValue(
-                        "{\"currentPassword\":\""
-                                + password
-                                + "\"}",
-                        AttendanceReportExportController
-                                .ReauthenticationRequest.class)
-                .currentPassword())
-                .isEqualTo(password);
+                .doesNotContain(purpose);
     }
 
     private static AttendanceReportExportController.ExportFilters filters() {

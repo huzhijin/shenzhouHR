@@ -208,6 +208,29 @@ public final class AttendanceReportFactProjector {
                                                     ExceptionState.PENDING_EVIDENCE)))
                             .add(hit.includedMinutes(), hit.evidenceIds().size());
                 });
+        // An approved outing or trip that runs past the last scheduled
+        // off-time is surfaced for review so the employee can file the
+        // matching overtime document. It carries the observed overrun
+        // minutes rather than the recognised minutes, which are zero until
+        // an overtime document is approved.
+        result.ruleHits().stream()
+                .filter(value -> "OUTING_OVERTIME_UNDECLARED"
+                        .equals(value.ruleCode()))
+                .forEach(hit -> {
+                    String caseId = fingerprint(
+                            result.calculationVersionId(),
+                            hit.ruleHitId(),
+                            "OUTING_OVERTIME_UNDECLARED");
+                    findings.computeIfAbsent(
+                                    caseId,
+                                    ignored -> new ExceptionAccumulator(
+                                            caseId,
+                                            new ExceptionDescriptor(
+                                                    "OUTING_OVERTIME_UNDECLARED",
+                                                    ExceptionSeverity.WARNING,
+                                                    ExceptionState.PENDING_REVIEW)))
+                            .add(hit.rawMinutes(), hit.evidenceIds().size());
+                });
         return findings.values().stream()
                 .map(value -> new ExceptionFact(
                         value.caseId,
@@ -281,6 +304,7 @@ public final class AttendanceReportFactProjector {
             case EARLY_RETURN_CANDIDATE -> ExceptionSeverity.INFO;
             case LATE, EARLY_DEPARTURE, MISSING_PUNCH_PENDING,
                     OVERTIME_DOCUMENT_MISSING_OR_LATE,
+                    OUTING_OVERTIME_UNDECLARED,
                     LEAVE_PUNCH_CONFLICT -> ExceptionSeverity.WARNING;
             default -> ExceptionSeverity.ERROR;
         };
@@ -290,6 +314,7 @@ public final class AttendanceReportFactProjector {
             case EVIDENCE_CONFLICT, AMBIGUOUS_PUNCH_MATCH,
                     CROSS_MIDNIGHT_REVIEW_REQUIRED,
                     OUTING_OR_TRIP_INCOMPLETE,
+                    OUTING_OVERTIME_UNDECLARED,
                     OA_APPROVAL_STATUS_UNKNOWN,
                     OA_PERSON_REFERENCE_INVALID,
                     EMPLOYEE_UNMATCHED,

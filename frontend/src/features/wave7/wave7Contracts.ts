@@ -1075,10 +1075,10 @@ export function assertAttendanceMonthMatrixProjection(
       if (day.date !== expectedDates[dayIndex]) {
         throw new TypeError('attendance month matrix day order is invalid');
       }
-      assertNullableString(day.organizationName, 'matrix organizationName');
-      assertNullableString(day.shiftLabel, 'matrix shiftLabel');
+      assertNullableString(day.organizationName ?? null, 'matrix organizationName');
+      assertNullableString(day.shiftLabel ?? null, 'matrix shiftLabel');
       for (const key of ['firstPunchAt', 'lastPunchAt'] as const) {
-        if (day[key] !== null) {
+        if (day[key] != null) {
           assertInstant(day[key], `attendance month matrix day ${key}`);
         }
       }

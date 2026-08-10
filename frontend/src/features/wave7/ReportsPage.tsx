@@ -1,7 +1,6 @@
 import {
   Button,
   Input,
-  type InputRef,
 } from 'antd';
 import {
   useCallback,
@@ -688,14 +687,7 @@ function FormalReportWorkspace({
 
   const createExport = useCallback(async (
     request: ReportExportRequest,
-    currentPassword?: string,
   ) => {
-    if (currentPassword === undefined) {
-      throw new ApiRequestError(400, {
-        code: 'CURRENT_PASSWORD_REQUIRED',
-        retryable: false,
-      });
-    }
     statusRequestSequence.current += 1;
     setJob(null);
     setStatusError(undefined);
@@ -710,7 +702,6 @@ function FormalReportWorkspace({
       },
       selectedFields: [...request.selectedFields],
       purpose: request.purpose,
-      currentPassword,
     });
     if (mounted.current) setJob(created);
   }, [gateway, projection]);
@@ -799,12 +790,8 @@ function FormalReportWorkspace({
 
   const downloadExport = useCallback(async (
     exportId: string,
-    currentPassword: string,
   ) => {
-    const file = await gateway.downloadReportExport(
-      exportId,
-      currentPassword,
-    );
+    const file = await gateway.downloadReportExport(exportId);
     if (mounted.current) saveDownloadedFile(file);
   }, [gateway]);
 
@@ -816,7 +803,6 @@ function FormalReportWorkspace({
         onMatrixPageChange={onMatrixPageChange}
         onReportPageChange={onReportPageChange}
         canCreateExport={canCreateExport}
-        requireCurrentPassword
         onCreateExport={createExport}
       />
       {statusError ? (
@@ -844,7 +830,6 @@ export function ReportView({
   onReportPageChange,
   canCreateExport,
   onCreateExport,
-  requireCurrentPassword = false,
 }: {
   projection: ReportProjection;
   monthMatrix?: AttendanceMonthMatrixProjection | null;
@@ -853,19 +838,14 @@ export function ReportView({
   canCreateExport: boolean;
   onCreateExport?: (
     request: ReportExportRequest,
-    currentPassword?: string,
   ) => void | Promise<void>;
-  requireCurrentPassword?: boolean;
 }) {
   const [exportOpen, setExportOpen] = useState(false);
   const [purpose, setPurpose] = useState('');
   const [purposeError, setPurposeError] = useState<string>();
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [passwordError, setPasswordError] = useState<string>();
   const [submissionError, setSubmissionError] = useState<string>();
   const [exportSubmitting, setExportSubmitting] = useState(false);
   const exportAttempt = useRef(0);
-  const passwordInput = useRef<InputRef>(null);
   if (
     monthMatrix !== null
     && !attendanceReportMatrixSnapshotsMatch(
@@ -917,25 +897,11 @@ export function ReportView({
         : '导出用途必须为 2 至 200 个安全字符。');
       return;
     }
-    if (
-      requireCurrentPassword
-      && (currentPassword.trim() === '' || currentPassword.length > 256)
-    ) {
-      setPasswordError('请输入有效的当前密码。');
-      return;
-    }
-    const passwordForRequest = currentPassword;
     const attempt = ++exportAttempt.current;
-    setCurrentPassword('');
-    setPasswordError(undefined);
     setSubmissionError(undefined);
     setExportSubmitting(true);
     try {
-      if (requireCurrentPassword) {
-        await onCreateExport?.(request, passwordForRequest);
-      } else {
-        await onCreateExport?.(request);
-      }
+      await onCreateExport?.(request);
       if (attempt !== exportAttempt.current) return;
       setExportOpen(false);
       setPurpose('');
@@ -945,7 +911,6 @@ export function ReportView({
       setSubmissionError(exportActionMessage(caught, 'create'));
     } finally {
       if (attempt === exportAttempt.current) {
-        setCurrentPassword('');
         setExportSubmitting(false);
       }
     }
@@ -953,14 +918,9 @@ export function ReportView({
 
   const closeExportDialog = () => {
     exportAttempt.current++;
-    if (passwordInput.current?.input) {
-      passwordInput.current.input.value = '';
-    }
     setExportOpen(false);
     setPurpose('');
     setPurposeError(undefined);
-    setCurrentPassword('');
-    setPasswordError(undefined);
     setSubmissionError(undefined);
     setExportSubmitting(false);
   };
@@ -990,11 +950,11 @@ export function ReportView({
       />
       {liveMetadata?.reportType === 'ATTENDANCE_RATE'
         && liveMetadata.formulaVersion
-          === 'ATTENDANCE_RATE_CONFIRMED_OVER_SCHEDULED_V1_PROVISIONAL'
+          === 'ATTENDANCE_RATE_ACTUAL_OVER_REQUIRED_V1'
         ? (
             <OperationFeedback
               kind="info"
-              message="当前出勤率为暂行口径：排班内确认工作分钟 ÷ 原始应出勤分钟 × 100%。最终分子、分母及请假处理仍须业务签字确认。"
+              message="当前出勤率口径：排班内确认工作分钟 ÷ 原始应出勤分钟 × 100%，结果不超过 100%。带薪假计入实际出勤，零应出勤显示不适用。"
             />
           )
         : null}
@@ -1136,33 +1096,6 @@ export function ReportView({
               请填写 2 至 200 个字符的复核或业务用途。
             </p>
             {purposeError ? <p role="alert">{purposeError}</p> : null}
-            {requireCurrentPassword ? (
-              <>
-                <label htmlFor="wave7-export-current-password">
-                  当前密码
-                </label>
-                <Input.Password
-                  ref={passwordInput}
-                  id="wave7-export-current-password"
-                  value={currentPassword}
-                  maxLength={256}
-                  autoComplete="current-password"
-                  aria-describedby="wave7-export-password-help"
-                  aria-invalid={passwordError ? 'true' : undefined}
-                  onChange={(event) => {
-                    setCurrentPassword(event.target.value);
-                    if (passwordError) setPasswordError(undefined);
-                    if (submissionError) setSubmissionError(undefined);
-                  }}
-                />
-                <p id="wave7-export-password-help">
-                  创建导出前必须重新验证当前密码；密码不会写入网址或浏览器存储。
-                </p>
-                {passwordError ? (
-                  <p role="alert">{passwordError}</p>
-                ) : null}
-              </>
-            ) : null}
             {submissionError ? (
               <p role="alert">{submissionError}</p>
             ) : null}
@@ -1448,46 +1381,28 @@ export function FormalReportExportStatus({
   canDownload: boolean;
   refreshing: boolean;
   onRefresh: () => void;
-  onDownload: (
-    exportId: string,
-    currentPassword: string,
-  ) => Promise<void>;
+  onDownload: (exportId: string) => Promise<void>;
 }) {
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [passwordError, setPasswordError] = useState<string>();
   const [downloadError, setDownloadError] = useState<string>();
   const [downloading, setDownloading] = useState(false);
   const downloadAttempt = useRef(0);
-  const passwordInput = useRef<InputRef>(null);
   const downloadEnabled = job.status === 'READY' && canDownload;
 
   const closeDownloadDialog = () => {
     downloadAttempt.current++;
-    if (passwordInput.current?.input) {
-      passwordInput.current.input.value = '';
-    }
     setDownloadOpen(false);
-    setCurrentPassword('');
-    setPasswordError(undefined);
     setDownloadError(undefined);
     setDownloading(false);
   };
 
   const confirmDownload = async () => {
     if (downloading) return;
-    if (currentPassword.trim() === '' || currentPassword.length > 256) {
-      setPasswordError('请输入有效的当前密码。');
-      return;
-    }
-    const passwordForRequest = currentPassword;
     const attempt = ++downloadAttempt.current;
-    setCurrentPassword('');
-    setPasswordError(undefined);
     setDownloadError(undefined);
     setDownloading(true);
     try {
-      await onDownload(job.exportId, passwordForRequest);
+      await onDownload(job.exportId);
       if (attempt !== downloadAttempt.current) return;
       closeDownloadDialog();
     } catch (caught: unknown) {
@@ -1495,7 +1410,6 @@ export function FormalReportExportStatus({
       setDownloadError(exportActionMessage(caught, 'download'));
     } finally {
       if (attempt === downloadAttempt.current) {
-        setCurrentPassword('');
         setDownloading(false);
       }
     }
@@ -1563,8 +1477,6 @@ export function FormalReportExportStatus({
           disabled={!downloadEnabled}
           onClick={() => {
             setDownloadOpen(true);
-            setCurrentPassword('');
-            setPasswordError(undefined);
             setDownloadError(undefined);
           }}
         >
@@ -1578,8 +1490,8 @@ export function FormalReportExportStatus({
       ) : null}
       <ConfirmationDialog
         open={downloadOpen}
-        title="重新验证并下载"
-        confirmText="验证并下载"
+        title="确认下载导出文件"
+        confirmText="确认下载"
         processing={downloading}
         onConfirm={() => {
           void confirmDownload();
@@ -1588,31 +1500,8 @@ export function FormalReportExportStatus({
         description={(
           <div className="wave7-export-confirmation">
             <p>
-              下载前会重新校验当前密码和数据访问权限。
+              下载前会重新校验任务所有权和数据访问权限，此操作将被记录。
             </p>
-            <label htmlFor="wave7-download-current-password">
-              当前密码
-            </label>
-            <Input.Password
-              ref={passwordInput}
-              id="wave7-download-current-password"
-              value={currentPassword}
-              maxLength={256}
-              autoComplete="current-password"
-              aria-describedby="wave7-download-password-help"
-              aria-invalid={passwordError ? 'true' : undefined}
-              onChange={(event) => {
-                setCurrentPassword(event.target.value);
-                if (passwordError) setPasswordError(undefined);
-                if (downloadError) setDownloadError(undefined);
-              }}
-            />
-            <p id="wave7-download-password-help">
-              密码仅用于本次身份复核，请求发出后立即清空。
-            </p>
-            {passwordError ? (
-              <p role="alert">{passwordError}</p>
-            ) : null}
             {downloadError ? (
               <p role="alert">{downloadError}</p>
             ) : null}
@@ -1885,14 +1774,6 @@ function exportActionMessage(
   action: 'create' | 'refresh' | 'download',
 ): string {
   if (caught instanceof ApiRequestError) {
-    if (
-      caught.status === 401
-      && caught.code === 'REAUTHENTICATION_FAILED'
-    ) {
-      return action === 'download'
-        ? '当前密码验证失败，文件未下载。'
-        : '当前密码验证失败，导出未创建。';
-    }
     if (caught.status === 401) {
       return '会话已失效，请重新登录。';
     }
@@ -1903,7 +1784,7 @@ function exportActionMessage(
       return '导出当前不可用，请刷新状态或重新创建。';
     }
     if (caught.status === 400 || caught.status === 422) {
-      return '导出条件无效，请检查用途和当前密码。';
+      return '导出条件无效，请检查导出用途。';
     }
     if (caught.status === 0) {
       return '网络暂时不可用，请稍后重试。';

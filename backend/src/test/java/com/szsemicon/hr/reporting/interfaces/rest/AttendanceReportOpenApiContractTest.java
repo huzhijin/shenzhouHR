@@ -118,7 +118,7 @@ class AttendanceReportOpenApiContractTest {
         String create = between(
                 contract,
                 "    AttendanceReportExportCreateRequest:",
-                "    ReportExportReauthenticationRequest:");
+                "    AttendanceReportExportView:");
         String view = between(
                 contract,
                 "    AttendanceReportExportView:",
@@ -151,7 +151,7 @@ class AttendanceReportOpenApiContractTest {
         String create = between(
                 contract,
                 "    AttendanceReportExportCreateRequest:",
-                "    ReportExportReauthenticationRequest:");
+                "    AttendanceReportExportView:");
 
         assertThat(create)
                 .contains(
@@ -161,9 +161,12 @@ class AttendanceReportOpenApiContractTest {
                         "- filters",
                         "- selectedFields",
                         "pattern: '^[a-f0-9]{64}$'",
-                        "uniqueItems: true",
-                        "writeOnly: true")
-                .doesNotContain("period:", "organizationId:", "employeeId:");
+                        "uniqueItems: true")
+                .doesNotContain(
+                        "period:",
+                        "organizationId:",
+                        "employeeId:",
+                        "currentPassword:");
     }
 
     @Test

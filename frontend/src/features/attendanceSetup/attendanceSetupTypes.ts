@@ -13,7 +13,9 @@ export type CalendarDayType = 'WORKDAY' | 'WEEKEND' | 'PUBLIC_HOLIDAY' | 'SPECIA
 export type AttendancePolicyKind =
   | 'MEAL_DEDUCTION'
   | 'LATE_GRACE'
-  | 'MONTHLY_LATE_EXEMPTION';
+  | 'MONTHLY_LATE_EXEMPTION'
+  | 'PUNCH_WINDOW'
+  | 'PERIOD_CLOSE';
 
 export interface Page<T> {
   items: T[];

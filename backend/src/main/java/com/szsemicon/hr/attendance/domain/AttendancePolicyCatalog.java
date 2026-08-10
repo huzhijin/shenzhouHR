@@ -131,7 +131,27 @@ public final class AttendancePolicyCatalog {
                                 field("enabled", "是否启用", "BOOLEAN"),
                                 field("graceMinutes", "宽限分钟", "INTEGER"),
                                 field("monthlyUses", "自然月可用次数", "INTEGER"),
-                                field("resetOnGroupChange", "换组是否重置", "BOOLEAN"))));
+                                field("resetOnGroupChange", "换组是否重置", "BOOLEAN"))),
+                new TemplateDefinition(
+                        "25000000-0000-0000-0000-000000000009",
+                        AttendancePolicyModels.PolicyKind.PUNCH_WINDOW,
+                        "打卡取卡窗口",
+                        List.of(
+                                field("enabled", "是否启用", "BOOLEAN"),
+                                field("arrivalBeforeMinutes", "上班窗口提前分钟", "INTEGER"),
+                                field("arrivalAfterMinutes", "上班窗口延后分钟", "INTEGER"),
+                                field("departureBeforeMinutes", "下班窗口提前分钟", "INTEGER"),
+                                field("departureAfterMinutes", "下班窗口延后分钟", "INTEGER"))),
+                new TemplateDefinition(
+                        "25000000-0000-0000-0000-00000000000a",
+                        AttendancePolicyModels.PolicyKind.PERIOD_CLOSE,
+                        "月结封账",
+                        List.of(
+                                field("enabled", "是否启用", "BOOLEAN"),
+                                field("closeDayOfNextMonth", "次月封账日", "INTEGER"),
+                                field("reopenAllowed", "允许重开", "BOOLEAN"),
+                                field("reopenRequiresApproval", "重开需要审批", "BOOLEAN"),
+                                field("maxReopenCount", "重开次数上限（0=不限）", "INTEGER"))));
     }
 
     private static FieldDefinition field(String key, String label, String valueType) {

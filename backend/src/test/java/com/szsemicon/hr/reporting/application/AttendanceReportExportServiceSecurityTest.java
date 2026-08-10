@@ -6,7 +6,6 @@ import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -16,7 +15,6 @@ import static org.mockito.Mockito.when;
 import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.identityaccess.application.AuthenticationService;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.EncodedExport;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.ExportContext;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.DeliveryMode;
@@ -54,10 +52,9 @@ class AttendanceReportExportServiceSecurityTest {
             Instant.parse("2026-07-29T01:00:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
     private static final String DIGEST = "a".repeat(64);
-    private static final String PASSWORD = "Current#Password123";
 
     @Test
-    void createPersistsPurposeButNeverPlacesPasswordInTheJob() {
+    void createPersistsNormalizedPurposeAndBindsTheCurrentSnapshot() {
         Fixture fixture = new Fixture();
         YearMonth period = YearMonth.of(2026, 7);
         ReportFilter filter =
@@ -91,13 +88,8 @@ class AttendanceReportExportServiceSecurityTest {
                 ReportType.ATTENDANCE_DETAIL,
                 filter,
                 binding(currentSnapshot),
-                "  月度考勤核对  ",
-                PASSWORD);
+                "  月度考勤核对  ");
 
-        verify(fixture.authentication)
-                .reauthenticateCurrentAccount(
-                        PASSWORD,
-                        "ATTENDANCE_REPORT_EXPORT_CREATE");
         verify(fixture.store).insert(
                 job.capture(), storedContent.capture());
         verify(fixture.encoder).encode(any(), context.capture());
@@ -107,8 +99,6 @@ class AttendanceReportExportServiceSecurityTest {
                 .isEqualTo("legal-1");
         assertThat(result.companyId()).isEqualTo("legal-1");
         assertThat(storedContent.getValue()).isEqualTo(content);
-        assertThat(job.getValue().toString())
-                .doesNotContain(PASSWORD);
         assertThat(job.getValue().visibleContentDigest())
                 .matches("[0-9a-f]{64}")
                 .isNotEqualTo(job.getValue().queryFingerprint());
@@ -134,19 +124,10 @@ class AttendanceReportExportServiceSecurityTest {
         assertThat(context.getValue().generatedAt()).isEqualTo(NOW);
         assertThat(context.getValue().selectedFields())
                 .containsExactlyElementsOf(job.getValue().exportFields());
-        assertThat(mockingDetails(fixture.audit).getInvocations())
-                .allSatisfy(invocation ->
-                        assertThat(invocation.toString())
-                                .doesNotContain(PASSWORD));
         var order = inOrder(
-                fixture.authentication,
                 fixture.transactions,
                 fixture.capabilities,
                 fixture.source);
-        order.verify(fixture.authentication)
-                .reauthenticateCurrentAccount(
-                        PASSWORD,
-                        "ATTENDANCE_REPORT_EXPORT_CREATE");
         order.verify(fixture.transactions).readCommitted(any());
         order.verify(fixture.capabilities).require(
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE);
@@ -206,8 +187,7 @@ class AttendanceReportExportServiceSecurityTest {
                     ReportType.ATTENDANCE_DETAIL,
                     filter,
                     stale,
-                    "月度考勤核对",
-                    PASSWORD))
+                    "月度考勤核对"))
                     .isInstanceOf(ApiProblemException.class)
                     .extracting("status", "code")
                     .containsExactly(
@@ -246,8 +226,7 @@ class AttendanceReportExportServiceSecurityTest {
                 ReportType.ATTENDANCE_DETAIL,
                 filter,
                 binding(currentSnapshot),
-                "月度考勤核对",
-                PASSWORD))
+                "月度考勤核对"))
                 .isInstanceOf(ApiProblemException.class)
                 .extracting("code")
                 .isEqualTo("RESOURCE_NOT_AVAILABLE");
@@ -298,8 +277,7 @@ class AttendanceReportExportServiceSecurityTest {
                 ReportType.ATTENDANCE_DETAIL,
                 filter,
                 binding(currentSnapshot, selected),
-                "月度考勤核对",
-                PASSWORD);
+                "月度考勤核对");
 
         verify(fixture.encoder).encode(
                 encodedDataSet.capture(), context.capture());
@@ -469,7 +447,7 @@ class AttendanceReportExportServiceSecurityTest {
                 NOW)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                fixture.service.download("export-1", PASSWORD))
+                fixture.service.download("export-1"))
                 .isInstanceOf(ApiProblemException.class)
                 .extracting("code")
                 .isEqualTo("RESOURCE_NOT_AVAILABLE");
@@ -478,15 +456,10 @@ class AttendanceReportExportServiceSecurityTest {
                 .findOwnedReady(
                         any(), any(), any(), any(), any());
         var order = inOrder(
-                fixture.authentication,
                 fixture.transactions,
                 fixture.capabilities,
                 fixture.store,
                 fixture.source);
-        order.verify(fixture.authentication)
-                .reauthenticateCurrentAccount(
-                        PASSWORD,
-                        "ATTENDANCE_REPORT_EXPORT_DOWNLOAD");
         order.verify(fixture.transactions).serialized(any());
         order.verify(fixture.capabilities).require(
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD);
@@ -588,7 +561,7 @@ class AttendanceReportExportServiceSecurityTest {
                 NOW)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
-                fixture.service.download("export-1", PASSWORD))
+                fixture.service.download("export-1"))
                 .isInstanceOf(ApiProblemException.class)
                 .extracting("code")
                 .isEqualTo("RESOURCE_NOT_AVAILABLE");
@@ -664,7 +637,7 @@ class AttendanceReportExportServiceSecurityTest {
                 NOW)).thenReturn(Optional.of(replacement));
 
         assertThatThrownBy(() ->
-                fixture.service.download("export-1", PASSWORD))
+                fixture.service.download("export-1"))
                 .isInstanceOf(ApiProblemException.class)
                 .extracting("code")
                 .isEqualTo("RESOURCE_NOT_AVAILABLE");
@@ -840,8 +813,6 @@ class AttendanceReportExportServiceSecurityTest {
 
         private final CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);
-        private final AuthenticationService authentication =
-                mock(AuthenticationService.class);
         private final AttendanceReportSourceRepository source =
                 mock(AttendanceReportSourceRepository.class);
         private final AttendanceReportExportStore store =
@@ -857,7 +828,6 @@ class AttendanceReportExportServiceSecurityTest {
                 new AttendanceReportExportService(
                         capabilities,
                         principal,
-                        authentication,
                         source,
                         store,
                         encoder,
