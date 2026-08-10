@@ -5393,6 +5393,22 @@ class Wave3AttendanceSetupAcceptanceIntegrationTest
                       {"key":"resetOnGroupChange","label":"换组重置","valueType":"BOOLEAN","required":true,"enumValues":[]}
                     ]
                     """;
+            case "PUNCH_WINDOW" -> """
+                    [
+                      {"key":"arrivalBeforeMinutes","label":"上班前打卡窗口","valueType":"INTEGER","required":true,"enumValues":[],"minimum":0,"maximum":720},
+                      {"key":"arrivalAfterMinutes","label":"上班后打卡窗口","valueType":"INTEGER","required":true,"enumValues":[],"minimum":0,"maximum":720},
+                      {"key":"departureBeforeMinutes","label":"下班前打卡窗口","valueType":"INTEGER","required":true,"enumValues":[],"minimum":0,"maximum":720},
+                      {"key":"departureAfterMinutes","label":"下班后打卡窗口","valueType":"INTEGER","required":true,"enumValues":[],"minimum":0,"maximum":720}
+                    ]
+                    """;
+            case "PERIOD_CLOSE" -> """
+                    [
+                      {"key":"closeDayOfNextMonth","label":"下月几号封账","valueType":"INTEGER","required":true,"enumValues":[],"minimum":1,"maximum":28},
+                      {"key":"reopenAllowed","label":"允许重开","valueType":"BOOLEAN","required":true,"enumValues":[]},
+                      {"key":"reopenRequiresApproval","label":"重开需审批","valueType":"BOOLEAN","required":true,"enumValues":[]},
+                      {"key":"maxReopenCount","label":"最大重开次数","valueType":"INTEGER","required":true,"enumValues":[],"minimum":0,"maximum":99}
+                    ]
+                    """;
             default -> throw new IllegalArgumentException("unsupported policy code");
         };
         jdbc.update(
