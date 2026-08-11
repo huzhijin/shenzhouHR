@@ -132,6 +132,7 @@ class MyBatisEmployeeEmploymentResolverTest {
                 .matches("[0-9a-f]{64}")
                 .isNotEqualTo(numberDigest);
         verify(mapper).resolveByConfirmedDeliBinding(
+                "source-1",
                 "company-1",
                 "DELI_EXT_ID",
                 "deli-user-1",
