@@ -3,7 +3,6 @@ package com.szsemicon.hr.evidenceingestion.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -83,15 +82,6 @@ class DeliPunchPageTransactionTest {
     void matchedEarlyMorningPunchCreatesEffectiveEventAndBothCandidateDates() {
         when(employeeResolver.resolveByConfirmedBinding(
                         "source-1",
-                        "source-1",
-                        "source-1",
-                        "source-1",
-                        "source-1",
-                        "source-1",
-                        "source-1",
-                        "source-1",
-                        "source-1",
-                        "source-1",
                         "legal-1",
                         null,
                         "terminal-1",
@@ -166,11 +156,12 @@ class DeliPunchPageTransactionTest {
     }
 
     @Test
-    void allUnmatchedPageRollsBackWithoutAdvancingWatermark() {
+    void unmatchedPunchIsQuarantinedAndCannotCreateEffectiveData() {
         when(employeeResolver.resolveByEmployeeNumber(
                         "legal-1", "E404", EARLY_MORNING_PUNCH))
                 .thenReturn(List.of());
         when(employeeResolver.resolveByConfirmedBinding(
+                        "source-1",
                         "legal-1",
                         null,
                         "terminal-1",
@@ -179,18 +170,18 @@ class DeliPunchPageTransactionTest {
                         EARLY_MORNING_PUNCH))
                 .thenReturn(List.of());
 
-        assertThatThrownBy(() -> transaction.commitPage(
-                        job(),
-                        ACTOR,
-                        REQUEST,
-                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
-                        1,
-                        page(record("E404", "deli-user-404")),
-                        configurationResolver,
-                        periodProtection))
-                .isInstanceOf(AttendanceSourceSyncFailure.class)
-                .hasMessage("DELI_ALL_RECORDS_QUARANTINED");
+        var outcome = transaction.commitPage(
+                job(),
+                ACTOR,
+                REQUEST,
+                CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                1,
+                page(record("E404", "deli-user-404")),
+                configurationResolver,
+                periodProtection);
 
+        assertThat(outcome.acceptedCount()).isZero();
+        assertThat(outcome.quarantinedCount()).isEqualTo(1);
         ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
                 ArgumentCaptor.forClass(
                         EvidenceRows.NormalizedRecordRow.class);
@@ -204,15 +195,13 @@ class DeliPunchPageTransactionTest {
         verify(periodProtection, never()).protectionFor(any(), any(), any());
         verify(evidenceRepository, never()).insertEffectiveEvent(any());
         verify(evidenceRepository, never()).insertRecalculationIntent(any());
-        verify(syncRepository, never()).advanceWatermark(
-                any(), any(Long.class), any(), any(), any());
-        verify(syncRepository, never()).incrementJobCounters(
-                any(), anyInt(), anyInt());
+        verify(syncRepository).incrementJobCounters("job-1", 0, 1);
     }
 
     @Test
     void protectedPeriodFailsBeforeEvidenceOrWatermarkMutation() {
         when(employeeResolver.resolveByConfirmedBinding(
+                        "source-1",
                         "legal-1",
                         null,
                         "terminal-1",
