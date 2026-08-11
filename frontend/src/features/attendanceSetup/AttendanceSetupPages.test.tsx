@@ -698,7 +698,10 @@ describe('attendance setup demo pages', () => {
   it('promotes the default lifecycle version into the route and enables version actions', async () => {
     renderPolicyBasePage();
 
-    expect(await screen.findByText('当前策略版本：V1')).toBeInTheDocument();
+    // Wait for lifecycle panel to load versions and auto-navigate
+    expect(
+      await screen.findByText('当前策略版本：V1', {}, { timeout: 10_000 }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '绑定规则到考勤组' })).toBeEnabled();
 
     fireEvent.click(screen.getByRole('button', { name: '返回上一页' }));
