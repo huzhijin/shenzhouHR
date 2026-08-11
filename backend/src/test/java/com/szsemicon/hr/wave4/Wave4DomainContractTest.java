@@ -130,6 +130,7 @@ class Wave4DomainContractTest {
 
             @Override
             public List<Resolution> resolveByConfirmedBinding(
+                    String sourceId,
                     String companyId,
                     String locationId,
                     String deviceId,
