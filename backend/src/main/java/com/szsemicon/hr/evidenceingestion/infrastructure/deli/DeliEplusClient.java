@@ -107,20 +107,16 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
 
     /**
      * Fetches the complete userId-to-employeeNumber directory by paging
-     * through all employees. Returns an empty map on error so that the
-     * caller falls back to confirmed-binding resolution.
+     * through all employees. Any request or response failure is propagated so
+     * synchronization cannot continue with a partial directory.
      */
     @Override
     public Map<String, String> fetchEmployeeDirectory(String sourceId) {
         Map<String, String> result = new HashMap<>();
         int offset = 0;
         while (true) {
-            EmployeePage page;
-            try {
-                page = queryEmployees(offset, MAX_EMPLOYEE_PAGE_SIZE);
-            } catch (DeliEplusClientException exception) {
-                break;
-            }
+            EmployeePage page = queryEmployees(
+                    offset, MAX_EMPLOYEE_PAGE_SIZE);
             for (EmployeeDirectoryEntry entry : page.records()) {
                 if (entry.userId() != null
                         && !entry.userId().isBlank()
@@ -129,10 +125,10 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
                     result.put(entry.userId(), entry.employeeNum());
                 }
             }
-            if (page.records().size() < MAX_EMPLOYEE_PAGE_SIZE) {
+            if (page.returnedRowCount() < MAX_EMPLOYEE_PAGE_SIZE) {
                 break;
             }
-            offset += MAX_EMPLOYEE_PAGE_SIZE;
+            offset = Math.addExact(offset, page.returnedRowCount());
         }
         return Map.copyOf(result);
     }
@@ -278,11 +274,11 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
     }
 
     /**
-     * Parses an employee query response. The vendor wraps rows either in
-     * {@code data.data} or directly in {@code data}, so both shapes are
-     * accepted. Rows without a usable {@code employee_num} are skipped
-     * rather than failing the page, because a partially bound directory is
-     * still better than none.
+     * Parses an employee query response. The official response uses
+     * {@code data.rows}; the older {@code data.data} and direct {@code data}
+     * array envelopes remain accepted for backwards compatibility. Rows
+     * without a usable {@code employee_num} are skipped, while the raw row
+     * count is retained for correct offset pagination.
      */
     private EmployeePage parseEmployeeResponse(
             String responseBody, int offset, int limit) {
@@ -299,14 +295,7 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
                                 + code + ")",
                         code == 109 || code == 110);
             }
-            JsonNode data = root.get("data");
-            if (data == null) {
-                throw invalidResponse("Deli E+ returned an invalid response");
-            }
-            JsonNode rows = data.isArray() ? data : data.get("data");
-            if (rows == null || !rows.isArray()) {
-                throw invalidResponse("Deli E+ returned an invalid response");
-            }
+            JsonNode rows = employeeRows(root.get("data"));
             if (rows.size() > limit) {
                 throw invalidResponse(
                         "Deli E+ returned too many employee records");
@@ -324,6 +313,26 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
         } catch (Exception exception) {
             throw invalidResponse("Deli E+ returned an invalid response");
         }
+    }
+
+    private static JsonNode employeeRows(JsonNode data) {
+        if (data == null) {
+            throw invalidResponse("Deli E+ returned an invalid response");
+        }
+        if (data.isArray()) {
+            return data;
+        }
+        if (!data.isObject()) {
+            throw invalidResponse("Deli E+ returned an invalid response");
+        }
+        JsonNode rows = data.get("rows");
+        if (rows == null) {
+            rows = data.get("data");
+        }
+        if (rows == null || !rows.isArray()) {
+            throw invalidResponse("Deli E+ returned an invalid response");
+        }
+        return rows;
     }
 
     private EmployeeDirectoryEntry parseEmployeeRow(JsonNode row) {

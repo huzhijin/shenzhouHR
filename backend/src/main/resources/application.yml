@@ -58,6 +58,9 @@ logging:
 shenzhouhr:
   development-principal:
     enabled: false
+  deli:
+    auto-sync-enabled: ${SHENZHOUHR_DELI_AUTO_SYNC_ENABLED:false}
+    auto-sync-cron: ${SHENZHOUHR_DELI_AUTO_SYNC_CRON:0 0 * * * ?}
   security:
     account-provisioning:
       pepper: ${SHENZHOUHR_PROVISIONING_PEPPER:}

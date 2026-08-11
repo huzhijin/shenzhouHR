@@ -90,7 +90,7 @@ while IFS= read -r -d '' shell_script; do
   bash -n "$shell_script"
 done < <(find "$REPO_ROOT/deploy/baota" -type f -name '*.sh' -print0 | sort -z)
 cd "$REPO_ROOT"
-python3 -m unittest scripts.release.tests.test_baota_provisioning_environment
+python3 -m unittest discover -v scripts/release/tests
 
 cd "$REPO_ROOT/frontend"
 npm ci
@@ -164,10 +164,18 @@ chmod +x "$RELEASE_ROOT/install.sh" "$RELEASE_ROOT/upgrade.sh" \
   printf 'backend_address_default=%s\n' '0.0.0.0'
   printf 'backend_port_default=%s\n' '8080'
   printf 'site_port_default=%s\n' '23272'
+  printf 'baota_proxy_name=%s\n' 'kaoqin-api'
+  printf 'baota_proxy_path=%s\n' '/api/'
+  printf 'baota_proxy_target=%s\n' 'http://127.0.0.1:8080/api'
   printf 'process_manager_default=%s\n' 'baota'
   printf 'session_cookie_secure_default=%s\n' 'false'
   printf 'deployment_guide=%s\n' 'docs/deployment/baota-deployment-guide.md'
   printf 'initial_business_data=%s\n' 'not_included_import_approved_files_separately'
+  printf 'initial_company_catalog=%s\n' 'deploy/baota/config/initial-companies.tsv'
+  printf 'initial_company_codes=%s\n' 'SZSZ,SZJN,SZSC,SZXY'
+  printf 'initial_company_count=%s\n' '4'
+  printf 'initial_company_scope_count=%s\n' '4'
+  printf 'initial_admin_assignment_count=%s\n' '8'
   printf 'deployment_notes=%s\n' 'DEPLOYMENT-NOTES.md'
   printf 'archive_owner=%s\n' 'root:root'
 } > "$RELEASE_ROOT/BUILD-MANIFEST.txt"

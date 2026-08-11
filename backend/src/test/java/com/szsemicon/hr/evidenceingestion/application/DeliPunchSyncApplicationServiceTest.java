@@ -95,6 +95,35 @@ class DeliPunchSyncApplicationServiceTest {
     }
 
     @Test
+    void employeeDirectoryFailureStopsBeforeAnyCheckinFetch() {
+        DeliPunchSourcePort production = productionSource();
+        when(production.fetchEmployeeDirectory("source-1"))
+                .thenThrow(new DeliPunchSourcePort.FetchException(
+                        "DELI_INVALID_RESPONSE",
+                        "safe directory failure",
+                        false));
+        prepareCreatedJob("DELI_INVALID_RESPONSE");
+        var service = service(
+                Set.of(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
+                List.of(production),
+                List.of(mock(AttendanceConfigurationResolverPort.class)),
+                List.of(mock(AttendancePeriodProtectionPort.class)));
+
+        JobStatus result = service.run("source-1", "request-1");
+
+        assertThat(result.state()).isEqualTo("FAILED");
+        assertThat(result.safeErrorCode()).isEqualTo("DELI_INVALID_RESPONSE");
+        verify(production).fetchEmployeeDirectory("source-1");
+        verify(production, never()).fetchPage(any(), any(), any());
+        verify(repository, never()).markRunning(any(), any());
+        verify(repository).markFailed(
+                "job-1", "DELI_INVALID_RESPONSE", NOW);
+        verify(pageTransaction, never()).commitPage(
+                any(), any(), any(), any(), anyInt(),
+                any(), any(), any());
+    }
+
+    @Test
     void authorizedRunCommitsPagesUntilTerminalEmptyPage() {
         DeliPunchSourcePort production = productionSource();
         var configuration =

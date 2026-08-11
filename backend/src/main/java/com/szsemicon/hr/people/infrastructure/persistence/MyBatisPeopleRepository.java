@@ -563,8 +563,14 @@ public class MyBatisPeopleRepository implements PeopleRepository {
     }
 
     @Override
+    @Transactional
     public void saveEmploymentPeriodVersion(EmploymentPeriod period, boolean newIdentity) {
-        mapper.insertEmploymentPeriodVersion(toEmploymentRow(period), newIdentity);
+        PeopleRows.EmploymentRow row = toEmploymentRow(period);
+        if (newIdentity && mapper.insertEmploymentPeriodIdentity(row) != 1) {
+            throw new IllegalStateException(
+                    "employment period identity employee is unavailable");
+        }
+        mapper.insertEmploymentPeriodVersion(row);
     }
 
     @Override

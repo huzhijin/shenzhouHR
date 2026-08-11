@@ -12,6 +12,10 @@ readonly WEB_ROOT_BASE="/www/wwwroot"
 readonly CUSTOMER_DOMAIN="192.168.160.226"
 readonly SITE_PORT="23272"
 readonly BAOTA_NGINX_CONFIG="/www/server/nginx/conf/nginx.conf"
+readonly BAOTA_PROXY_METADATA="/www/server/panel/data/proxyfile.json"
+readonly BAOTA_PROXY_ROOT="/www/server/panel/vhost/nginx/proxy"
+readonly CUSTOMER_PROXY_NAME="kaoqin-api"
+readonly CUSTOMER_PROXY_TARGET="http://127.0.0.1:8080/api"
 PROCESS_MANAGER="${PROCESS_MANAGER:-baota}"
 
 die() {
@@ -145,6 +149,7 @@ rollback_failed_upgrade() {
   fi
   [[ -z "${PENDING_JAR:-}" ]] || rm -f -- "$PENDING_JAR"
   [[ -z "${VHOST_CANDIDATE:-}" ]] || rm -f -- "$VHOST_CANDIDATE"
+  [[ -z "${PROXY_CANDIDATE:-}" ]] || rm -f -- "$PROXY_CANDIDATE"
 
   if [[ "${ENV_MUTATED:-0}" == "1" && -d "${BACKUP_DIR:-}/env" ]]; then
     cp -a -- "$BACKUP_DIR/env/shenzhouhr.env" "$ENV_ROOT/shenzhouhr.env" \
@@ -154,14 +159,16 @@ rollback_failed_upgrade() {
       || printf 'WARNING: could not restore the migrator env backup.\n' >&2
   fi
 
-  if [[ "${VHOST_REPLACED:-0}" == "1" && -f "${VHOST_BACKUP:-}" ]]; then
+  if [[ "${VHOST_REPLACED:-0}" == "1" && -f "${VHOST_BACKUP:-}" \
+      && -f "${PROXY_BACKUP:-}" ]]; then
     if cp -a -- "$VHOST_BACKUP" "$VHOST_CONFIG" \
+        && cp -a -- "$PROXY_BACKUP" "$PROXY_CONFIG" \
         && /www/server/nginx/sbin/nginx -c "$BAOTA_NGINX_CONFIG" -t >/dev/null 2>&1; then
       /www/server/nginx/sbin/nginx -c "$BAOTA_NGINX_CONFIG" -s reload \
         || printf 'WARNING: restored vhost could not be reloaded.\n' >&2
     else
-      printf 'WARNING: vhost restore failed; keep backup %s and do not start Java.\n' \
-        "$VHOST_BACKUP" >&2
+      printf 'WARNING: vhost/proxy restore failed; keep backup %s and do not start Java.\n' \
+        "$BACKUP_DIR" >&2
     fi
   fi
 
@@ -170,6 +177,18 @@ rollback_failed_upgrade() {
       "WARNING: database migration was attempted (completed=${MIGRATION_COMPLETED:-0}) and may have partially applied non-transactional DDL. Do not start the old JAR; keep the database backup and contact the delivery engineer." >&2
   fi
   exit "$status"
+}
+
+detect_python() {
+  local candidate version
+  for candidate in /usr/bin/python3 /www/server/panel/pyenv/bin/python3; do
+    [[ -x "$candidate" ]] || continue
+    version="$($candidate -c 'import sys; print(sys.version_info.major)' 2>/dev/null || true)"
+    [[ "$version" == "3" ]] && { printf '%s\n' "$candidate"; return; }
+  done
+  command -v python3 >/dev/null 2>&1 \
+    || die 'Python 3 is required to validate the BaoTa reverse-proxy record'
+  command -v python3
 }
 
 detect_java() {
@@ -407,6 +426,17 @@ awk -v expected="$WEB_ROOT" '
   END { exit(found ? 0 : 1) }
 ' "$VHOST_CONFIG" \
   || die "Baota site $VHOST_CONFIG does not use root $WEB_ROOT"
+grep -Fq "include $BAOTA_PROXY_ROOT/$DOMAIN/*.conf;" "$VHOST_CONFIG" \
+  || die "BaoTa site $DOMAIN does not load its panel-managed proxy rules"
+PYTHON_BIN="$(detect_python)"
+PROXY_CONFIG="$("$PYTHON_BIN" "$BAOTA_ROOT/scripts/baota-proxy.py" \
+  --metadata-file "$BAOTA_PROXY_METADATA" \
+  --proxy-root "$BAOTA_PROXY_ROOT" \
+  --site "$DOMAIN" \
+  --proxy-name "$CUSTOMER_PROXY_NAME" \
+  --expected-target "$CUSTOMER_PROXY_TARGET" \
+  --require-marker)" \
+  || die "BaoTa reverse-proxy record $CUSTOMER_PROXY_NAME is missing or no longer matches the managed rule"
 
 STAMP="$(date -u +%Y%m%d%H%M%S)"
 BACKUP_DIR="$APP_ROOT/backups/upgrade-$STAMP"
@@ -414,6 +444,8 @@ WEB_STAGE="$WEB_ROOT_BASE/.${DOMAIN}.pending-$STAMP"
 WEB_PREVIOUS="$WEB_ROOT_BASE/.${DOMAIN}.previous-$STAMP"
 VHOST_BACKUP="$BACKUP_DIR/$(basename -- "$VHOST_CONFIG")"
 VHOST_CANDIDATE="$(dirname -- "$VHOST_CONFIG")/.${DOMAIN}.conf.candidate-$STAMP"
+PROXY_BACKUP="$BACKUP_DIR/$(basename -- "$PROXY_CONFIG").original"
+PROXY_CANDIDATE="$(dirname -- "$PROXY_CONFIG")/.$(basename -- "$PROXY_CONFIG").candidate-$STAMP"
 [[ ! -e "$BACKUP_DIR" && ! -L "$BACKUP_DIR" ]] \
   || die "Upgrade backup target already exists: $BACKUP_DIR"
 [[ ! -e "$WEB_STAGE" && ! -L "$WEB_STAGE" ]] \
@@ -422,6 +454,8 @@ VHOST_CANDIDATE="$(dirname -- "$VHOST_CONFIG")/.${DOMAIN}.conf.candidate-$STAMP"
   || die "Previous web target already exists: $WEB_PREVIOUS"
 [[ ! -e "$VHOST_CANDIDATE" && ! -L "$VHOST_CANDIDATE" ]] \
   || die "Nginx candidate already exists: $VHOST_CANDIDATE"
+[[ ! -e "$PROXY_CANDIDATE" && ! -L "$PROXY_CANDIDATE" ]] \
+  || die "Nginx proxy candidate already exists: $PROXY_CANDIDATE"
 chown root:shenzhouhr "$APP_ROOT" "$APP_DIR"
 chmod 0750 "$APP_ROOT" "$APP_DIR"
 chown -R root:shenzhouhr "$APP_DIR"
@@ -438,6 +472,7 @@ cp -a "$WEB_ROOT/." "$BACKUP_DIR/web/"
 cp -a "$ENV_ROOT/shenzhouhr.env" "$ENV_ROOT/shenzhouhr-migrator.env" \
   "$BACKUP_DIR/env/"
 cp -a "$VHOST_CONFIG" "$VHOST_BACKUP"
+cp -a "$PROXY_CONFIG" "$PROXY_BACKUP"
 
 VHOST_REPLACED=0
 ENV_MUTATED=0
@@ -463,9 +498,13 @@ sed -e "s|__DOMAIN__|$DOMAIN|g" \
   -e "s|__SITE_PORT__|$SITE_PORT|g" \
   -e "s|__BACKEND_PORT__|$BACKEND_PORT|g" \
   "$BAOTA_ROOT/nginx/shenzhouhr-site-http.conf" > "$VHOST_CANDIDATE"
+sed -e "s|__BACKEND_PORT__|$BACKEND_PORT|g" \
+  "$BAOTA_ROOT/nginx/shenzhouhr-api-proxy.conf" > "$PROXY_CANDIDATE"
 chmod 0644 "$VHOST_CANDIDATE"
-mv -f -- "$VHOST_CANDIDATE" "$VHOST_CONFIG"
+chmod 0644 "$PROXY_CANDIDATE"
 VHOST_REPLACED=1
+mv -f -- "$VHOST_CANDIDATE" "$VHOST_CONFIG"
+mv -f -- "$PROXY_CANDIDATE" "$PROXY_CONFIG"
 /www/server/nginx/sbin/nginx -c "$BAOTA_NGINX_CONFIG" -t
 /www/server/nginx/sbin/nginx -c "$BAOTA_NGINX_CONFIG" -s reload
 

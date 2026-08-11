@@ -8,6 +8,7 @@ public interface EmployeeEmploymentResolverPort {
     List<Resolution> resolveByEmployeeNumber(String companyId, String employeeNumber, Instant at);
 
     List<Resolution> resolveByConfirmedBinding(
+            String sourceId,
             String companyId,
             String locationId,
             String deviceId,

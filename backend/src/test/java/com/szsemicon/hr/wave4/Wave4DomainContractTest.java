@@ -176,6 +176,15 @@ class Wave4DomainContractTest {
         assertThat(quarantined.reason())
                 .isEqualTo("COMPLETE_PAGE_WITH_QUARANTINE");
 
+        var allQuarantined = SourcePageCommitPolicy.decide(
+                new SourcePageCommitPolicy.PageOutcome(
+                        "cursor-1", "cursor-2", 3, 0, 3, digest,
+                        true, true, true));
+        assertThat(allQuarantined.commitPage()).isFalse();
+        assertThat(allQuarantined.advanceWatermark()).isFalse();
+        assertThat(allQuarantined.reason())
+                .isEqualTo("ALL_RECORDS_QUARANTINED");
+
         for (var failed : List.of(
                 new SourcePageCommitPolicy.PageOutcome(
                         "cursor-1", "cursor-2", 3, 3, 0, digest,

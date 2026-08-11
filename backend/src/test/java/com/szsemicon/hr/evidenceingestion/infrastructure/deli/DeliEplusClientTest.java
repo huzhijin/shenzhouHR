@@ -15,6 +15,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -117,6 +118,95 @@ class DeliEplusClientTest {
         assertThat(firstPayload.get("next_id").asText()).isEqualTo("0");
         assertThat(secondPayload.get("next_id").asText()).isEqualTo(nextId);
         assertThat(secondPayload.get("page_size").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void employeeDirectoryUsesOfficialRowsAndRawRowCountForPagination()
+            throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse(employeeRowsPage(0, 100, 37)));
+        transport.enqueue(okResponse(employeeRowsPage(100, 1, -1)));
+
+        Map<String, String> directory = client(transport)
+                .fetchEmployeeDirectory("source-demo-deli");
+
+        assertThat(directory)
+                .hasSize(100)
+                .doesNotContainKey("DEMO-USER-037")
+                .containsEntry("DEMO-USER-100", "DEMO-EMP-100");
+        assertThat(transport.requests()).hasSize(2);
+        DeliEplusHttpRequest firstRequest = transport.requests().get(0);
+        DeliEplusHttpRequest secondRequest = transport.requests().get(1);
+        assertThat(firstRequest.uri()).isEqualTo(
+                URI.create("https://v2-api.delicloud.com/v2.0/employee/query"));
+        assertThat(firstRequest.headers())
+                .doesNotContainKeys("Api-Module", "Api-Cmd");
+        JsonNode firstPayload = objectMapper.readTree(firstRequest.body());
+        JsonNode secondPayload = objectMapper.readTree(secondRequest.body());
+        assertThat(firstPayload.get("offset").asInt()).isZero();
+        assertThat(firstPayload.get("limit").asInt()).isEqualTo(100);
+        assertThat(secondPayload.get("offset").asInt()).isEqualTo(100);
+        assertThat(secondPayload.get("limit").asInt()).isEqualTo(100);
+    }
+
+    @Test
+    void employeeDirectoryFailureDoesNotReturnPartialResults() {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse(employeeRowsPage(0, 100, -1)));
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "msg": "must-not-appear-in-errors",
+                  "data": {"rows": "invalid-sensitive-directory"}
+                }
+                """));
+
+        DeliEplusClientException exception = catchClientException(
+                () -> client(transport)
+                        .fetchEmployeeDirectory("source-demo-deli"));
+
+        assertThat(exception.safeCode()).isEqualTo("DELI_INVALID_RESPONSE");
+        assertThat(exception.getMessage())
+                .isEqualTo("Deli E+ returned an invalid response")
+                .doesNotContain(
+                        "must-not-appear-in-errors",
+                        "invalid-sensitive-directory",
+                        APP_KEY,
+                        APP_SECRET);
+        assertThat(transport.requests()).hasSize(2);
+    }
+
+    @Test
+    void employeeQueryKeepsLegacyRowEnvelopesCompatible() {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "data": {
+                    "data": [{
+                      "id": "DEMO-USER-LEGACY-1",
+                      "employee_num": "DEMO-EMP-LEGACY-1"
+                    }]
+                  }
+                }
+                """));
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "data": [{
+                    "id": "DEMO-USER-LEGACY-2",
+                    "employee_num": "DEMO-EMP-LEGACY-2"
+                  }]
+                }
+                """));
+        DeliEplusClient client = client(transport);
+
+        assertThat(client.queryEmployees(0, 1).records().getFirst())
+                .isEqualTo(new DeliEplusClient.EmployeeDirectoryEntry(
+                        "DEMO-USER-LEGACY-1", "DEMO-EMP-LEGACY-1"));
+        assertThat(client.queryEmployees(1, 1).records().getFirst())
+                .isEqualTo(new DeliEplusClient.EmployeeDirectoryEntry(
+                        "DEMO-USER-LEGACY-2", "DEMO-EMP-LEGACY-2"));
     }
 
     @Test
@@ -470,6 +560,31 @@ class DeliEplusClientTest {
                   }
                 }
                 """.formatted(nextId);
+    }
+
+    private static String employeeRowsPage(
+            int firstIndex, int rowCount, int missingEmployeeNumberIndex) {
+        List<String> rows = new ArrayList<>();
+        for (int index = firstIndex;
+                index < firstIndex + rowCount;
+                index++) {
+            String employeeNumber = index == missingEmployeeNumberIndex
+                    ? ""
+                    : "DEMO-EMP-%03d".formatted(index);
+            rows.add("""
+                    {
+                      "id": "DEMO-USER-%03d",
+                      "employee_num": "%s"
+                    }
+                    """.formatted(index, employeeNumber));
+        }
+        return """
+                {
+                  "code": 0,
+                  "msg": "",
+                  "data": {"rows": [%s]}
+                }
+                """.formatted(String.join(",", rows));
     }
 
     private static DeliEplusClientException catchClientException(

@@ -63,6 +63,7 @@
           ON employee.employee_id = binding.employee_id
         <include refid="activeEmployeeAndEmployment"/>
         WHERE employee.company_id = #{companyId}
+          AND binding.deli_attendance_source_id = #{sourceId}
           AND binding.binding_status = 'CONFIRMED'
           AND binding.confirmation_ref IS NOT NULL
           AND binding.effective_from &lt;= #{sourceLocalTime}

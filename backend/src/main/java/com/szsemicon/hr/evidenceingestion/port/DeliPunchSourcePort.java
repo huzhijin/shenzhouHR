@@ -50,9 +50,11 @@ public interface DeliPunchSourcePort {
 
     /**
      * Returns a snapshot of userId-to-employeeNumber mappings obtained from the
-     * Deli E+ employee directory before the paging loop begins. An empty map
-     * is a valid result: the caller will fall back to confirmed-binding
-     * resolution. Implementations must not throw; return an empty map instead.
+     * Deli E+ employee directory before the paging loop begins. An empty map is
+     * valid only when a complete vendor response contains no usable mappings.
+     * Request, protocol and validation failures must be propagated as a
+     * classified {@link FetchException}; callers must stop before fetching
+     * check-in pages.
      */
     default Map<String, String> fetchEmployeeDirectory(String sourceId) {
         return Map.of();

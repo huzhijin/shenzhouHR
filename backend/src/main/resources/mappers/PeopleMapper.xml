@@ -1099,6 +1099,16 @@
           AND row_version = #{expectedVersion}
     </update>
 
+    <insert id="insertEmploymentPeriodIdentity">
+        INSERT INTO employment_period_identity (
+            employment_period_id, employee_id, company_id, created_at
+        )
+        SELECT #{row.employmentPeriodId}, employee.employee_id,
+               employee.company_id, #{row.createdAt}
+        FROM employee
+        WHERE employee.employee_id = #{row.employeeId}
+    </insert>
+
     <insert id="insertEmploymentPeriodVersion">
         INSERT INTO employment_assignment (
             assignment_id, employment_period_id, employee_id, organization_id,

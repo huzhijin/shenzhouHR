@@ -15,6 +15,7 @@ interface EvidenceEmployeeResolverMapper {
             @Param("businessDate") LocalDate businessDate);
 
     List<EvidenceEmployeeResolverRow> resolveByConfirmedDeliBinding(
+            @Param("sourceId") String sourceId,
             @Param("companyId") String companyId,
             @Param("bindingKind") String bindingKind,
             @Param("externalPersonRef") String externalPersonRef,

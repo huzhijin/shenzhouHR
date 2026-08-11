@@ -203,6 +203,7 @@ public class DeliPunchPageTransaction {
 
         var decision = EvidenceResolutionPolicy.resolve(
                 employeeResolver,
+                job.sourceId(),
                 job.companyId(),
                 record.employeeNumber(),
                 null,

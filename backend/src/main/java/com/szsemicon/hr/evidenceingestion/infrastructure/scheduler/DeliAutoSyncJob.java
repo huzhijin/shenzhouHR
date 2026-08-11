@@ -11,8 +11,9 @@ import org.springframework.stereotype.Component;
  * Scheduled job that triggers Deli E+ punch sync for every active source
  * without requiring a logged-in user. Runs as the SYSTEM principal.
  *
- * <p>Enabled by default. Disable via:
- * {@code shenzhouhr.deli.auto-sync-enabled=false}</p>
+ * <p>Disabled by default. Enable only after the source initialization,
+ * department/company routing and reconciliation gates have passed via:
+ * {@code shenzhouhr.deli.auto-sync-enabled=true}</p>
  *
  * <p>Default cron: every hour on the hour. Override via:
  * {@code shenzhouhr.deli.auto-sync-cron=0 0/30 * * * ?} (every 30 min)</p>
@@ -22,7 +23,7 @@ import org.springframework.stereotype.Component;
         prefix = "shenzhouhr.deli",
         name = "auto-sync-enabled",
         havingValue = "true",
-        matchIfMissing = true)
+        matchIfMissing = false)
 public final class DeliAutoSyncJob {
 
     private static final Logger log =

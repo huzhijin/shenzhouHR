@@ -247,6 +247,16 @@ SET employment_period_id = assignment_id,
         ELSE NULL
     END;
 
+INSERT INTO employment_period_identity (
+    employment_period_id, employee_id, company_id, created_at
+)
+SELECT assignment.employment_period_id,
+       assignment.employee_id,
+       employee.company_id,
+       assignment.created_at
+FROM employment_assignment assignment
+JOIN employee ON employee.employee_id = assignment.employee_id;
+
 INSERT INTO employee_version (
     employee_version_id, employee_id, employee_number, display_name, status,
     effective_from, effective_to, source_authority, row_version, change_reason,

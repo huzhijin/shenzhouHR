@@ -322,19 +322,11 @@ public class DeliPunchSyncApplicationService {
 
         int quarantined = 0;
         try {
-            // Fetch employee directory once before paging. A failure returns
-            // an empty map, which causes records to fall back to confirmed-
-            // binding resolution instead of short-circuiting the whole sync.
-            Map<String, String> employeeDirectory;
-            try {
-                employeeDirectory = source.fetchEmployeeDirectory(
-                        job.sourceId());
-                if (employeeDirectory == null) {
-                    employeeDirectory = Map.of();
-                }
-            } catch (RuntimeException ignored) {
-                employeeDirectory = Map.of();
-            }
+            // A complete employee directory is required before any check-in
+            // page is requested. Continuing after a directory failure would
+            // turn a protocol problem into silently quarantined evidence.
+            Map<String, String> employeeDirectory = fetchEmployeeDirectory(
+                    source, job.sourceId());
             var fetchSettings = fetchSettings(job, employeeDirectory);
             repository.markRunning(jobId, clock.instant());
             String cursor = job.committedCursor();
@@ -420,6 +412,21 @@ public class DeliPunchSyncApplicationService {
 
     private static <T> T exactlyOne(List<T> values) {
         return values.size() == 1 ? values.getFirst() : null;
+    }
+
+    private static Map<String, String> fetchEmployeeDirectory(
+            DeliPunchSourcePort source, String sourceId) {
+        try {
+            Map<String, String> directory =
+                    source.fetchEmployeeDirectory(sourceId);
+            if (directory == null) {
+                throw new AttendanceSourceSyncFailure(
+                        "DELI_EMPLOYEE_DIRECTORY_CONTRACT_INVALID");
+            }
+            return directory;
+        } catch (DeliPunchSourcePort.FetchException exception) {
+            throw new AttendanceSourceSyncFailure(exception.safeCode());
+        }
     }
 
     private static DeliPunchSourcePort.FetchSettings fetchSettings(

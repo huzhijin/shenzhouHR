@@ -52,12 +52,14 @@ public class MyBatisEmployeeEmploymentResolver
     @Override
     @Transactional(readOnly = true)
     public List<Resolution> resolveByConfirmedBinding(
+            String sourceId,
             String companyId,
             String locationId,
             String deviceId,
             ConfirmedBindingKind bindingKind,
             String externalPersonRef,
             Instant at) {
+        requireIdentifier(sourceId, "sourceId", 36);
         requireIdentifier(companyId, "companyId", 36);
         optionalReference(locationId, "locationId", 36);
         optionalReference(deviceId, "deviceId", 191);
@@ -65,6 +67,7 @@ public class MyBatisEmployeeEmploymentResolver
         requireReference(externalPersonRef, "externalPersonRef");
         Objects.requireNonNull(at, "at");
         return resolutions(mapper.resolveByConfirmedDeliBinding(
+                sourceId,
                 companyId,
                 bindingKind.name(),
                 externalPersonRef,

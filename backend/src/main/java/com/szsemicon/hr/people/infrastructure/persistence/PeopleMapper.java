@@ -327,9 +327,11 @@ interface PeopleMapper {
             @Param("expectedVersion") long expectedVersion,
             @Param("at") Instant at);
 
+    int insertEmploymentPeriodIdentity(
+            @Param("row") PeopleRows.EmploymentRow row);
+
     void insertEmploymentPeriodVersion(
-            @Param("row") PeopleRows.EmploymentRow row,
-            @Param("newIdentity") boolean newIdentity);
+            @Param("row") PeopleRows.EmploymentRow row);
 
     int closeEmploymentPeriodVersion(
             @Param("employmentPeriodId") String employmentPeriodId,

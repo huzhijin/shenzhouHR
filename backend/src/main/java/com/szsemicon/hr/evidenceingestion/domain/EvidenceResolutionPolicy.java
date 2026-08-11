@@ -28,6 +28,7 @@ public final class EvidenceResolutionPolicy {
 
     public static MatchDecision resolve(
             EmployeeEmploymentResolverPort resolver,
+            String sourceId,
             String companyId,
             String employeeNumber,
             String locationId,
@@ -53,6 +54,7 @@ public final class EvidenceResolutionPolicy {
                 normalized(externalPersonRef == null || externalPersonRef.isBlank()
                         ? List.of()
                         : resolver.resolveByConfirmedBinding(
+                                sourceId,
                                 companyId,
                                 locationId,
                                 deviceId,

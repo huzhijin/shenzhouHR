@@ -18,6 +18,13 @@ VERIFY = REPOSITORY / "deploy/baota/scripts/verify.sh"
 MIGRATE = REPOSITORY / "deploy/baota/scripts/migrate.sh"
 DATABASE_PREFLIGHT = REPOSITORY / "deploy/baota/scripts/database-preflight.sh"
 INITIAL_ADMIN = REPOSITORY / "deploy/baota/scripts/initial-admin.sh"
+INITIAL_COMPANY_CATALOG = (
+    REPOSITORY / "deploy/baota/config/initial-companies.tsv"
+)
+INITIAL_ADMIN_COMMAND = REPOSITORY / (
+    "backend/src/main/java/com/szsemicon/hr/identityaccess/infrastructure/"
+    "bootstrap/InitialProductionAdminCommand.java"
+)
 INSTALL = REPOSITORY / "deploy/baota/install.sh"
 UPGRADE = REPOSITORY / "deploy/baota/upgrade.sh"
 ENV_EXAMPLE = REPOSITORY / "deploy/baota/env/shenzhouhr.env.example"
@@ -25,6 +32,8 @@ BUILD_RELEASE = REPOSITORY / "deploy/baota/build-release.sh"
 CUSTOMER_GUIDE = REPOSITORY / "docs/deployment/baota-deployment-guide.md"
 NGINX_HTTP = REPOSITORY / "deploy/baota/nginx/shenzhouhr-site-http.conf"
 NGINX_HTTPS = REPOSITORY / "deploy/baota/nginx/shenzhouhr-site.conf"
+NGINX_PROXY = REPOSITORY / "deploy/baota/nginx/shenzhouhr-api-proxy.conf"
+BAOTA_PROXY_HELPER = REPOSITORY / "deploy/baota/scripts/baota-proxy.py"
 NGINX_HTTP_SNIPPET = REPOSITORY / "deploy/baota/nginx/nginx-http-snippet.conf"
 SYNTHETIC_PEPPER_A = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
 SYNTHETIC_PEPPER_B = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI"
@@ -68,6 +77,17 @@ class BaotaProvisioningEnvironmentTest(unittest.TestCase):
             build_release,
         )
 
+    def test_customer_provisioning_never_embeds_external_service_credentials(self) -> None:
+        provision = PROVISION.read_text(encoding="utf-8")
+
+        self.assertEqual(2, provision.count("OA_MYSQL_ENABLED=false"))
+        self.assertEqual(1, provision.count("OA_MYSQL_JDBC_URL="))
+        self.assertEqual(1, provision.count("OA_MYSQL_USERNAME="))
+        self.assertEqual(1, provision.count("OA_MYSQL_PASSWORD="))
+        self.assertNotRegex(provision, r"(?m)^OA_MYSQL_JDBC_URL=.+$")
+        self.assertNotRegex(provision, r"(?m)^OA_MYSQL_USERNAME=.+$")
+        self.assertNotRegex(provision, r"(?m)^OA_MYSQL_PASSWORD=.+$")
+
     def test_customer_package_rejects_systemd_and_excludes_its_template(self) -> None:
         install = INSTALL.read_text(encoding="utf-8")
         upgrade = UPGRADE.read_text(encoding="utf-8")
@@ -98,6 +118,61 @@ class BaotaProvisioningEnvironmentTest(unittest.TestCase):
         self.assertIn("Opening business data is not embedded", install)
         self.assertIn("不包含开发机或浏览器演示中的组织", readme)
         self.assertIn("组织 → 员工 → 任职", readme)
+
+    def test_signed_catalog_drives_atomic_four_company_admin_initialization(
+        self,
+    ) -> None:
+        expected_catalog = (
+            "SZSZ\t上海昇州半导体科技有限公司\n"
+            "SZJN\t上海晟州聚能半导体科技有限公司\n"
+            "SZSC\t江苏神州半导体科技股份有限公司\n"
+            "SZXY\t江苏芯越半导体科技有限公司\n"
+        )
+        initial_admin = INITIAL_ADMIN.read_text(encoding="utf-8")
+        install = INSTALL.read_text(encoding="utf-8")
+        command = INITIAL_ADMIN_COMMAND.read_text(encoding="utf-8")
+        verify = VERIFY.read_text(encoding="utf-8")
+        build_release = BUILD_RELEASE.read_text(encoding="utf-8")
+
+        self.assertEqual(expected_catalog, INITIAL_COMPANY_CATALOG.read_text(
+            encoding="utf-8"
+        ))
+        self.assertIn("--company-catalog", initial_admin)
+        self.assertIn("SHENZHOUHR_INIT_COMPANY_CATALOG", initial_admin)
+        self.assertNotIn("SHENZHOUHR_INIT_COMPANY_CODE", initial_admin)
+        self.assertNotIn("SHENZHOUHR_INIT_COMPANY_NAME", initial_admin)
+        self.assertNotIn("Company code [CUSTOMER]", initial_admin)
+        self.assertNotIn("Company name:", initial_admin)
+        self.assertIn("SZSZ,SZJN,SZSC,SZXY", initial_admin)
+
+        self.assertIn("initial_company_catalog=", install)
+        self.assertIn('--company-catalog "$INITIAL_COMPANY_CATALOG"', install)
+        self.assertNotIn("SHENZHOUHR_INIT_COMPANY_CODE", install)
+        self.assertNotIn("SHENZHOUHR_INIT_COMPANY_NAME", install)
+        self.assertNotIn("Company code [CUSTOMER]", install)
+        self.assertNotIn("Company name:", install)
+
+        self.assertIn("Connection.TRANSACTION_SERIALIZABLE", command)
+        self.assertIn("assertFreshMigratedDatabase(connection)", command)
+        self.assertIn("connection.rollback()", command)
+        self.assertIn("INITIAL_ADMIN_COMPANY_COUNT=", command)
+        self.assertIn("INITIAL_ADMIN_SCOPE_COUNT=", command)
+        self.assertIn("INITIAL_ADMIN_ROLE_ASSIGNMENT_COUNT=", command)
+        self.assertNotIn("findOrCreateCompany", command)
+        self.assertNotIn("SHENZHOUHR_INIT_COMPANY_CODE", command)
+        self.assertNotIn("SHENZHOUHR_INIT_COMPANY_NAME", command)
+
+        self.assertIn("EXPECTED_BOOTSTRAP_STATUS=$'4\\t4\\t2\\t1", verify)
+        self.assertIn("COUNT(DISTINCT role.role_code) = 2", verify)
+        self.assertIn("initial_company_catalog=%s", build_release)
+        self.assertIn("initial_company_codes=%s", build_release)
+        self.assertIn("initial_company_count=%s", build_release)
+        self.assertIn("initial_company_scope_count=%s", build_release)
+        self.assertIn("initial_admin_assignment_count=%s", build_release)
+        self.assertIn(
+            "find . -type f ! -name SHA256SUMS",
+            build_release,
+        )
 
     def test_migration_boots_loopback_web_context_without_background_worker(
         self,
@@ -164,6 +239,60 @@ class BaotaProvisioningEnvironmentTest(unittest.TestCase):
         snippet = NGINX_HTTP_SNIPPET.read_text(encoding="utf-8")
         self.assertNotIn('"$request"', snippet)
         self.assertIn("$request_method $uri $server_protocol", snippet)
+
+    def test_api_proxy_is_a_panel_registered_site_rule_not_a_raw_vhost_location(
+        self,
+    ) -> None:
+        include = (
+            "include /www/server/panel/vhost/nginx/proxy/"
+            "__DOMAIN__/*.conf;"
+        )
+        for template in (NGINX_HTTP, NGINX_HTTPS):
+            with self.subTest(template=template):
+                text = template.read_text(encoding="utf-8")
+                self.assertIn(include, text)
+                self.assertNotRegex(text, r"(?m)^\s*location\s+(?:\^~\s+)?/api/")
+
+        proxy = NGINX_PROXY.read_text(encoding="utf-8")
+        self.assertIn("# SHENZHOUHR-BAOTA-PROXY-V1", proxy)
+        self.assertIn("location ^~ /api/", proxy)
+        self.assertIn(
+            "proxy_pass http://127.0.0.1:__BACKEND_PORT__/api/;", proxy
+        )
+        self.assertNotIn("add_header", proxy)
+        self.assertNotIn("proxy_cache", proxy)
+        self.assertNotIn("$http_upgrade", proxy)
+
+    def test_install_upgrade_and_verify_preserve_the_panel_proxy_contract(
+        self,
+    ) -> None:
+        install = INSTALL.read_text(encoding="utf-8")
+        upgrade = UPGRADE.read_text(encoding="utf-8")
+        verify = VERIFY.read_text(encoding="utf-8")
+        build = BUILD_RELEASE.read_text(encoding="utf-8")
+        guide = CUSTOMER_GUIDE.read_text(encoding="utf-8")
+
+        self.assertTrue(BAOTA_PROXY_HELPER.is_file())
+        self.assertIn('CUSTOMER_PROXY_NAME="kaoqin-api"', install)
+        self.assertIn('CUSTOMER_PROXY_NAME="kaoqin-api"', upgrade)
+        self.assertIn('CUSTOMER_PROXY_NAME="kaoqin-api"', verify)
+        self.assertIn('PROXY_BACKUP="$BACKUP_DIR/', install)
+        self.assertIn('PROXY_BACKUP="$BACKUP_DIR/', upgrade)
+        self.assertIn('cp -a -- "$PROXY_BACKUP" "$PROXY_CONFIG"', install)
+        self.assertIn('cp -a -- "$PROXY_BACKUP" "$PROXY_CONFIG"', upgrade)
+        self.assertIn("--require-marker", upgrade)
+        self.assertIn("--require-marker", verify)
+        self.assertLess(
+            install.index('scripts/baota-proxy.py'),
+            install.index('"$BAOTA_ROOT/mysql/provision.sh"'),
+        )
+        self.assertIn("python3 -m unittest discover -v scripts/release/tests", build)
+        self.assertIn("baota_proxy_name=%s", build)
+        self.assertIn("baota_proxy_target=%s", build)
+        self.assertIn("代理名称 | `kaoqin-api`", guide)
+        self.assertIn("目标 URL | `http://127.0.0.1:8080/api`", guide)
+        self.assertIn("不要在顶层「反向代理项目」页", guide)
+        self.assertIn("Java 项目的“绑定域名/外网", guide)
 
     def test_verify_compares_numeric_flyway_version_to_release_manifest(self) -> None:
         script = VERIFY.read_text(encoding="utf-8")

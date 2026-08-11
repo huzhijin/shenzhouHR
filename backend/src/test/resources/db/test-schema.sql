@@ -388,6 +388,14 @@ ALTER TABLE employment_assignment ADD COLUMN created_at TIMESTAMP DEFAULT CURREN
 ALTER TABLE employment_assignment ADD COLUMN version_valid_to TIMESTAMP;
 ALTER TABLE employment_assignment ADD COLUMN record_status VARCHAR(32) DEFAULT 'ACTIVE' NOT NULL;
 
+CREATE TABLE employment_period_identity (
+    employment_period_id VARCHAR(36) PRIMARY KEY,
+    employee_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (employment_period_id, employee_id, company_id)
+);
+
 CREATE TABLE people_import_batch (
     batch_id VARCHAR(36) PRIMARY KEY,
     company_id VARCHAR(36) NOT NULL,

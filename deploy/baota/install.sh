@@ -14,6 +14,10 @@ readonly CUSTOMER_DB_PORT="3306"
 readonly CUSTOMER_DB_NAME="shenzhou_hr"
 readonly CUSTOMER_ACCOUNT_HOST="127.0.0.1"
 readonly BAOTA_NGINX_CONFIG="/www/server/nginx/conf/nginx.conf"
+readonly BAOTA_PROXY_METADATA="/www/server/panel/data/proxyfile.json"
+readonly BAOTA_PROXY_ROOT="/www/server/panel/vhost/nginx/proxy"
+readonly CUSTOMER_PROXY_NAME="kaoqin-api"
+readonly CUSTOMER_PROXY_TARGET="http://127.0.0.1:8080/api"
 ENV_ROOT="/etc/shenzhouhr"
 BACKEND_ADDRESS="${BACKEND_ADDRESS:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-8080}"
@@ -48,6 +52,21 @@ load_release_contract() {
   PACKAGE_MYSQL_EXPECTED="$(sed -n 's/^mysql_expected=//p' "$manifest" | head -1)"
   [[ "$PACKAGE_MYSQL_EXPECTED" == "8.0.45" ]] \
     || die "Unsupported or missing MySQL release contract: ${PACKAGE_MYSQL_EXPECTED:-unknown}"
+  PACKAGE_INITIAL_COMPANY_CATALOG="$(sed -n 's/^initial_company_catalog=//p' "$manifest" | head -1)"
+  PACKAGE_INITIAL_COMPANY_CODES="$(sed -n 's/^initial_company_codes=//p' "$manifest" | head -1)"
+  PACKAGE_INITIAL_COMPANY_COUNT="$(sed -n 's/^initial_company_count=//p' "$manifest" | head -1)"
+  PACKAGE_INITIAL_COMPANY_SCOPE_COUNT="$(sed -n 's/^initial_company_scope_count=//p' "$manifest" | head -1)"
+  PACKAGE_INITIAL_ADMIN_ASSIGNMENT_COUNT="$(sed -n 's/^initial_admin_assignment_count=//p' "$manifest" | head -1)"
+  [[ "$PACKAGE_INITIAL_COMPANY_CATALOG" == "deploy/baota/config/initial-companies.tsv" \
+      && "$PACKAGE_INITIAL_COMPANY_CODES" == "SZSZ,SZJN,SZSC,SZXY" \
+      && "$PACKAGE_INITIAL_COMPANY_COUNT" == "4" \
+      && "$PACKAGE_INITIAL_COMPANY_SCOPE_COUNT" == "4" \
+      && "$PACKAGE_INITIAL_ADMIN_ASSIGNMENT_COUNT" == "8" ]] \
+    || die 'Unsupported or missing four-company initialization release contract'
+  INITIAL_COMPANY_CATALOG="$RELEASE_ROOT/$PACKAGE_INITIAL_COMPANY_CATALOG"
+  [[ -f "$INITIAL_COMPANY_CATALOG" && ! -L "$INITIAL_COMPANY_CATALOG" \
+      && -r "$INITIAL_COMPANY_CATALOG" ]] \
+    || die "Signed company catalog is missing or unsafe: $INITIAL_COMPANY_CATALOG"
 }
 
 need_root() {
@@ -130,10 +149,12 @@ rollback_vhost_on_install_failure() {
   local status=$?
   local vhost_restore_failed=0
   trap - EXIT
-  if ((status != 0)) && [[ -n "${VHOST_BACKUP:-}" && -f "$VHOST_BACKUP" ]]; then
-    printf 'Installation failed; restoring the original Baota vhost.\n' >&2
-    if ! cp -a -- "$VHOST_BACKUP" "$VHOST_CONFIG"; then
-      printf 'WARNING: failed to restore %s from %s\n' "$VHOST_CONFIG" "$VHOST_BACKUP" >&2
+  if ((status != 0)) && [[ -n "${VHOST_BACKUP:-}" && -f "$VHOST_BACKUP" \
+      && -n "${PROXY_BACKUP:-}" && -f "$PROXY_BACKUP" ]]; then
+    printf 'Installation failed; restoring the original Baota vhost and proxy rule.\n' >&2
+    if ! cp -a -- "$VHOST_BACKUP" "$VHOST_CONFIG" \
+        || ! cp -a -- "$PROXY_BACKUP" "$PROXY_CONFIG"; then
+      printf 'WARNING: failed to restore the Baota vhost or proxy rule from %s\n' "$BACKUP_DIR" >&2
       vhost_restore_failed=1
     elif [[ -x "${NGINX_BIN:-}" ]] \
         && ! { "$NGINX_BIN" -c "$BAOTA_NGINX_CONFIG" -t >/dev/null 2>&1 \
@@ -143,6 +164,7 @@ rollback_vhost_on_install_failure() {
     fi
   fi
   [[ -z "${VHOST_CANDIDATE:-}" ]] || rm -f -- "$VHOST_CANDIDATE"
+  [[ -z "${PROXY_CANDIDATE:-}" ]] || rm -f -- "$PROXY_CANDIDATE"
   if ((status != 0)) && [[ "${INSTALL_STORAGE_CREATED:-0}" == "1" \
       && "${INSTALL_PROVISIONED:-0}" == "0" \
       && "$vhost_restore_failed" == "0" \
@@ -158,6 +180,18 @@ rollback_vhost_on_install_failure() {
       "WARNING: keeping $APP_ROOT because it contains the only verified vhost backup; restore it manually before retrying." >&2
   fi
   exit "$status"
+}
+
+detect_python() {
+  local candidate version
+  for candidate in /usr/bin/python3 /www/server/panel/pyenv/bin/python3; do
+    [[ -x "$candidate" ]] || continue
+    version="$($candidate -c 'import sys; print(sys.version_info.major)' 2>/dev/null || true)"
+    [[ "$version" == "3" ]] && { printf '%s\n' "$candidate"; return; }
+  done
+  command -v python3 >/dev/null 2>&1 \
+    || die 'Python 3 is required to validate the BaoTa reverse-proxy record'
+  command -v python3
 }
 
 detect_java() {
@@ -266,14 +300,20 @@ validate_run_user() {
 }
 
 collect_initial_admin_input() {
-  local password_confirm
+  local company_code company_confirmation company_name password_confirm
+  printf '%s\n' 'This signed release will atomically create these four companies:'
+  while IFS=$'\t' read -r company_code company_name; do
+    printf '  %s  %s\n' "$company_code" "$company_name"
+  done < "$INITIAL_COMPANY_CATALOG"
+  read -r -p "Type $PACKAGE_INITIAL_COMPANY_CODES to confirm all four companies: " \
+    company_confirmation
+  [[ "$company_confirmation" == "$PACKAGE_INITIAL_COMPANY_CODES" ]] \
+    || die 'Four-company initialization was not confirmed'
+  unset company_confirmation
   read -r -p 'Initial admin username [admin]: ' INITIAL_ADMIN_USERNAME
   INITIAL_ADMIN_USERNAME="${INITIAL_ADMIN_USERNAME:-admin}"
   read -r -p 'Initial admin display name [系统管理员]: ' INITIAL_ADMIN_DISPLAY_NAME
   INITIAL_ADMIN_DISPLAY_NAME="${INITIAL_ADMIN_DISPLAY_NAME:-系统管理员}"
-  read -r -p 'Company code [CUSTOMER]: ' INITIAL_COMPANY_CODE
-  INITIAL_COMPANY_CODE="${INITIAL_COMPANY_CODE:-CUSTOMER}"
-  read -r -p 'Company name: ' INITIAL_COMPANY_NAME
   read -r -s -p 'Initial admin password (12+ chars, upper/lower/digit/symbol): ' INITIAL_ADMIN_PASSWORD
   printf '\n'
   read -r -s -p 'Repeat initial admin password: ' password_confirm
@@ -283,10 +323,9 @@ collect_initial_admin_input() {
   unset password_confirm
   SHENZHOUHR_INIT_ADMIN_USERNAME="$INITIAL_ADMIN_USERNAME" \
   SHENZHOUHR_INIT_ADMIN_DISPLAY_NAME="$INITIAL_ADMIN_DISPLAY_NAME" \
-  SHENZHOUHR_INIT_COMPANY_CODE="$INITIAL_COMPANY_CODE" \
-  SHENZHOUHR_INIT_COMPANY_NAME="$INITIAL_COMPANY_NAME" \
   SHENZHOUHR_INIT_ADMIN_PASSWORD="$INITIAL_ADMIN_PASSWORD" \
-    "$BAOTA_ROOT/scripts/initial-admin.sh" --validate-only
+    "$BAOTA_ROOT/scripts/initial-admin.sh" --validate-only \
+      --company-catalog "$INITIAL_COMPANY_CATALOG"
 }
 
 need_root
@@ -378,6 +417,19 @@ awk -v expected="$WEB_ROOT" '
   END { exit(found ? 0 : 1) }
 ' "$VHOST_CONFIG" \
   || die "Baota site $VHOST_CONFIG does not use root $WEB_ROOT; correct the panel site before installation"
+grep -Fq "include $BAOTA_PROXY_ROOT/$DOMAIN/*.conf;" "$VHOST_CONFIG" \
+  || die "BaoTa site $DOMAIN does not load its panel-managed proxy rules; create $CUSTOMER_PROXY_NAME in Site settings > Reverse proxy first"
+if grep -Eq '^[[:space:]]*location([[:space:]]+\^~)?[[:space:]]+/api/?[[:space:]]*\{' "$VHOST_CONFIG"; then
+  die 'The main vhost still contains a raw /api location; remove the legacy rule before creating the BaoTa panel proxy record'
+fi
+PYTHON_BIN="$(detect_python)"
+PROXY_CONFIG="$("$PYTHON_BIN" "$BAOTA_ROOT/scripts/baota-proxy.py" \
+  --metadata-file "$BAOTA_PROXY_METADATA" \
+  --proxy-root "$BAOTA_PROXY_ROOT" \
+  --site "$DOMAIN" \
+  --proxy-name "$CUSTOMER_PROXY_NAME" \
+  --expected-target "$CUSTOMER_PROXY_TARGET")" \
+  || die "BaoTa reverse-proxy record $CUSTOMER_PROXY_NAME is missing or does not match the customer contract"
 
 SSL_CERT=""
 SSL_KEY=""
@@ -414,7 +466,14 @@ if [[ -f "$VHOST_CONFIG" ]]; then
   cp -a "$VHOST_CONFIG" "$BACKUP_DIR/"
 fi
 VHOST_BACKUP="$BACKUP_DIR/$(basename -- "$VHOST_CONFIG")"
+PROXY_BACKUP="$BACKUP_DIR/$(basename -- "$PROXY_CONFIG").original"
+cp -a "$PROXY_CONFIG" "$PROXY_BACKUP"
 VHOST_CANDIDATE="$NGINX_VHOST_DIR/.${DOMAIN}.conf.candidate-$INSTALL_STAMP"
+PROXY_CANDIDATE="$(dirname -- "$PROXY_CONFIG")/.$(basename -- "$PROXY_CONFIG").candidate-$INSTALL_STAMP"
+[[ ! -e "$VHOST_CANDIDATE" && ! -L "$VHOST_CANDIDATE" ]] \
+  || die "Nginx vhost candidate already exists: $VHOST_CANDIDATE"
+[[ ! -e "$PROXY_CANDIDATE" && ! -L "$PROXY_CANDIDATE" ]] \
+  || die "Nginx proxy candidate already exists: $PROXY_CANDIDATE"
 sed -e "s|__DOMAIN__|$DOMAIN|g" \
   -e "s|__WEB_ROOT__|$WEB_ROOT|g" \
   -e "s|__SSL_CERT__|$SSL_CERT|g" \
@@ -422,8 +481,12 @@ sed -e "s|__DOMAIN__|$DOMAIN|g" \
   -e "s|__SITE_PORT__|$SITE_PORT|g" \
   -e "s|__BACKEND_PORT__|$BACKEND_PORT|g" \
   "$NGINX_TEMPLATE" > "$VHOST_CANDIDATE"
+sed -e "s|__BACKEND_PORT__|$BACKEND_PORT|g" \
+  "$BAOTA_ROOT/nginx/shenzhouhr-api-proxy.conf" > "$PROXY_CANDIDATE"
 chmod 0644 "$VHOST_CANDIDATE"
+chmod 0644 "$PROXY_CANDIDATE"
 mv -f -- "$VHOST_CANDIDATE" "$VHOST_CONFIG"
+mv -f -- "$PROXY_CANDIDATE" "$PROXY_CONFIG"
 "$NGINX_BIN" -c "$BAOTA_NGINX_CONFIG" -t
 
 "$BAOTA_ROOT/mysql/provision.sh" \
@@ -460,17 +523,16 @@ install -o root -g shenzhouhr -m 0640 "$RELEASE_ROOT/db/migration/"*.sql "$APP_D
   --jar "$APP_DIR/shenzhou-hr.jar" \
   --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env"
 
-printf '%s\n' 'A first production administrator is required for this empty customer database.'
+printf '%s\n' \
+  'Four companies and one production administrator are required for this empty customer database.'
 SHENZHOUHR_INIT_ADMIN_USERNAME="$INITIAL_ADMIN_USERNAME" \
 SHENZHOUHR_INIT_ADMIN_DISPLAY_NAME="$INITIAL_ADMIN_DISPLAY_NAME" \
-SHENZHOUHR_INIT_COMPANY_CODE="$INITIAL_COMPANY_CODE" \
-SHENZHOUHR_INIT_COMPANY_NAME="$INITIAL_COMPANY_NAME" \
 SHENZHOUHR_INIT_ADMIN_PASSWORD="$INITIAL_ADMIN_PASSWORD" \
 JAVA_BIN="$JAVA_BIN" "$BAOTA_ROOT/scripts/initial-admin.sh" --non-interactive \
   --jar "$APP_DIR/shenzhou-hr.jar" \
+  --company-catalog "$INITIAL_COMPANY_CATALOG" \
   --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env"
-unset INITIAL_ADMIN_USERNAME INITIAL_ADMIN_DISPLAY_NAME INITIAL_COMPANY_CODE \
-  INITIAL_COMPANY_NAME INITIAL_ADMIN_PASSWORD
+unset INITIAL_ADMIN_USERNAME INITIAL_ADMIN_DISPLAY_NAME INITIAL_ADMIN_PASSWORD
 
 clear_web_root
 cp -a "$RELEASE_ROOT/web/." "$WEB_ROOT/"
@@ -501,6 +563,8 @@ printf 'Start command: %s -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -j
   "$JAVA_BIN" "$APP_DIR"
 printf 'Port: %s\n' "$BACKEND_PORT"
 printf '%s\n' 'Domain / external mapping: leave blank'
+printf 'BaoTa site reverse proxy: %s (/api -> %s)\n' \
+  "$CUSTOMER_PROXY_NAME" "$CUSTOMER_PROXY_TARGET"
 printf 'Backup: %s\n' "$BACKUP_DIR"
 printf '%s\n' 'Opening business data is not embedded in the code package.'
 printf '%s\n' 'Import approved organization, employee and employment files separately after login.'

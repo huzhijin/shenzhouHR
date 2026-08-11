@@ -12,12 +12,13 @@
 
 ## 0. 先看懂最终结果
 
-完成后，宝塔面板里必须能看到四个对象：
+完成后，宝塔面板里必须能看到五类对象：
 
 | 宝塔位置 | 应看到的对象 | 谁负责启停/管理 |
 |---|---|---|
 | 软件商店 → 已安装 | Nginx、MySQL 8.0.45、完整 JDK 21 | 宝塔 |
 | 网站 → PHP 项目/HTML 项目 | 站点名 `192.168.160.226`，备注 `kaoqin`；绑定 `192.168.160.226:23272` | 宝塔/Nginx |
+| 上述站点 → 设置 → 反向代理 | `kaoqin-api`，目录 `/api`，状态“已启用” | 宝塔/Nginx |
 | 网站 → Java 项目 | `kaoqinweb`，状态“运行中” | **宝塔 Java 项目** |
 | 数据库 → MySQL | `shenzhou_hr` | 宝塔/phpMyAdmin |
 
@@ -1425,7 +1426,8 @@ bash deploy/baota/build-release.sh /absolute/path/to/release-output
 ```
 
 不要交付旧包 `shenzhouhr2026080702`：它只有 V1～V31，仍属于旧 systemd/80 端口方案。
-本手册编写时当前迁移已到 V35，最终仍以新包内 `BUILD-MANIFEST.txt` 为准。
+迁移版本会随修复继续增加，最终只以本次新包内 `BUILD-MANIFEST.txt` 为准，不能拿旧包
+的版本号或 SHA-256 冒充当前发布。
 
 ### 10.2 客户上传并校验
 
@@ -1536,6 +1538,9 @@ customer_domain=192.168.160.226
 backend_address_default=0.0.0.0
 backend_port_default=8080
 site_port_default=23272
+baota_proxy_name=kaoqin-api
+baota_proxy_path=/api/
+baota_proxy_target=http://127.0.0.1:8080/api
 process_manager_default=baota
 session_cookie_secure_default=false
 archive_owner=root:root
@@ -1622,6 +1627,34 @@ grep -E '^[[:space:]]*(listen|root)[[:space:]]' \
 配置就会提前拒绝，不会另建面板外的 `shenzhouhr.conf`。宝塔生成的 `.user.ini` 不要手工
 删除，安装器会只对这个精确文件临时解除保护，更新前端后恢复。
 
+### 12.1 在这个站点内登记 `/api` 反向代理
+
+这一步是为了让客户能在宝塔页面中看到并管理代理记录。进入网站 `192.168.160.226`
+（备注 `kaoqin`）的「设置 → 反向代理 → 添加反向代理」，填写：
+
+| 字段 | 填写值 |
+|---|---|
+| 代理名称 | `kaoqin-api` |
+| 状态 | 启用 |
+| 高级功能/代理目录 | 开启 |
+| 代理目录 | `/api` |
+| 目标 URL | `http://127.0.0.1:8080/api` |
+| 发送域名 | `$host` |
+| 缓存 | 关闭 |
+| 内容替换 | 全部留空 |
+
+目标 URL 末尾的 `/api` 不能省略，也不能填外部端口 23273。宝塔会把代理目录和目标
+都规范为带 `/` 的形式；按上表填写后，请求 `/api/v1/...` 才会仍以 `/api/v1/...`
+到达 Java，而不会被错误改成 `/v1/...`。
+
+保存后，反向代理列表必须出现且只出现一条本项目规则 `kaoqin-api`。不要再添加根目录
+`/` 代理、第二条 `/api` 代理或其他停用规则。此时宝塔生成的是初始规则；安装器会先核验
+面板元数据，再把这条规则的配置文件替换成发布包内经过审计的安全版本，**不会伪造或删除
+宝塔的页面记录**。因此安装后它仍会在这里可见、可启停。
+
+不要在顶层「反向代理项目」页另建同名项目，也不要使用 Java 项目的“绑定域名/外网
+映射”。这两种做法都会另建一套站点配置，与 23272 的静态 SPA 发生冲突。
+
 ## 13. 运行一次“宝塔托管模式”的准备脚本
 
 若旧清理保留了 `shenzhouhr` 用户/组，先执行：
@@ -1659,11 +1692,12 @@ bash install.sh
 
 | 脚本问题 | 填写 |
 |---|---|
-| 管理员/公司信息 | 按客户确认内容填写，密码至少 12 位且含大小写、数字、符号 |
+| 管理员信息 | 按客户确认内容填写，密码至少 12 位且含大小写、数字、符号 |
+| 四公司确认串 | 按脚本显示输入 `SZSZ,SZJN,SZSC,SZXY` |
 | MySQL root user | `root` |
 | MySQL root password | 宝塔 MySQL root 密码，输入时屏幕不显示字符 |
 
-脚本会在任何数据库写入前先收集并校验管理员/公司信息，再询问 MySQL root 凭据。全新库
+脚本会在任何数据库写入前先收集并校验管理员信息和签名的四公司目录，再询问 MySQL root 凭据。全新库
 必须创建首个生产管理员，客户专用脚本不会提供跳过选项；中途不要关闭终端。
 
 脚本会执行：
@@ -1673,10 +1707,10 @@ bash install.sh
 - 把数据库默认字符集/排序规则设为 `utf8mb4/utf8mb4_0900_ai_ci`；
 - 创建 `shenzhouhr_app` 和 `shenzhouhr_migrator`；
 - 执行 Flyway V1 到当前发布最高版本；
-- 创建首个生产管理员；
+- 原子创建固定 4 家公司、首个生产管理员、4 个公司数据范围和 8 个管理员角色授权；
 - 安装 JAR 到 `/opt/shenzhouhr/app/shenzhou-hr.jar`；
 - 复制前端到 `/www/wwwroot/192.168.160.226`；
-- 把 Nginx 配置改为监听 23272、代理到 8080；
+- 核验宝塔可见的 `kaoqin-api`，把 Nginx 主站改为监听 23272，并把该规则安全代理到 8080；
 - **不创建、不启动 systemd 服务**。
 
 结束时应该看到：
@@ -1836,22 +1870,7 @@ server {
         return 404;
     }
 
-    location /api/ {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        proxy_hide_header Cache-Control;
-        proxy_hide_header Expires;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Correlation-ID $request_id;
-        proxy_set_header Connection "";
-        proxy_connect_timeout 5s;
-        proxy_read_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_buffering off;
-    }
+    include /www/server/panel/vhost/nginx/proxy/192.168.160.226/*.conf;
 
     location /assets/ {
         try_files $uri =404;
@@ -1865,6 +1884,31 @@ server {
         sub_filter_once off;
     }
 }
+```
+
+然后进入同一站点的「设置 → 反向代理」，确认 `kaoqin-api` 为启用状态。打开它的配置文件，
+应看到下面的受控规则（宝塔页面记录仍由宝塔管理）：
+
+```nginx
+#PROXY-START/api
+# SHENZHOUHR-BAOTA-PROXY-V1
+location ^~ /api/ {
+    proxy_pass http://127.0.0.1:8080/api/;
+    proxy_http_version 1.1;
+    proxy_hide_header Cache-Control;
+    proxy_hide_header Expires;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Correlation-ID $request_id;
+    proxy_set_header Connection "";
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_buffering off;
+}
+#PROXY-END/api
 ```
 
 配置中不能出现 `listen 80`，也不能把 `proxy_pass` 写成外部端口 23273。保存后点击
@@ -1882,9 +1926,10 @@ fi
 
 第一条必须显示 `syntax is ok` 和 `test is successful`。
 
-本客户站点使用经过校验的完整固定配置，日常可在宝塔查看、编辑和重载；不要点击站点的
-“SSL”“伪静态/重写”“反向代理”向导，它们可能重写固定的 23272/8080 拓扑。公网 TLS 或
-新增 rewrite 必须先由交付与安全负责人出新配置并重新验收，不能在面板中临时打开。
+本客户站点使用经过校验的完整固定配置，日常可在宝塔查看、启停 `kaoqin-api` 和重载；
+不要修改它的名称、目录、目标、缓存或内容替换，也不要新增第二条代理。不要点击站点的
+“SSL”“伪静态/重写”向导。公网 TLS、新增 rewrite 或代理变更必须先由交付与安全负责人
+出新配置并重新验收，不能在面板中临时打开。
 
 ---
 
@@ -1898,6 +1943,7 @@ fi
 
 - 软件商店：Nginx、MySQL、JDK 21 均“运行中/已安装”；
 - 网站：站点名 `192.168.160.226`（备注 `kaoqin`），绑定 `192.168.160.226:23272`，状态正常；
+- 该站点 → 反向代理：唯一规则 `kaoqin-api` 已启用，目录 `/api`，目标为本机 8080 的 `/api`；
 - Java 项目：`kaoqinweb` 状态“运行中”，能从面板停止、启动、重启、查看日志；
 - 数据库：`shenzhou_hr` 能从面板点「管理」「备份」。
 
@@ -1983,6 +2029,7 @@ http://<WAN地址>:23273/actuator/health
 进入「网站 → 站点名 192.168.160.226（备注 kaoqin）」：
 
 - 配置文件：查看 23272 和 `/api/` 代理；
+- 反向代理：查看、启停唯一规则 `kaoqin-api`；不要修改字段或新增规则；
 - 日志：查看 Nginx 错误日志；访问日志为避免记录 HR 查询串已关闭，业务操作查 Java
   审计/项目日志；
 - 文件：前端目录 `/www/wwwroot/192.168.160.226`。

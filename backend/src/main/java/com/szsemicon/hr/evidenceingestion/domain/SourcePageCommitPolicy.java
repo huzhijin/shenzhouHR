@@ -54,6 +54,9 @@ public final class SourcePageCommitPolicy {
                 && page.nextCursor().equals(page.inputCursor())) {
             return rejected("CURSOR_LOOP");
         }
+        if (page.recordCount() > 0 && page.acceptedCount() == 0) {
+            return rejected("ALL_RECORDS_QUARANTINED");
+        }
         return new CommitDecision(
                 true,
                 true,
