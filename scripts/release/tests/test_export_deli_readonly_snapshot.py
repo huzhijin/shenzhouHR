@@ -186,7 +186,7 @@ class ExportDeliReadonlySnapshotTest(unittest.TestCase):
                 transport=transport,
             )
 
-            self.assertEqual(output / RUN_ID, result.bundle_directory)
+            self.assertEqual(output.resolve() / RUN_ID, result.bundle_directory.resolve())
             self.assertEqual(
                 {
                     "departments": 101,
