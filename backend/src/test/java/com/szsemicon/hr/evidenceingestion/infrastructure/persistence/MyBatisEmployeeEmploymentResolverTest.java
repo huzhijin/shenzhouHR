@@ -107,6 +107,7 @@ class MyBatisEmployeeEmploymentResolverTest {
                         LocalDate.parse("2026-07-29")))
                 .thenReturn(List.of(withoutBinding));
         when(mapper.resolveByConfirmedDeliBinding(
+                        "source-1",
                         "company-1",
                         "DELI_EXT_ID",
                         "deli-user-1",
