@@ -119,6 +119,7 @@ class MyBatisEmployeeEmploymentResolverTest {
                 .getFirst()
                 .resolverSnapshotDigest();
         var bindingMatch = resolver.resolveByConfirmedBinding(
+                "source-1",
                 "company-1",
                 null,
                 "terminal-1",
@@ -144,6 +145,7 @@ class MyBatisEmployeeEmploymentResolverTest {
                         "company-1", "E001\nOTHER", PUNCH_AT))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> resolver.resolveByConfirmedBinding(
+                        "source-1",
                         "company-1",
                         null,
                         null,
