@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
+import com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncFailure;
 import com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels.PageState;
 import com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels.SourceJobStart;
 import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.Direction;
@@ -156,7 +157,10 @@ class DeliPunchPageTransactionTest {
     }
 
     @Test
-    void unmatchedPunchIsQuarantinedAndCannotCreateEffectiveData() {
+    void unmatchedPunchIsQuarantinedAndPageIsRejectedWhenAllRecordsUnmatched() {
+        // When every record in a page is quarantined, the page-commit policy
+        // rejects the page to avoid silently advancing the watermark past
+        // data that could not be attributed to any employee.
         when(employeeResolver.resolveByEmployeeNumber(
                         "legal-1", "E404", EARLY_MORNING_PUNCH))
                 .thenReturn(List.of());
@@ -170,18 +174,20 @@ class DeliPunchPageTransactionTest {
                         EARLY_MORNING_PUNCH))
                 .thenReturn(List.of());
 
-        var outcome = transaction.commitPage(
-                job(),
-                ACTOR,
-                REQUEST,
-                CapabilityCodes.ATTENDANCE_SOURCE_RUN,
-                1,
-                page(record("E404", "deli-user-404")),
-                configurationResolver,
-                periodProtection);
+        // The normalized record is inserted (quarantined) then the policy
+        // throws because 0 / 1 records were accepted.
+        assertThatThrownBy(() -> transaction.commitPage(
+                        job(),
+                        ACTOR,
+                        REQUEST,
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        1,
+                        page(record("E404", "deli-user-404")),
+                        configurationResolver,
+                        periodProtection))
+                .isInstanceOf(AttendanceSourceSyncFailure.class)
+                .hasMessageContaining("ALL_RECORDS_QUARANTINED");
 
-        assertThat(outcome.acceptedCount()).isZero();
-        assertThat(outcome.quarantinedCount()).isEqualTo(1);
         ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
                 ArgumentCaptor.forClass(
                         EvidenceRows.NormalizedRecordRow.class);
@@ -195,7 +201,6 @@ class DeliPunchPageTransactionTest {
         verify(periodProtection, never()).protectionFor(any(), any(), any());
         verify(evidenceRepository, never()).insertEffectiveEvent(any());
         verify(evidenceRepository, never()).insertRecalculationIntent(any());
-        verify(syncRepository).incrementJobCounters("job-1", 0, 1);
     }
 
     @Test
