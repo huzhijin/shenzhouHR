@@ -82,6 +82,16 @@ class DeliPunchPageTransactionTest {
     @Test
     void matchedEarlyMorningPunchCreatesEffectiveEventAndBothCandidateDates() {
         when(employeeResolver.resolveByConfirmedBinding(
+                        "source-1",
+                        "source-1",
+                        "source-1",
+                        "source-1",
+                        "source-1",
+                        "source-1",
+                        "source-1",
+                        "source-1",
+                        "source-1",
+                        "source-1",
                         "legal-1",
                         null,
                         "terminal-1",
