@@ -22,12 +22,6 @@ jobs:
       - run: npm run lint --if-present
       - run: npm test
       - run: npm run build
-      - name: UmaDev quality gate
-        working-directory: ${{ github.workspace }}
-        run: |
-          if compgen -G "output/*-quality-gate.json" > /dev/null; then
-            python3 -c "import json,glob; d=json.load(open(glob.glob('output/*-quality-gate.json')[0])); exit(0 if d['passed'] else 1)"
-          fi
 
   backend:
     runs-on: ubuntu-latest

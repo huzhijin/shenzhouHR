@@ -17,6 +17,9 @@ w3-real-pgid-*/
 # Release packages (build artifacts — rebuild from source, never commit)
 /release/
 
+# Generated local quality reports are snapshots, not reproducible CI inputs.
+/output/*-quality-gate.*
+
 # Generated dependencies and temporary files
 node_modules/
 tmp/
