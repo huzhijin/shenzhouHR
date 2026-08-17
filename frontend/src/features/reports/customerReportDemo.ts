@@ -234,6 +234,8 @@ export interface CustomerReportDemo {
     rowCount: number;
     dataScope: CustomerReportDataScope;
     periodState?: 'OPEN' | 'FROZEN' | 'CLOSED' | 'REOPENED';
+    /** Exact committed source/configuration version identifiers used by the calculation. */
+    sourceVersions?: readonly string[];
     truncated?: boolean;
   };
   attendanceRows: AttendanceDetailRow[];

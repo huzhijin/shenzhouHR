@@ -31,7 +31,6 @@ import org.springframework.stereotype.Component;
         matchIfMissing = false)
 public final class DeliAutoSyncJob {
 
-    private static final Duration DEFAULT_LOOKBACK = Duration.ofDays(7);
     private static final Duration LOG_RETENTION = Duration.ofDays(30);
     private static final Logger log =
             LoggerFactory.getLogger(DeliAutoSyncJob.class);
@@ -57,14 +56,15 @@ public final class DeliAutoSyncJob {
         boolean logStarted = false;
         long recordCount = 0;
         try {
-            Instant sinceExclusive = syncLogRepository
-                    .findLastSuccessfulSyncTime()
-                    .orElseGet(() -> startedAt.minus(DEFAULT_LOOKBACK));
+            // The log range is observational only. Each Deli source resumes
+            // from its own attendance_sync_watermark/next_id when the sync
+            // job is created; a global scheduler timestamp must never decide
+            // which vendor records are accepted.
             syncLogRepository.start(
-                    logId, startedAt, sinceExclusive, startedAt);
+                    logId, startedAt, null, startedAt);
             logStarted = true;
 
-            var result = syncService.runScheduled(sinceExclusive);
+            var result = syncService.runScheduled();
             recordCount = result.recordCount();
             Instant completedAt = clock.instant();
             long durationMs = elapsedMillis(startedAt, completedAt);

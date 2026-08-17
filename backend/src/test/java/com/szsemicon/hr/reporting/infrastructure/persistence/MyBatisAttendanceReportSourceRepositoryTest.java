@@ -1,7 +1,9 @@
 package com.szsemicon.hr.reporting.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -11,6 +13,7 @@ import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
 import java.time.Instant;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
@@ -56,6 +59,36 @@ class MyBatisAttendanceReportSourceRepositoryTest {
     }
 
     @Test
+    void realtimeAuthorizationDigestIncludesExpandedEmployeesAndOrganizations() {
+        var scope = new ReportRows.ScopeRow(
+                "scope-organization",
+                "ORGANIZATION",
+                null,
+                "organization-root",
+                true,
+                "employee-self");
+
+        var before = MyBatisAttendanceReportSourceRepository.authorizedScope(
+                List.of(scope),
+                Set.of("employee-self"),
+                Set.of("organization-root"));
+        var reordered = MyBatisAttendanceReportSourceRepository.authorizedScope(
+                List.of(scope),
+                Set.of("employee-child", "employee-self"),
+                Set.of("organization-child", "organization-root"));
+        var sameReordered =
+                MyBatisAttendanceReportSourceRepository.authorizedScope(
+                        List.of(scope),
+                        Set.of("employee-self", "employee-child"),
+                        Set.of("organization-root", "organization-child"));
+
+        assertThat(reordered).isEqualTo(sameReordered);
+        assertThat(reordered.authorizationDigest())
+                .isNotEqualTo(before.authorizationDigest())
+                .matches("[a-f0-9]{64}");
+    }
+
+    @Test
     void unsupportedCapabilityFailsClosedBeforeAnyDatabaseRead() {
         AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
         var repository = new MyBatisAttendanceReportSourceRepository(
@@ -89,8 +122,6 @@ class MyBatisAttendanceReportSourceRepositoryTest {
         when(mapper.listAuthorizedCompanies(
                         "principal-1",
                         "ATTENDANCE_REPORT:READ",
-                        period.atDay(1),
-                        period.plusMonths(1).atDay(1),
                         authorizationTime))
                 .thenReturn(List.of(
                         new ReportRows.CompanyRow(
@@ -105,6 +136,132 @@ class MyBatisAttendanceReportSourceRepositoryTest {
                         authorizationTime))
                 .extracting(option -> option.companyId())
                 .containsExactly("company-a", "company-b");
+    }
+
+    @Test
+    void realtimeAuthorizationExpandsCurrentScopeWithoutProjectionRead() {
+        AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
+        var repository = new MyBatisAttendanceReportSourceRepository(
+                mapper,
+                new ObjectMapper());
+        var authorizationTime =
+                Instant.parse("2026-08-17T04:00:00Z");
+        var organizationScope = new ReportRows.ScopeRow(
+                "scope-organization",
+                "ORGANIZATION",
+                null,
+                "organization-root",
+                true,
+                "employee-self");
+        var selfScope = new ReportRows.ScopeRow(
+                "scope-self",
+                "SELF",
+                null,
+                null,
+                false,
+                "employee-self");
+        var scopes = List.of(organizationScope, selfScope);
+        when(mapper.listRealtimeAuthorizedScopes(
+                        "principal-1",
+                        "ATTENDANCE_REPORT:READ",
+                        "company-a",
+                        authorizationTime))
+                .thenReturn(scopes);
+        when(mapper.listAuthorizedEmployeeIdsInScopeIntersection(
+                        "company-a", scopes, scopes, authorizationTime))
+                .thenReturn(List.of("employee-self", "employee-child"));
+        when(mapper.listAuthorizedOrganizationIds(
+                        "company-a", scopes, authorizationTime))
+                .thenReturn(List.of(
+                        "organization-root", "organization-child"));
+
+        var result = repository.resolveRealtimeAuthorization(
+                "principal-1",
+                "ATTENDANCE_REPORT:READ",
+                "company-a",
+                authorizationTime);
+
+        assertThat(result).isPresent();
+        var authorization = result.orElseThrow();
+        assertThat(authorization.scope().type())
+                .isEqualTo(ScopeType.ORGANIZATION);
+        assertThat(authorization.companyId()).isEqualTo("company-a");
+        assertThat(authorization.companyWide()).isFalse();
+        assertThat(authorization.principalEmployeeId())
+                .isEqualTo("employee-self");
+        assertThat(authorization.employeeIds())
+                .containsExactlyInAnyOrder(
+                        "employee-self", "employee-child");
+        assertThat(authorization.organizationIds())
+                .containsExactlyInAnyOrder(
+                        "organization-root", "organization-child");
+        assertThatThrownBy(() -> authorization.employeeIds().add("employee-x"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> authorization.organizationIds()
+                        .add("organization-x"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        verify(mapper, never()).listLatestAuthorizedProjections(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void realtimeAuthorizationRejectsCrossCompanyOrMalformedScopeRows() {
+        AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
+        var repository = new MyBatisAttendanceReportSourceRepository(
+                mapper,
+                new ObjectMapper());
+        var authorizationTime =
+                Instant.parse("2026-08-17T04:00:00Z");
+        when(mapper.listRealtimeAuthorizedScopes(
+                        "principal-1",
+                        "ATTENDANCE_REPORT:READ",
+                        "company-a",
+                        authorizationTime))
+                .thenReturn(List.of(new ReportRows.ScopeRow(
+                        "scope-company-b",
+                        "COMPANY",
+                        "company-b",
+                        null,
+                        true,
+                        null)));
+
+        assertThat(repository.resolveRealtimeAuthorization(
+                        "principal-1",
+                        "ATTENDANCE_REPORT:READ",
+                        "company-a",
+                        authorizationTime))
+                .isEmpty();
+        verify(mapper, never())
+                .listAuthorizedEmployeeIdsInScopeIntersection(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
+        verify(mapper, never()).listAuthorizedOrganizationIds(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void unsupportedRealtimeCapabilityFailsClosedBeforeAnyDatabaseRead() {
+        AttendanceReportMapper mapper = mock(AttendanceReportMapper.class);
+        var repository = new MyBatisAttendanceReportSourceRepository(
+                mapper,
+                new ObjectMapper());
+
+        assertThat(repository.resolveRealtimeAuthorization(
+                        "principal-1",
+                        "EMPLOYEE:READ",
+                        "company-a",
+                        Instant.parse("2026-08-17T04:00:00Z")))
+                .isEmpty();
+        verifyNoInteractions(mapper);
     }
 
     @Test

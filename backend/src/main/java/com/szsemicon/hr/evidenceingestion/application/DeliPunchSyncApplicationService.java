@@ -60,9 +60,7 @@ public class DeliPunchSyncApplicationService {
         this.clock = clock;
     }
 
-    public AttendanceSourceSyncModels.ScheduledSyncResult runScheduled(
-            Instant sinceExclusive) {
-        Objects.requireNonNull(sinceExclusive, "sinceExclusive");
+    public AttendanceSourceSyncModels.ScheduledSyncResult runScheduled() {
         List<String> sourceIds = repository.findAllActiveDeliSourceIds();
         if (sourceIds.isEmpty()) {
             return new AttendanceSourceSyncModels.ScheduledSyncResult(
@@ -106,8 +104,7 @@ public class DeliPunchSyncApplicationService {
                         Objects.requireNonNull(result.job()),
                         "SYSTEM",
                         correlationId,
-                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
-                        sinceExclusive);
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN);
                 recordCount = Math.addExact(
                         recordCount,
                         Math.addExact(
@@ -206,8 +203,7 @@ public class DeliPunchSyncApplicationService {
                 job,
                 principalId,
                 correlationId,
-                CapabilityCodes.ATTENDANCE_SOURCE_RUN,
-                null);
+                CapabilityCodes.ATTENDANCE_SOURCE_RUN);
     }
 
     public AttendanceSourceSyncModels.JobStatus retry(
@@ -315,16 +311,14 @@ public class DeliPunchSyncApplicationService {
                 job,
                 principalId,
                 correlationId,
-                CapabilityCodes.ATTENDANCE_SOURCE_RETRY,
-                null);
+                CapabilityCodes.ATTENDANCE_SOURCE_RETRY);
     }
 
     private AttendanceSourceSyncModels.JobStatus execute(
             AttendanceSourceSyncModels.SourceJobStart job,
             String principalId,
             String correlationId,
-            String executionCapability,
-            Instant sinceExclusive) {
+            String executionCapability) {
         String jobId = job.jobId();
 
         DeliPunchSourcePort source =
@@ -359,8 +353,7 @@ public class DeliPunchSyncApplicationService {
             // turn a protocol problem into silently quarantined evidence.
             Map<String, String> employeeDirectory = fetchEmployeeDirectory(
                     source, job.sourceId());
-            var fetchSettings = fetchSettings(
-                    job, employeeDirectory, sinceExclusive);
+            var fetchSettings = fetchSettings(job, employeeDirectory);
             repository.markRunning(jobId, clock.instant());
             String cursor = job.committedCursor();
             Set<String> seenCursors = new HashSet<>();
@@ -377,9 +370,6 @@ public class DeliPunchSyncApplicationService {
                     break;
                 }
                 requireForwardCursor(page, seenCursors);
-                DeliPunchSourcePort.DeliPage incrementalPage =
-                        restrictToIncrementalWindow(
-                                page, fetchSettings.sinceExclusive());
                 pageNumber++;
                 var outcome = pageTransaction.commitPage(
                         job,
@@ -387,7 +377,7 @@ public class DeliPunchSyncApplicationService {
                         correlationId,
                         executionCapability,
                         pageNumber,
-                        incrementalPage,
+                        page,
                         configurationResolver,
                         periodProtection);
                 quarantined = Math.addExact(
@@ -467,8 +457,7 @@ public class DeliPunchSyncApplicationService {
 
     private static DeliPunchSourcePort.FetchSettings fetchSettings(
             AttendanceSourceSyncModels.SourceJobStart job,
-            Map<String, String> employeeDirectory,
-            Instant sinceExclusive) {
+            Map<String, String> employeeDirectory) {
         if (job.rateLimitPerMinute() < 60
                 || job.rateLimitPerMinute() > 10_000
                 || job.backoffSeconds() < 0
@@ -480,8 +469,7 @@ public class DeliPunchSyncApplicationService {
             return new DeliPunchSourcePort.FetchSettings(
                     job.pageSize(),
                     ZoneId.of(job.sourceTimeZone()),
-                    employeeDirectory,
-                    sinceExclusive);
+                    employeeDirectory);
         } catch (RuntimeException exception) {
             throw new AttendanceSourceSyncFailure(
                     "DELI_RUNTIME_CONFIGURATION_INVALID");
@@ -514,29 +502,6 @@ public class DeliPunchSyncApplicationService {
         }
         throw new AttendanceSourceSyncFailure(
                 "DELI_SOURCE_FETCH_FAILED");
-    }
-
-    private static DeliPunchSourcePort.DeliPage restrictToIncrementalWindow(
-            DeliPunchSourcePort.DeliPage page,
-            Instant sinceExclusive) {
-        if (page == null
-                || page.records() == null
-                || sinceExclusive == null) {
-            return page;
-        }
-        List<DeliPunchSourcePort.DeliPunchRecord> records = page.records()
-                .stream()
-                .filter(record -> record.punchInstant() == null
-                        || record.punchInstant().isAfter(sinceExclusive))
-                .toList();
-        if (records.size() == page.records().size()) {
-            return page;
-        }
-        return new DeliPunchSourcePort.DeliPage(
-                records,
-                page.inputCursor(),
-                page.nextCursor(),
-                page.pageDigest());
     }
 
     private static boolean completedSuccessfully(String state) {

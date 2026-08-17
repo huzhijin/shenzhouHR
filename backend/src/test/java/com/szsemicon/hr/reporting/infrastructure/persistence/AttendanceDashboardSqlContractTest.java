@@ -201,14 +201,23 @@ class AttendanceDashboardSqlContractTest {
                 .contains("SELECT DISTINCT projection.company_id")
                 .contains("company.status = 'ACTIVE'")
                 .contains("projection.status = 'PUBLISHED'")
+                .containsPattern(
+                        "projection\\.formula_catalog_version\\s*=\\s*"
+                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
                 .contains(
                         "<include refid=\"dashboardProjectionVisibility\"/>");
         assertThat(projection)
                 .contains(
                         "projection.company_id = #{companyId}")
                 .contains("projection.status = 'PUBLISHED'")
+                .containsPattern(
+                        "projection\\.formula_catalog_version\\s*=\\s*"
+                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
                 .contains("NOT EXISTS (")
                 .contains("newer_projection.published_at")
+                .containsPattern(
+                        "newer_projection\\.formula_catalog_version\\s*=\\s*"
+                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
                 .contains("LIMIT 1")
                 .contains(
                         "<include refid=\"dashboardProjectionVisibility\"/>");

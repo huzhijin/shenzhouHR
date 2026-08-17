@@ -110,6 +110,7 @@ async function collectReportPages(
       companyId,
       organizationId: identityFilters.organizationId,
       employeeId: identityFilters.employeeId,
+      expectedProjectionVersion: head?.metadata.projectionVersion,
       page,
       size: PAGE_SIZE,
     });
@@ -120,7 +121,7 @@ async function collectReportPages(
     }
   }
   if (head === undefined) {
-    throw new Error('report projection returned no page');
+    throw new Error('realtime report snapshot returned no page');
   }
   if (rows.length < head.rowCount) {
     truncated = true;
@@ -166,6 +167,7 @@ async function collectMatrixPages(
       companyId,
       organizationId: identityFilters.organizationId,
       employeeId: identityFilters.employeeId,
+      expectedProjectionVersion: head?.metadata.projectionVersion,
       page,
       size: PAGE_SIZE,
     });
@@ -176,7 +178,7 @@ async function collectMatrixPages(
     }
   }
   if (head === undefined) {
-    throw new Error('month matrix projection returned no page');
+    throw new Error('realtime month matrix snapshot returned no page');
   }
   if (rows.length < head.employeeCount) {
     truncated = true;
@@ -211,7 +213,7 @@ function emptyReport(
     metadata: {
       isDemo: false,
       company: scope.label,
-      generatedAt: new Date().toISOString(),
+      generatedAt: '',
       month: filters.month,
       monthLabel: formatMonth(filters.month),
       rowCount: 0,
@@ -285,6 +287,7 @@ export async function loadCustomerReport(
       metadata: {
         ...base.metadata,
         generatedAt: head.metadata.dataAsOf,
+        sourceVersions: head.metadata.sourceVersions,
         rowCount: attendanceRows.length,
         periodState: head.metadata.periodState,
         truncated,
@@ -309,6 +312,7 @@ export async function loadCustomerReport(
     metadata: {
       ...base.metadata,
       generatedAt: head.metadata.dataAsOf,
+      sourceVersions: head.metadata.sourceVersions,
       rowCount: sheetRowCount(sheet),
       periodState: head.metadata.periodState,
       truncated,

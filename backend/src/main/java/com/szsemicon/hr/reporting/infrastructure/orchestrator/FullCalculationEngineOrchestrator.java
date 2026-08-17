@@ -34,6 +34,7 @@ import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCa
 import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.PunchExemptionRoleIntervalRow;
 import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.PunchEventRow;
 import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.ShiftSegmentRow;
+import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.SourceInputVersionRow;
 import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.TimeAccountSnapshotRow;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -52,7 +53,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
@@ -83,7 +84,9 @@ public class FullCalculationEngineOrchestrator
             "FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2";
     private static final String CALCULATION_VERSION_ID =
             "ATTENDANCE.FULL_CALC:V2";
-    private static final List<String> SOURCE_VERSIONS = List.of(
+    private static final Set<String> REQUIRED_ATTENDANCE_SOURCES = Set.of(
+            "DELI_CLOUD", "OA_ATTENDANCE");
+    private static final List<String> MODEL_SOURCE_VERSIONS = List.of(
             "PEOPLE.EMPLOYEE_VERSION:V1",
             "PEOPLE.EMPLOYMENT_ASSIGNMENT:V1",
             "ORGANIZATION.ORGANIZATION_VERSION:V1",
@@ -122,18 +125,41 @@ public class FullCalculationEngineOrchestrator
 
         LocalDate periodStart = period.atDay(1);
         LocalDate periodEndExclusive = period.plusMonths(1).atDay(1);
+        LocalDate knowledgeDateEndExclusive = dataAsOf
+                .atZone(BUSINESS_ZONE)
+                .toLocalDate()
+                .plusDays(1);
+        LocalDate calculationEndExclusive = periodEndExclusive.isBefore(
+                knowledgeDateEndExclusive)
+                ? periodEndExclusive
+                : knowledgeDateEndExclusive;
+        if (!calculationEndExclusive.isAfter(periodStart)) {
+            return emptyCommand(
+                    companyId,
+                    period,
+                    periodState,
+                    principalId,
+                    dataAsOf);
+        }
         Instant windowStart = periodStart.atStartOfDay(BUSINESS_ZONE).toInstant();
-        Instant windowEnd = periodEndExclusive.atStartOfDay(BUSINESS_ZONE).toInstant();
+        Instant windowEnd = calculationEndExclusive
+                .atStartOfDay(BUSINESS_ZONE)
+                .toInstant();
+
+        // Establish the local committed-source snapshot before loading facts.
+        // Raw provider cursors never leave the persistence adapter.
+        List<String> sourceVersions = sourceVersions(
+                mapper.findAttendanceSourceVersions(companyId, dataAsOf));
 
         // Load all base data in batch
         List<EmployeeIdentityIntervalRow> identities =
                 mapper.findEmployeeIdentityIntervals(
-                        companyId, periodStart, periodEndExclusive);
+                        companyId, periodStart, calculationEndExclusive);
         List<ShiftSegmentRow> shiftSegments =
                 mapper.findScheduledWorkSegments(
                         companyId,
                         periodStart,
-                        periodEndExclusive,
+                        calculationEndExclusive,
                         dataAsOf);
         Instant evidenceWindowStart = shiftSegments.stream()
                 .map(this::segmentEvidenceStart)
@@ -155,7 +181,7 @@ public class FullCalculationEngineOrchestrator
                 mapper.findApprovedPunchCorrections(
                         companyId,
                         periodStart,
-                        periodEndExclusive,
+                        calculationEndExclusive,
                         dataAsOf);
         List<PunchExemptionRoleIntervalRow> punchExemptionRoles =
                 mapper.findPunchExemptionRoleIntervals(
@@ -164,7 +190,7 @@ public class FullCalculationEngineOrchestrator
                 mapper.findPublishedCalendarDays(
                         companyId,
                         periodStart,
-                        periodEndExclusive,
+                        calculationEndExclusive,
                         dataAsOf);
         List<OaDocumentRow> oaDocuments =
                 mapper.findEffectiveOaDocuments(
@@ -182,9 +208,14 @@ public class FullCalculationEngineOrchestrator
                 mapper.findTimeAccountSnapshots(
                         companyId,
                         periodStart,
-                        periodEndExclusive,
+                        calculationEndExclusive,
                         dataAsOf);
-        AttendancePolicyRow policyRow = mapper.findAttendancePolicy(companyId);
+        List<AttendancePolicyRow> attendancePolicies =
+                mapper.findAttendancePolicies(
+                        companyId,
+                        periodStart,
+                        calculationEndExclusive,
+                        dataAsOf);
 
         // Index data by employee
         Map<String, List<EmployeeIdentityIntervalRow>> identitiesByEmployee =
@@ -199,7 +230,10 @@ public class FullCalculationEngineOrchestrator
                         PunchExemptionRoleIntervalRow::employeeId);
         Map<String, Map<LocalDate, List<ShiftSegmentRow>>> segmentsByEmployeeAndDate =
                 indexShiftSegments(shiftSegments);
-        Map<LocalDate, DayType> dayTypes = buildDayTypeMap(calendarDays);
+        Map<EmployeeBusinessDate, DayType> dayTypes =
+                buildDayTypeMap(calendarDays);
+        Map<EmployeeBusinessDate, AttendancePolicyRow> policyByEmployeeAndDate =
+                indexAttendancePolicies(attendancePolicies);
 
         // Index OA documents by employee number, then convert to employee ID
         Map<String, List<OaDocumentRow>> oaByEmployeeNumber =
@@ -207,13 +241,12 @@ public class FullCalculationEngineOrchestrator
         Map<String, List<IntervalEvidence>> oaEvidenceByEmployee =
                 mapOaToEmployeeId(oaByEmployeeNumber, identities);
 
-        CalculationPolicy policy = buildPolicy(policyRow, periodEndExclusive);
-
         // Calculate for each employee-day
         List<VerifiedCalculatedFacts> allFacts = new ArrayList<>();
         for (Map.Entry<String, List<EmployeeIdentityIntervalRow>> entry :
                 identitiesByEmployee.entrySet()) {
             String employeeId = entry.getKey();
+            int monthlyGraceUsed = 0;
             List<PunchEventRow> employeePunches =
                     punchesByEmployee.getOrDefault(employeeId, List.of());
             List<PunchCorrectionRow> employeeCorrections =
@@ -226,7 +259,7 @@ public class FullCalculationEngineOrchestrator
                     segmentsByEmployeeAndDate.getOrDefault(employeeId, Map.of());
 
             for (LocalDate businessDate = periodStart;
-                    businessDate.isBefore(periodEndExclusive);
+                    businessDate.isBefore(calculationEndExclusive);
                     businessDate = businessDate.plusDays(1)) {
                 EmployeeIdentityIntervalRow identity =
                         findUnambiguousIdentity(entry.getValue(), businessDate);
@@ -234,21 +267,44 @@ public class FullCalculationEngineOrchestrator
                     continue;
                 }
 
-                DayType dayType = dayTypes.getOrDefault(
-                        businessDate, weekdayDayType(businessDate));
+                DayType dayType = requireDayType(
+                        dayTypes, employeeId, businessDate);
+                List<ShiftSegmentRow> daySegments =
+                        employeeSegments.getOrDefault(
+                                businessDate, List.of());
+                requireScheduledSegments(
+                        employeeId,
+                        businessDate,
+                        dayType,
+                        daySegments);
+                AttendancePolicyRow policyRow = policyByEmployeeAndDate.get(
+                        new EmployeeBusinessDate(employeeId, businessDate));
+                CalculationPolicy policy = buildPolicy(
+                        requireAttendancePolicy(
+                                policyRow,
+                                employeeId,
+                                businessDate),
+                        businessDate);
                 DailyAttendanceResult result = calculateDay(
                         companyId,
                         identity,
                         businessDate,
                         dayType,
-                        employeeSegments.getOrDefault(businessDate, List.of()),
+                        daySegments,
                         employeePunches,
                         employeeCorrections,
                         employeePunchExemptionRoles,
                         employeeOaEvidence,
                         policy,
                         period,
+                        monthlyGraceUsed,
                         dataAsOf);
+                if (consumedMonthlyGrace(
+                        result,
+                        policy,
+                        monthlyGraceUsed)) {
+                    monthlyGraceUsed++;
+                }
                 LeaveType leaveType = leaveTypeForDay(
                         employeeOaEvidence, businessDate);
 
@@ -274,7 +330,7 @@ public class FullCalculationEngineOrchestrator
                 projectTimeAccountFacts(
                         companyId,
                         periodStart,
-                        periodEndExclusive,
+                        calculationEndExclusive,
                         timeAccountSnapshots,
                         identities);
 
@@ -283,10 +339,11 @@ public class FullCalculationEngineOrchestrator
                 period,
                 periodState,
                 FORMULA_CATALOG_VERSION,
-                SOURCE_VERSIONS,
+                sourceVersions,
                 sourceSnapshotDigest(
                         companyId,
                         period,
+                        sourceVersions,
                         allFacts,
                         oaReportFacts,
                         timeAccountFacts),
@@ -298,6 +355,38 @@ public class FullCalculationEngineOrchestrator
                 allFacts,
                 List.of(),
                 oaReportFacts,
+                timeAccountFacts);
+    }
+
+    private PublishCommand emptyCommand(
+            String companyId,
+            YearMonth period,
+            PeriodState periodState,
+            String principalId,
+            Instant dataAsOf) {
+        List<VerifiedCalculatedFacts> calculatedFacts = List.of();
+        List<VerifiedOaDocumentFact> oaFacts = List.of();
+        List<VerifiedTimeAccountFact> timeAccountFacts = List.of();
+        VerifiedProjectionMetadata metadata = new VerifiedProjectionMetadata(
+                companyId,
+                period,
+                periodState,
+                FORMULA_CATALOG_VERSION,
+                MODEL_SOURCE_VERSIONS,
+                sourceSnapshotDigest(
+                        companyId,
+                        period,
+                        MODEL_SOURCE_VERSIONS,
+                        calculatedFacts,
+                        oaFacts,
+                        timeAccountFacts),
+                dataAsOf,
+                principalId);
+        return new PublishCommand(
+                metadata,
+                calculatedFacts,
+                List.of(),
+                oaFacts,
                 timeAccountFacts);
     }
 
@@ -475,6 +564,7 @@ public class FullCalculationEngineOrchestrator
             List<IntervalEvidence> allOaEvidence,
             CalculationPolicy policy,
             YearMonth period,
+            int monthlyGraceUsed,
             Instant dataAsOf) {
 
         Instant naturalDayStart =
@@ -541,8 +631,11 @@ public class FullCalculationEngineOrchestrator
                 new GraceConsumptionSnapshot(
                         identity.employeeId(),
                         period,
-                        0, // grace usage tracking not yet implemented
-                        "grace-digest-placeholder"),
+                        monthlyGraceUsed,
+                        graceConsumptionDigest(
+                                identity.employeeId(),
+                                period,
+                                monthlyGraceUsed)),
                 punchExempt,
                 policy,
                 "config-snapshot:" + companyId + ":" + businessDate,
@@ -554,8 +647,9 @@ public class FullCalculationEngineOrchestrator
                 1,
                 "period-token-v1",
                 "w-full-calc-v1",
-                UUID.randomUUID().toString(),
-                UUID.randomUUID().toString());
+                "realtime-calc:" + companyId + ":"
+                        + identity.employeeId() + ":" + businessDate,
+                "realtime-period:" + companyId + ":" + period);
 
         return calculator.calculate(CALCULATION_VERSION_ID, snapshot);
     }
@@ -705,48 +799,214 @@ public class FullCalculationEngineOrchestrator
 
     private CalculationPolicy buildPolicy(
             AttendancePolicyRow policyRow,
-            LocalDate periodEnd) {
-        if (policyRow == null) {
-            // Default policy
-            return new CalculationPolicy(
-                    15,
-                    1,
-                    periodEnd.atStartOfDay(BUSINESS_ZONE).toInstant(),
-                    false,
-                    null,
-                    2880,
-                    List.of());
+            LocalDate businessDate) {
+        validatePolicyAuthority(policyRow);
+        int overtimeDeadlineMinutes;
+        try {
+            overtimeDeadlineMinutes = Math.multiplyExact(
+                    policyRow.overtimeSubmissionDeadlineHours(),
+                    60);
+        } catch (ArithmeticException exception) {
+            throw invalidPolicy(
+                    policyRow,
+                    "overtime deadline exceeds minute range");
         }
-
+        Instant correctionDeadline = businessDate
+                .plusDays((long) policyRow.correctionWindowDays() + 1)
+                .atStartOfDay(BUSINESS_ZONE)
+                .toInstant();
         return new CalculationPolicy(
-                policyRow.lateGraceMaxMinutes(),
-                policyRow.monthlyLateGraceUses(),
-                policyRow.correctionDeadline(),
+                policyRow.lateGraceMinutes(),
+                policyRow.monthlyLateExemptionUses(),
+                correctionDeadline,
                 false,
                 null,
-                policyRow.overtimeSubmissionDeadlineMinutes(),
+                overtimeDeadlineMinutes,
                 List.of());
+    }
+
+    private Map<EmployeeBusinessDate, AttendancePolicyRow>
+            indexAttendancePolicies(List<AttendancePolicyRow> policies) {
+        Map<EmployeeBusinessDate, AttendancePolicyRow> result =
+                new HashMap<>();
+        for (AttendancePolicyRow policy : policies) {
+            Objects.requireNonNull(policy, "attendance policy row");
+            EmployeeBusinessDate key = new EmployeeBusinessDate(
+                    Objects.requireNonNull(
+                            policy.employeeId(),
+                            "attendance policy employeeId"),
+                    Objects.requireNonNull(
+                            policy.businessDate(),
+                            "attendance policy businessDate"));
+            AttendancePolicyRow existing = result.putIfAbsent(key, policy);
+            if (existing != null) {
+                throw new IllegalStateException(
+                        "Duplicate attendance policy summary for employee "
+                                + key.employeeId()
+                                + " on "
+                                + key.businessDate());
+            }
+        }
+        return result;
+    }
+
+    private AttendancePolicyRow requireAttendancePolicy(
+            AttendancePolicyRow policy,
+            String employeeId,
+            LocalDate businessDate) {
+        if (policy == null) {
+            throw new IllegalStateException(
+                    "Attendance policy authority missing for employee "
+                            + employeeId
+                            + " on "
+                            + businessDate);
+        }
+        return policy;
+    }
+
+    private void validatePolicyAuthority(AttendancePolicyRow policy) {
+        if (policy.attendanceGroupAuthorityCount() != 1) {
+            throw invalidPolicy(
+                    policy,
+                    "attendance-group authority count must be exactly one");
+        }
+        requireSinglePolicy(
+                policy,
+                "LATE_GRACE",
+                policy.lateGracePolicyCount());
+        requireSinglePolicy(
+                policy,
+                "MONTHLY_LATE_EXEMPTION",
+                policy.monthlyLateExemptionPolicyCount());
+        requireSinglePolicy(
+                policy,
+                "MISSING_PUNCH",
+                policy.missingPunchPolicyCount());
+        requireSinglePolicy(
+                policy,
+                "OVERTIME_RECOGNITION",
+                policy.overtimePolicyCount());
+        if (!Boolean.TRUE.equals(policy.lateGraceEnabled())
+                || !Boolean.TRUE.equals(
+                        policy.monthlyLateExemptionEnabled())) {
+            throw invalidPolicy(
+                    policy,
+                    "late-grace policies must both be enabled");
+        }
+        if (policy.lateGraceMinutes() == null
+                || policy.lateGraceMinutes() < 0
+                || policy.lateGraceMinutes() > 240
+                || policy.monthlyLateExemptionGraceMinutes() == null
+                || !policy.lateGraceMinutes().equals(
+                        policy.monthlyLateExemptionGraceMinutes())) {
+            throw invalidPolicy(
+                    policy,
+                    "late-grace minutes must be valid and consistent");
+        }
+        if (policy.monthlyLateExemptionUses() == null
+                || policy.monthlyLateExemptionUses() < 0
+                || policy.monthlyLateExemptionUses() > 31
+                || !Boolean.FALSE.equals(policy.resetOnGroupChange())) {
+            throw invalidPolicy(
+                    policy,
+                    "monthly grace usage must preserve employee-month state");
+        }
+        if (!Boolean.TRUE.equals(policy.missingPunchEnabled())
+                || policy.correctionWindowDays() == null
+                || policy.correctionWindowDays() < 0
+                || policy.correctionWindowDays() > 365
+                || !"NEXT_DAY_START_AFTER_FULL_DAYS".equals(
+                        policy.correctionDeadlineMode())) {
+            throw invalidPolicy(
+                    policy,
+                    "missing-punch deadline policy is invalid");
+        }
+        if (!Boolean.TRUE.equals(policy.overtimeEnabled())
+                || policy.overtimeSubmissionDeadlineHours() == null
+                || policy.overtimeSubmissionDeadlineHours() < 0
+                || policy.overtimeSubmissionDeadlineHours() > 720) {
+            throw invalidPolicy(
+                    policy,
+                    "overtime deadline policy is invalid");
+        }
+    }
+
+    private void requireSinglePolicy(
+            AttendancePolicyRow policy,
+            String policyKind,
+            int candidateCount) {
+        if (candidateCount != 1) {
+            throw invalidPolicy(
+                    policy,
+                    policyKind + " candidate count must be exactly one");
+        }
+    }
+
+    private IllegalStateException invalidPolicy(
+            AttendancePolicyRow policy,
+            String reason) {
+        return new IllegalStateException(
+                "Invalid attendance policy authority for employee "
+                        + policy.employeeId()
+                        + " on "
+                        + policy.businessDate()
+                        + ": "
+                        + reason);
+    }
+
+    private boolean consumedMonthlyGrace(
+            DailyAttendanceResult result,
+            CalculationPolicy policy,
+            int usedBeforeDay) {
+        if (policy.lateGraceMaxMinutes() == 0
+                || usedBeforeDay >= policy.monthlyLateGraceUses()) {
+            return false;
+        }
+        return result.ruleHits().stream()
+                .map(hit -> hit.ruleCode())
+                .anyMatch(code -> "MONTHLY_LATE_GRACE_CONSUMED".equals(code)
+                        || "LATE_CHARGEABLE".equals(code)
+                        || "LATE_CONVERTED_TO_ABSENCE".equals(code));
+    }
+
+    private String graceConsumptionDigest(
+            String employeeId,
+            YearMonth period,
+            int used) {
+        return "grace-usage:" + employeeId + ":" + period + ":" + used;
     }
 
     private Map<String, List<IntervalEvidence>> mapOaToEmployeeId(
             Map<String, List<OaDocumentRow>> oaByEmployeeNumber,
             List<EmployeeIdentityIntervalRow> identities) {
-        Map<String, String> employeeNumberToId = identities.stream()
-                .collect(Collectors.toMap(
-                        EmployeeIdentityIntervalRow::employeeNumber,
-                        EmployeeIdentityIntervalRow::employeeId,
-                        (a, b) -> a));
-
         Map<String, List<IntervalEvidence>> result = new HashMap<>();
         for (Map.Entry<String, List<OaDocumentRow>> entry :
                 oaByEmployeeNumber.entrySet()) {
-            String employeeId = employeeNumberToId.get(entry.getKey());
-            if (employeeId != null) {
-                result.put(employeeId,
-                        OaDocumentConverter.toIntervalEvidence(entry.getValue()));
+            for (OaDocumentRow document : entry.getValue()) {
+                LocalDate occurrenceDate = document.startInstant()
+                        .atZone(BUSINESS_ZONE)
+                        .toLocalDate();
+                List<String> employeeIds = identities.stream()
+                        .filter(identity -> identity.employeeNumber()
+                                .equals(entry.getKey()))
+                        .filter(identity -> identity.validOn(occurrenceDate))
+                        .map(EmployeeIdentityIntervalRow::employeeId)
+                        .distinct()
+                        .toList();
+                if (employeeIds.size() != 1) {
+                    throw new IllegalStateException(
+                            "OA employee identity is missing or ambiguous: "
+                                    + entry.getKey());
+                }
+                result.computeIfAbsent(
+                                employeeIds.getFirst(),
+                                ignored -> new ArrayList<>())
+                        .addAll(OaDocumentConverter.toIntervalEvidence(
+                                List.of(document)));
             }
         }
-        return result;
+        result.replaceAll((ignored, evidence) -> List.copyOf(evidence));
+        return Map.copyOf(result);
     }
 
     private LeaveType leaveTypeForDay(
@@ -783,18 +1043,28 @@ public class FullCalculationEngineOrchestrator
         return result;
     }
 
-    private Map<LocalDate, DayType> buildDayTypeMap(List<CalendarDayRow> days) {
-        Map<LocalDate, DayType> result = new HashMap<>();
-        java.util.Set<LocalDate> ambiguousDates = new java.util.HashSet<>();
+    private Map<EmployeeBusinessDate, DayType> buildDayTypeMap(
+            List<CalendarDayRow> days) {
+        Map<EmployeeBusinessDate, DayType> result = new HashMap<>();
         for (CalendarDayRow day : days) {
-            if (ambiguousDates.contains(day.businessDate())) {
-                continue;
+            if (day.authorityCount() != 1
+                    || day.distinctDayTypeCount() != 1) {
+                throw new IllegalStateException(
+                        "Ambiguous calendar authority for employee "
+                                + day.employeeId()
+                                + " on "
+                                + day.businessDate());
             }
             DayType mapped = reportDayType(day);
-            DayType existing = result.putIfAbsent(day.businessDate(), mapped);
+            EmployeeBusinessDate key = new EmployeeBusinessDate(
+                    day.employeeId(), day.businessDate());
+            DayType existing = result.putIfAbsent(key, mapped);
             if (existing != null && existing != mapped) {
-                result.remove(day.businessDate());
-                ambiguousDates.add(day.businessDate());
+                throw new IllegalStateException(
+                        "Ambiguous calendar authority for employee "
+                                + day.employeeId()
+                                + " on "
+                                + day.businessDate());
             }
         }
         return result;
@@ -819,8 +1089,55 @@ public class FullCalculationEngineOrchestrator
     private EmployeeIdentityIntervalRow findUnambiguousIdentity(
             List<EmployeeIdentityIntervalRow> candidates,
             LocalDate businessDate) {
-        return AttendanceReportCalculationRows.latestEffectiveAssignment(
+        boolean hasEffectiveCandidate = candidates.stream()
+                .anyMatch(candidate -> candidate.validOn(businessDate));
+        EmployeeIdentityIntervalRow selected =
+                AttendanceReportCalculationRows.latestEffectiveAssignment(
                 candidates, businessDate);
+        if (hasEffectiveCandidate && selected == null) {
+            throw new IllegalStateException(
+                    "Ambiguous employee identity for business date "
+                            + businessDate);
+        }
+        return selected;
+    }
+
+    private DayType requireDayType(
+            Map<EmployeeBusinessDate, DayType> dayTypes,
+            String employeeId,
+            LocalDate businessDate) {
+        DayType dayType = dayTypes.get(new EmployeeBusinessDate(
+                employeeId, businessDate));
+        if (dayType == null) {
+            // Compatibility for isolated tests and the non-primary legacy
+            // orchestrator; production rows are always employee-scoped.
+            dayType = dayTypes.get(new EmployeeBusinessDate(
+                    null, businessDate));
+        }
+        if (dayType == null) {
+            throw new IllegalStateException(
+                    "Calendar authority missing for employee "
+                            + employeeId
+                            + " on "
+                            + businessDate);
+        }
+        return dayType;
+    }
+
+    private void requireScheduledSegments(
+            String employeeId,
+            LocalDate businessDate,
+            DayType dayType,
+            List<ShiftSegmentRow> segments) {
+        if ((dayType == DayType.WEEKDAY
+                || dayType == DayType.ADJUSTED_WORKDAY)
+                && segments.isEmpty()) {
+            throw new IllegalStateException(
+                    "Scheduled shift authority missing for employee "
+                            + employeeId
+                            + " on "
+                            + businessDate);
+        }
     }
 
     private DayType weekdayDayType(LocalDate date) {
@@ -848,43 +1165,95 @@ public class FullCalculationEngineOrchestrator
     private String sourceSnapshotDigest(
             String companyId,
             YearMonth period,
+            List<String> sourceVersions,
             List<VerifiedCalculatedFacts> facts,
             List<VerifiedOaDocumentFact> oaFacts,
             List<VerifiedTimeAccountFact> timeAccountFacts) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(companyId.getBytes(StandardCharsets.UTF_8));
-            digest.update(period.toString().getBytes(StandardCharsets.UTF_8));
-            ByteBuffer buf = ByteBuffer.allocate(4);
-            buf.putInt(facts.size());
-            digest.update(buf.array());
-            for (VerifiedCalculatedFacts fact : facts) {
-                digest.update(fact.facts().dailyFact().factId()
-                        .getBytes(StandardCharsets.UTF_8));
-                digest.update(fact.facts().dailyFact().resultDigest()
-                        .getBytes(StandardCharsets.UTF_8));
-            }
-            buf.clear();
-            buf.putInt(oaFacts.size());
-            digest.update(buf.array());
-            for (VerifiedOaDocumentFact fact : oaFacts) {
-                digest.update(fact.oaAttendanceDocumentId()
-                        .getBytes(StandardCharsets.UTF_8));
-                digest.update(fact.sourceVersion()
-                        .getBytes(StandardCharsets.UTF_8));
-            }
-            buf.clear();
-            buf.putInt(timeAccountFacts.size());
-            digest.update(buf.array());
-            for (VerifiedTimeAccountFact fact : timeAccountFacts) {
-                digest.update(fact.accountId()
-                        .getBytes(StandardCharsets.UTF_8));
-                digest.update(fact.ledgerVersion()
-                        .getBytes(StandardCharsets.UTF_8));
-            }
+            updateDigest(digest, companyId, period.toString());
+            sourceVersions.stream()
+                    .sorted()
+                    .forEach(version -> updateDigest(digest, version));
+            updateDigest(digest, Integer.toString(facts.size()));
+            facts.stream()
+                    .sorted(Comparator.comparing(value ->
+                            value.facts().dailyFact().factId()))
+                    .forEach(fact -> {
+                        updateDigest(
+                                digest,
+                                fact.employeeVersionId(),
+                                fact.employmentAssignmentId(),
+                                fact.facts().dailyFact().toString());
+                        fact.facts().exceptionFacts().stream()
+                                .sorted(Comparator.comparing(
+                                        value -> value.caseId()))
+                                .forEach(value -> updateDigest(
+                                        digest, value.toString()));
+                    });
+            updateDigest(digest, Integer.toString(oaFacts.size()));
+            oaFacts.stream()
+                    .sorted(Comparator.comparing(
+                            VerifiedOaDocumentFact::oaAttendanceDocumentId))
+                    .forEach(fact -> updateDigest(
+                            digest, fact.toString()));
+            updateDigest(digest, Integer.toString(timeAccountFacts.size()));
+            timeAccountFacts.stream()
+                    .sorted(Comparator.comparing(
+                            VerifiedTimeAccountFact::accountId))
+                    .forEach(fact -> updateDigest(
+                            digest, fact.toString()));
             return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private static void updateDigest(
+            MessageDigest digest, String... values) {
+        for (String value : values) {
+            byte[] bytes = Objects.requireNonNull(value, "digest value")
+                    .getBytes(StandardCharsets.UTF_8);
+            digest.update(ByteBuffer.allocate(Integer.BYTES)
+                    .putInt(bytes.length)
+                    .array());
+            digest.update(bytes);
+        }
+    }
+
+    private static List<String> sourceVersions(
+            List<SourceInputVersionRow> rows) {
+        if (rows == null) {
+            throw new IllegalStateException(
+                    "attendance source versions are unavailable");
+        }
+        List<SourceInputVersionRow> sourceRows = List.copyOf(rows);
+        for (String requiredType : REQUIRED_ATTENDANCE_SOURCES) {
+            List<SourceInputVersionRow> matching = sourceRows.stream()
+                    .filter(row -> requiredType.equals(row.sourceType()))
+                    .toList();
+            if (matching.isEmpty()) {
+                throw new IllegalStateException(
+                        "Required attendance source is not active: "
+                                + requiredType);
+            }
+            if (matching.stream().anyMatch(
+                    row -> row.committedAt() == null)) {
+                throw new IllegalStateException(
+                        "Required attendance source is not synchronized: "
+                                + requiredType);
+            }
+        }
+        List<String> versions = new ArrayList<>(MODEL_SOURCE_VERSIONS);
+        sourceRows.stream()
+                .map(SourceInputVersionRow::canonicalVersion)
+                .sorted()
+                .forEach(versions::add);
+        return List.copyOf(versions);
+    }
+
+    private record EmployeeBusinessDate(
+            String employeeId,
+            LocalDate businessDate) {
     }
 }

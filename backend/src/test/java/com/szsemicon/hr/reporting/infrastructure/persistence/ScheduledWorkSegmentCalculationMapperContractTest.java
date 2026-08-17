@@ -202,10 +202,23 @@ class ScheduledWorkSegmentCalculationMapperContractTest {
                 "<select id=\"findpublishedcalendardays\"",
                 "</select>");
         assertThat(calendarStatement).contains(
+                "employee.employee_id",
+                "assignment.attendance_group_revision_id",
+                "attendance_group.company_id = employee.company_id",
+                "location_revision.location_revision_id = group_revision.location_revision_id",
+                "location.company_id = employee.company_id",
+                "location_state.state = 'active'",
+                "calendar.work_calendar_id = group_revision.work_calendar_id",
+                "calendar.company_id = employee.company_id",
+                "calendar.location_id = location.location_id",
+                "location_revision.time_zone = version.time_zone_snapshot",
                 "timeline.recorded_at &lt;= #{dataasof}",
-                "newer.recorded_at &lt;= #{dataasof}",
-                "newer.business_effective_from &lt;= day.business_date",
-                "calendar.company_id = #{companyid}");
+                "newer_calendar.recorded_at &lt;= #{dataasof}",
+                "newer_location.recorded_at &lt;= #{dataasof}",
+                "newer_calendar.business_effective_from &lt;= day.business_date",
+                "count(distinct authority_key) as authoritycount",
+                "count(distinct day_type) as distinctdaytypecount",
+                "group by employee_id, business_date");
     }
 
     private static Parameter param(Method method, String name) {

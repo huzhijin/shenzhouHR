@@ -220,6 +220,9 @@ Implemented architecture:
 **Implementation**:
 - Spring `@Scheduled(cron = "0 0 * * * ?")` on `DeliSyncJob`
 - Log table: `deli_sync_log` with columns: `sync_time`, `status`, `record_count`, `error_message`
+- Incremental ingestion uses each source's provider `next_id` in
+  `attendance_sync_watermark`; sync-log times are observational only and never
+  filter punches, so late-arriving records and new sources are not skipped
 - UI: Display last row from log table
 - Retain 30 days of logs for troubleshooting
 

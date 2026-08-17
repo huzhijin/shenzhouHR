@@ -52,7 +52,7 @@
 - **新增表**：
   - `punch_correction_request`（补卡申请与审批）
   - `oa_enum_mapping`（OA 物理枚举到业务语义的映射）
-  - `deli_sync_log`（得力同步状态与水位）
+  - `deli_sync_log`（得力同步状态记录；摄取水位继续使用每来源 `attendance_sync_watermark`）
 - **新增字段**：
   - `attendance_report_daily_fact.leave_type`（日事实假别）
   - `oa_attendance_document.leave_type`（OA 假别证据）

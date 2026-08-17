@@ -5,6 +5,45 @@
 <mapper namespace="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationMapper">
 
     <!--
+      Safe realtime freshness metadata. Provider cursors can contain opaque
+      values and are intentionally excluded; the committed page digest binds
+      the exact local page while committed_at is suitable for display.
+    -->
+    <select id="findAttendanceSourceVersions"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$SourceInputVersionRow">
+        SELECT
+            source.attendance_source_id AS source_id,
+            source.source_type,
+            source.row_version AS source_row_version,
+            COALESCE(configuration.revision_number, 0)
+                AS configuration_revision,
+            watermark.row_version AS watermark_row_version,
+            watermark.committed_page_digest,
+            watermark.committed_at
+        FROM attendance_source source
+        LEFT JOIN attendance_source_config_revision configuration
+          ON configuration.source_config_revision_id = (
+                SELECT candidate.source_config_revision_id
+                FROM attendance_source_config_revision candidate
+                WHERE candidate.attendance_source_id =
+                        source.attendance_source_id
+                  AND candidate.effective_from &lt;= #{dataAsOf}
+                  AND candidate.created_at &lt;= #{dataAsOf}
+                ORDER BY candidate.revision_number DESC,
+                         candidate.source_config_revision_id DESC
+                LIMIT 1
+          )
+        LEFT JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+         AND watermark.committed_at &lt;= #{dataAsOf}
+        WHERE source.company_id = #{companyId}
+          AND source.status = 'ACTIVE'
+          AND source.source_type IN ('DELI_CLOUD', 'OA_ATTENDANCE')
+          AND source.created_at &lt;= #{dataAsOf}
+        ORDER BY source.source_type, source.attendance_source_id
+    </select>
+
+    <!--
       Identity intervals overlapping the period, one row per
       employee-version / assignment / organization-version combination.
       The predicates are the interval form of the per-day predicates in
@@ -158,54 +197,196 @@
     </select>
 
     <!--
-      Day types from the calendar version that was uniquely effective on each
-      business date at dataAsOf. DISTINCT collapses identical day types across
-      calendars; the orchestrator falls back to weekday classification when a
-      date is missing or company calendars disagree.
+      Resolve the calendar through each employee's effective attendance-group
+      assignment. Candidate counts are returned instead of collapsed globally,
+      so a multi-location company can use different calendars while missing or
+      ambiguous authority for one employee-day fails closed in the orchestrator.
     -->
     <select id="findPublishedCalendarDays"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$CalendarDayRow">
-        SELECT DISTINCT
-            day.business_date,
-            day.day_type
-        FROM work_calendar calendar
-        JOIN calendar_publication_timeline timeline
-          ON timeline.work_calendar_id = calendar.work_calendar_id
-         AND timeline.state = 'PUBLISHED'
-         AND timeline.recorded_at &lt;= #{dataAsOf}
-        JOIN work_calendar_version version
-          ON version.work_calendar_version_id =
-                timeline.work_calendar_version_id
-         AND version.work_calendar_id = calendar.work_calendar_id
-         AND version.created_at &lt;= #{dataAsOf}
-        JOIN work_calendar_day day
-          ON day.work_calendar_version_id = version.work_calendar_version_id
-         AND day.business_date &gt;= #{periodStart}
-         AND day.business_date &lt; #{periodEndExclusive}
-         AND day.created_at &lt;= #{dataAsOf}
-        WHERE calendar.company_id = #{companyId}
-          AND calendar.created_at &lt;= #{dataAsOf}
-          AND timeline.business_effective_from &lt;= day.business_date
-          AND version.effective_from &lt;= day.business_date
-          AND version.effective_to &gt; day.business_date
-          AND NOT EXISTS (
-                SELECT 1
-                FROM calendar_publication_timeline newer
-                WHERE newer.work_calendar_id = timeline.work_calendar_id
-                  AND newer.business_effective_from &lt;= day.business_date
-                  AND newer.recorded_at &lt;= #{dataAsOf}
-                  AND (
-                        newer.business_effective_from &gt;
-                            timeline.business_effective_from
-                        OR (
-                            newer.business_effective_from =
+        WITH calendar_candidates AS (
+            SELECT DISTINCT
+                employee.employee_id,
+                day.business_date,
+                day.day_type,
+                CONCAT_WS(
+                    '|',
+                    assignment.attendance_group_assignment_id,
+                    group_revision.attendance_group_revision_id,
+                    version.work_calendar_version_id,
+                    day.work_calendar_day_id) AS authority_key
+            FROM company company
+            JOIN employee employee
+              ON employee.company_id = company.company_id
+             AND employee.created_at &lt;= #{dataAsOf}
+            JOIN attendance_group_assignment assignment
+              ON assignment.employee_id = employee.employee_id
+             AND assignment.created_at &lt;= #{dataAsOf}
+            JOIN attendance_assignment_timeline assignment_state
+              ON assignment_state.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+             AND assignment_state.employee_id = employee.employee_id
+             AND assignment_state.state = 'ACTIVE'
+             AND assignment_state.recorded_at &lt;= #{dataAsOf}
+            JOIN attendance_group_revision group_revision
+              ON group_revision.attendance_group_revision_id =
+                    assignment.attendance_group_revision_id
+             AND group_revision.created_at &lt;= #{dataAsOf}
+            JOIN attendance_group attendance_group
+              ON attendance_group.attendance_group_id =
+                    group_revision.attendance_group_id
+             AND attendance_group.company_id = employee.company_id
+             AND attendance_group.created_at &lt;= #{dataAsOf}
+            JOIN attendance_group_timeline group_state
+              ON group_state.attendance_group_id =
+                    attendance_group.attendance_group_id
+             AND group_state.attendance_group_revision_id =
+                    group_revision.attendance_group_revision_id
+             AND group_state.state = 'ACTIVE'
+             AND group_state.recorded_at &lt;= #{dataAsOf}
+            JOIN location_revision location_revision
+              ON location_revision.location_revision_id =
+                    group_revision.location_revision_id
+             AND location_revision.created_at &lt;= #{dataAsOf}
+            JOIN location location
+              ON location.location_id = location_revision.location_id
+             AND location.company_id = employee.company_id
+             AND location.created_at &lt;= #{dataAsOf}
+            JOIN location_timeline location_state
+              ON location_state.location_id = location.location_id
+             AND location_state.location_revision_id =
+                    location_revision.location_revision_id
+             AND location_state.state = 'ACTIVE'
+             AND location_state.recorded_at &lt;= #{dataAsOf}
+            JOIN work_calendar calendar
+              ON calendar.work_calendar_id =
+                    group_revision.work_calendar_id
+             AND calendar.company_id = employee.company_id
+             AND calendar.location_id = location.location_id
+             AND calendar.created_at &lt;= #{dataAsOf}
+            JOIN calendar_publication_timeline timeline
+              ON timeline.work_calendar_id = calendar.work_calendar_id
+             AND timeline.state = 'PUBLISHED'
+             AND timeline.recorded_at &lt;= #{dataAsOf}
+            JOIN work_calendar_version version
+              ON version.work_calendar_version_id =
+                    timeline.work_calendar_version_id
+             AND version.work_calendar_id = calendar.work_calendar_id
+             AND version.created_at &lt;= #{dataAsOf}
+            JOIN work_calendar_day day
+              ON day.work_calendar_version_id =
+                    version.work_calendar_version_id
+             AND day.business_date &gt;= #{periodStart}
+             AND day.business_date &lt; #{periodEndExclusive}
+             AND day.created_at &lt;= #{dataAsOf}
+            WHERE company.company_id = #{companyId}
+              AND company.status = 'ACTIVE'
+              AND company.created_at &lt;= #{dataAsOf}
+              AND assignment.effective_from &lt;= day.business_date
+              AND assignment_state.business_effective_from
+                    &lt;= day.business_date
+              AND group_revision.effective_from &lt;= day.business_date
+              AND group_state.business_effective_from
+                    &lt;= day.business_date
+              AND location_revision.effective_from &lt;= day.business_date
+              AND location_state.business_effective_from
+                    &lt;= day.business_date
+              AND timeline.business_effective_from &lt;= day.business_date
+              AND version.effective_from &lt;= day.business_date
+              AND version.effective_to &gt; day.business_date
+              AND location_revision.time_zone =
+                    version.time_zone_snapshot
+              AND EXISTS (
+                    SELECT 1
+                    FROM employment_assignment employment
+                    JOIN organization_identity organization
+                      ON organization.organization_id =
+                            employment.organization_id
+                     AND organization.company_id = employee.company_id
+                     AND organization.identity_status = 'ACTIVE'
+                     AND organization.created_at &lt;= #{dataAsOf}
+                    WHERE employment.employee_id = employee.employee_id
+                      AND employment.version_valid_to IS NULL
+                      AND employment.record_status = 'ACTIVE'
+                      AND DATE(employment.effective_from)
+                            &lt;= day.business_date
+                      AND (
+                            employment.effective_to IS NULL
+                            OR DATE(employment.effective_to)
+                                &gt; day.business_date
+                      )
+                      AND employment.created_at &lt;= #{dataAsOf}
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_group_assignment successor
+                    WHERE successor.supersedes_assignment_id =
+                            assignment.attendance_group_assignment_id
+                      AND successor.effective_from &lt;= day.business_date
+                      AND successor.created_at &lt;= #{dataAsOf}
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_assignment_timeline newer_assignment
+                    WHERE newer_assignment.attendance_group_assignment_id =
+                            assignment_state.attendance_group_assignment_id
+                      AND newer_assignment.business_effective_from
+                            &lt;= day.business_date
+                      AND newer_assignment.recorded_at &lt;= #{dataAsOf}
+                      AND newer_assignment.event_sequence &gt;
+                            assignment_state.event_sequence
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_group_timeline newer_group
+                    WHERE newer_group.attendance_group_id =
+                            group_state.attendance_group_id
+                      AND newer_group.business_effective_from
+                            &lt;= day.business_date
+                      AND newer_group.recorded_at &lt;= #{dataAsOf}
+                      AND newer_group.event_sequence &gt;
+                            group_state.event_sequence
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM calendar_publication_timeline newer_calendar
+                    WHERE newer_calendar.work_calendar_id =
+                            timeline.work_calendar_id
+                      AND newer_calendar.business_effective_from
+                            &lt;= day.business_date
+                      AND newer_calendar.recorded_at &lt;= #{dataAsOf}
+                      AND (
+                            newer_calendar.business_effective_from &gt;
                                 timeline.business_effective_from
-                            AND newer.event_sequence &gt;
-                                timeline.event_sequence
-                        )
-                  )
-          )
-        ORDER BY day.business_date, day.day_type
+                            OR (
+                                newer_calendar.business_effective_from =
+                                    timeline.business_effective_from
+                                AND newer_calendar.event_sequence &gt;
+                                    timeline.event_sequence
+                            )
+                      )
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM location_timeline newer_location
+                    WHERE newer_location.location_id =
+                            location_state.location_id
+                      AND newer_location.business_effective_from
+                            &lt;= day.business_date
+                      AND newer_location.recorded_at &lt;= #{dataAsOf}
+                      AND newer_location.event_sequence &gt;
+                            location_state.event_sequence
+              )
+        )
+        SELECT
+            employee_id AS employeeId,
+            business_date AS businessDate,
+            MIN(day_type) AS dayType,
+            COUNT(DISTINCT authority_key) AS authorityCount,
+            COUNT(DISTINCT day_type) AS distinctDayTypeCount
+        FROM calendar_candidates
+        GROUP BY employee_id, business_date
+        ORDER BY employee_id, business_date
     </select>
 
     <!--
@@ -961,17 +1142,431 @@
     </select>
 
     <!--
-      Attendance policy for the company. Returns the most recent policy
-      configuration. If none exists, returns null.
+      Resolve calculation-critical policy authority at business time and
+      knowledge time. LATE_GRACE and MONTHLY_LATE_EXEMPTION follow the
+      employee's effective attendance-group revision. MISSING_PUNCH and
+      OVERTIME_RECOGNITION are company-scoped deadline policies.
+
+      Candidate counts are returned instead of filtered with HAVING so the
+      orchestrator can distinguish and reject missing/ambiguous authority.
+      No wall-clock database function participates in historical projection.
     -->
-    <select id="findAttendancePolicy"
+    <select id="findAttendancePolicies"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$AttendancePolicyRow">
+        WITH RECURSIVE business_dates (business_date) AS (
+            SELECT CAST(#{periodStart} AS DATE)
+            UNION ALL
+            SELECT DATE_ADD(business_date, INTERVAL 1 DAY)
+            FROM business_dates
+            WHERE DATE_ADD(business_date, INTERVAL 1 DAY)
+                    &lt; #{periodEndExclusive}
+        ),
+        group_authority_candidates AS (
+            SELECT DISTINCT
+                employee.employee_id,
+                business_date.business_date,
+                assignment.attendance_group_assignment_id,
+                attendance_group.attendance_group_id,
+                group_revision.attendance_group_revision_id
+            FROM company company
+            JOIN employee employee
+              ON employee.company_id = company.company_id
+             AND employee.created_at &lt;= #{dataAsOf}
+            CROSS JOIN business_dates business_date
+            JOIN attendance_group_assignment assignment
+              ON assignment.employee_id = employee.employee_id
+             AND assignment.effective_from
+                    &lt;= business_date.business_date
+             AND assignment.created_at &lt;= #{dataAsOf}
+            JOIN attendance_assignment_timeline assignment_state
+              ON assignment_state.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+             AND assignment_state.employee_id = employee.employee_id
+             AND assignment_state.state = 'ACTIVE'
+             AND assignment_state.business_effective_from
+                    &lt;= business_date.business_date
+             AND assignment_state.recorded_at &lt;= #{dataAsOf}
+            JOIN attendance_group_revision group_revision
+              ON group_revision.attendance_group_revision_id =
+                    assignment.attendance_group_revision_id
+             AND group_revision.effective_from
+                    &lt;= business_date.business_date
+             AND group_revision.created_at &lt;= #{dataAsOf}
+            JOIN attendance_group attendance_group
+              ON attendance_group.attendance_group_id =
+                    group_revision.attendance_group_id
+             AND attendance_group.company_id = company.company_id
+             AND attendance_group.created_at &lt;= #{dataAsOf}
+            JOIN attendance_group_timeline group_state
+              ON group_state.attendance_group_id =
+                    attendance_group.attendance_group_id
+             AND group_state.attendance_group_revision_id =
+                    group_revision.attendance_group_revision_id
+             AND group_state.state = 'ACTIVE'
+             AND group_state.business_effective_from
+                    &lt;= business_date.business_date
+             AND group_state.recorded_at &lt;= #{dataAsOf}
+            WHERE company.company_id = #{companyId}
+              AND company.status = 'ACTIVE'
+              AND company.created_at &lt;= #{dataAsOf}
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_group_assignment successor
+                    WHERE successor.supersedes_assignment_id =
+                            assignment.attendance_group_assignment_id
+                      AND successor.effective_from
+                            &lt;= business_date.business_date
+                      AND successor.created_at &lt;= #{dataAsOf}
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_assignment_timeline newer_assignment
+                    WHERE newer_assignment.attendance_group_assignment_id =
+                            assignment_state.attendance_group_assignment_id
+                      AND newer_assignment.business_effective_from
+                            &lt;= business_date.business_date
+                      AND newer_assignment.recorded_at &lt;= #{dataAsOf}
+                      AND newer_assignment.event_sequence &gt;
+                            assignment_state.event_sequence
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_group_timeline newer_group
+                    WHERE newer_group.attendance_group_id =
+                            group_state.attendance_group_id
+                      AND newer_group.business_effective_from
+                            &lt;= business_date.business_date
+                      AND newer_group.recorded_at &lt;= #{dataAsOf}
+                      AND newer_group.event_sequence &gt;
+                            group_state.event_sequence
+              )
+        ),
+        group_policy_candidates AS (
+            SELECT
+                authority.employee_id,
+                authority.business_date,
+                authority.attendance_group_assignment_id,
+                authority.attendance_group_id,
+                authority.attendance_group_revision_id,
+                family.policy_kind,
+                CASE
+                    WHEN JSON_TYPE(JSON_EXTRACT(
+                            version.parameters_json, '$.enabled')) =
+                            'BOOLEAN'
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(
+                            version.parameters_json, '$.enabled')) = 'true'
+                    ELSE NULL
+                END AS policy_enabled,
+                CASE
+                    WHEN JSON_TYPE(JSON_EXTRACT(
+                            version.parameters_json, '$.graceMinutes')) =
+                            'INTEGER'
+                    THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.graceMinutes')) AS SIGNED)
+                    ELSE NULL
+                END AS grace_minutes,
+                CASE
+                    WHEN JSON_TYPE(JSON_EXTRACT(
+                            version.parameters_json, '$.monthlyUses')) =
+                            'INTEGER'
+                    THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.monthlyUses')) AS SIGNED)
+                    ELSE NULL
+                END AS monthly_uses,
+                CASE
+                    WHEN JSON_TYPE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.resetOnGroupChange')) = 'BOOLEAN'
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.resetOnGroupChange')) = 'true'
+                    ELSE NULL
+                END AS reset_on_group_change
+            FROM group_authority_candidates authority
+            JOIN attendance_policy_binding_family family
+              ON family.attendance_group_id = authority.attendance_group_id
+             AND family.policy_kind IN (
+                    'LATE_GRACE', 'MONTHLY_LATE_EXEMPTION')
+             AND family.created_at &lt;= #{dataAsOf}
+            JOIN attendance_policy_binding_revision revision
+              ON revision.binding_family_id = family.binding_family_id
+             AND revision.attendance_group_revision_id =
+                    authority.attendance_group_revision_id
+             AND revision.effective_from &lt;= authority.business_date
+             AND revision.created_at &lt;= #{dataAsOf}
+            JOIN attendance_policy_scoped_version version
+              ON version.scoped_version_id =
+                    revision.attendance_policy_scoped_version_id
+             AND version.effective_from &lt;= authority.business_date
+             AND (
+                    version.effective_to IS NULL
+                    OR version.effective_to &gt; authority.business_date
+             )
+             AND version.created_at &lt;= #{dataAsOf}
+            JOIN attendance_policy_scope policy_scope
+              ON policy_scope.scope_id = version.scope_id
+             AND policy_scope.company_id = #{companyId}
+             AND policy_scope.created_at &lt;= #{dataAsOf}
+            JOIN attendance_policy_template template
+              ON template.policy_template_id =
+                    policy_scope.policy_template_id
+             AND template.template_code = family.policy_kind
+             AND template.created_at &lt;= #{dataAsOf}
+            WHERE (
+                    revision.change_reason NOT LIKE
+                            '@@effectiveTo=____-__-__%'
+                    OR CAST(SUBSTRING(
+                            revision.change_reason, 15, 10) AS DATE)
+                            &gt; authority.business_date
+              )
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM attendance_policy_binding_revision newer_revision
+                    WHERE newer_revision.binding_family_id =
+                            revision.binding_family_id
+                      AND newer_revision.revision_number &gt;
+                            revision.revision_number
+                      AND newer_revision.effective_from
+                            &lt;= authority.business_date
+                      AND newer_revision.created_at &lt;= #{dataAsOf}
+              )
+              AND EXISTS (
+                    SELECT 1
+                    FROM attendance_policy_lifecycle_event publication
+                    WHERE publication.scope_id = version.scope_id
+                      AND publication.scoped_version_id =
+                            version.scoped_version_id
+                      AND publication.action = 'PUBLISHED'
+                      AND publication.business_effective_from
+                            &lt;= authority.business_date
+                      AND publication.recorded_at &lt;= #{dataAsOf}
+                      AND NOT EXISTS (
+                            SELECT 1
+                            FROM attendance_policy_lifecycle_event later
+                            WHERE later.scope_id = publication.scope_id
+                              AND later.event_sequence &gt;
+                                    publication.event_sequence
+                              AND later.business_effective_from
+                                    &lt;= authority.business_date
+                              AND later.recorded_at &lt;= #{dataAsOf}
+                              AND later.action IN (
+                                    'DEACTIVATE_SCHEDULED',
+                                    'ROLLED_BACK')
+                      )
+              )
+        ),
+        group_policy_summary AS (
+            SELECT
+                authority.employee_id,
+                authority.business_date,
+                COUNT(DISTINCT CONCAT_WS(
+                        '|',
+                        authority.attendance_group_assignment_id,
+                        authority.attendance_group_id,
+                        authority.attendance_group_revision_id))
+                    AS attendance_group_authority_count,
+                SUM(CASE
+                        WHEN policy.policy_kind = 'LATE_GRACE'
+                        THEN 1 ELSE 0
+                    END) AS late_grace_policy_count,
+                MAX(CASE
+                        WHEN policy.policy_kind = 'LATE_GRACE'
+                        THEN policy.policy_enabled
+                    END) AS late_grace_enabled,
+                MAX(CASE
+                        WHEN policy.policy_kind = 'LATE_GRACE'
+                        THEN policy.grace_minutes
+                    END) AS late_grace_minutes,
+                SUM(CASE
+                        WHEN policy.policy_kind =
+                                'MONTHLY_LATE_EXEMPTION'
+                        THEN 1 ELSE 0
+                    END) AS monthly_late_exemption_policy_count,
+                MAX(CASE
+                        WHEN policy.policy_kind =
+                                'MONTHLY_LATE_EXEMPTION'
+                        THEN policy.policy_enabled
+                    END) AS monthly_late_exemption_enabled,
+                MAX(CASE
+                        WHEN policy.policy_kind =
+                                'MONTHLY_LATE_EXEMPTION'
+                        THEN policy.grace_minutes
+                    END) AS monthly_late_exemption_grace_minutes,
+                MAX(CASE
+                        WHEN policy.policy_kind =
+                                'MONTHLY_LATE_EXEMPTION'
+                        THEN policy.monthly_uses
+                    END) AS monthly_late_exemption_uses,
+                MAX(CASE
+                        WHEN policy.policy_kind =
+                                'MONTHLY_LATE_EXEMPTION'
+                        THEN policy.reset_on_group_change
+                    END) AS reset_on_group_change
+            FROM group_authority_candidates authority
+            LEFT JOIN group_policy_candidates policy
+              ON policy.employee_id = authority.employee_id
+             AND policy.business_date = authority.business_date
+             AND policy.attendance_group_assignment_id =
+                    authority.attendance_group_assignment_id
+             AND policy.attendance_group_id =
+                    authority.attendance_group_id
+             AND policy.attendance_group_revision_id =
+                    authority.attendance_group_revision_id
+            GROUP BY authority.employee_id, authority.business_date
+        ),
+        company_policy_candidates AS (
+            SELECT
+                business_date.business_date,
+                template.template_code,
+                CASE
+                    WHEN JSON_TYPE(JSON_EXTRACT(
+                            version.parameters_json, '$.enabled')) =
+                            'BOOLEAN'
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(
+                            version.parameters_json, '$.enabled')) = 'true'
+                    ELSE NULL
+                END AS policy_enabled,
+                CASE
+                    WHEN JSON_TYPE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.correctionWindowDays')) = 'INTEGER'
+                    THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.correctionWindowDays')) AS SIGNED)
+                    ELSE NULL
+                END AS correction_window_days,
+                CASE
+                    WHEN JSON_TYPE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.deadlineMode')) = 'STRING'
+                    THEN JSON_UNQUOTE(JSON_EXTRACT(
+                            version.parameters_json, '$.deadlineMode'))
+                    ELSE NULL
+                END AS correction_deadline_mode,
+                CASE
+                    WHEN JSON_TYPE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.submissionDeadlineHours')) = 'INTEGER'
+                    THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(
+                            version.parameters_json,
+                            '$.submissionDeadlineHours')) AS SIGNED)
+                    ELSE NULL
+                END AS overtime_submission_deadline_hours
+            FROM business_dates business_date
+            JOIN attendance_policy_template template
+              ON template.template_code IN (
+                    'MISSING_PUNCH', 'OVERTIME_RECOGNITION')
+             AND template.created_at &lt;= #{dataAsOf}
+            JOIN attendance_policy_scope policy_scope
+              ON policy_scope.policy_template_id =
+                    template.policy_template_id
+             AND policy_scope.company_id = #{companyId}
+             AND policy_scope.created_at &lt;= #{dataAsOf}
+            JOIN attendance_policy_scoped_version version
+              ON version.scope_id = policy_scope.scope_id
+             AND version.effective_from
+                    &lt;= business_date.business_date
+             AND (
+                    version.effective_to IS NULL
+                    OR version.effective_to &gt; business_date.business_date
+             )
+             AND version.created_at &lt;= #{dataAsOf}
+            WHERE EXISTS (
+                    SELECT 1
+                    FROM attendance_policy_lifecycle_event publication
+                    WHERE publication.scope_id = version.scope_id
+                      AND publication.scoped_version_id =
+                            version.scoped_version_id
+                      AND publication.action = 'PUBLISHED'
+                      AND publication.business_effective_from
+                            &lt;= business_date.business_date
+                      AND publication.recorded_at &lt;= #{dataAsOf}
+                      AND NOT EXISTS (
+                            SELECT 1
+                            FROM attendance_policy_lifecycle_event later
+                            WHERE later.scope_id = publication.scope_id
+                              AND later.event_sequence &gt;
+                                    publication.event_sequence
+                              AND later.business_effective_from
+                                    &lt;= business_date.business_date
+                              AND later.recorded_at &lt;= #{dataAsOf}
+                              AND later.action IN (
+                                    'DEACTIVATE_SCHEDULED',
+                                    'ROLLED_BACK')
+                      )
+              )
+        ),
+        company_policy_summary AS (
+            SELECT
+                business_date.business_date,
+                SUM(CASE
+                        WHEN policy.template_code = 'MISSING_PUNCH'
+                        THEN 1 ELSE 0
+                    END) AS missing_punch_policy_count,
+                MAX(CASE
+                        WHEN policy.template_code = 'MISSING_PUNCH'
+                        THEN policy.policy_enabled
+                    END) AS missing_punch_enabled,
+                MAX(CASE
+                        WHEN policy.template_code = 'MISSING_PUNCH'
+                        THEN policy.correction_window_days
+                    END) AS correction_window_days,
+                MAX(CASE
+                        WHEN policy.template_code = 'MISSING_PUNCH'
+                        THEN policy.correction_deadline_mode
+                    END) AS correction_deadline_mode,
+                SUM(CASE
+                        WHEN policy.template_code =
+                                'OVERTIME_RECOGNITION'
+                        THEN 1 ELSE 0
+                    END) AS overtime_policy_count,
+                MAX(CASE
+                        WHEN policy.template_code =
+                                'OVERTIME_RECOGNITION'
+                        THEN policy.policy_enabled
+                    END) AS overtime_enabled,
+                MAX(CASE
+                        WHEN policy.template_code =
+                                'OVERTIME_RECOGNITION'
+                        THEN policy.overtime_submission_deadline_hours
+                    END) AS overtime_submission_deadline_hours
+            FROM business_dates business_date
+            LEFT JOIN company_policy_candidates policy
+              ON policy.business_date = business_date.business_date
+            GROUP BY business_date.business_date
+        )
         SELECT
-            15 AS lateGraceMaxMinutes,
-            1 AS monthlyLateGraceUses,
-            DATE_ADD(LAST_DAY(CURDATE()), INTERVAL 1 DAY) AS correctionDeadline,
-            2880 AS overtimeSubmissionDeadlineMinutes
-        FROM DUAL
-        LIMIT 1
+            group_policy.employee_id AS employeeId,
+            group_policy.business_date AS businessDate,
+            group_policy.attendance_group_authority_count
+                AS attendanceGroupAuthorityCount,
+            group_policy.late_grace_policy_count AS lateGracePolicyCount,
+            group_policy.late_grace_enabled AS lateGraceEnabled,
+            group_policy.late_grace_minutes AS lateGraceMinutes,
+            group_policy.monthly_late_exemption_policy_count
+                AS monthlyLateExemptionPolicyCount,
+            group_policy.monthly_late_exemption_enabled
+                AS monthlyLateExemptionEnabled,
+            group_policy.monthly_late_exemption_grace_minutes
+                AS monthlyLateExemptionGraceMinutes,
+            group_policy.monthly_late_exemption_uses
+                AS monthlyLateExemptionUses,
+            group_policy.reset_on_group_change AS resetOnGroupChange,
+            company_policy.missing_punch_policy_count
+                AS missingPunchPolicyCount,
+            company_policy.missing_punch_enabled AS missingPunchEnabled,
+            company_policy.correction_window_days AS correctionWindowDays,
+            company_policy.correction_deadline_mode
+                AS correctionDeadlineMode,
+            company_policy.overtime_policy_count AS overtimePolicyCount,
+            company_policy.overtime_enabled AS overtimeEnabled,
+            company_policy.overtime_submission_deadline_hours
+                AS overtimeSubmissionDeadlineHours
+        FROM group_policy_summary group_policy
+        JOIN company_policy_summary company_policy
+          ON company_policy.business_date = group_policy.business_date
+        ORDER BY group_policy.employee_id, group_policy.business_date
     </select>
 </mapper>

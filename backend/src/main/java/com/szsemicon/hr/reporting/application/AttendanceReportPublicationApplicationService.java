@@ -3,6 +3,7 @@ package com.szsemicon.hr.reporting.application;
 import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
+import com.szsemicon.hr.people.application.PeopleRepository;
 import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.PeriodState;
 import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.PublicationResult;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
@@ -14,6 +15,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -31,6 +33,7 @@ public class AttendanceReportPublicationApplicationService {
 
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principalProvider;
+    private final PeopleRepository peopleRepository;
     private final AttendanceReportProjectionPublicationUseCase publicationUseCase;
     private final List<AttendanceReportCalculationOrchestrator> orchestrators;
     private final AuditService auditService;
@@ -39,12 +42,14 @@ public class AttendanceReportPublicationApplicationService {
     public AttendanceReportPublicationApplicationService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principalProvider,
+            PeopleRepository peopleRepository,
             AttendanceReportProjectionPublicationUseCase publicationUseCase,
             List<AttendanceReportCalculationOrchestrator> orchestrators,
             AuditService auditService,
             Clock clock) {
         this.capabilities = Objects.requireNonNull(capabilities);
         this.principalProvider = Objects.requireNonNull(principalProvider);
+        this.peopleRepository = Objects.requireNonNull(peopleRepository);
         this.publicationUseCase = Objects.requireNonNull(publicationUseCase);
         this.orchestrators = List.copyOf(
                 Objects.requireNonNull(orchestrators));
@@ -72,6 +77,26 @@ public class AttendanceReportPublicationApplicationService {
         // can expose nanoseconds, so normalize at the application boundary
         // before constructing the database-precision metadata contract.
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+
+        // A capability granted for one company must never authorize a
+        // publication for another one. Check the live, time-bounded company
+        // scope before consulting the calculation engine so an unauthorized
+        // request cannot trigger work or discover engine availability.
+        if (!peopleRepository.canAccessCompany(
+                principalId,
+                CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                companyId,
+                now)) {
+            auditService.recordFailure(
+                    principalId,
+                    "ATTENDANCE_REPORT_PUBLISH",
+                    "ATTENDANCE_REPORT",
+                    companyId + ":" + period,
+                    "DENIED",
+                    "COMPANY_SCOPE_DENIED");
+            throw new AccessDeniedException(
+                    "attendance report publication company scope is not granted");
+        }
 
         if (orchestrators.size() != 1) {
             auditService.recordFailure(

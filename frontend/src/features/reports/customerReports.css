@@ -77,6 +77,13 @@
   gap: 12px;
 }
 
+.customer-report__hero-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .customer-report__hero-action .ant-btn-primary {
   min-width: 166px;
   min-height: 40px;
@@ -1379,6 +1386,15 @@
   .customer-report__hero-action {
     width: 100%;
     justify-items: stretch;
+  }
+
+  .customer-report__hero-buttons {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .customer-report__hero-buttons .ant-btn {
+    width: 100%;
   }
 
   .customer-report__hero-action .ant-btn-primary {

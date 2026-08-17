@@ -29,8 +29,8 @@ describe('customer report mapper business-rule fields', () => {
       'compensatory-overtime-hours': '1.00',
       'voluntary-overtime-hours': '0.50',
       'total-overtime-hours': '3.50',
-      'recognized-overtime-hours': '99.00',
-      'weekday-overtime-hours': '88.00',
+      'recognized-overtime-hours': '3.50',
+      'weekday-overtime-hours': '3.50',
     }));
 
     expect(row).toMatchObject({
@@ -49,6 +49,27 @@ describe('customer report mapper business-rule fields', () => {
       'recognized-overtime-hours': '12.50',
       'weekday-overtime-hours': '8.00',
       'saturday-overtime-hours': '4.50',
+    }));
+
+    expect(row).toMatchObject({
+      totalHours: 12.5,
+      classificationAvailable: false,
+    });
+    expect(row?.paidHours).toBeUndefined();
+    expect(row?.compensatoryHours).toBeUndefined();
+    expect(row?.voluntaryHours).toBeUndefined();
+  });
+
+  it('does not treat migration-default zeroes as classified overtime', () => {
+    const [row] = toOvertimeRows(projection({
+      'employee-name': '历史投影员工',
+      organization: '历史投影部门',
+      'paid-overtime-hours': '0.00',
+      'compensatory-overtime-hours': '0.00',
+      'voluntary-overtime-hours': '0.00',
+      'total-overtime-hours': '0.00',
+      'recognized-overtime-hours': '12.50',
+      'weekday-overtime-hours': '12.50',
     }));
 
     expect(row).toMatchObject({

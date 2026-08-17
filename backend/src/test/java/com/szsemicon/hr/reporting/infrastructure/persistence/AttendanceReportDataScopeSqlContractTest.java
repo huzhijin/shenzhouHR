@@ -155,6 +155,9 @@ class AttendanceReportDataScopeSqlContractTest {
                         "projection.period_end_exclusive ="
                                 + " #{periodEndExclusive}")
                 .contains("projection.status = 'PUBLISHED'")
+                .containsPattern(
+                        "projection\\.formula_catalog_version\\s*=\\s*"
+                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
                 .contains("projection.published_at &lt;= #{authorizationTime}")
                 .contains("#{companyId} IS NULL")
                 .contains(
@@ -162,6 +165,9 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("<include refid=\"reportProjectionVisibility\"/>")
                 .contains("NOT EXISTS (")
                 .contains("newer_projection.company_id =")
+                .containsPattern(
+                        "newer_projection\\.formula_catalog_version\\s*=\\s*"
+                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
                 .contains("ORDER BY projection.company_id")
                 .contains(
                         "projection.attendance_report_projection_id DESC")
@@ -170,25 +176,78 @@ class AttendanceReportDataScopeSqlContractTest {
     }
 
     @Test
-    void companyDirectoryCannotEnumerateUnpublishedOrUnauthorizedCompanies()
+    void companyDirectoryUsesCurrentReadScopesWithoutProjectionDependency()
             throws Exception {
         String directory = select(
                 Files.readString(MAPPER),
                 "listAuthorizedCompanies");
 
         assertThat(directory)
-                .contains("SELECT DISTINCT projection.company_id")
+                .contains("SELECT DISTINCT company.company_id")
                 .contains("company.name AS company_name")
                 .contains("company.status = 'ACTIVE'")
-                .contains("projection.period_start = #{periodStart}")
+                .contains("principal.status = 'ACTIVE'")
                 .contains(
-                        "projection.period_end_exclusive ="
-                                + " #{periodEndExclusive}")
-                .contains("projection.status = 'PUBLISHED'")
+                        "capability.capability_code ="
+                                + " 'ATTENDANCE_REPORT:READ'")
+                .contains("role_assignment.valid_from")
+                .contains("role_assignment.valid_to")
+                .contains("data_scope.valid_from")
+                .contains("data_scope.valid_to")
+                .contains("data_scope.scope_type = 'COMPANY'")
+                .contains("data_scope.scope_type = 'ORGANIZATION'")
+                .contains("data_scope.scope_type = 'SELF'")
                 .contains(
-                        "projection.published_at &lt;= #{authorizationTime}")
-                .contains("<include refid=\"reportProjectionVisibility\"/>")
+                        "scoped_version.effective_from")
+                .contains("scoped_version.effective_to")
+                .doesNotContain("attendance_report_projection")
+                .doesNotContain("#{periodStart}")
+                .doesNotContain("#{periodEndExclusive}")
                 .doesNotContain("LIMIT")
+                .doesNotContain("${");
+    }
+
+    @Test
+    void realtimeScopeAndOrganizationExpansionAreCurrentAndFailClosed()
+            throws Exception {
+        String xml = Files.readString(MAPPER);
+        String scopeQuery = select(xml, "listRealtimeAuthorizedScopes");
+        String organizationQuery =
+                select(xml, "listAuthorizedOrganizationIds");
+
+        assertThat(scopeQuery)
+                .contains("target_company.company_id = #{companyId}")
+                .contains("target_company.status = 'ACTIVE'")
+                .contains("principal.status = 'ACTIVE'")
+                .contains("role_assignment.valid_from")
+                .contains("role_assignment.valid_to")
+                .contains("data_scope.valid_from")
+                .contains("data_scope.valid_to")
+                .contains("scoped_organization.company_id =")
+                .contains("target_company.company_id")
+                .contains("scoped_organization.identity_status = 'ACTIVE'")
+                .contains("scoped_projection.current_version_id")
+                .contains("scoped_version.status = 'ACTIVE'")
+                .contains("scoped_version.effective_from")
+                .contains("scoped_version.effective_to")
+                .contains("self_employee.company_id =")
+                .doesNotContain("attendance_report_projection")
+                .doesNotContain("${");
+        assertThat(organizationQuery)
+                .contains("candidate_organization.company_id =")
+                .contains("target_company.company_id")
+                .contains("candidate_organization.identity_status = 'ACTIVE'")
+                .contains("candidate_projection.current_version_id")
+                .contains("candidate_version.status = 'ACTIVE'")
+                .contains("candidate_version.effective_from")
+                .contains("candidate_version.effective_to")
+                .contains("organization_current_closure")
+                .contains("#{scope.includeDescendants} = TRUE")
+                .contains("current_assignment.record_status = 'ACTIVE'")
+                .contains("current_assignment.version_valid_to IS NULL")
+                .contains("current_assignment.effective_from")
+                .contains("current_assignment.effective_to")
+                .doesNotContain("attendance_report_projection")
                 .doesNotContain("${");
     }
 

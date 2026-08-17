@@ -72,8 +72,7 @@ public interface DeliPunchSourcePort {
     record FetchSettings(
             int pageSize,
             ZoneId sourceTimeZone,
-            Map<String, String> employeeDirectory,
-            Instant sinceExclusive) {
+            Map<String, String> employeeDirectory) {
 
         public FetchSettings {
             if (pageSize < 1 || pageSize > 500) {
@@ -89,16 +88,9 @@ public interface DeliPunchSourcePort {
                     : Map.of();
         }
 
-        public FetchSettings(
-                int pageSize,
-                ZoneId sourceTimeZone,
-                Map<String, String> employeeDirectory) {
-            this(pageSize, sourceTimeZone, employeeDirectory, null);
-        }
-
         /** Convenience constructor for callers that carry no directory. */
         public FetchSettings(int pageSize, ZoneId sourceTimeZone) {
-            this(pageSize, sourceTimeZone, Map.of(), null);
+            this(pageSize, sourceTimeZone, Map.of());
         }
     }
 

@@ -1,9 +1,10 @@
 import {
   IconDownload,
   IconInfoCircle,
+  IconRefresh,
   IconShieldCheck,
 } from '@tabler/icons-react';
-import { Button, Modal, Select, Tooltip } from 'antd';
+import { Button, Select, Tooltip } from 'antd';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -41,10 +42,10 @@ import {
   buildCustomerReportCsv,
   downloadCustomerReportCsv,
 } from './customerReportExport';
+import { realtimeSourceCutoff } from './reportSourceFreshness';
 import {
   ALL_DEPARTMENTS,
   ALL_EMPLOYEES,
-  exportCustomerReport,
   loadCustomerReport,
   loadCustomerReportDirectory,
   loadCustomerReportScopes,
@@ -137,7 +138,6 @@ export function CustomerReportCenterPage({
   const [activeReport, setActiveReport] = useState<CustomerReportKey>('attendance-detail');
   const [exportFeedback, setExportFeedback] = useState('');
   const [specificFeedback, setSpecificFeedback] = useState('');
-  const [exportInProgress, setExportInProgress] = useState(false);
   const [draftSpecificFilters, setDraftSpecificFilters] = useState<CustomerReportSpecificFilters>({
     ...defaultCustomerReportSpecificFilters,
   });
@@ -172,7 +172,7 @@ export function CustomerReportCenterPage({
   const activeLiveDirectory = liveDirectories.get(activeDirectoryKey) ?? null;
 
   /**
-   * Real mode must never borrow demo rows. Until the projection actually
+   * Real mode must never borrow demo rows. Until the realtime snapshot actually
    * arrives, the sheet shows zero rows with real metadata, so the loading and
    * error panels are the only thing the operator can act on. Fabricated numbers
    * under an error banner would read as measured data.
@@ -204,19 +204,35 @@ export function CustomerReportCenterPage({
     : (liveReport ?? emptyLiveReport);
 
   /**
-   * `generatedAt` is the projection's own `dataAsOf` in real mode. Before the
+   * `generatedAt` is the realtime calculation's `dataAsOf` in real mode. Before the
    * first successful load there is no such instant, so the header says the data
    * is not loaded rather than printing a plausible-looking timestamp.
    */
   const dataAsOfLabel = sourceReport.metadata.generatedAt === ''
     ? '数据尚未加载'
-    : `数据截至 ${formatDataAsOf(sourceReport.metadata.generatedAt)}`;
+    : `${isDemoMode() ? '示例生成于' : '实时计算于'} ${formatDataAsOf(sourceReport.metadata.generatedAt)}`;
+  const sourceVersionLabel = sourceReport.metadata.generatedAt === ''
+    ? '来源信息尚未加载'
+    : sourceReport.metadata.sourceVersions !== undefined
+        && sourceReport.metadata.sourceVersions.length > 0
+      ? formatSourceFreshness(sourceReport.metadata.sourceVersions)
+      : '来源截止信息未提供';
 
-  // Bumped by the retry action to re-run the report effect with identical inputs.
+  // Bumped by refresh/retry to reload authorization options before recalculating.
   const [reloadToken, setReloadToken] = useState(0);
-  const retryReport = useCallback(() => {
+  const refreshReport = useCallback(() => {
+    setLoadedScopeMonth(null);
+    setLiveReport(null);
+    setReportError(null);
+    setDirectoryError(null);
+    setLiveDirectories((current) => {
+      if (!current.has(activeDirectoryKey)) return current;
+      const next = new Map(current);
+      next.delete(activeDirectoryKey);
+      return next;
+    });
     setReloadToken((token) => token + 1);
-  }, []);
+  }, [activeDirectoryKey]);
 
   // Load available scopes for the selected period (real mode only)
   useEffect(() => {
@@ -247,7 +263,7 @@ export function CustomerReportCenterPage({
         }
       });
     return () => { cancelled = true; };
-  }, [filters.month]);
+  }, [filters.month, reloadToken]);
 
   // The searchable directory is a separate, unfiltered projection. Cache every
   // visited company-month so tab changes and month round-trips do not collapse
@@ -297,7 +313,6 @@ export function CustomerReportCenterPage({
     filters.month,
     liveDirectories,
     loadedScopeMonth,
-    reloadToken,
   ]);
 
   // Load the active report sheet (real mode only)
@@ -332,7 +347,6 @@ export function CustomerReportCenterPage({
     filters,
     activeDataScope,
     loadedScopeMonth,
-    reloadToken,
   ]);
 
   const report = useMemo(() => applyCustomerReportSpecificFilters(
@@ -341,8 +355,8 @@ export function CustomerReportCenterPage({
     appliedSpecificFilters,
   ), [activeReport, appliedSpecificFilters, sourceReport]);
   const activeTab = customerReportTabs.find((tab) => tab.key === activeReport)!;
-  const canExport = capabilities === undefined
-    || capabilities.includes('ATTENDANCE_REPORT:EXPORT_CREATE');
+  const canExport = isDemoMode() && (capabilities === undefined
+    || capabilities.includes('ATTENDANCE_REPORT:EXPORT_CREATE'));
   const capabilityMode = capabilities === undefined
     ? '独立演示'
     : canExport
@@ -499,52 +513,15 @@ export function CustomerReportCenterPage({
       }));
     };
 
-    // Demo mode writes the CSV straight away: there is no server job to confirm,
-    // and a dialog would only add a step to a local file write.
-    if (isDemoMode()) {
-      writeCsv();
-      onExport?.(request);
-      setSpecificFeedback('');
-      setExportFeedback(
-        `“${activeTab.label}”已按当前筛选条件导出。`,
-      );
-      return;
-    }
-
-    Modal.confirm({
-      title: '确认导出报表',
-      content: `导出“${activeTab.label}”${formatMonth(filters.month)}数据为 XLSX 文件，此操作将被记录。`,
-      okText: '确认导出',
-      cancelText: '取消',
-      onOk: async () => {
-        setExportInProgress(true);
-        setExportFeedback('');
-        try {
-          await exportCustomerReport(
-            {
-              reportKey: activeReport,
-              period: filters.month,
-              companyId: activeDataScope.reference,
-              reportTitle: activeTab.label,
-              organizationId: filters.organizationId,
-              employeeId: filters.employeeId,
-            },
-            writeCsv,
-          );
-          onExport?.(request);
-          setSpecificFeedback('');
-          setExportFeedback(
-            `“${activeTab.label}”导出任务已完成，文件已下载。`,
-          );
-        } catch (caught: unknown) {
-          setExportFeedback(
-            caught instanceof Error ? caught.message : '导出失败，请重试。',
-          );
-        } finally {
-          setExportInProgress(false);
-        }
-      },
-    });
+    // Only the isolated demo exports a local CSV. The production realtime
+    // report deliberately exposes no export action until the export API is
+    // bound to the same LIVE snapshot token.
+    writeCsv();
+    onExport?.(request);
+    setSpecificFeedback('');
+    setExportFeedback(
+      `“${activeTab.label}”已按当前筛选条件导出。`,
+    );
   };
 
   const changeSpecificFilter = <K extends keyof CustomerReportSpecificFilters>(
@@ -622,30 +599,48 @@ export function CustomerReportCenterPage({
               <span className="customer-report__demo-badge">客户演示数据</span>
             ) : null}
             <span>{dataAsOfLabel}</span>
+            {!isDemoMode() ? (
+              <span title={sourceReport.metadata.sourceVersions?.join('；')}>
+                {sourceVersionLabel}
+              </span>
+            ) : null}
           </div>
           <h1>考勤报表中心</h1>
           <p>
-            从考勤明细、异常、工时到年休假余额，一处查看并按当前筛选导出。
+            基于已同步的得力打卡、OA 单据、班次、考勤组和组织人员数据实时计算。
           </p>
         </div>
         <div className="customer-report__hero-action">
           <span className="customer-report__version">
             统计月份 · {report.metadata.monthLabel}
           </span>
-          <Button
-            type="primary"
-            size="large"
-            loading={exportInProgress}
-            icon={exportInProgress
-              ? undefined
-              : <IconDownload aria-hidden="true" stroke={2} />}
-            onClick={handleExport}
-            data-capability-mode={capabilityMode}
-            disabled={!canExport}
-            title={canExport ? undefined : '当前账号没有导出权限'}
-          >
-            {exportInProgress ? '导出中…' : '导出当前报表'}
-          </Button>
+          <div className="customer-report__hero-buttons">
+            {!isDemoMode() ? (
+              <Button
+                size="large"
+                loading={reportLoading}
+                icon={reportLoading
+                  ? undefined
+                  : <IconRefresh aria-hidden="true" stroke={2} />}
+                onClick={refreshReport}
+              >
+                刷新数据
+              </Button>
+            ) : null}
+            {isDemoMode() ? (
+              <Button
+                type="primary"
+                size="large"
+                icon={<IconDownload aria-hidden="true" stroke={2} />}
+                onClick={handleExport}
+                data-capability-mode={capabilityMode}
+                disabled={!canExport}
+                title={canExport ? undefined : '当前账号没有导出权限'}
+              >
+                导出当前报表
+              </Button>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -667,7 +662,7 @@ export function CustomerReportCenterPage({
           <span>数据权限已生效</span>
           <strong>{activeDataScope.actorLabel} · {activeDataScope.label}</strong>
           <p>
-            系统已按{scopeTypeLabel(activeDataScope.type)}限制查询、明细和导出范围。
+            系统已按{scopeTypeLabel(activeDataScope.type)}限制查询和明细范围。
           </p>
         </div>
         {/* Show scope selector only when there are multiple authorized scopes.
@@ -862,14 +857,14 @@ export function CustomerReportCenterPage({
         <div className="customer-report__load-error" role="alert">
           <IconInfoCircle aria-hidden="true" stroke={2} />
           <span>{reportError ?? directoryError}</span>
-          <Button size="small" onClick={retryReport}>重试</Button>
+          <Button size="small" onClick={refreshReport}>重试</Button>
         </div>
       ) : null}
 
       {!isDemoMode() && liveReport?.metadata.truncated ? (
         <div className="customer-report__truncation-notice" role="alert">
           <IconInfoCircle aria-hidden="true" stroke={2} />
-          当前报表超过最大加载行数，仅显示前部分数据。如需完整数据请使用导出功能。
+          当前报表超过最大加载行数，仅显示前部分数据。请缩小部门或员工范围后刷新。
         </div>
       ) : null}
 
@@ -953,7 +948,7 @@ export function CustomerReportCenterPage({
           <div className="customer-report__export-feedback" role="status" aria-live="polite">
             <span aria-hidden="true">✓</span>
             <div>
-              <strong>导出任务已创建</strong>
+              <strong>演示文件已导出</strong>
               <p>{exportFeedback}</p>
             </div>
           </div>
@@ -1652,7 +1647,7 @@ function AttendanceExceptionReport({ report }: { report: CustomerReportDemo }) {
         </table>
       </ScrollTable>
       <SheetFootnote>
-        当前为常用异常首版；汇总、明细与导出均已绑定
+        当前为常用异常首版；汇总与明细均已绑定
         {report.metadata.dataScope.label}，越权筛选返回空结果。
       </SheetFootnote>
     </ReportSheet>
@@ -2122,7 +2117,7 @@ function daysInMonth(month: string): number {
 }
 
 /**
- * Renders the projection's `dataAsOf` instant in the business time zone. An
+ * Renders the realtime calculation's `dataAsOf` instant in the business time zone. An
  * unparseable value is shown verbatim rather than silently replaced, so a bad
  * upstream timestamp stays visible instead of looking like a valid reading.
  */
@@ -2141,6 +2136,38 @@ function formatDataAsOf(value: string): string {
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((candidate) => candidate.type === type)?.value ?? '';
   return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
+}
+
+function formatSourceVersions(values: readonly string[]): string {
+  const visible = values.slice(0, 3).map((value) => (
+    value.length > 48 ? `${value.slice(0, 45)}…` : value
+  ));
+  return values.length > visible.length
+    ? `${visible.join(' · ')} · 另 ${values.length - visible.length} 项`
+    : visible.join(' · ');
+}
+
+const sourceCutoffSpecifications = [
+  { source: 'DELI_CLOUD', label: '得力截止' },
+  { source: 'OA_ATTENDANCE', label: 'OA截止' },
+] as const;
+
+function formatSourceFreshness(values: readonly string[]): string {
+  const cutoffs = sourceCutoffSpecifications.map((specification) => ({
+    ...specification,
+    value: realtimeSourceCutoff(values, specification.source),
+  }));
+  if (cutoffs.every((cutoff) => cutoff.value === undefined)) {
+    return `来源版本 · ${formatSourceVersions(values)}`;
+  }
+  return cutoffs.map((cutoff) => {
+    if (cutoff.value === undefined) return `${cutoff.label} 未提供`;
+    if (cutoff.value === 'UNSYNCED') return `${cutoff.label} 未同步`;
+    if (cutoff.value === 'PARTIALLY_UNSYNCED') {
+      return `${cutoff.label} 部分未同步`;
+    }
+    return `${cutoff.label} ${formatDataAsOf(cutoff.value)}`;
+  }).join(' · ');
 }
 
 function sum(values: number[]): number {

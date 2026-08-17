@@ -5,6 +5,7 @@ import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.CompanyOption;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.DepartmentAttendanceRate;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.EmployeeDepartmentAttendancePeriod;
+import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.RealtimeAuthorization;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
@@ -32,6 +33,10 @@ public class MyBatisAttendanceReportSourceRepository
         implements AttendanceReportSourceRepository {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Set<String> REALTIME_SCOPE_CAPABILITIES = Set.of(
+            CapabilityCodes.ATTENDANCE_REPORT_READ,
+            CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+            CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD);
 
     private final AttendanceReportMapper mapper;
     private final ObjectMapper objectMapper;
@@ -57,14 +62,10 @@ public class MyBatisAttendanceReportSourceRepository
                         capabilityCode)) {
             return List.of();
         }
-        var periodStart = period.atDay(1);
-        var periodEndExclusive = period.plusMonths(1).atDay(1);
         List<ReportRows.CompanyRow> rows =
                 mapper.listAuthorizedCompanies(
                         principalId,
                         capabilityCode,
-                        periodStart,
-                        periodEndExclusive,
                         authorizationTime);
         if (rows == null || rows.isEmpty()) {
             return List.of();
@@ -73,6 +74,59 @@ public class MyBatisAttendanceReportSourceRepository
                 .map(ReportRows.CompanyRow::toDomain)
                 .distinct()
                 .toList();
+    }
+
+    @Override
+    public Optional<RealtimeAuthorization> resolveRealtimeAuthorization(
+            String principalId,
+            String capabilityCode,
+            String companyId,
+            Instant authorizationTime) {
+        Objects.requireNonNull(authorizationTime, "authorizationTime");
+        String normalizedCompanyId = normalizedReference(companyId);
+        if (principalId == null
+                || principalId.isBlank()
+                || !REALTIME_SCOPE_CAPABILITIES.contains(capabilityCode)
+                || normalizedCompanyId == null) {
+            return Optional.empty();
+        }
+        List<ReportRows.ScopeRow> scopeRows = nullSafe(
+                mapper.listRealtimeAuthorizedScopes(
+                        principalId,
+                        capabilityCode,
+                        normalizedCompanyId,
+                        authorizationTime));
+        if (!validRealtimeScopeRows(scopeRows, normalizedCompanyId)) {
+            return Optional.empty();
+        }
+        Optional<Set<String>> employeeIds = immutableReferenceSet(nullSafe(
+                mapper.listAuthorizedEmployeeIdsInScopeIntersection(
+                        normalizedCompanyId,
+                        scopeRows,
+                        scopeRows,
+                        authorizationTime)));
+        Optional<Set<String>> organizationIds = immutableReferenceSet(nullSafe(
+                mapper.listAuthorizedOrganizationIds(
+                        normalizedCompanyId,
+                        scopeRows,
+                        authorizationTime)));
+        if (employeeIds.isEmpty() || organizationIds.isEmpty()) {
+            return Optional.empty();
+        }
+        Set<String> resolvedEmployeeIds = employeeIds.orElseThrow();
+        Set<String> resolvedOrganizationIds = organizationIds.orElseThrow();
+        boolean companyWide = scopeRows.stream().anyMatch(row ->
+                ScopeType.COMPANY.name().equals(row.scopeType()));
+        return Optional.of(new RealtimeAuthorization(
+                authorizedScope(
+                        scopeRows,
+                        resolvedEmployeeIds,
+                        resolvedOrganizationIds),
+                normalizedCompanyId,
+                companyWide,
+                scopeRows.getFirst().principalEmployeeId(),
+                resolvedEmployeeIds,
+                resolvedOrganizationIds));
     }
 
     @Override
@@ -510,22 +564,96 @@ public class MyBatisAttendanceReportSourceRepository
                 > 0;
     }
 
+    private static boolean validRealtimeScopeRows(
+            List<ReportRows.ScopeRow> rows, String companyId) {
+        if (rows.isEmpty()) {
+            return false;
+        }
+        ReportRows.ScopeRow firstRow = rows.getFirst();
+        if (firstRow == null) {
+            return false;
+        }
+        String principalEmployeeId = firstRow.principalEmployeeId();
+        if (principalEmployeeId != null
+                && normalizedReference(principalEmployeeId) == null) {
+            return false;
+        }
+        for (ReportRows.ScopeRow row : rows) {
+            if (row == null
+                    || normalizedReference(row.scopeId()) == null
+                    || !Objects.equals(
+                            principalEmployeeId, row.principalEmployeeId())) {
+                return false;
+            }
+            if (ScopeType.COMPANY.name().equals(row.scopeType())) {
+                if (!companyId.equals(row.companyId())
+                        || row.organizationId() != null) {
+                    return false;
+                }
+            } else if (ScopeType.ORGANIZATION.name().equals(
+                    row.scopeType())) {
+                if (row.companyId() != null
+                        || normalizedReference(row.organizationId()) == null) {
+                    return false;
+                }
+            } else if (ScopeType.SELF.name().equals(row.scopeType())) {
+                if (row.companyId() != null
+                        || row.organizationId() != null
+                        || principalEmployeeId == null) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Optional<Set<String>> immutableReferenceSet(
+            List<String> values) {
+        if (values.stream().anyMatch(
+                value -> normalizedReference(value) == null)) {
+            return Optional.empty();
+        }
+        return Optional.of(Set.copyOf(values));
+    }
+
+    private static String normalizedReference(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() || normalized.length() > 36
+                ? null
+                : normalized;
+    }
+
     private static <T> List<T> nullSafe(List<T> values) {
         return values == null ? List.of() : values;
     }
 
     static AuthorizedScope authorizedScope(
             List<ReportRows.ScopeRow> inputRows) {
+        return authorizedScope(inputRows, Set.of(), Set.of());
+    }
+
+    static AuthorizedScope authorizedScope(
+            List<ReportRows.ScopeRow> inputRows,
+            Set<String> employeeIds,
+            Set<String> organizationIds) {
         if (inputRows == null || inputRows.isEmpty()) {
             throw new IllegalArgumentException(
                     "at least one authorized report scope is required");
         }
+        Objects.requireNonNull(employeeIds, "employeeIds");
+        Objects.requireNonNull(organizationIds, "organizationIds");
         List<ReportRows.ScopeRow> rows = inputRows.stream()
                 .distinct()
                 .sorted(Comparator.comparing(
                         MyBatisAttendanceReportSourceRepository::canonicalScope))
                 .toList();
-        String digest = authorizationDigest(rows);
+        String digest = authorizationDigest(
+                rows, employeeIds, organizationIds);
         ScopeType type = rows.stream().anyMatch(
                 row -> ScopeType.COMPANY.name().equals(row.scopeType()))
                         ? ScopeType.COMPANY
@@ -573,23 +701,37 @@ public class MyBatisAttendanceReportSourceRepository
     }
 
     private static String authorizationDigest(
-            List<ReportRows.ScopeRow> rows) {
+            List<ReportRows.ScopeRow> rows,
+            Set<String> employeeIds,
+            Set<String> organizationIds) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             rows.stream()
                     .map(MyBatisAttendanceReportSourceRepository::canonicalScope)
-                    .forEach(value -> {
-                        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-                        digest.update(ByteBuffer.allocate(Integer.BYTES)
-                                .putInt(bytes.length)
-                                .array());
-                        digest.update(bytes);
-                    });
+                    .forEach(value -> updateDigest(digest, value));
+            employeeIds.stream()
+                    .sorted()
+                    .map(MyBatisAttendanceReportSourceRepository::required)
+                    .map(value -> "EMPLOYEE\u001f" + value)
+                    .forEach(value -> updateDigest(digest, value));
+            organizationIds.stream()
+                    .sorted()
+                    .map(MyBatisAttendanceReportSourceRepository::required)
+                    .map(value -> "ORGANIZATION\u001f" + value)
+                    .forEach(value -> updateDigest(digest, value));
             return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException(
                     "required report authorization digest is unavailable");
         }
+    }
+
+    private static void updateDigest(MessageDigest digest, String value) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        digest.update(ByteBuffer.allocate(Integer.BYTES)
+                .putInt(bytes.length)
+                .array());
+        digest.update(bytes);
     }
 
     private static String canonicalScope(ReportRows.ScopeRow row) {

@@ -1,15 +1,21 @@
 package com.szsemicon.hr.reporting.application;
 
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 
 public interface AttendanceReportSourceRepository {
 
@@ -17,6 +23,12 @@ public interface AttendanceReportSourceRepository {
             String principalId,
             String capabilityCode,
             YearMonth period,
+            Instant authorizationTime);
+
+    Optional<RealtimeAuthorization> resolveRealtimeAuthorization(
+            String principalId,
+            String capabilityCode,
+            String companyId,
             Instant authorizationTime);
 
     Optional<ReportSourceSnapshot> loadAuthorizedSnapshot(
@@ -50,6 +62,60 @@ public interface AttendanceReportSourceRepository {
                     String capabilityCode,
                     ReportFilter filter,
                     Instant authorizationTime);
+
+    record RealtimeAuthorization(
+            AuthorizedScope scope,
+            String companyId,
+            boolean companyWide,
+            String principalEmployeeId,
+            Set<String> employeeIds,
+            Set<String> organizationIds) {
+
+        public RealtimeAuthorization {
+            Objects.requireNonNull(scope, "scope");
+            companyId = requireReference(companyId, "companyId");
+            principalEmployeeId = optionalReference(
+                    principalEmployeeId, "principalEmployeeId");
+            employeeIds = immutableReferences(employeeIds, "employeeIds");
+            organizationIds = immutableReferences(
+                    organizationIds, "organizationIds");
+            if (companyWide != (scope.type() == ScopeType.COMPANY)) {
+                throw new IllegalArgumentException(
+                        "companyWide must match the resolved scope type");
+            }
+            if (scope.type() == ScopeType.SELF
+                    && principalEmployeeId == null) {
+                throw new IllegalArgumentException(
+                        "SELF scope requires a principal employee");
+            }
+        }
+
+        private static Set<String> immutableReferences(
+                Set<String> values, String field) {
+            Objects.requireNonNull(values, field);
+            TreeSet<String> normalized = new TreeSet<>();
+            for (String value : values) {
+                normalized.add(requireReference(value, field));
+            }
+            return Collections.unmodifiableSet(
+                    new LinkedHashSet<>(normalized));
+        }
+
+        private static String optionalReference(
+                String value, String field) {
+            return value == null ? null : requireReference(value, field);
+        }
+
+        private static String requireReference(
+                String value, String field) {
+            String normalized = Objects.requireNonNull(value, field).trim();
+            if (normalized.isEmpty() || normalized.length() > 36) {
+                throw new IllegalArgumentException(
+                        field + " must contain valid references");
+            }
+            return normalized;
+        }
+    }
 
     record CompanyOption(String companyId, String companyName) {
 

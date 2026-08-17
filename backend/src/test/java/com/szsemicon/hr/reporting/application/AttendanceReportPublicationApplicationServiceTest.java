@@ -7,11 +7,13 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
+import com.szsemicon.hr.people.application.PeopleRepository;
 import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.PeriodState;
 import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.PublicationResult;
 import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.PublishCommand;
@@ -25,6 +27,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 
 class AttendanceReportPublicationApplicationServiceTest {
 
@@ -35,6 +38,77 @@ class AttendanceReportPublicationApplicationServiceTest {
     private static final YearMonth PERIOD = YearMonth.of(2026, 7);
     private static final String PRINCIPAL =
             "20000000-0000-0000-0000-000000000001";
+    private static final String OTHER_COMPANY =
+            "10000000-0000-0000-0000-000000000002";
+
+    @Test
+    void crossCompanyScopeIsDeniedBeforeCalculation() {
+        AttendanceReportCalculationOrchestrator orchestrator =
+                mock(AttendanceReportCalculationOrchestrator.class);
+        AttendanceReportProjectionPublicationUseCase useCase =
+                mock(AttendanceReportProjectionPublicationUseCase.class);
+        PeopleRepository peopleRepository = mock(PeopleRepository.class);
+        AuditService auditService = mock(AuditService.class);
+        var service = service(
+                List.of(orchestrator),
+                useCase,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                peopleRepository,
+                auditService);
+
+        assertThatThrownBy(() -> service.publish(
+                OTHER_COMPANY, PERIOD, PeriodState.OPEN, "manual run"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(peopleRepository).canAccessCompany(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                OTHER_COMPANY,
+                NOW);
+        verify(auditService).recordFailure(
+                PRINCIPAL,
+                "ATTENDANCE_REPORT_PUBLISH",
+                "ATTENDANCE_REPORT",
+                OTHER_COMPANY + ":" + PERIOD,
+                "DENIED",
+                "COMPANY_SCOPE_DENIED");
+        verifyNoInteractions(orchestrator, useCase);
+    }
+
+    @Test
+    void expiredCompanyScopeIsDeniedBeforeCalculation() {
+        Instant afterScopeExpiry = Instant.parse("2026-08-09T10:00:00Z");
+        AttendanceReportCalculationOrchestrator orchestrator =
+                mock(AttendanceReportCalculationOrchestrator.class);
+        AttendanceReportProjectionPublicationUseCase useCase =
+                mock(AttendanceReportProjectionPublicationUseCase.class);
+        PeopleRepository peopleRepository = mock(PeopleRepository.class);
+        AuditService auditService = mock(AuditService.class);
+        var service = service(
+                List.of(orchestrator),
+                useCase,
+                Clock.fixed(afterScopeExpiry, ZoneOffset.UTC),
+                peopleRepository,
+                auditService);
+
+        assertThatThrownBy(() -> service.publish(
+                COMPANY, PERIOD, PeriodState.OPEN, "manual run"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(peopleRepository).canAccessCompany(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                COMPANY,
+                afterScopeExpiry);
+        verify(auditService).recordFailure(
+                PRINCIPAL,
+                "ATTENDANCE_REPORT_PUBLISH",
+                "ATTENDANCE_REPORT",
+                COMPANY + ":" + PERIOD,
+                "DENIED",
+                "COMPANY_SCOPE_DENIED");
+        verifyNoInteractions(orchestrator, useCase);
+    }
 
     @Test
     void returnsServiceUnavailableWhenNoOrchestratorIsRegistered() {
@@ -53,11 +127,12 @@ class AttendanceReportPublicationApplicationServiceTest {
     }
 
     @Test
-    void delegatesToOrchestratorAndUseCase() {
+    void sameCompanyScopeDelegatesToOrchestratorAndUseCase() {
         AttendanceReportCalculationOrchestrator orchestrator =
                 mock(AttendanceReportCalculationOrchestrator.class);
         AttendanceReportProjectionPublicationUseCase useCase =
                 mock(AttendanceReportProjectionPublicationUseCase.class);
+        PeopleRepository peopleRepository = mock(PeopleRepository.class);
 
         // PublishCommand is a record — build a minimal real instance
         PublishCommand command = minimalCommand();
@@ -75,12 +150,27 @@ class AttendanceReportPublicationApplicationServiceTest {
                 eq(PRINCIPAL), any()))
                 .thenReturn(command);
         when(useCase.publish(command)).thenReturn(expected);
+        when(peopleRepository.canAccessCompany(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                COMPANY,
+                NOW)).thenReturn(true);
 
-        var service = service(List.of(orchestrator), useCase);
+        var service = service(
+                List.of(orchestrator),
+                useCase,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                peopleRepository,
+                mock(AuditService.class));
         PublicationResult result = service.publish(
                 COMPANY, PERIOD, PeriodState.OPEN, "manual run");
 
         assertThat(result).isEqualTo(expected);
+        verify(peopleRepository).canAccessCompany(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                COMPANY,
+                NOW);
         verify(orchestrator).assemble(
                 eq(COMPANY), eq(PERIOD), eq(PeriodState.OPEN),
                 eq(PRINCIPAL), any());
@@ -163,6 +253,26 @@ class AttendanceReportPublicationApplicationServiceTest {
             List<AttendanceReportCalculationOrchestrator> orchestrators,
             AttendanceReportProjectionPublicationUseCase useCase,
             Clock clock) {
+        PeopleRepository peopleRepository = mock(PeopleRepository.class);
+        when(peopleRepository.canAccessCompany(
+                eq(PRINCIPAL),
+                eq(CapabilityCodes.ATTENDANCE_REPORT_REFRESH),
+                eq(COMPANY),
+                any(Instant.class))).thenReturn(true);
+        return service(
+                orchestrators,
+                useCase,
+                clock,
+                peopleRepository,
+                mock(AuditService.class));
+    }
+
+    private AttendanceReportPublicationApplicationService service(
+            List<AttendanceReportCalculationOrchestrator> orchestrators,
+            AttendanceReportProjectionPublicationUseCase useCase,
+            Clock clock,
+            PeopleRepository peopleRepository,
+            AuditService auditService) {
         CurrentCapabilityService caps = mock(CurrentCapabilityService.class);
         CurrentPrincipalProvider principal =
                 mock(CurrentPrincipalProvider.class);
@@ -170,9 +280,10 @@ class AttendanceReportPublicationApplicationServiceTest {
         return new AttendanceReportPublicationApplicationService(
                 caps,
                 principal,
+                peopleRepository,
                 useCase,
                 orchestrators,
-                mock(AuditService.class),
+                auditService,
                 clock);
     }
 }

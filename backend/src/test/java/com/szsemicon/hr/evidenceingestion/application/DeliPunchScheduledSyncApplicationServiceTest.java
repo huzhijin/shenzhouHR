@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,7 +39,7 @@ class DeliPunchScheduledSyncApplicationServiceTest {
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     @Test
-    void scheduledSyncPropagatesAndEnforcesTheExclusiveTimeLowerBound() {
+    void scheduledSyncCommitsLateArrivalFromTheSourceCursor() {
         AttendanceSourceSyncRepository repository =
                 mock(AttendanceSourceSyncRepository.class);
         DeliPunchPageTransaction transaction =
@@ -58,7 +59,7 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                 500,
                 10_000,
                 0,
-                null);
+                "41");
         when(repository.findAllActiveDeliSourceIds())
                 .thenReturn(List.of("source-1"));
         when(repository.createScheduledDeliJob(
@@ -71,19 +72,19 @@ class DeliPunchScheduledSyncApplicationServiceTest {
         when(source.fetchEmployeeDirectory("source-1"))
                 .thenReturn(Map.of());
         var settings = new DeliPunchSourcePort.FetchSettings(
-                500, ZoneId.of("Asia/Shanghai"), Map.of(), SINCE);
+                500, ZoneId.of("Asia/Shanghai"), Map.of());
         var fetched = new DeliPunchSourcePort.DeliPage(
                 List.of(
-                        punch("at-marker", SINCE),
-                        punch("after-marker", SINCE.plusSeconds(1))),
-                "0",
-                "1",
+                        punch("late-arrival", SINCE.minusSeconds(3_600)),
+                        punch("current-record", NOW)),
+                "41",
+                "42",
                 "a".repeat(64));
         var terminal = new DeliPunchSourcePort.DeliPage(
-                List.of(), "1", "1", "b".repeat(64));
-        when(source.fetchPage("source-1", null, settings))
+                List.of(), "42", "42", "b".repeat(64));
+        when(source.fetchPage("source-1", "41", settings))
                 .thenReturn(fetched);
-        when(source.fetchPage("source-1", "1", settings))
+        when(source.fetchPage("source-1", "42", settings))
                 .thenReturn(terminal);
         when(transaction.commitPage(
                         eq(job),
@@ -94,7 +95,7 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                         any(),
                         eq(configuration),
                         eq(protection)))
-                .thenReturn(new DeliPunchPageTransaction.PageCommitResult(1, 0));
+                .thenReturn(new DeliPunchPageTransaction.PageCommitResult(2, 0));
         when(repository.findCreatedJob("scheduled-job", "SYSTEM"))
                 .thenReturn(Optional.of(new JobStatus(
                         "scheduled-job",
@@ -103,7 +104,7 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                         "DELI_CLOUD",
                         "SUCCEEDED",
                         1,
-                        1,
+                        2,
                         0,
                         null,
                         NOW,
@@ -122,10 +123,10 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                         CLOCK);
 
         AttendanceSourceSyncModels.ScheduledSyncResult result =
-                service.runScheduled(SINCE);
+                service.runScheduled();
 
         assertThat(result.successful()).isTrue();
-        assertThat(result.recordCount()).isEqualTo(1);
+        assertThat(result.recordCount()).isEqualTo(2);
         ArgumentCaptor<DeliPunchSourcePort.DeliPage> committedPage =
                 ArgumentCaptor.forClass(DeliPunchSourcePort.DeliPage.class);
         verify(transaction).commitPage(
@@ -139,20 +140,96 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                 eq(protection));
         assertThat(committedPage.getValue().records())
                 .extracting(DeliPunchSourcePort.DeliPunchRecord::sourceRecordId)
-                .containsExactly("after-marker");
-        verify(source).fetchPage("source-1", null, settings);
+                .containsExactly("late-arrival", "current-record");
+        verify(source).fetchPage("source-1", "41", settings);
         verify(repository).markFinished("scheduled-job", "SUCCEEDED", NOW);
     }
 
     @Test
-    void noActiveSourceCannotAdvanceTheSuccessfulWindow() {
+    void scheduledSyncUsesAnIndependentCursorForEveryActiveSource() {
+        AttendanceSourceSyncRepository repository =
+                mock(AttendanceSourceSyncRepository.class);
+        DeliPunchPageTransaction transaction =
+                mock(DeliPunchPageTransaction.class);
+        DeliPunchSourcePort source = mock(DeliPunchSourcePort.class);
+        AttendanceConfigurationResolverPort configuration =
+                mock(AttendanceConfigurationResolverPort.class);
+        AttendancePeriodProtectionPort protection =
+                mock(AttendancePeriodProtectionPort.class);
+        SourceJobStart existing = job(
+                "existing-job", "source-existing", "73");
+        SourceJobStart newSource = job(
+                "new-job", "source-new", null);
+        when(repository.findAllActiveDeliSourceIds())
+                .thenReturn(List.of("source-existing", "source-new"));
+        when(repository.createScheduledDeliJob(
+                        eq("source-existing"),
+                        anyString(),
+                        anyString(),
+                        eq(NOW)))
+                .thenReturn(AttendanceSourceSyncRepository.StartResult.created(
+                        existing));
+        when(repository.createScheduledDeliJob(
+                        eq("source-new"),
+                        anyString(),
+                        anyString(),
+                        eq(NOW)))
+                .thenReturn(AttendanceSourceSyncRepository.StartResult.created(
+                        newSource));
+        when(source.productionIntegration()).thenReturn(true);
+        when(source.credentialReferenceName())
+                .thenReturn("DELI_EPLUS_APP_CREDENTIALS");
+        when(source.fetchEmployeeDirectory("source-existing"))
+                .thenReturn(Map.of());
+        when(source.fetchEmployeeDirectory("source-new"))
+                .thenReturn(Map.of());
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                500, ZoneId.of("Asia/Shanghai"), Map.of());
+        when(source.fetchPage("source-existing", "73", settings))
+                .thenReturn(new DeliPunchSourcePort.DeliPage(
+                        List.of(), "73", "73", "a".repeat(64)));
+        when(source.fetchPage("source-new", null, settings))
+                .thenReturn(new DeliPunchSourcePort.DeliPage(
+                        List.of(), "0", "0", "b".repeat(64)));
+        when(repository.findCreatedJob("existing-job", "SYSTEM"))
+                .thenReturn(Optional.of(status(
+                        "existing-job", "source-existing", 0)));
+        when(repository.findCreatedJob("new-job", "SYSTEM"))
+                .thenReturn(Optional.of(status(
+                        "new-job", "source-new", 0)));
+        DeliPunchSyncApplicationService service =
+                new DeliPunchSyncApplicationService(
+                        mock(CurrentCapabilityService.class),
+                        mock(CurrentPrincipalProvider.class),
+                        repository,
+                        transaction,
+                        mock(AuditService.class),
+                        List.of(source),
+                        List.of(configuration),
+                        List.of(protection),
+                        CLOCK);
+
+        AttendanceSourceSyncModels.ScheduledSyncResult result =
+                service.runScheduled();
+
+        assertThat(result.successful()).isTrue();
+        assertThat(result.recordCount()).isZero();
+        verify(source).fetchPage("source-existing", "73", settings);
+        verify(source).fetchPage("source-new", null, settings);
+        verify(transaction, never()).commitPage(
+                any(), anyString(), anyString(), anyString(), anyInt(),
+                any(), any(), any());
+    }
+
+    @Test
+    void noActiveSourceReportsScheduledSyncFailure() {
         AttendanceSourceSyncRepository repository =
                 mock(AttendanceSourceSyncRepository.class);
         when(repository.findAllActiveDeliSourceIds()).thenReturn(List.of());
         DeliPunchSyncApplicationService service = service(repository);
 
         AttendanceSourceSyncModels.ScheduledSyncResult result =
-                service.runScheduled(SINCE);
+                service.runScheduled();
 
         assertThat(result.successful()).isFalse();
         assertThat(result.errorMessage())
@@ -160,7 +237,7 @@ class DeliPunchScheduledSyncApplicationServiceTest {
     }
 
     @Test
-    void alreadyRunningSourceCannotAdvanceTheSuccessfulWindow() {
+    void alreadyRunningSourceReportsScheduledSyncFailure() {
         AttendanceSourceSyncRepository repository =
                 mock(AttendanceSourceSyncRepository.class);
         when(repository.findAllActiveDeliSourceIds())
@@ -172,7 +249,7 @@ class DeliPunchScheduledSyncApplicationServiceTest {
         DeliPunchSyncApplicationService service = service(repository);
 
         AttendanceSourceSyncModels.ScheduledSyncResult result =
-                service.runScheduled(SINCE);
+                service.runScheduled();
 
         assertThat(result.successful()).isFalse();
         assertThat(result.errorMessage())
@@ -196,6 +273,38 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                 null,
                 "UNKNOWN",
                 true);
+    }
+
+    private static SourceJobStart job(
+            String jobId, String sourceId, String committedCursor) {
+        return new SourceJobStart(
+                jobId,
+                sourceId,
+                "company-1",
+                "正式得力 E+",
+                "DELI_EPLUS_APP_CREDENTIALS",
+                "Asia/Shanghai",
+                500,
+                10_000,
+                0,
+                committedCursor);
+    }
+
+    private static JobStatus status(
+            String jobId, String sourceId, long acceptedCount) {
+        return new JobStatus(
+                jobId,
+                sourceId,
+                "正式得力 E+",
+                "DELI_CLOUD",
+                "SUCCEEDED",
+                0,
+                acceptedCount,
+                0,
+                null,
+                NOW,
+                NOW,
+                2);
     }
 
     private static DeliPunchSyncApplicationService service(

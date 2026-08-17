@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
+import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
@@ -121,6 +122,106 @@ class AttendanceReportQueryServiceTest {
                 .containsExactly(
                         "REPORT_DRILL_DOWN",
                         "REPORT_EXPORT_CREATE");
+    }
+
+    @Test
+    void productionRealtimePathDoesNotRequireAPublishedProjection() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime =
+                mock(RealtimeAttendanceReportSnapshotService.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7), COMPANY, null, null, null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD));
+        when(realtime.loadAuthorizedSnapshot(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        filter,
+                        null,
+                        NOW))
+                .thenReturn(Optional.of(snapshot(filter)));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                realtime,
+                CLOCK,
+                new AttendanceReportCalculator());
+
+        AttendanceReportPage result = service.query(
+                ReportType.ATTENDANCE_DETAIL,
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                null,
+                0,
+                20);
+
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.allowedActions())
+                .containsExactly("REPORT_DRILL_DOWN");
+        verify(realtime).loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                null,
+                NOW);
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void productionRealtimePathTruncatesTheSystemClockToDatabasePrecision() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime =
+                mock(RealtimeAttendanceReportSnapshotService.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7), COMPANY, null, null, null);
+        Instant systemNow = Instant.parse(
+                "2026-07-29T01:00:00.123456789Z");
+        Instant databaseNow = Instant.parse(
+                "2026-07-29T01:00:00.123456Z");
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(realtime.loadAuthorizedSnapshot(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        filter,
+                        null,
+                        databaseNow))
+                .thenReturn(Optional.of(snapshot(filter)));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                realtime,
+                Clock.fixed(systemNow, ZoneOffset.UTC),
+                new AttendanceReportCalculator());
+
+        assertThat(service.query(
+                ReportType.ATTENDANCE_DETAIL,
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                null,
+                0,
+                20).totalRows()).isEqualTo(1);
+
+        verify(realtime).loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                null,
+                databaseNow);
     }
 
     @Test
@@ -256,6 +357,62 @@ class AttendanceReportQueryServiceTest {
                         CapabilityCodes.ATTENDANCE_REPORT_READ,
                         filter,
                         NOW);
+    }
+
+    @Test
+    void staleRealtimeSnapshotTokenReturnsSafeRetryableConflict() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime =
+                mock(RealtimeAttendanceReportSnapshotService.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7), COMPANY, null, null, null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(realtime.loadAuthorizedSnapshot(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        filter,
+                        "LIVE-older",
+                        NOW))
+                .thenReturn(Optional.of(snapshot(filter)));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                realtime,
+                CLOCK,
+                new AttendanceReportCalculator());
+
+        assertSnapshotChanged(() -> service.query(
+                ReportType.ATTENDANCE_DETAIL,
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                null,
+                "LIVE-older",
+                0,
+                50));
+        assertSnapshotChanged(() -> service.queryMonthMatrix(
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                "LIVE-older",
+                0,
+                20));
+
+        verify(realtime, org.mockito.Mockito.times(2))
+                .loadAuthorizedSnapshot(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        filter,
+                        "LIVE-older",
+                        NOW);
+        verifyNoInteractions(repository);
     }
 
     @Test
@@ -503,6 +660,22 @@ class AttendanceReportQueryServiceTest {
                             assertThat(problem.retryable()).isFalse();
                             assertThat(problem.getMessage())
                                     .doesNotContain("projection-1");
+                        });
+    }
+
+    private static void assertSnapshotChanged(
+            org.assertj.core.api.ThrowableAssert.ThrowingCallable operation) {
+        assertThatThrownBy(operation)
+                .isInstanceOfSatisfying(
+                        ApiProblemException.class,
+                        problem -> {
+                            assertThat(problem.status())
+                                    .isEqualTo(HttpStatus.CONFLICT);
+                            assertThat(problem.code()).isEqualTo(
+                                    "ATTENDANCE_REPORT_SNAPSHOT_CHANGED");
+                            assertThat(problem.retryable()).isTrue();
+                            assertThat(problem.getMessage())
+                                    .doesNotContain("LIVE-older");
                         });
     }
 

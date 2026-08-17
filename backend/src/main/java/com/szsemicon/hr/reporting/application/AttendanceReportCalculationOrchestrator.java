@@ -6,48 +6,42 @@ import java.time.Instant;
 import java.time.YearMonth;
 
 /**
- * Assembles a {@link PublishCommand} from the current attendance calculation
- * state for a given company-month.
+ * Performs the side-effect-free batch attendance calculation for one
+ * company-month.
+ *
+ * <p>The returned {@link PublishCommand} is an in-memory calculation result;
+ * this interface never persists or publishes a report projection. Realtime
+ * report reads consume the result directly, while the optional compatibility
+ * publication flow may persist the same result afterwards.
  *
  * <p>The implementation must:
  * <ol>
- *   <li>Iterate every active employee in the company.</li>
- *   <li>For each day in the period load the calculation snapshot via
- *       {@code AttendanceCalculationPorts.AttendanceInputSnapshotAssembler}.</li>
+ *   <li>Load identities, schedules, policies and committed Deli/OA evidence in
+ *       bounded company-period batches.</li>
  *   <li>Run {@code DeterministicAttendanceCalculator.calculate()} for each
- *       employee-day that has a snapshot.</li>
+ *       resolvable employee-day entirely in memory.</li>
  *   <li>Project the results with {@code AttendanceReportFactProjector}.</li>
- *   <li>Combine the results into a {@link PublishCommand} and return it.</li>
+ *   <li>Combine the results into a deterministic {@link PublishCommand} and
+ *       return it without database writes.</li>
  * </ol>
- *
- * <p>This interface is intentionally left without an implementation for now.
- * Register a Spring {@code @Service} that implements it to activate the
- * manual publication endpoint.</p>
- *
- * <p>TODO: Implement this interface once the following adapters are wired:
- * <ul>
- *   <li>{@code AttendanceCalculationPorts.AttendanceInputSnapshotAssembler}</li>
- *   <li>{@code AttendanceCalculationPorts.AttendanceEvidenceSnapshotPort}</li>
- *   <li>{@code AttendanceCalculationPorts.AttendanceCalculationVersionStore}</li>
- * </ul>
  */
 public interface AttendanceReportCalculationOrchestrator {
 
     /**
-     * Assembles a publication command for the given company-month.
+     * Calculates the current committed input snapshot for the company-month.
      *
      * @param companyId   legal entity ID
      * @param period      target calendar month
      * @param periodState state to publish the period as
      * @param principalId the triggering user
      * @param dataAsOf    the knowledge cutoff for the snapshot
-     * @return a fully-assembled command ready for
-     *         {@link AttendanceReportProjectionPublicationUseCase#publish}
+     * @return a deterministic in-memory result that realtime reads can consume
+     *         directly and the compatibility publication path can persist
      */
     PublishCommand assemble(
             String companyId,
             YearMonth period,
             PeriodState periodState,
             String principalId,
-            java.time.Instant dataAsOf);
+            Instant dataAsOf);
 }

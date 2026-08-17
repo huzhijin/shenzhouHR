@@ -12,7 +12,9 @@ import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -31,6 +33,7 @@ public class AttendanceReportQueryService {
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principalProvider;
     private final AttendanceReportSourceRepository repository;
+    private final RealtimeAttendanceReportSnapshotService realtimeSnapshots;
     private final Clock clock;
     private final AttendanceReportCalculator calculator;
 
@@ -39,11 +42,27 @@ public class AttendanceReportQueryService {
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principalProvider,
             AttendanceReportSourceRepository repository,
+            RealtimeAttendanceReportSnapshotService realtimeSnapshots,
             Clock clock) {
         this(
                 capabilities,
                 principalProvider,
                 repository,
+                realtimeSnapshots,
+                clock,
+                new AttendanceReportCalculator());
+    }
+
+    AttendanceReportQueryService(
+            CurrentCapabilityService capabilities,
+            CurrentPrincipalProvider principalProvider,
+            AttendanceReportSourceRepository repository,
+            Clock clock) {
+        this(
+                capabilities,
+                principalProvider,
+                repository,
+                null,
                 clock,
                 new AttendanceReportCalculator());
     }
@@ -54,9 +73,26 @@ public class AttendanceReportQueryService {
             AttendanceReportSourceRepository repository,
             Clock clock,
             AttendanceReportCalculator calculator) {
+        this(
+                capabilities,
+                principalProvider,
+                repository,
+                null,
+                clock,
+                calculator);
+    }
+
+    AttendanceReportQueryService(
+            CurrentCapabilityService capabilities,
+            CurrentPrincipalProvider principalProvider,
+            AttendanceReportSourceRepository repository,
+            RealtimeAttendanceReportSnapshotService realtimeSnapshots,
+            Clock clock,
+            AttendanceReportCalculator calculator) {
         this.capabilities = capabilities;
         this.principalProvider = principalProvider;
         this.repository = repository;
+        this.realtimeSnapshots = realtimeSnapshots;
         this.clock = clock;
         this.calculator = calculator;
     }
@@ -72,7 +108,7 @@ public class AttendanceReportQueryService {
                 principalProvider.currentPrincipalId(),
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 period,
-                clock.instant());
+                currentDatabaseInstant());
     }
 
     @Transactional(readOnly = true)
@@ -129,20 +165,17 @@ public class AttendanceReportQueryService {
         capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_READ);
         Set<String> currentCapabilities = capabilities.currentCapabilities();
         String principalId = principalProvider.currentPrincipalId();
-        var at = clock.instant();
-        var snapshot = repository.loadAuthorizedSnapshot(
+        var at = currentDatabaseInstant();
+        var snapshot = loadSnapshot(
                         principalId,
-                        CapabilityCodes.ATTENDANCE_REPORT_READ,
                         filter,
+                        normalizedExpectedProjectionVersion,
                         at)
-                .orElseThrow(() -> new ApiProblemException(
-                        HttpStatus.CONFLICT,
-                        "ATTENDANCE_REPORT_PROJECTION_NOT_READY",
-                        "当前期间尚无已发布的报表投影",
-                        true));
+                .orElseThrow(this::snapshotUnavailable);
         requireSameProjectionVersion(
                 normalizedExpectedProjectionVersion,
-                snapshot.projectionVersion());
+                snapshot.projectionVersion(),
+                realtimeSnapshots != null);
         var dataSet = calculator.calculate(reportType, snapshot);
         int from = Math.min(
                 Math.multiplyExact(page, size), dataSet.rows().size());
@@ -227,20 +260,17 @@ public class AttendanceReportQueryService {
         capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_READ);
         Set<String> currentCapabilities = capabilities.currentCapabilities();
         String principalId = principalProvider.currentPrincipalId();
-        var at = clock.instant();
-        var snapshot = repository.loadAuthorizedSnapshot(
+        var at = currentDatabaseInstant();
+        var snapshot = loadSnapshot(
                         principalId,
-                        CapabilityCodes.ATTENDANCE_REPORT_READ,
                         filter,
+                        normalizedExpectedProjectionVersion,
                         at)
-                .orElseThrow(() -> new ApiProblemException(
-                        HttpStatus.CONFLICT,
-                        "ATTENDANCE_REPORT_PROJECTION_NOT_READY",
-                        "当前期间尚无已发布的报表投影",
-                        true));
+                .orElseThrow(this::snapshotUnavailable);
         requireSameProjectionVersion(
                 normalizedExpectedProjectionVersion,
-                snapshot.projectionVersion());
+                snapshot.projectionVersion(),
+                realtimeSnapshots != null);
         var matrix = AttendanceMonthMatrixAssembler.assemble(snapshot);
         int from = Math.min(
                 Math.multiplyExact(page, size), matrix.rows().size());
@@ -290,6 +320,9 @@ public class AttendanceReportQueryService {
             java.time.Instant authorizationTime) {
         var actions = new ArrayList<String>();
         actions.add("REPORT_DRILL_DOWN");
+        if (realtimeSnapshots != null) {
+            return actions;
+        }
         if (currentCapabilities.contains(
                         CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE)
                 && capabilityCoversVisibleReport(
@@ -313,6 +346,44 @@ public class AttendanceReportQueryService {
             actions.add("REPORT_EXPORT_DOWNLOAD");
         }
         return actions;
+    }
+
+    private java.util.Optional<ReportSourceSnapshot> loadSnapshot(
+            String principalId,
+            ReportFilter filter,
+            String expectedSnapshotVersion,
+            java.time.Instant authorizationTime) {
+        if (realtimeSnapshots != null) {
+            return realtimeSnapshots.loadAuthorizedSnapshot(
+                    principalId,
+                    CapabilityCodes.ATTENDANCE_REPORT_READ,
+                    filter,
+                    expectedSnapshotVersion,
+                    authorizationTime);
+        }
+        return repository.loadAuthorizedSnapshot(
+                principalId,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                authorizationTime);
+    }
+
+    private Instant currentDatabaseInstant() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    private ApiProblemException snapshotUnavailable() {
+        if (realtimeSnapshots == null) {
+            return new ApiProblemException(
+                    HttpStatus.CONFLICT,
+                    "ATTENDANCE_REPORT_PROJECTION_NOT_READY",
+                    "当前期间尚无已发布的报表投影",
+                    true);
+        }
+        return new ApiProblemException(
+                HttpStatus.FORBIDDEN,
+                "ATTENDANCE_REPORT_SCOPE_NOT_AVAILABLE",
+                "当前用户没有该报表范围的访问权限");
     }
 
     private boolean capabilityCoversVisibleReport(
@@ -404,11 +475,19 @@ public class AttendanceReportQueryService {
 
     private static void requireSameProjectionVersion(
             String expectedProjectionVersion,
-            String actualProjectionVersion) {
+            String actualProjectionVersion,
+            boolean realtime) {
         if (expectedProjectionVersion == null
                 || expectedProjectionVersion.equals(
                         actualProjectionVersion)) {
             return;
+        }
+        if (realtime) {
+            throw new ApiProblemException(
+                    HttpStatus.CONFLICT,
+                    "ATTENDANCE_REPORT_SNAPSHOT_CHANGED",
+                    "考勤输入快照已更新，请返回第一页重新加载",
+                    true);
         }
         throw new ApiProblemException(
                 HttpStatus.CONFLICT,

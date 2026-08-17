@@ -27,8 +27,11 @@ public interface DeliSyncLogRepository {
     Optional<DeliSyncLogModels.SyncStatus> findLatestCompleted();
 
     /**
-     * Returns the exclusive lower-bound marker established by the latest
-     * successful run. Failed runs are deliberately excluded.
+     * Legacy observational query for the end time recorded by the latest
+     * successful scheduler run. This value is not an ingestion cursor and
+     * must never be used to select or filter Deli punch records; each source's
+     * committed {@code attendance_sync_watermark.committed_cursor}, which
+     * carries the provider {@code next_id}, is authoritative.
      */
     Optional<Instant> findLastSuccessfulSyncTime();
 

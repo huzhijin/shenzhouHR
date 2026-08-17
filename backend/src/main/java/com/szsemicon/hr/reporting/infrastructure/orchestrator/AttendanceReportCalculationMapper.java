@@ -10,6 +10,8 @@ import com.szsemicon.hr.reporting.infrastructure.orchestrator
         .AttendanceReportCalculationRows.PunchCorrectionRow;
 import com.szsemicon.hr.reporting.infrastructure.orchestrator
         .AttendanceReportCalculationRows.PunchExemptionRoleIntervalRow;
+import com.szsemicon.hr.reporting.infrastructure.orchestrator
+        .AttendanceReportCalculationRows.SourceInputVersionRow;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -23,6 +25,15 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 interface AttendanceReportCalculationMapper {
+
+    /**
+     * Returns the active Deli/OA source revisions and latest page committed by
+     * the report knowledge cutoff. This is one bounded company query and does
+     * not expose raw provider cursors.
+     */
+    List<SourceInputVersionRow> findAttendanceSourceVersions(
+            @Param("companyId") String companyId,
+            @Param("dataAsOf") Instant dataAsOf);
 
     /**
      * Returns every active employee identity interval that overlaps the
@@ -62,8 +73,9 @@ interface AttendanceReportCalculationMapper {
             @Param("windowEndExclusive") Instant windowEndExclusive);
 
     /**
-     * Returns the published work-calendar days for the company inside the
-     * period. Days absent from the calendar are classified by weekday.
+     * Returns each employee's uniquely effective attendance-group calendar
+     * authority inside the period. Missing or ambiguous employee-day rows are
+     * rejected by the orchestrator rather than guessed from the weekday.
      */
     List<CalendarDayRow> findPublishedCalendarDays(
             @Param("companyId") String companyId,
@@ -118,10 +130,16 @@ interface AttendanceReportCalculationMapper {
             @Param("dataAsOf") Instant dataAsOf);
 
     /**
-     * Returns the attendance policy configuration for the company.
-     * If no policy is found, returns null and the orchestrator will use
-     * default values.
+     * Returns the policy authority for each employee/business-date pair.
+     * Late-grace policies are resolved through the employee's effective
+     * attendance-group revision while deadline policies are resolved from the
+     * company scope. Candidate cardinalities are retained so the orchestrator
+     * can fail closed on missing or ambiguous authority.
      */
-    AttendanceReportCalculationRows.AttendancePolicyRow findAttendancePolicy(
-            @Param("companyId") String companyId);
+    List<AttendanceReportCalculationRows.AttendancePolicyRow>
+            findAttendancePolicies(
+                    @Param("companyId") String companyId,
+                    @Param("periodStart") LocalDate periodStart,
+                    @Param("periodEndExclusive") LocalDate periodEndExclusive,
+                    @Param("dataAsOf") Instant dataAsOf);
 }

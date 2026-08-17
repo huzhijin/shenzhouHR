@@ -151,6 +151,35 @@ describe('customer report center live directory', () => {
     expect(directoryCallsFor('company-a', currentMonth)).toHaveLength(1);
   });
 
+  it('shows the realtime snapshot metadata and refreshes every live input', async () => {
+    render(<CustomerReportCenterPage />);
+
+    expect(screen.queryByRole('button', { name: '导出当前报表' }))
+      .not.toBeInTheDocument();
+    expect(await screen.findByText('实时计算于 2026-08-12 08:00'))
+      .toBeInTheDocument();
+    const sourceCutoffs = screen.getByText(
+      '得力截止 2026-08-12 08:00 · OA截止 未同步',
+    );
+    expect(sourceCutoffs).toBeInTheDocument();
+    expect(sourceCutoffs).toHaveAttribute(
+      'title',
+      expect.stringContaining('MODEL:ATTENDANCE-RULES-V1'),
+    );
+    await waitFor(() => expect(apiMocks.loadCustomerReportDirectory).toHaveBeenCalled());
+
+    const scopeCalls = apiMocks.loadCustomerReportScopes.mock.calls.length;
+    const directoryCalls = apiMocks.loadCustomerReportDirectory.mock.calls.length;
+    const reportCalls = apiMocks.loadCustomerReport.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '刷新数据' }));
+
+    await waitFor(() => {
+      expect(apiMocks.loadCustomerReportScopes.mock.calls.length).toBeGreaterThan(scopeCalls);
+      expect(apiMocks.loadCustomerReportDirectory.mock.calls.length).toBeGreaterThan(directoryCalls);
+      expect(apiMocks.loadCustomerReport.mock.calls.length).toBeGreaterThan(reportCalls);
+    });
+  });
+
   it('searches permission scopes by company label/reference and retries directory failures', async () => {
     apiMocks.loadCustomerReportDirectory
       .mockRejectedValueOnce(new Error('目录加载失败'))
@@ -195,6 +224,11 @@ function liveReport(
       isDemo: false,
       company: scope.label,
       generatedAt: '2026-08-12T00:00:00Z',
+      sourceVersions: [
+        'MODEL:ATTENDANCE-RULES-V1',
+        `SOURCE.DELI_CLOUD:2026-08-12T00:00:00Z:${'a'.repeat(64)}`,
+        `SOURCE.OA_ATTENDANCE:UNSYNCED:${'b'.repeat(64)}`,
+      ],
       month: filters.month,
       monthLabel: monthLabel(filters.month),
       rowCount: attendanceRows.length,

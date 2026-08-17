@@ -108,14 +108,14 @@
 - [x] 9.2 Create `DeliSyncLogRepository` for database access to `deli_sync_log` table
 - [x] 9.3 Update `DeliSyncJob.run()` to log sync execution to `deli_sync_log` table
 - [x] 9.4 Log fields: sync_time, status (success/failure), record_count, error_message
-- [x] 9.5 Implement incremental sync: retrieve records with timestamp > last successful sync time
-- [x] 9.6 On sync failure, do NOT update "last successful sync time" marker (allows retry to catch missed records)
+- [x] 9.5 Implement per-source incremental sync from the committed provider `next_id`; never filter returned records by the global sync-log time
+- [x] 9.6 On a failed page, do NOT advance beyond the last atomically committed provider cursor; preserve earlier committed pages
 - [x] 9.7 Create REST endpoint `GET /api/attendance/deli-sync/status` to retrieve last sync log entry
 - [x] 9.8 Add DTO for sync status display: lastSyncTime, recordCount, status, errorMessage
 - [x] 9.9 Configure log retention: delete entries older than 30 days (via scheduled cleanup job)
 - [x] 9.10 Remove any existing alert threshold logic (no yellow/red status)
 - [x] 9.11 Add test: verify cron schedule triggers at top of hour
-- [x] 9.12 Add test: sync failure does not advance last sync time marker
+- [x] 9.12 Add tests: late-arriving records are retained and a failed page resumes from the last committed provider cursor
 
 ## 10. Department Aggregation and Job Transfer Allocation
 

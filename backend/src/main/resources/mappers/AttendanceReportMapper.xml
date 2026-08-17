@@ -744,6 +744,8 @@
         WHERE projection.period_start = #{periodStart}
           AND projection.period_end_exclusive = #{periodEndExclusive}
           AND projection.status = 'PUBLISHED'
+          AND projection.formula_catalog_version =
+              'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
           AND projection.published_at &lt;= #{authorizationTime}
           AND <include refid="dashboardProjectionVisibility"/>
         ORDER BY company.name, projection.company_id
@@ -762,6 +764,8 @@
           AND projection.period_end_exclusive = #{periodEndExclusive}
           AND projection.company_id = #{companyId}
           AND projection.status = 'PUBLISHED'
+          AND projection.formula_catalog_version =
+              'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
           AND projection.published_at &lt;= #{authorizationTime}
           AND <include refid="dashboardProjectionVisibility"/>
           AND NOT EXISTS (
@@ -773,6 +777,8 @@
                   AND newer_projection.period_end_exclusive =
                     #{periodEndExclusive}
                   AND newer_projection.status = 'PUBLISHED'
+                  AND newer_projection.formula_catalog_version =
+                      'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
                   AND newer_projection.published_at &lt;=
                     #{authorizationTime}
                   AND (
@@ -1106,18 +1112,286 @@
 
     <select id="listAuthorizedCompanies"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$CompanyRow">
-        SELECT DISTINCT projection.company_id,
+        SELECT DISTINCT company.company_id,
                company.name AS company_name
-        FROM attendance_report_projection projection
-        JOIN company company
-          ON company.company_id = projection.company_id
-         AND company.status = 'ACTIVE'
-        WHERE projection.period_start = #{periodStart}
-          AND projection.period_end_exclusive = #{periodEndExclusive}
-          AND projection.status = 'PUBLISHED'
-          AND projection.published_at &lt;= #{authorizationTime}
-          AND <include refid="reportProjectionVisibility"/>
-        ORDER BY company.name, projection.company_id
+        FROM company company
+        WHERE company.status = 'ACTIVE'
+          AND EXISTS (
+                SELECT 1
+                FROM auth_principal principal
+                JOIN auth_principal_role_assignment role_assignment
+                  ON role_assignment.principal_id = principal.principal_id
+                JOIN auth_role_capability role_capability
+                  ON role_capability.role_id = role_assignment.role_id
+                JOIN auth_capability capability
+                  ON capability.capability_id = role_capability.capability_id
+                 AND capability.capability_code = #{capabilityCode}
+                 AND capability.capability_code = 'ATTENDANCE_REPORT:READ'
+                JOIN auth_data_scope data_scope
+                  ON data_scope.scope_id = role_assignment.data_scope_id
+                WHERE principal.principal_id = #{principalId}
+                  AND principal.status = 'ACTIVE'
+                  AND role_assignment.valid_from &lt;= #{authorizationTime}
+                  AND (
+                        role_assignment.valid_to IS NULL
+                        OR role_assignment.valid_to &gt; #{authorizationTime}
+                  )
+                  AND data_scope.valid_from &lt;= #{authorizationTime}
+                  AND (
+                        data_scope.valid_to IS NULL
+                        OR data_scope.valid_to &gt; #{authorizationTime}
+                  )
+                  AND (
+                        (
+                            data_scope.scope_type = 'COMPANY'
+                            AND data_scope.company_id = company.company_id
+                        )
+                        OR (
+                            data_scope.scope_type = 'ORGANIZATION'
+                            AND EXISTS (
+                                SELECT 1
+                                FROM organization_identity scoped_organization
+                                JOIN organization_current_projection
+                                    scoped_projection
+                                  ON scoped_projection.organization_id =
+                                     scoped_organization.organization_id
+                                JOIN organization_version scoped_version
+                                  ON scoped_version.organization_version_id =
+                                     scoped_projection.current_version_id
+                                 AND scoped_version.organization_id =
+                                     scoped_organization.organization_id
+                                WHERE scoped_organization.organization_id =
+                                    data_scope.organization_id
+                                  AND scoped_organization.company_id =
+                                    company.company_id
+                                  AND scoped_organization.identity_status =
+                                    'ACTIVE'
+                                  AND scoped_version.status = 'ACTIVE'
+                                  AND scoped_version.effective_from
+                                    &lt;= #{authorizationTime}
+                                  AND (
+                                        scoped_version.effective_to IS NULL
+                                        OR scoped_version.effective_to
+                                            &gt; #{authorizationTime}
+                                  )
+                            )
+                        )
+                        OR (
+                            data_scope.scope_type = 'SELF'
+                            AND principal.employee_id IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1
+                                FROM employee self_employee
+                                WHERE self_employee.employee_id =
+                                    principal.employee_id
+                                  AND self_employee.company_id =
+                                    company.company_id
+                            )
+                        )
+                  )
+          )
+        ORDER BY company.name, company.company_id
+    </select>
+
+    <select id="listRealtimeAuthorizedScopes"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$ScopeRow">
+        SELECT DISTINCT data_scope.scope_id,
+               data_scope.scope_type,
+               data_scope.company_id,
+               data_scope.organization_id,
+               data_scope.include_descendants,
+               principal.employee_id AS principal_employee_id
+        FROM company target_company
+        JOIN auth_principal principal
+          ON principal.principal_id = #{principalId}
+         AND principal.status = 'ACTIVE'
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = principal.principal_id
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capabilityCode}
+         AND capability.capability_code IN (
+                'ATTENDANCE_REPORT:READ',
+                'ATTENDANCE_REPORT:EXPORT_CREATE',
+                'ATTENDANCE_REPORT:EXPORT_DOWNLOAD'
+         )
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+        WHERE target_company.company_id = #{companyId}
+          AND target_company.status = 'ACTIVE'
+          AND role_assignment.valid_from &lt;= #{authorizationTime}
+          AND (
+                role_assignment.valid_to IS NULL
+                OR role_assignment.valid_to &gt; #{authorizationTime}
+          )
+          AND data_scope.valid_from &lt;= #{authorizationTime}
+          AND (
+                data_scope.valid_to IS NULL
+                OR data_scope.valid_to &gt; #{authorizationTime}
+          )
+          AND (
+                (
+                    data_scope.scope_type = 'COMPANY'
+                    AND data_scope.company_id = target_company.company_id
+                    AND data_scope.organization_id IS NULL
+                )
+                OR (
+                    data_scope.scope_type = 'ORGANIZATION'
+                    AND data_scope.company_id IS NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM organization_identity scoped_organization
+                        JOIN organization_current_projection scoped_projection
+                          ON scoped_projection.organization_id =
+                             scoped_organization.organization_id
+                        JOIN organization_version scoped_version
+                          ON scoped_version.organization_version_id =
+                             scoped_projection.current_version_id
+                         AND scoped_version.organization_id =
+                             scoped_organization.organization_id
+                        WHERE scoped_organization.organization_id =
+                            data_scope.organization_id
+                          AND scoped_organization.company_id =
+                            target_company.company_id
+                          AND scoped_organization.identity_status = 'ACTIVE'
+                          AND scoped_version.status = 'ACTIVE'
+                          AND scoped_version.effective_from
+                            &lt;= #{authorizationTime}
+                          AND (
+                                scoped_version.effective_to IS NULL
+                                OR scoped_version.effective_to
+                                    &gt; #{authorizationTime}
+                          )
+                    )
+                )
+                OR (
+                    data_scope.scope_type = 'SELF'
+                    AND data_scope.company_id IS NULL
+                    AND data_scope.organization_id IS NULL
+                    AND principal.employee_id IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM employee self_employee
+                        WHERE self_employee.employee_id =
+                            principal.employee_id
+                          AND self_employee.company_id =
+                            target_company.company_id
+                    )
+                )
+          )
+        ORDER BY data_scope.scope_type, data_scope.scope_id
+    </select>
+
+    <select id="listAuthorizedOrganizationIds" resultType="string">
+        SELECT DISTINCT candidate_organization.organization_id
+        FROM company target_company
+        JOIN organization_identity candidate_organization
+          ON candidate_organization.company_id = target_company.company_id
+         AND candidate_organization.identity_status = 'ACTIVE'
+        JOIN organization_current_projection candidate_projection
+          ON candidate_projection.organization_id =
+             candidate_organization.organization_id
+        JOIN organization_version candidate_version
+          ON candidate_version.organization_version_id =
+             candidate_projection.current_version_id
+         AND candidate_version.organization_id =
+             candidate_organization.organization_id
+         AND candidate_version.status = 'ACTIVE'
+         AND candidate_version.effective_from &lt;= #{authorizationTime}
+         AND (
+                candidate_version.effective_to IS NULL
+                OR candidate_version.effective_to &gt; #{authorizationTime}
+         )
+        WHERE target_company.company_id = #{companyId}
+          AND target_company.status = 'ACTIVE'
+          AND (
+                <foreach collection="scopes" item="scope"
+                         separator=" OR ">
+                    (
+                        (
+                            #{scope.scopeType} = 'COMPANY'
+                            AND #{scope.companyId} =
+                                target_company.company_id
+                        )
+                        OR (
+                            #{scope.scopeType} = 'ORGANIZATION'
+                            AND EXISTS (
+                                SELECT 1
+                                FROM organization_identity scoped_organization
+                                JOIN organization_current_projection
+                                    scoped_projection
+                                  ON scoped_projection.organization_id =
+                                     scoped_organization.organization_id
+                                JOIN organization_version scoped_version
+                                  ON scoped_version.organization_version_id =
+                                     scoped_projection.current_version_id
+                                 AND scoped_version.organization_id =
+                                     scoped_organization.organization_id
+                                 AND scoped_version.status = 'ACTIVE'
+                                 AND scoped_version.effective_from
+                                    &lt;= #{authorizationTime}
+                                 AND (
+                                        scoped_version.effective_to IS NULL
+                                        OR scoped_version.effective_to
+                                            &gt; #{authorizationTime}
+                                 )
+                                WHERE scoped_organization.organization_id =
+                                    #{scope.organizationId}
+                                  AND scoped_organization.company_id =
+                                    target_company.company_id
+                                  AND scoped_organization.identity_status =
+                                    'ACTIVE'
+                            )
+                            AND (
+                                #{scope.organizationId} =
+                                    candidate_organization.organization_id
+                                OR (
+                                    #{scope.includeDescendants} = TRUE
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM organization_current_closure
+                                            closure
+                                        WHERE
+                                            closure.ancestor_organization_id =
+                                                #{scope.organizationId}
+                                          AND
+                                            closure.descendant_organization_id =
+                                                candidate_organization.organization_id
+                                    )
+                                )
+                            )
+                        )
+                        OR (
+                            #{scope.scopeType} = 'SELF'
+                            AND EXISTS (
+                                SELECT 1
+                                FROM employee principal_employee
+                                JOIN employment_assignment current_assignment
+                                  ON current_assignment.employee_id =
+                                     principal_employee.employee_id
+                                 AND current_assignment.organization_id =
+                                     candidate_organization.organization_id
+                                 AND current_assignment.record_status = 'ACTIVE'
+                                 AND current_assignment.version_valid_to IS NULL
+                                 AND current_assignment.effective_from
+                                    &lt;= #{authorizationTime}
+                                 AND (
+                                        current_assignment.effective_to IS NULL
+                                        OR current_assignment.effective_to
+                                            &gt; #{authorizationTime}
+                                 )
+                                WHERE principal_employee.employee_id =
+                                    #{scope.principalEmployeeId}
+                                  AND principal_employee.company_id =
+                                    target_company.company_id
+                            )
+                        )
+                    )
+                </foreach>
+          )
+        ORDER BY candidate_organization.organization_id
     </select>
 
     <select id="listLatestAuthorizedProjections"
@@ -1136,6 +1410,8 @@
                 OR projection.company_id = #{companyId}
           )
           AND projection.status = 'PUBLISHED'
+          AND projection.formula_catalog_version =
+              'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
           AND projection.published_at &lt;= #{authorizationTime}
           AND <include refid="reportProjectionVisibility"/>
           AND NOT EXISTS (
@@ -1147,6 +1423,8 @@
                   AND newer_projection.period_end_exclusive =
                     #{periodEndExclusive}
                   AND newer_projection.status = 'PUBLISHED'
+                  AND newer_projection.formula_catalog_version =
+                      'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
                   AND newer_projection.published_at &lt;=
                     #{authorizationTime}
                   AND (

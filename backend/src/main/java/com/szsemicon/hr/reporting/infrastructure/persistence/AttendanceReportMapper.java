@@ -106,8 +106,17 @@ interface AttendanceReportMapper {
     List<ReportRows.CompanyRow> listAuthorizedCompanies(
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,
-            @Param("periodStart") LocalDate periodStart,
-            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("authorizationTime") Instant authorizationTime);
+
+    List<ReportRows.ScopeRow> listRealtimeAuthorizedScopes(
+            @Param("principalId") String principalId,
+            @Param("capabilityCode") String capabilityCode,
+            @Param("companyId") String companyId,
+            @Param("authorizationTime") Instant authorizationTime);
+
+    List<String> listAuthorizedOrganizationIds(
+            @Param("companyId") String companyId,
+            @Param("scopes") List<ReportRows.ScopeRow> scopes,
             @Param("authorizationTime") Instant authorizationTime);
 
     List<ReportRows.ProjectionRow> listLatestAuthorizedProjections(

@@ -282,8 +282,10 @@ x-delivery-contract:
         - { method: GET, path: /me/attendance/feedback, responseSchema: AttendanceFeedbackPage, errors: [401, 403] }
         - { method: POST, path: /me/attendance/feedback, requestSchema: AttendanceFeedbackRequest, responseSchema: AttendanceFeedbackView, errors: [400, 401, 403, 409, 422] }
         - { method: GET, path: /team/attendance, responseSchema: TeamAttendancePage, errors: [401, 403] }
-        - { method: GET, path: /attendance-reports/companies, responseSchema: AttendanceReportCompanyDirectory, errors: [401, 403] }
-        - { method: GET, path: /attendance-reports, responseSchema: AttendanceReportPage, errors: [401, 403] }
+        - { method: GET, path: /attendance-reports/companies, responseSchema: AttendanceReportCompanyDirectory, errors: [400, 401, 403] }
+        - { method: GET, path: /attendance-reports, responseSchema: AttendanceReportPage, errors: [400, 401, 403, 409] }
+        - { method: GET, path: /attendance-reports/month-matrix, responseSchema: AttendanceMonthMatrixPage, errors: [400, 401, 403, 409] }
+        - { method: POST, path: /attendance-reports/publications, requestSchema: AttendanceReportPublicationRequest, responseSchema: AttendanceReportPublicationView, errors: [400, 401, 403, 500, 503] }
         - { method: POST, path: /attendance-reports/exports, requestSchema: AttendanceReportExportCreateRequest, responseSchema: AttendanceReportExportView, errors: [400, 401, 403, 409] }
         - { method: GET, path: '/attendance-reports/exports/{exportId}', responseSchema: AttendanceReportExportView, errors: [401, 403, 404] }
         - { method: POST, path: '/attendance-reports/exports/{exportId}/download', responseSchema: binary, errors: [400, 401, 403, 404, 409, 410] }
@@ -5066,7 +5068,9 @@ paths:
       x-capability: ATTENDANCE_REPORT:READ
       description: |
         服务端先按当前主体、有效角色、当前任职及公司/组织/本人数据范围过滤，
-        再对已发布的不可变月度投影进行聚合和分页。客户端筛选只能缩小范围。
+        再以请求时最新已提交的得力打卡、OA 单据及其来源水位，以及业务日期内有效的人员组织、
+        班次、考勤组、日历和规则版本形成一致输入快照并实时计算。查询不要求已发布
+        报表投影、人工发布、审批、重新打开或重新发布；客户端筛选只能缩小授权范围。
       parameters:
         - name: reportType
           in: query
@@ -5116,7 +5120,7 @@ paths:
             default: 50
       responses:
         '200':
-          description: 授权范围内的正式报表页
+          description: 授权范围内基于当前已提交输入快照实时计算的正式报表页
           headers:
             Cache-Control: { schema: { type: string, const: no-store } }
             X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
@@ -5126,16 +5130,16 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409': { $ref: '#/components/responses/AttendanceReportRealtimeConflict' }
   /attendance-reports/month-matrix:
     get:
       tags: [AttendanceReports]
       operationId: getAttendanceMonthMatrix
       x-capability: ATTENDANCE_REPORT:READ
       description: |
-        按员工分页返回正式月度考勤矩阵。状态标签仅由授权后的已发布报表投影中
-        的每日结果、有效 OA 单据和异常事实组合；颜色只是客户端展示提示，
-        不参与考勤结果计算。同一天的多个不同状态全部返回。
+        按员工分页返回由同一实时输入快照计算的正式月度考勤矩阵。状态标签由最新
+        已提交的得力打卡、有效 OA 单据、班次和规则计算结果组合；不要求先发布报表
+        投影。颜色只是客户端展示提示，不参与计算；同一天的多个不同状态全部返回。
       parameters:
         - name: period
           in: query
@@ -5179,7 +5183,7 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409': { $ref: '#/components/responses/AttendanceReportRealtimeConflict' }
   /attendance-reports/companies:
     get:
       tags: [AttendanceReports]
@@ -5187,7 +5191,8 @@ paths:
       x-capability: ATTENDANCE_REPORT:READ
       description: |
         只返回当前主体在指定月份具备有效 ATTENDANCE_REPORT:READ 数据范围、
-        且存在已发布正式投影的公司安全名称；不返回未授权或未发布公司。
+        且公司与任职在当前有效边界内的安全名称；不依赖已发布报表投影，也不返回
+        未授权公司。
       parameters:
         - name: period
           in: query
@@ -5208,6 +5213,56 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-reports/publications:
+    post:
+      tags: [AttendanceReports]
+      operationId: publishAttendanceReport
+      x-capability: ATTENDANCE_REPORT:REFRESH
+      description: |
+        为指定公司和月份触发一次服务端核算并发布不可变正式投影。
+        该端点仅供兼容或内部留档，不是 GET 实时报表或默认报表页面的查询前置条件。
+        除 REFRESH 能力外，当前主体必须在请求时刻具备目标公司的有效 COMPANY 数据范围；
+        数据范围校验先于核算，跨公司或已过期授权均返回 403，且不会触发核算或发布。
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceReportPublicationRequest'
+      responses:
+        '200':
+          description: 相同规范投影已存在，返回幂等重放结果
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceReportPublicationView'
+        '201':
+          description: 已创建并发布新的不可变正式投影
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceReportPublicationView'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '500':
+          description: 核算数据组装或投影发布失败
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '503':
+          description: 核算引擎未就绪（CALCULATION_ENGINE_NOT_AVAILABLE）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
   /attendance-reports/exports:
     post:
       tags: [AttendanceReports]
@@ -5391,8 +5446,10 @@ components:
       in: query
       required: false
       description: |
-        客户端已绑定的正式报表投影版本。提供时，服务端只返回同一版本；
-        若授权范围内的最新投影已变化，则返回 409，且不披露新版本。
+        为兼容既有客户端保留的字段名；在报表 GET 中表示上次响应
+        `metadata.projectionVersion` 返回的实时输入快照令牌，不是持久化报表发布版本。
+        提供时服务端只返回该快照的缓存结果；若当前输入已变化且原快照不可恢复，
+        返回可重试的 409 `ATTENDANCE_REPORT_SNAPSHOT_CHANGED`，且不披露新令牌。
       schema:
         type: string
         minLength: 1
@@ -9058,6 +9115,7 @@ components:
           maxLength: 100
     AttendanceReportProjectionMetadata:
       type: object
+      description: 实时报表输入快照元数据；schema 名称为兼容既有客户端保留。
       additionalProperties: false
       required:
         - projectionVersion
@@ -9069,12 +9127,25 @@ components:
         - scope
         - allowedActions
       properties:
-        projectionVersion: { type: string, minLength: 1, maxLength: 128 }
+        projectionVersion:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 兼容字段名；实时报表中为当前来源水位与配置版本生成的不透明快照令牌，并非发布版本。
         sourceVersions:
           type: array
           minItems: 1
-          items: { type: string, minLength: 1, maxLength: 256 }
-        dataAsOf: { type: string, format: date-time }
+          description: |
+            本次计算采用的来源截止与配置版本标识。每个活动来源各包含一项
+            `SOURCE.DELI_CLOUD:<ISO date-time|UNSYNCED>:<64hex>` 或
+            `SOURCE.OA_ATTENDANCE:<ISO date-time|UNSYNCED>:<64hex>`；同类来源可以有零项或多项，
+            其余项为静态模型版本。客户端应聚合同类来源：任一来源未同步时显示“部分未同步”，
+            全部未同步时显示“未同步”，否则显示最早截止时间；不得从静态版本推测时间。
+          items: { type: string, minLength: 1, maxLength: 128 }
+        dataAsOf:
+          type: string
+          format: date-time
+          description: 服务端形成一致输入快照并执行计算的时间；不是得力或 OA 各自的截止时间。
         timeZone: { type: string, const: Asia/Shanghai }
         periodLabel:
           type: string
@@ -9306,6 +9377,49 @@ components:
         page: { type: integer, minimum: 0 }
         size: { type: integer, minimum: 1, maximum: 200 }
         totalPages: { type: integer, minimum: 0 }
+    AttendanceReportPublicationRequest:
+      type: object
+      additionalProperties: false
+      required: [companyId, period, periodState, reason]
+      properties:
+        companyId:
+          type: string
+          minLength: 1
+          maxLength: 36
+        period:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        periodState:
+          type: string
+          enum: [OPEN, FROZEN, CLOSED, REOPENED]
+        reason:
+          type: string
+          minLength: 2
+          maxLength: 500
+          writeOnly: true
+    AttendanceReportPublicationView:
+      type: object
+      additionalProperties: false
+      required:
+        - projectionId
+        - projectionVersion
+        - projectionDigest
+        - periodState
+        - dataAsOf
+        - publishedAt
+        - created
+      properties:
+        projectionId: { type: string, minLength: 1, maxLength: 36 }
+        projectionVersion: { type: string, minLength: 1, maxLength: 128 }
+        projectionDigest:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        periodState:
+          type: string
+          enum: [OPEN, FROZEN, CLOSED, REOPENED]
+        dataAsOf: { type: string, format: date-time }
+        publishedAt: { type: string, format: date-time }
+        created: { type: boolean }
     AttendanceReportExportCreateRequest:
       type: object
       additionalProperties: false
@@ -9440,6 +9554,15 @@ components:
             $ref: '#/components/schemas/ApiError'
     Conflict:
       description: 状态、范围、生效期、冻结保护或唯一性冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+    AttendanceReportRealtimeConflict:
+      description: |
+        实时报表输入快照已变化，或当前来源、人员匹配、班次、单据等输入无法安全计算。
+        `ATTENDANCE_REPORT_SNAPSHOT_CHANGED` 可刷新后重试；
+        `ATTENDANCE_REPORT_REALTIME_CALCULATION_UNAVAILABLE` 与具体安全失败码不会返回伪造零值。
       content:
         application/json:
           schema:

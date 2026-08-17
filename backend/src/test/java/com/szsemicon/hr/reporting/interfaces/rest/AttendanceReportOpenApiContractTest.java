@@ -30,6 +30,15 @@ class AttendanceReportOpenApiContractTest {
                 .contains(
                         "$ref: '#/components/schemas/"
                                 + "AttendanceReportCompanyDirectory'")
+                .contains(
+                        "method: GET, path: /attendance-reports, "
+                                + "responseSchema: AttendanceReportPage, "
+                                + "errors: [400, 401, 403, 409]")
+                .contains(
+                        "method: GET, path: /attendance-reports/"
+                                + "month-matrix, responseSchema: "
+                                + "AttendanceMonthMatrixPage, "
+                                + "errors: [400, 401, 403, 409]")
                 .contains("  /attendance-reports/exports:")
                 .contains("operationId: createAttendanceReportExport")
                 .contains(
@@ -45,6 +54,56 @@ class AttendanceReportOpenApiContractTest {
                 .doesNotContain(
                         "path: /attendance-report-exports, "
                                 + "requestSchema: AttendanceReportExportRequest");
+    }
+
+    @Test
+    void publicationRouteRequiresRefreshAndCompanyScopedAuthorization()
+            throws Exception {
+        String contract = Files.readString(OPEN_API);
+        String route = between(
+                contract,
+                "  /attendance-reports/publications:",
+                "  /attendance-reports/exports:");
+        String request = between(
+                contract,
+                "    AttendanceReportPublicationRequest:",
+                "    AttendanceReportPublicationView:");
+        String view = between(
+                contract,
+                "    AttendanceReportPublicationView:",
+                "    AttendanceReportExportCreateRequest:");
+
+        assertThat(route)
+                .contains("operationId: publishAttendanceReport")
+                .contains("x-capability: ATTENDANCE_REPORT:REFRESH")
+                .contains(
+                        "$ref: '#/components/parameters/CsrfToken'")
+                .contains(
+                        "$ref: '#/components/schemas/"
+                                + "AttendanceReportPublicationRequest'")
+                .contains(
+                        "$ref: '#/components/schemas/"
+                                + "AttendanceReportPublicationView'")
+                .contains("'200':", "'201':", "'403':", "'503':")
+                .contains("跨公司或已过期授权均返回 403")
+                .contains("不会触发核算或发布");
+        assertThat(request)
+                .contains(
+                        "required: [companyId, period, periodState, reason]",
+                        "maxLength: 36",
+                        "enum: [OPEN, FROZEN, CLOSED, REOPENED]",
+                        "minLength: 2",
+                        "maxLength: 500",
+                        "writeOnly: true");
+        assertThat(view)
+                .contains(
+                        "- projectionId",
+                        "- projectionVersion",
+                        "- projectionDigest",
+                        "- dataAsOf",
+                        "- publishedAt",
+                        "- created",
+                        "pattern: '^[a-f0-9]{64}$'");
     }
 
     @Test
@@ -75,7 +134,7 @@ class AttendanceReportOpenApiContractTest {
     }
 
     @Test
-    void reportPagesCanBindToOneOpaqueProjectionVersion()
+    void reportPagesBindToOneOpaqueRealtimeSnapshotToken()
             throws Exception {
         String contract = Files.readString(OPEN_API);
         String queryRoutes = between(
@@ -92,15 +151,58 @@ class AttendanceReportOpenApiContractTest {
                 .containsOnlyOnce("operationId: getAttendanceMonthMatrix")
                 .contains(
                         "$ref: '#/components/parameters/"
-                                + "ExpectedProjectionVersion'");
+                                + "ExpectedProjectionVersion'")
+                .contains(
+                        "$ref: '#/components/responses/"
+                                + "AttendanceReportRealtimeConflict'");
         assertThat(parameter)
                 .contains("name: expectedProjectionVersion")
                 .contains("in: query")
                 .contains("required: false")
                 .contains("minLength: 1")
                 .contains("maxLength: 128")
-                .contains("返回 409")
-                .contains("不披露新版本");
+                .contains("实时输入快照令牌")
+                .contains("不是持久化报表发布版本")
+                .contains("ATTENDANCE_REPORT_SNAPSHOT_CHANGED")
+                .contains("不披露新令牌");
+    }
+
+    @Test
+    void reportGetRoutesCalculateRealtimeWithoutPublicationPrerequisite()
+            throws Exception {
+        String contract = Files.readString(OPEN_API);
+        String reportRoutes = between(
+                contract,
+                "  /attendance-reports:",
+                "  /attendance-reports/publications:");
+        String metadata = between(
+                contract,
+                "    AttendanceReportProjectionMetadata:",
+                "    AttendanceReportCompanyOption:");
+        String realtimeConflict = between(
+                contract,
+                "    AttendanceReportRealtimeConflict:",
+                "    StaleVersion:");
+
+        assertThat(reportRoutes)
+                .contains("形成一致输入快照并实时计算")
+                .contains("查询不要求已发布")
+                .contains("不依赖已发布报表投影")
+                .contains("最新已提交的得力打卡")
+                .doesNotContain("且存在已发布正式投影的公司安全名称");
+        assertThat(metadata)
+                .contains("实时报表输入快照元数据")
+                .contains("并非发布版本")
+                .contains("SOURCE.DELI_CLOUD:<ISO date-time|UNSYNCED>:<64hex>")
+                .contains("SOURCE.OA_ATTENDANCE:<ISO date-time|UNSYNCED>:<64hex>")
+                .contains("同类来源可以有零项或多项")
+                .contains("任一来源未同步时显示“部分未同步”")
+                .contains("items: { type: string, minLength: 1, maxLength: 128 }")
+                .contains("不是得力或 OA 各自的截止时间");
+        assertThat(realtimeConflict)
+                .contains("ATTENDANCE_REPORT_SNAPSHOT_CHANGED")
+                .contains("ATTENDANCE_REPORT_REALTIME_CALCULATION_UNAVAILABLE")
+                .contains("不会返回伪造零值");
     }
 
     @Test

@@ -57,6 +57,12 @@ function count(values: RowValues, key: ReportColumnKey): number {
   return decimal(values, key) ?? 0;
 }
 
+function sameReportedHours(left: number, right: number): boolean {
+  // Report values are serialized with two decimal places. Keep a half-cent
+  // tolerance for floating-point addition without accepting a real mismatch.
+  return Math.abs(left - right) < 0.005;
+}
+
 /** `DOCUMENT_END` is an exclusive boundary; render it as the closing instant. */
 function period(values: RowValues): string {
   const start = text(values, 'document-start');
@@ -126,15 +132,18 @@ export function toOvertimeRows(
     const paidHours = decimal(row.values, 'paid-overtime-hours');
     const compensatoryHours = decimal(row.values, 'compensatory-overtime-hours');
     const voluntaryHours = decimal(row.values, 'voluntary-overtime-hours');
-    const classificationAvailable = [
+    const componentsAvailable = [
       paidHours,
       compensatoryHours,
       voluntaryHours,
     ].every((value) => value !== undefined);
-    const classifiedTotal = decimal(row.values, 'total-overtime-hours')
-      ?? (classificationAvailable
-        ? (paidHours ?? 0) + (compensatoryHours ?? 0) + (voluntaryHours ?? 0)
-        : undefined);
+    const componentTotal = componentsAvailable
+      ? (paidHours ?? 0) + (compensatoryHours ?? 0) + (voluntaryHours ?? 0)
+      : undefined;
+    const reportedClassifiedTotal = decimal(
+      row.values,
+      'total-overtime-hours',
+    );
 
     // Old deployments only expose calendar buckets. They remain unclassified:
     // never reinterpret weekday/weekend/holiday as paid/compensatory/voluntary.
@@ -149,13 +158,24 @@ export function toOvertimeRows(
       : undefined;
     const legacyTotal = decimal(row.values, 'recognized-overtime-hours')
       ?? legacyCalendarTotal;
+    const classificationAvailable = componentTotal !== undefined
+      && (reportedClassifiedTotal === undefined
+        || sameReportedHours(reportedClassifiedTotal, componentTotal))
+      && (legacyTotal === undefined
+        || sameReportedHours(legacyTotal, componentTotal));
+    const classifiedTotal = classificationAvailable
+      ? reportedClassifiedTotal ?? componentTotal
+      : undefined;
+
     return {
       ...reportIdentity(row),
       employee: required(row.values, 'employee-name'),
       department: required(row.values, 'organization'),
-      paidHours,
-      compensatoryHours,
-      voluntaryHours,
+      paidHours: classificationAvailable ? paidHours : undefined,
+      compensatoryHours: classificationAvailable
+        ? compensatoryHours
+        : undefined,
+      voluntaryHours: classificationAvailable ? voluntaryHours : undefined,
       totalHours: classifiedTotal ?? legacyTotal,
       classificationAvailable,
     };

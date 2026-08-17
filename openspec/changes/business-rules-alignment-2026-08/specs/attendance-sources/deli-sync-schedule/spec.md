@@ -101,36 +101,47 @@ Authentication credentials are configured in system settings, not hard-coded.
 - **THEN** sync status SHALL be "失败"
 - **AND** error message SHALL indicate authentication failure
 
-### Requirement: Sync SHALL retrieve records since last successful sync
+### Requirement: Sync SHALL continue from each source committed cursor
 
-Each sync run SHALL retrieve punch records with timestamps after the last successful sync time.
+Each Deli source SHALL use its own provider `next_id` cursor in
+`attendance_sync_watermark` as the only incremental ingestion position.
+`deli_sync_log` timestamps are operational display data and SHALL NOT filter
+punch records or control another source's starting position.
 
-This prevents re-processing the same records and keeps incremental sync efficient.
+#### Scenario: Incremental sync uses the source cursor
+- **WHEN** source A has committed provider cursor `next_id=1200`
+- **AND** source B has no committed cursor
+- **THEN** source A SHALL request its next page from `next_id=1200`
+- **AND** source B SHALL start from the provider-defined initial cursor
+- **AND** neither source SHALL inherit a timestamp or cursor from the other
 
-#### Scenario: Incremental sync based on last sync time
-- **WHEN** last successful sync was at 2026-08-16 14:00:00
-- **AND** current sync runs at 2026-08-16 15:00:00
-- **THEN** system SHALL request records with timestamp > 2026-08-16 14:00:00
-- **AND** system SHALL NOT re-retrieve records from before 14:00:00
-
-#### Scenario: First sync retrieves all recent records
-- **WHEN** no previous successful sync exists
-- **THEN** system SHALL retrieve records from a default lookback period (e.g., last 7 days)
-- **AND** this establishes the baseline for future incremental syncs
+#### Scenario: Late-arriving punch is retained
+- **WHEN** Deli returns a new page after the committed cursor
+- **AND** a record on that page has a punch timestamp earlier than the last successful job time
+- **THEN** the system SHALL still ingest and resolve that record
+- **AND** it SHALL NOT discard the record using a job-time predicate
 
 ### Requirement: Sync failures SHALL NOT lose data
 
-When a sync fails, the system SHALL NOT update the "last successful sync time" marker.
+When a page fails before its atomic commit, the system SHALL NOT advance that
+source beyond the last successfully committed provider cursor. Pages committed
+earlier in the same job remain valid, and the next attempt SHALL resume from
+the last committed cursor rather than restarting the whole job.
 
-The next sync attempt SHALL retry from the previous successful sync time, ensuring no punch records are skipped.
+#### Scenario: Failed page does not advance source cursor
+- **WHEN** source A starts from `next_id=1200`
+- **AND** its next page cannot be committed safely
+- **THEN** source A's committed cursor SHALL remain `next_id=1200`
+- **AND** the next run SHALL request the same page again
 
-#### Scenario: Failed sync does not advance marker
-- **WHEN** last successful sync was at 14:00:00
-- **AND** sync at 15:00:00 fails
-- **THEN** "last successful sync time" SHALL remain 14:00:00
-- **AND** next sync at 16:00:00 SHALL request records from > 14:00:00
+#### Scenario: Earlier committed pages remain after a later page fails
+- **WHEN** source A atomically commits a page and advances to `next_id=1250`
+- **AND** the following page fails before commit
+- **THEN** source A's committed cursor SHALL remain `next_id=1250`
+- **AND** the next run SHALL resume from `next_id=1250`
 
-#### Scenario: Successful retry retrieves missed records
-- **WHEN** sync fails at 15:00:00 and succeeds at 16:00:00
-- **THEN** 16:00:00 sync SHALL retrieve all records from 14:00:00 to 16:00:00
-- **AND** no records are lost due to the 15:00:00 failure
+#### Scenario: Other source progress is independent
+- **WHEN** source A fails and source B commits its page successfully
+- **THEN** source A's cursor SHALL remain unchanged
+- **AND** source B's cursor SHALL advance to its returned `next_id`
+- **AND** neither result SHALL be derived from the global sync-log time

@@ -1,8 +1,6 @@
 package com.szsemicon.hr.evidenceingestion.infrastructure.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -26,8 +24,6 @@ class DeliAutoSyncJobManualTriggerValidationTest {
 
     private static final Instant NOW =
             Instant.parse("2026-08-17T08:00:00Z");
-    private static final Instant PREVIOUS_SUCCESS =
-            Instant.parse("2026-08-17T07:00:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     @Test
@@ -35,13 +31,13 @@ class DeliAutoSyncJobManualTriggerValidationTest {
         DeliPunchSyncApplicationService sync =
                 mock(DeliPunchSyncApplicationService.class);
         InMemoryLogRepository logs = new InMemoryLogRepository(null);
-        doAnswer(invocation -> {
+        when(sync.runScheduled()).thenAnswer(invocation -> {
             assertThat(logs.onlyEntry().status).isEqualTo("IN_PROGRESS");
-            assertThat(logs.onlyEntry().rangeStart).isEqualTo(
-                    NOW.minusSeconds(7 * 24 * 60 * 60));
+            assertThat(logs.onlyEntry().rangeStart).isNull();
+            assertThat(logs.onlyEntry().rangeEnd).isEqualTo(NOW);
             return new AttendanceSourceSyncModels.ScheduledSyncResult(
                     156, true, null);
-        }).when(sync).runScheduled(any(Instant.class));
+        });
 
         new DeliAutoSyncJob(sync, logs, CLOCK).triggerScheduledSync();
 
@@ -53,16 +49,16 @@ class DeliAutoSyncJobManualTriggerValidationTest {
                 });
         assertThat(logs.findLatestCompleted()).contains(
                 new DeliSyncLogModels.SyncStatus(NOW, 156, "SUCCESS", null));
-        assertThat(logs.findLastSuccessfulSyncTime()).contains(NOW);
     }
 
     @Test
-    void manualTriggerTransitionsLogToFailedWithoutAdvancingMarker() {
+    void manualTriggerTransitionsLogToFailedWithoutControllingSourceCursor() {
         DeliPunchSyncApplicationService sync =
                 mock(DeliPunchSyncApplicationService.class);
-        InMemoryLogRepository logs = new InMemoryLogRepository(PREVIOUS_SUCCESS);
-        when(sync.runScheduled(PREVIOUS_SUCCESS)).thenAnswer(invocation -> {
+        InMemoryLogRepository logs = new InMemoryLogRepository(null);
+        when(sync.runScheduled()).thenAnswer(invocation -> {
             assertThat(logs.onlyEntry().status).isEqualTo("IN_PROGRESS");
+            assertThat(logs.onlyEntry().rangeStart).isNull();
             return new AttendanceSourceSyncModels.ScheduledSyncResult(
                     0, false, "DELI_HTTP_FAILURE");
         });
@@ -78,8 +74,6 @@ class DeliAutoSyncJobManualTriggerValidationTest {
         assertThat(logs.findLatestCompleted()).contains(
                 new DeliSyncLogModels.SyncStatus(
                         NOW, 0, "FAILED", "DELI_HTTP_FAILURE"));
-        assertThat(logs.findLastSuccessfulSyncTime())
-                .contains(PREVIOUS_SUCCESS);
     }
 
     private static final class InMemoryLogRepository

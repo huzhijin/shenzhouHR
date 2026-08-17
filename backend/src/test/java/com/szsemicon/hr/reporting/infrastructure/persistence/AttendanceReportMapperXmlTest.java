@@ -42,6 +42,8 @@ class AttendanceReportMapperXmlTest {
                         NAMESPACE + "countCurrentOrganizationAncestor",
                         NAMESPACE + "listDashboardExceptions",
                         NAMESPACE + "listAuthorizedCompanies",
+                        NAMESPACE + "listRealtimeAuthorizedScopes",
+                        NAMESPACE + "listAuthorizedOrganizationIds",
                         NAMESPACE + "listLatestAuthorizedProjections",
                         NAMESPACE + "listAuthorizedScopes",
                         NAMESPACE
@@ -217,6 +219,7 @@ class AttendanceReportMapperXmlTest {
             period_start DATE,
             period_end_exclusive DATE,
             projection_version VARCHAR(128),
+            formula_catalog_version VARCHAR(128),
             period_state VARCHAR(32),
             source_versions_json VARCHAR(1000),
             data_as_of TIMESTAMP,

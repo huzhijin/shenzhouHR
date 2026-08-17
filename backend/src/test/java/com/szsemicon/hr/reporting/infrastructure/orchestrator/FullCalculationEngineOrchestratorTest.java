@@ -1,6 +1,7 @@
 package com.szsemicon.hr.reporting.infrastructure.orchestrator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.PeriodState;
 import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.PublishCommand;
@@ -13,14 +14,17 @@ import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCa
 import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.PunchExemptionRoleIntervalRow;
 import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.PunchEventRow;
 import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.ShiftSegmentRow;
+import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.SourceInputVersionRow;
 import com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows.TimeAccountSnapshotRow;
 import com.szsemicon.hr.attendance.domain.PunchCorrectionRequest.PunchSide;
 import com.szsemicon.hr.attendance.domain.LeaveType;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.TimeAccountType;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +45,12 @@ class FullCalculationEngineOrchestratorTest {
 
     @BeforeEach
     void defaultProjectionSideFacts() {
+        Mockito.lenient().when(mapper.findAttendanceSourceVersions(
+                        Mockito.anyString(), Mockito.any(Instant.class)))
+                .thenReturn(committedSourceVersions(
+                        "a".repeat(64),
+                        Instant.parse("2026-08-01T00:00:00Z"),
+                        1L));
         Mockito.lenient().when(mapper.findReportableOaDocuments(
                         Mockito.anyString(),
                         Mockito.any(Instant.class),
@@ -53,6 +63,308 @@ class FullCalculationEngineOrchestratorTest {
                         Mockito.any(LocalDate.class),
                         Mockito.any(Instant.class)))
                 .thenReturn(List.of());
+    }
+
+    @Test
+    void committedSourceWatermarkChangesTheRealtimeSnapshotToken() {
+        String companyId = "company-1";
+        YearMonth period = YearMonth.of(2026, 8);
+        Instant dataAsOf = Instant.parse("2026-08-17T07:00:15Z");
+        Mockito.when(mapper.findAttendanceSourceVersions(
+                        companyId, dataAsOf))
+                .thenReturn(committedSourceVersions(
+                        "a".repeat(64),
+                        Instant.parse("2026-08-17T06:59:00Z"),
+                        7L));
+
+        PublishCommand first = orchestrator.assemble(
+                companyId,
+                period,
+                PeriodState.OPEN,
+                "principal-1",
+                dataAsOf);
+
+        Mockito.when(mapper.findAttendanceSourceVersions(
+                        companyId, dataAsOf))
+                .thenReturn(committedSourceVersions(
+                        "b".repeat(64),
+                        Instant.parse("2026-08-17T07:00:00Z"),
+                        8L));
+
+        PublishCommand second = orchestrator.assemble(
+                companyId,
+                period,
+                PeriodState.OPEN,
+                "principal-1",
+                dataAsOf);
+
+        assertThat(first.metadata().sourceVersions())
+                .anyMatch(version -> version.contains(
+                        "SOURCE.OA_ATTENDANCE:2026-08-17T06:59:00Z:"));
+        assertThat(first.metadata().sourceVersions())
+                .allMatch(version -> version.length() <= 128);
+        assertThat(second.metadata().sourceSnapshotDigest())
+                .isNotEqualTo(first.metadata().sourceSnapshotDigest());
+    }
+
+    @Test
+    void missingOrUnsynchronizedRequiredSourceFailsClosed() {
+        String companyId = "company-1";
+        YearMonth period = YearMonth.of(2026, 8);
+        Instant dataAsOf = Instant.parse("2026-08-17T07:00:15Z");
+        SourceInputVersionRow deli = committedSourceVersions(
+                "a".repeat(64),
+                Instant.parse("2026-08-17T07:00:00Z"),
+                7L).getFirst();
+        Mockito.when(mapper.findAttendanceSourceVersions(
+                        companyId, dataAsOf))
+                .thenReturn(List.of(deli));
+
+        assertThatThrownBy(() -> orchestrator.assemble(
+                companyId,
+                period,
+                PeriodState.OPEN,
+                "principal-1",
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("OA_ATTENDANCE")
+                .hasMessageContaining("not active");
+
+        Mockito.when(mapper.findAttendanceSourceVersions(
+                        companyId, dataAsOf))
+                .thenReturn(List.of(
+                        deli,
+                        new SourceInputVersionRow(
+                                "source-oa-1",
+                                "OA_ATTENDANCE",
+                                2,
+                                0,
+                                null,
+                                null,
+                                null)));
+
+        assertThatThrownBy(() -> orchestrator.assemble(
+                companyId,
+                period,
+                PeriodState.OPEN,
+                "principal-1",
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("OA_ATTENDANCE")
+                .hasMessageContaining("not synchronized");
+    }
+
+    @Test
+    void tiedEffectiveEmployeeIdentityFailsClosed() {
+        String companyId = "company-1";
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                businessDate,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+        Mockito.when(mapper.findEmployeeIdentityIntervals(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class)))
+                .thenReturn(List.of(
+                        identityRow(
+                                "emp-1", "emp-v-1", "E001",
+                                "assignment-1", "org-1", "org-v-1",
+                                "研发部", businessDate),
+                        identityRow(
+                                "emp-1", "emp-v-2", "E001",
+                                "assignment-2", "org-2", "org-v-2",
+                                "制造部", businessDate)));
+
+        assertThatThrownBy(() -> orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 8),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Ambiguous employee identity");
+    }
+
+    @Test
+    void conflictingCalendarAuthorityFailsClosed() {
+        String companyId = "company-1";
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                businessDate,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+        Mockito.when(mapper.findPublishedCalendarDays(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(
+                        new CalendarDayRow(businessDate, "WEEKDAY"),
+                        new CalendarDayRow(
+                                businessDate, "PUBLIC_HOLIDAY")));
+
+        assertThatThrownBy(() -> orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 8),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Ambiguous calendar authority");
+    }
+
+    @Test
+    void missingCalendarOrWorkdayShiftAuthorityFailsClosed() {
+        String companyId = "company-1";
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                businessDate,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+        Mockito.when(mapper.findPublishedCalendarDays(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 8),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Calendar authority missing");
+
+        Mockito.when(mapper.findPublishedCalendarDays(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(new CalendarDayRow(
+                        businessDate, "WEEKDAY")));
+        Mockito.when(mapper.findScheduledWorkSegments(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 8),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Scheduled shift authority missing");
+    }
+
+    @Test
+    void ambiguousOaEmployeeNumberAtOccurrenceTimeFailsClosed() {
+        String companyId = "company-1";
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        OaDocumentRow document = oaDocument(
+                "OUTING:ambiguous",
+                "OUTING",
+                Instant.parse("2026-08-03T03:00:00Z"),
+                Instant.parse("2026-08-03T04:00:00Z"));
+        stubOneEmployeeDay(
+                companyId,
+                businessDate,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(document));
+        Mockito.when(mapper.findEmployeeIdentityIntervals(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class)))
+                .thenReturn(List.of(
+                        identityRow(
+                                "emp-1", "emp-v-1", "E001",
+                                "assignment-1", "org-1", "org-v-1",
+                                "研发部", businessDate),
+                        identityRow(
+                                "emp-2", "emp-v-2", "E001",
+                                "assignment-2", "org-2", "org-v-2",
+                                "制造部", businessDate)));
+
+        assertThatThrownBy(() -> orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 8),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(
+                        "OA employee identity is missing or ambiguous");
+    }
+
+    @Test
+    void employeeAndOrganizationDisplayChangesAlterTheSnapshotToken() {
+        String companyId = "company-1";
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                businessDate,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+
+        PublishCommand first = orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 8),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf);
+        Mockito.when(mapper.findEmployeeIdentityIntervals(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class)))
+                .thenReturn(List.of(new EmployeeIdentityIntervalRow(
+                        "emp-1",
+                        "emp-v-2",
+                        "E001",
+                        "李四",
+                        "assignment-1",
+                        "org-1",
+                        "org-v-2",
+                        "先进制造部",
+                        businessDate,
+                        businessDate.plusDays(1),
+                        businessDate,
+                        businessDate.plusDays(1),
+                        businessDate,
+                        businessDate.plusDays(1))));
+
+        PublishCommand second = orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 8),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf);
+
+        assertThat(second.metadata().sourceSnapshotDigest())
+                .isNotEqualTo(first.metadata().sourceSnapshotDigest());
     }
 
     @Test
@@ -99,8 +411,12 @@ class FullCalculationEngineOrchestratorTest {
                         Mockito.any(Instant.class)))
                 .thenReturn(List.of());
 
-        Mockito.when(mapper.findAttendancePolicy(companyId))
-                .thenReturn(null);
+        Mockito.when(mapper.findAttendancePolicies(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of());
 
         // When
         PublishCommand command = orchestrator.assemble(
@@ -111,6 +427,86 @@ class FullCalculationEngineOrchestratorTest {
         assertThat(command.metadata().companyId()).isEqualTo(companyId);
         assertThat(command.metadata().period()).isEqualTo(period);
         assertThat(command.calculatedFacts()).isEmpty();
+    }
+
+    @Test
+    void currentPeriodStopsDailyAndOaWindowsAtKnowledgeDateEnd() {
+        String companyId = "company-1";
+        YearMonth period = YearMonth.of(2026, 8);
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        LocalDate cutoffEndExclusive = businessDate.plusDays(1);
+        Instant dataAsOf = Instant.parse("2026-08-03T04:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                businessDate,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+        Mockito.when(mapper.findEmployeeIdentityIntervals(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class)))
+                .thenReturn(List.of(new EmployeeIdentityIntervalRow(
+                        "emp-1",
+                        "emp-v-1",
+                        "E001",
+                        "张三",
+                        "assignment-1",
+                        "org-1",
+                        "org-v-1",
+                        "研发部",
+                        businessDate,
+                        businessDate.plusDays(3),
+                        businessDate,
+                        businessDate.plusDays(3),
+                        businessDate,
+                        businessDate.plusDays(3))));
+
+        PublishCommand command = orchestrator.assemble(
+                companyId,
+                period,
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf);
+
+        assertThat(command.calculatedFacts())
+                .extracting(value -> value.facts().dailyFact().businessDate())
+                .containsExactly(businessDate);
+        Mockito.verify(mapper).findScheduledWorkSegments(
+                companyId,
+                period.atDay(1),
+                cutoffEndExclusive,
+                dataAsOf);
+        Mockito.verify(mapper).findAttendancePolicies(
+                companyId,
+                period.atDay(1),
+                cutoffEndExclusive,
+                dataAsOf);
+        Mockito.verify(mapper).findReportableOaDocuments(
+                companyId,
+                period.atDay(1)
+                        .atStartOfDay(ZoneId.of("Asia/Shanghai"))
+                        .toInstant(),
+                cutoffEndExclusive
+                        .atStartOfDay(ZoneId.of("Asia/Shanghai"))
+                        .toInstant(),
+                dataAsOf);
+    }
+
+    @Test
+    void futurePeriodReturnsNoFactsWithoutReadingFutureAuthority() {
+        PublishCommand command = orchestrator.assemble(
+                "company-1",
+                YearMonth.of(2026, 9),
+                PeriodState.OPEN,
+                "admin-1",
+                Instant.parse("2026-08-17T04:00:00Z"));
+
+        assertThat(command.calculatedFacts()).isEmpty();
+        assertThat(command.oaDocumentFacts()).isEmpty();
+        assertThat(command.timeAccountFacts()).isEmpty();
+        Mockito.verifyNoInteractions(mapper);
     }
 
     @Test
@@ -194,12 +590,12 @@ class FullCalculationEngineOrchestratorTest {
                                 Instant.parse("2026-08-01T09:45:00Z"),
                                 Instant.parse("2026-08-01T10:15:00Z"))));
 
-        Mockito.when(mapper.findAttendancePolicy(companyId))
-                .thenReturn(new AttendancePolicyRow(
-                        15,
-                        1,
-                        Instant.parse("2026-09-01T00:00:00Z"),
-                        2880));
+        Mockito.when(mapper.findAttendancePolicies(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(policy("emp-1", day1)));
 
         // When
         PublishCommand command = orchestrator.assemble(
@@ -284,12 +680,12 @@ class FullCalculationEngineOrchestratorTest {
                         Mockito.any(Instant.class),
                         Mockito.eq(dataAsOf)))
                 .thenReturn(List.of());
-        Mockito.when(mapper.findAttendancePolicy(companyId))
-                .thenReturn(new AttendancePolicyRow(
-                        15,
-                        1,
-                        Instant.parse("2026-10-01T00:00:00Z"),
-                        2880));
+        Mockito.when(mapper.findAttendancePolicies(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(policy("emp-1", businessDate)));
 
         var daily = orchestrator.assemble(
                         companyId,
@@ -543,6 +939,171 @@ class FullCalculationEngineOrchestratorTest {
     }
 
     @Test
+    void monthlyGraceIsConsumedOnFirstLateDateAndNotRepeated() {
+        String companyId = "company-1";
+        LocalDate firstDate = LocalDate.of(2026, 8, 3);
+        LocalDate secondDate = firstDate.plusDays(1);
+        LocalDate endExclusive = secondDate.plusDays(1);
+        Instant dataAsOf = Instant.parse("2026-08-20T00:00:00Z");
+        Mockito.when(mapper.findEmployeeIdentityIntervals(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class)))
+                .thenReturn(List.of(new EmployeeIdentityIntervalRow(
+                        "emp-1",
+                        "emp-v-1",
+                        "E001",
+                        "张三",
+                        "assignment-1",
+                        "org-1",
+                        "org-v-1",
+                        "研发部",
+                        firstDate,
+                        endExclusive,
+                        firstDate,
+                        endExclusive,
+                        firstDate,
+                        endExclusive)));
+        Mockito.when(mapper.findScheduledWorkSegments(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(
+                        segment(firstDate, "seg-1"),
+                        segment(secondDate, "seg-2")));
+        Mockito.when(mapper.findActivatedPunchEvents(
+                        Mockito.eq(companyId),
+                        Mockito.any(Instant.class),
+                        Mockito.any(Instant.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(
+                        lateArrival(firstDate),
+                        departure(firstDate),
+                        lateArrival(secondDate),
+                        departure(secondDate)));
+        Mockito.when(mapper.findApprovedPunchCorrections(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of());
+        Mockito.when(mapper.findPunchExemptionRoleIntervals(
+                        Mockito.eq(companyId),
+                        Mockito.any(Instant.class),
+                        Mockito.any(Instant.class)))
+                .thenReturn(List.of());
+        Mockito.when(mapper.findPublishedCalendarDays(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(
+                        new CalendarDayRow(firstDate, "WORKDAY"),
+                        new CalendarDayRow(secondDate, "WORKDAY")));
+        Mockito.when(mapper.findEffectiveOaDocuments(
+                        Mockito.eq(companyId),
+                        Mockito.any(Instant.class),
+                        Mockito.any(Instant.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of());
+        Mockito.when(mapper.findAttendancePolicies(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(
+                        policy("emp-1", firstDate),
+                        policy("emp-1", secondDate)));
+
+        List<DailyFact> facts = orchestrator.assemble(
+                                companyId,
+                                YearMonth.of(2026, 8),
+                                PeriodState.OPEN,
+                                "admin-1",
+                                dataAsOf)
+                        .calculatedFacts()
+                        .stream()
+                        .map(value -> value.facts().dailyFact())
+                        .toList();
+
+        assertThat(facts).hasSize(2);
+        assertThat(facts.get(0).businessDate()).isEqualTo(firstDate);
+        assertThat(facts.get(0).lateMinutes()).isEqualTo(30);
+        assertThat(facts.get(0).penalizedLateMinutes()).isEqualTo(15);
+        assertThat(facts.get(0).absenceMinutes()).isZero();
+        assertThat(facts.get(1).businessDate()).isEqualTo(secondDate);
+        assertThat(facts.get(1).lateMinutes()).isZero();
+        assertThat(facts.get(1).absenceMinutes()).isEqualTo(540);
+    }
+
+    @Test
+    void missingAttendancePolicyForEffectiveEmployeeDateFailsClosed() {
+        String companyId = "company-1";
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                businessDate,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+        Mockito.lenient().when(mapper.findAttendancePolicies(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                orchestrator.assemble(
+                        companyId,
+                        YearMonth.of(2026, 8),
+                        PeriodState.OPEN,
+                        "admin-1",
+                        dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Attendance policy authority missing");
+    }
+
+    @Test
+    void ambiguousLateGracePolicyFailsClosed() {
+        String companyId = "company-1";
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                businessDate,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+        Mockito.when(mapper.findAttendancePolicies(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(policy(
+                        "emp-1",
+                        businessDate,
+                        1,
+                        2,
+                        1)));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                orchestrator.assemble(
+                        companyId,
+                        YearMonth.of(2026, 8),
+                        PeriodState.OPEN,
+                        "admin-1",
+                        dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(
+                        "LATE_GRACE candidate count must be exactly one");
+    }
+
+    @Test
     void sickLeaveCountsButPersonalLeaveDoesNotAndBothPersistTheDailyType() {
         String companyId = "company-1";
         LocalDate businessDate = LocalDate.of(2026, 8, 3);
@@ -725,7 +1286,7 @@ class FullCalculationEngineOrchestratorTest {
             List<PunchExemptionRoleIntervalRow> roles,
             List<OaDocumentRow> oaDocuments) {
         LocalDate nextDay = businessDate.plusDays(1);
-        Mockito.when(mapper.findEmployeeIdentityIntervals(
+        Mockito.lenient().when(mapper.findEmployeeIdentityIntervals(
                         Mockito.eq(companyId),
                         Mockito.any(LocalDate.class),
                         Mockito.any(LocalDate.class)))
@@ -789,12 +1350,86 @@ class FullCalculationEngineOrchestratorTest {
                         Instant.parse("2026-08-03T01:15:00Z"),
                         Instant.parse("2026-08-03T09:45:00Z"),
                         Instant.parse("2026-08-03T10:15:00Z"))));
-        Mockito.when(mapper.findAttendancePolicy(companyId))
-                .thenReturn(new AttendancePolicyRow(
-                        15,
-                        1,
-                        Instant.parse("2026-09-01T00:00:00Z"),
-                        2880));
+        Mockito.lenient().when(mapper.findAttendancePolicies(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(policy("emp-1", businessDate)));
+    }
+
+    private static AttendancePolicyRow policy(
+            String employeeId,
+            LocalDate businessDate) {
+        return policy(employeeId, businessDate, 1, 1, 1);
+    }
+
+    private static AttendancePolicyRow policy(
+            String employeeId,
+            LocalDate businessDate,
+            int attendanceGroupAuthorityCount,
+            int lateGracePolicyCount,
+            int monthlyLateExemptionPolicyCount) {
+        return new AttendancePolicyRow(
+                employeeId,
+                businessDate,
+                attendanceGroupAuthorityCount,
+                lateGracePolicyCount,
+                true,
+                15,
+                monthlyLateExemptionPolicyCount,
+                true,
+                15,
+                1,
+                false,
+                1,
+                true,
+                7,
+                "NEXT_DAY_START_AFTER_FULL_DAYS",
+                1,
+                true,
+                48);
+    }
+
+    private static ShiftSegmentRow segment(
+            LocalDate businessDate,
+            String segmentId) {
+        Instant start = businessDate
+                .atTime(9, 0)
+                .atZone(ZoneId.of("Asia/Shanghai"))
+                .toInstant();
+        Instant end = businessDate
+                .atTime(18, 0)
+                .atZone(ZoneId.of("Asia/Shanghai"))
+                .toInstant();
+        return new ShiftSegmentRow(
+                "emp-1",
+                businessDate,
+                segmentId,
+                start,
+                end,
+                start.minusSeconds(60 * 60),
+                start.plusSeconds(60 * 60),
+                end.minusSeconds(60 * 60),
+                end.plusSeconds(60 * 60));
+    }
+
+    private static PunchEventRow lateArrival(LocalDate businessDate) {
+        return new PunchEventRow(
+                "emp-1",
+                businessDate
+                        .atTime(9, 30)
+                        .atZone(ZoneId.of("Asia/Shanghai"))
+                        .toInstant());
+    }
+
+    private static PunchEventRow departure(LocalDate businessDate) {
+        return new PunchEventRow(
+                "emp-1",
+                businessDate
+                        .atTime(18, 0)
+                        .atZone(ZoneId.of("Asia/Shanghai"))
+                        .toInstant());
     }
 
     private static OaDocumentRow oaDocument(
@@ -827,5 +1462,54 @@ class FullCalculationEngineOrchestratorTest {
                 "Asia/Shanghai",
                 Instant.parse("2026-08-02T15:00:00Z"),
                 true);
+    }
+
+    private static List<SourceInputVersionRow> committedSourceVersions(
+            String oaDigest,
+            Instant oaCommittedAt,
+            long oaWatermarkVersion) {
+        return List.of(
+                new SourceInputVersionRow(
+                        "source-deli-1",
+                        "DELI_CLOUD",
+                        1,
+                        0,
+                        1L,
+                        "d".repeat(64),
+                        Instant.parse("2026-08-01T00:00:00Z")),
+                new SourceInputVersionRow(
+                        "source-oa-1",
+                        "OA_ATTENDANCE",
+                        2,
+                        0,
+                        oaWatermarkVersion,
+                        oaDigest,
+                        oaCommittedAt));
+    }
+
+    private static EmployeeIdentityIntervalRow identityRow(
+            String employeeId,
+            String employeeVersionId,
+            String employeeNumber,
+            String assignmentId,
+            String organizationId,
+            String organizationVersionId,
+            String organizationName,
+            LocalDate businessDate) {
+        return new EmployeeIdentityIntervalRow(
+                employeeId,
+                employeeVersionId,
+                employeeNumber,
+                employeeId + "-name",
+                assignmentId,
+                organizationId,
+                organizationVersionId,
+                organizationName,
+                businessDate,
+                businessDate.plusDays(1),
+                businessDate,
+                businessDate.plusDays(1),
+                businessDate,
+                businessDate.plusDays(1));
     }
 }
