@@ -541,7 +541,9 @@ printf 'Running database migrations with the staged JAR, if this release contain
 MIGRATION_ATTEMPTED=1
 JAVA_BIN="$JAVA_BIN" "$BAOTA_ROOT/scripts/migrate.sh" \
   --jar "$PENDING_JAR" \
-  --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env"
+  --app-env-file "$ENV_ROOT/shenzhouhr.env" \
+  --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env" \
+  --mysql-bin "$MYSQL_BIN"
 MIGRATION_COMPLETED=1
 
 mv -- "$WEB_ROOT" "$WEB_PREVIOUS"

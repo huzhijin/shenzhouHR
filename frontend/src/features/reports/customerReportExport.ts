@@ -172,13 +172,14 @@ function visibleRowsForReport(
       return exceptionRows(report.missedPunchRows);
     case 'attendance-rate':
       return {
-        headers: ['序号', '部门', '姓名', '主要缺勤类型', '缺勤时间（小时）', '出勤率', '口径说明'],
+        headers: ['序号', '部门', '姓名', '应出勤天数', '实际出勤天数', '病假天数', '出勤率', '口径说明'],
         rows: report.attendanceRateRows.map((row) => [
           row.id,
           row.department,
           row.employee,
-          row.type ?? '—',
-          row.hours.toFixed(1),
+          optionalDays(row.scheduledDays),
+          optionalDays(row.actualDays),
+          optionalDays(row.sickLeaveDays),
           row.rate,
           row.note ?? '',
         ]),
@@ -243,25 +244,34 @@ function attendanceDetailRows(
 function overtimeReportRows(
   report: CustomerReportDemo,
 ): { headers: CsvCell[]; rows: CsvCell[][] } {
-  const dayCount = report.overtimeRows[0]?.dailyHours?.length ?? daysInMonth(report.metadata.month);
+  const showDailyBreakdown = report.overtimeRows.some(
+    (row) => row.dailyHours !== undefined,
+  );
+  const dayCount = showDailyBreakdown
+    ? report.overtimeRows[0]?.dailyHours?.length ?? daysInMonth(report.metadata.month)
+    : 0;
   return {
     headers: [
       '部门',
       '员工',
-      '平时加班',
-      '周末加班',
-      '法定节假日加班',
-      '加班换调休',
+      '计薪加班',
+      '转调休加班',
+      '义务加班',
+      '汇总加班',
+      '分类数据状态',
       ...Array.from({ length: dayCount }, (_, index) => `${index + 1}日`),
     ],
     rows: report.overtimeRows.map((row) => [
       row.department,
       row.employee,
-      row.weekdayHours.toFixed(1),
-      row.weekendHours.toFixed(1),
-      row.statutoryHours.toFixed(1),
-      optionalHours(row.exchangedHours),
-      ...(row.dailyHours ?? []).map((hours) => hours || ''),
+      optionalHours(row.paidHours),
+      optionalHours(row.compensatoryHours),
+      optionalHours(row.voluntaryHours),
+      optionalHours(row.totalHours),
+      row.classificationAvailable ? '已按业务类型分类' : '旧接口，仅汇总可用',
+      ...(showDailyBreakdown
+        ? Array.from({ length: dayCount }, (_, index) => row.dailyHours?.[index] || '')
+        : []),
     ]),
   };
 }
@@ -327,6 +337,10 @@ function annualLeaveReportRows(
 /** Optional numeric column: return a formatted string or a dash placeholder. */
 function optionalHours(value: number | undefined): CsvCell {
   return value !== undefined ? value.toFixed(1) : '—';
+}
+
+function optionalDays(value: number | undefined): CsvCell {
+  return value ?? '—';
 }
 
 function toCsvRow(row: CsvCell[]): string {

@@ -17,7 +17,7 @@ public final class CanonicalAttendanceDigests {
     }
 
     public static String inputDigest(CalculationInputSnapshot snapshot) {
-        CanonicalWriter writer = new CanonicalWriter("W5_CALC_INPUT_V2")
+        CanonicalWriter writer = new CanonicalWriter("W5_CALC_INPUT_V3")
                 .text(snapshot.companyId())
                 .text(snapshot.employeeId())
                 .text(snapshot.employmentPeriodId())
@@ -60,7 +60,10 @@ public final class CanonicalAttendanceDigests {
                 .instant(evidence.interval().end())
                 .text(evidence.sourceReference())
                 .nullableInstant(evidence.firstSubmittedAt())
-                .bool(evidence.effective()));
+                .bool(evidence.effective())
+                .nullableText(evidence.overtimeType() == null
+                        ? null
+                        : evidence.overtimeType().name()));
         writer.number(snapshot.adjustments().size());
         snapshot.adjustments().forEach(adjustment -> writer
                 .text(adjustment.adjustmentId())
@@ -80,6 +83,7 @@ public final class CanonicalAttendanceDigests {
                 .text(snapshot.graceConsumption().month().toString())
                 .number(snapshot.graceConsumption().used())
                 .text(snapshot.graceConsumption().snapshotDigest())
+                .bool(snapshot.punchExempt())
                 .number(snapshot.policy().lateGraceMaxMinutes())
                 .number(snapshot.policy().monthlyLateGraceUses())
                 .instant(snapshot.policy().correctionDeadline())
@@ -98,13 +102,17 @@ public final class CanonicalAttendanceDigests {
     }
 
     public static String resultDigest(DailyAttendanceResult result) {
-        CanonicalWriter writer = new CanonicalWriter("W5_CALC_RESULT_V1")
+        CanonicalWriter writer = new CanonicalWriter("W5_CALC_RESULT_V2")
                 .text(result.inputDigest())
                 .text(result.algorithmVersion())
                 .number(result.metrics().scheduledMinutes())
                 .number(result.metrics().confirmedScheduledWorkMinutes())
                 .number(result.metrics().extendedPresenceMinutes())
                 .number(result.metrics().recognizedOvertimeMinutes())
+                .number(result.metrics().paidOvertimeMinutes())
+                .number(result.metrics().compensatoryOvertimeMinutes())
+                .number(result.metrics().voluntaryOvertimeMinutes())
+                .number(result.metrics().totalOvertimeMinutes())
                 .number(result.metrics().leaveOrTimeOffMinutes())
                 .number(result.metrics().absenceMinutes())
                 .number(result.metrics().actualWorkMinutes())

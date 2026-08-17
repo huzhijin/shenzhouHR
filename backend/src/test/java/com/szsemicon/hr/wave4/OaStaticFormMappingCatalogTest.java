@@ -5,17 +5,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog;
 import com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog.ContractComponent;
+import com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog.FieldPurpose;
 import com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog.FormKind;
 import com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog.RowRole;
 import com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog.TemporalShape;
 import com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog.VerificationStatus;
+import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort.DocumentType;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class OaStaticFormMappingCatalogTest {
 
     @Test
-    void registersTheExactSixFamiliesAndTenPhysicalTables() {
+    void registersTheExactSevenFamiliesAndElevenPhysicalTables() {
         assertThat(OaStaticFormMappingCatalog.all())
                 .extracting(mapping -> mapping.formKind())
                 .containsExactly(FormKind.values());
@@ -26,6 +28,9 @@ class OaStaticFormMappingCatalogTest {
         assertTables(
                 FormKind.LEAVE,
                 "formmain_0170");
+        assertTables(
+                FormKind.LEAVE_REVOCATION,
+                "formmain_0370");
         assertTables(
                 FormKind.OVERTIME,
                 "formmain_0171",
@@ -42,6 +47,16 @@ class OaStaticFormMappingCatalogTest {
                 FormKind.PUNCH_CORRECTION,
                 "formmain_0203",
                 "formson_0204");
+
+        assertThat(OaStaticFormMappingCatalog.all())
+                .flatExtracting(mapping -> mapping.tables())
+                .hasSize(11);
+        assertThat(OaStaticFormMappingCatalog.all())
+                .flatExtracting(mapping -> mapping.columns())
+                .hasSize(104);
+
+        assertThat(DocumentType.valueOf(FormKind.LEAVE_REVOCATION.name()))
+                .isSameAs(DocumentType.LEAVE_REVOCATION);
     }
 
     @Test
@@ -57,10 +72,19 @@ class OaStaticFormMappingCatalogTest {
         assertColumns(
                 FormKind.LEAVE,
                 RowRole.MAIN,
-                "field0083", "field0084", "field0086", "field0087",
-                "field0088", "field0089", "field0090", "field0091",
+                "field0097", "field0083", "field0084", "field0086", "field0087",
+                "field0088", "field0103", "field0089", "field0090", "field0091",
                 "field0092", "field0093", "field0094", "field0095",
                 "field0096", "field0074", "field0075", "field0076");
+        assertColumns(
+                FormKind.LEAVE_REVOCATION,
+                RowRole.MAIN,
+                "field0097", "field0074", "field0075", "field0076",
+                "field0100", "field0098", "field0099", "field0083",
+                "field0092", "field0093", "field0085", "field0084",
+                "field0089", "field0086", "field0087", "field0088",
+                "field0107", "field0090", "field0091", "field0094", "field0095",
+                "field0096");
         assertColumns(
                 FormKind.OVERTIME,
                 RowRole.MAIN,
@@ -106,6 +130,7 @@ class OaStaticFormMappingCatalogTest {
         Map<FormKind, TemporalShape> expected = Map.of(
                 FormKind.TRIP, TemporalShape.INTERVAL,
                 FormKind.LEAVE, TemporalShape.INTERVAL,
+                FormKind.LEAVE_REVOCATION, TemporalShape.INTERVAL,
                 FormKind.OVERTIME, TemporalShape.INTERVAL,
                 FormKind.OUTING, TemporalShape.INTERVAL,
                 FormKind.EXEMPT_PUNCH, TemporalShape.DATE_RANGE,
@@ -140,6 +165,22 @@ class OaStaticFormMappingCatalogTest {
                 .enumColumns())
                 .extracting(column -> column.column().name())
                 .containsExactly("field0089");
+        assertThat(OaStaticFormMappingCatalog.require(FormKind.LEAVE)
+                .enumColumns())
+                .extracting(column -> column.column().purpose())
+                .containsExactly(FieldPurpose.LEAVE_TYPE_ENUM);
+        assertThat(OaStaticFormMappingCatalog
+                .require(FormKind.LEAVE_REVOCATION)
+                .enumColumns())
+                .extracting(column -> column.column().name())
+                .containsExactly("field0100", "field0089");
+        assertThat(OaStaticFormMappingCatalog
+                .require(FormKind.LEAVE_REVOCATION)
+                .enumColumns())
+                .extracting(column -> column.column().purpose())
+                .containsExactly(
+                        FieldPurpose.LEAVE_TYPE_ENUM,
+                        FieldPurpose.LEAVE_TYPE_ENUM);
         assertThat(OaStaticFormMappingCatalog.require(FormKind.OVERTIME)
                 .enumColumns())
                 .extracting(column -> column.column().name())
@@ -149,6 +190,50 @@ class OaStaticFormMappingCatalogTest {
                 .enumColumns())
                 .extracting(column -> column.column().name())
                 .containsExactly("field0134");
+    }
+
+    @Test
+    void declaresLeaveSerialNumberAsContextForRevocationLinkage() {
+        assertThat(OaStaticFormMappingCatalog.require(FormKind.LEAVE)
+                .mainTable()
+                .columns())
+                .filteredOn(column -> column.name().equals("field0097"))
+                .singleElement()
+                .satisfies(column -> {
+                    assertThat(column.label())
+                            .isEqualTo("流水号（关联销假单）");
+                    assertThat(column.purpose())
+                            .isEqualTo(FieldPurpose.CONTEXT_ONLY);
+                    assertThat(column.valueKind())
+                            .isEqualTo(OaStaticFormMappingCatalog.SourceValueKind.TEXT);
+                    assertThat(column.verificationStatus())
+                            .isEqualTo(VerificationStatus.SCREENSHOT_DECLARED);
+                });
+    }
+
+    @Test
+    void scopesSystemHourFieldsToTheirPhysicalTables() {
+        assertSystemHours(
+                FormKind.LEAVE,
+                "field0103",
+                "系统计算小时");
+        assertSystemHours(
+                FormKind.LEAVE_REVOCATION,
+                "field0107",
+                "系统计算返还小时");
+
+        assertThat(OaStaticFormMappingCatalog.require(FormKind.OVERTIME)
+                .detailTable()
+                .columns())
+                .filteredOn(column -> column.name().equals("field0103"))
+                .singleElement()
+                .satisfies(column -> {
+                    assertThat(column.label()).isEqualTo("原因");
+                    assertThat(column.purpose())
+                            .isEqualTo(FieldPurpose.CONTEXT_ONLY);
+                    assertThat(column.valueKind())
+                            .isEqualTo(OaStaticFormMappingCatalog.SourceValueKind.TEXT);
+                });
     }
 
     @Test
@@ -184,5 +269,25 @@ class OaStaticFormMappingCatalogTest {
                 .columns())
                 .extracting(column -> column.name())
                 .containsExactly(expectedNames);
+    }
+
+    private static void assertSystemHours(
+            FormKind formKind,
+            String fieldName,
+            String label) {
+        assertThat(OaStaticFormMappingCatalog.require(formKind)
+                .mainTable()
+                .columns())
+                .filteredOn(column -> column.name().equals(fieldName))
+                .singleElement()
+                .satisfies(column -> {
+                    assertThat(column.label()).isEqualTo(label);
+                    assertThat(column.purpose())
+                            .isEqualTo(FieldPurpose.SYSTEM_CALCULATED_HOURS);
+                    assertThat(column.valueKind())
+                            .isEqualTo(OaStaticFormMappingCatalog.SourceValueKind.DECIMAL);
+                    assertThat(column.verificationStatus())
+                            .isEqualTo(VerificationStatus.NOT_VERIFIED);
+                });
     }
 }

@@ -57,4 +57,20 @@ interface AttendanceEvidenceMapper {
     List<EvidenceRows.EvidenceTraceRow> evidenceTrace(
             @Param("companyId") String companyId,
             @Param("eventId") String eventId);
+
+    /** Check whether an OA document with this source identity already exists. */
+    EvidenceRows.RawFactRow findRawOaBySourceIdentity(
+            @Param("sourceId") String sourceId,
+            @Param("sourceBusinessKey") String sourceBusinessKey,
+            @Param("sourceVersion") String sourceVersion);
+
+    String findLatestPublishedOaRuntimeContractRevisionId(
+            @Param("sourceId") String sourceId);
+
+    /** Insert the oa_attendance_document row after raw + normalized are persisted. */
+    void insertOaAttendanceDocument(EvidenceRows.OaDocumentRow row);
+
+    /** Insert the classification context in the same transaction as its OA document. */
+    void insertOaAttendanceDocumentContext(
+            EvidenceRows.OaDocumentContextRow row);
 }

@@ -32,7 +32,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -55,14 +54,17 @@ import org.springframework.transaction.annotation.Transactional;
  * component and never split into overtime. Exception facts are likewise left
  * empty; they are owned by the exception reconciler.
  *
- * <p>An employee-day whose identity is ambiguous (more than one candidate
- * employee version, assignment, or organization version valid on that date) is
- * skipped rather than resolved by guesswork, matching the UNKNOWN outcome
- * {@code ProjectionBackedAttendancePeriodProtection} returns for the same
- * condition. A day with no valid organization version is skipped too, because
- * the projection writer requires one.
+ * <p>When assignments overlap, the assignment with the most recent effective
+ * date owns the employee-day. A tie on that latest date (including ambiguous
+ * employee or organization versions) is skipped rather than guessed. A day
+ * with no valid organization version is skipped too, because the projection
+ * writer requires one.
+ *
+ * <p>This legacy punch-span implementation is intentionally not a Spring
+ * bean. Report publication requires exactly one calculation orchestrator and
+ * is served by {@link FullCalculationEngineOrchestrator}; retaining this class
+ * only keeps its deterministic compatibility tests and migration reference.
  */
-@Service
 public class CalculationEngineOrchestrator
         implements AttendanceReportCalculationOrchestrator {
 
@@ -134,12 +136,16 @@ public class CalculationEngineOrchestrator
                         mapper.findActivatedPunchEvents(
                                 companyId,
                                 startOfDay(periodStart),
-                                startOfDay(periodEndExclusive)),
+                                startOfDay(periodEndExclusive),
+                                dataAsOf),
                         "activated punch events"));
         Map<LocalDate, DayType> dayTypes = dayTypes(
                 requireRows(
                         mapper.findPublishedCalendarDays(
-                                companyId, periodStart, periodEndExclusive),
+                                companyId,
+                                periodStart,
+                                periodEndExclusive,
+                                dataAsOf),
                         "published calendar days"));
 
         Map<String, List<EmployeeIdentityIntervalRow>> byEmployee =
@@ -210,6 +216,11 @@ public class CalculationEngineOrchestrator
         Instant firstPunchAt = span == null ? null : span.firstPunchAt();
         Instant lastPunchAt = span == null ? null : span.lastPunchAt();
         String factId = identity.employeeId() + ":" + businessDate;
+
+        // Calculate attendance days (simplified for legacy orchestrator)
+        int scheduledAttendanceDays = 0; // Unknown without shift snapshot
+        int actualAttendanceDays = workedMinutes > 0 ? 1 : 0;
+
         DailyFact dailyFact = new DailyFact(
                 factId,
                 companyId,
@@ -231,6 +242,8 @@ public class CalculationEngineOrchestrator
                 0L,
                 0L,
                 workedMinutes,
+                scheduledAttendanceDays,
+                actualAttendanceDays,
                 0L,
                 0L,
                 0L,
@@ -254,23 +267,14 @@ public class CalculationEngineOrchestrator
     }
 
     /**
-     * Returns the single identity valid on the date, or {@code null} when the
-     * employee has no valid identity or more than one candidate.
+     * Returns the occurrence-time identity selected by assignment effective
+     * date, or {@code null} when no identity exists or the latest start ties.
      */
     private static EmployeeIdentityIntervalRow unambiguousIdentity(
             List<EmployeeIdentityIntervalRow> candidates,
             LocalDate businessDate) {
-        EmployeeIdentityIntervalRow match = null;
-        for (EmployeeIdentityIntervalRow candidate : candidates) {
-            if (!candidate.validOn(businessDate)) {
-                continue;
-            }
-            if (match != null) {
-                return null;
-            }
-            match = candidate;
-        }
-        return match;
+        return AttendanceReportCalculationRows.latestEffectiveAssignment(
+                candidates, businessDate);
     }
 
     /**

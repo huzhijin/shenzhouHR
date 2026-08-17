@@ -97,6 +97,23 @@
                     CONCAT('%', LOWER(#{query}), '%')
                 OR LOWER(employee_at.display_name) LIKE
                     CONCAT('%', LOWER(#{query}), '%')
+                OR EXISTS (
+                    SELECT 1
+                    FROM organization_current_projection query_projection
+                    JOIN organization_version query_organization
+                      ON query_organization.organization_version_id =
+                            query_projection.current_version_id
+                     AND query_organization.organization_id =
+                            current_assignment.organization_id
+                    WHERE query_projection.organization_id =
+                            current_assignment.organization_id
+                      AND (
+                        LOWER(query_organization.name) LIKE
+                            CONCAT('%', LOWER(#{query}), '%')
+                        OR LOWER(query_organization.code) LIKE
+                            CONCAT('%', LOWER(#{query}), '%')
+                      )
+                )
             )
         </if>
         <if test="organizationId != null">

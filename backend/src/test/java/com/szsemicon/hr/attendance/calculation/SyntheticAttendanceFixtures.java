@@ -79,6 +79,24 @@ final class SyntheticAttendanceFixtures {
             List<AdjustmentFact> adjustments,
             CalculationPolicy policy,
             Instant knowledgeCutoff) {
+        return snapshot(
+                segments,
+                punches,
+                evidence,
+                adjustments,
+                false,
+                policy,
+                knowledgeCutoff);
+    }
+
+    static CalculationInputSnapshot snapshot(
+            List<ScheduledWorkSegment> segments,
+            List<PunchEvent> punches,
+            List<IntervalEvidence> evidence,
+            List<AdjustmentFact> adjustments,
+            boolean punchExempt,
+            CalculationPolicy policy,
+            Instant knowledgeCutoff) {
         return new CalculationInputSnapshot(
                 "synthetic-company",
                 "synthetic-employee-001",
@@ -95,6 +113,7 @@ final class SyntheticAttendanceFixtures {
                         YearMonth.from(BUSINESS_DATE),
                         0,
                         "synthetic-grace-digest"),
+                punchExempt,
                 policy,
                 "synthetic-config-snapshot",
                 "synthetic-config-digest",

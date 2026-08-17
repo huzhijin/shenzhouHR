@@ -30,6 +30,14 @@ import {
 export const ALL_DEPARTMENTS = '全部部门';
 export const ALL_EMPLOYEES = '全部员工';
 
+export interface CustomerReportDirectoryEntry {
+  employeeId: string;
+  employeeNo: string;
+  employee: string;
+  organizationId: string;
+  department: string;
+}
+
 /** `AttendanceReportQueryService` rejects `size > 200`, so wide months need paging. */
 const PAGE_SIZE = 200;
 
@@ -87,6 +95,7 @@ async function collectReportPages(
   reportType: AttendanceReportType,
   period: string,
   companyId: string,
+  identityFilters: Pick<CustomerReportFilters, 'organizationId' | 'employeeId'> = {},
 ): Promise<PagedRows<ReportProjection['rows'][number]> & {
   head: ReportProjection;
 }> {
@@ -99,6 +108,8 @@ async function collectReportPages(
       reportType,
       period,
       companyId,
+      organizationId: identityFilters.organizationId,
+      employeeId: identityFilters.employeeId,
       page,
       size: PAGE_SIZE,
     });
@@ -118,9 +129,8 @@ async function collectReportPages(
 }
 
 /**
- * The gateway's report query only carries `companyId`, so the department and
- * employee filters are applied to the fully paged row set. That is exact rather
- * than approximate as long as `truncated` is false — which the sheet surfaces.
+ * Demo and legacy callers still filter by labels. Formal callers send stable
+ * identities to the server and do not rely on ambiguous presentation names.
  */
 function matchesFilters(
   row: { department: string; employee: string },
@@ -136,6 +146,7 @@ function matchesFilters(
 async function collectMatrixPages(
   period: string,
   companyId: string,
+  identityFilters: Pick<CustomerReportFilters, 'organizationId' | 'employeeId'> = {},
 ): Promise<PagedRows<AttendanceMonthMatrixProjection['rows'][number]> & {
   head: AttendanceMonthMatrixProjection;
 }> {
@@ -153,6 +164,8 @@ async function collectMatrixPages(
     const projection = await loadMatrix.call(wave7ProjectionGateway, {
       period,
       companyId,
+      organizationId: identityFilters.organizationId,
+      employeeId: identityFilters.employeeId,
       page,
       size: PAGE_SIZE,
     });
@@ -169,6 +182,25 @@ async function collectMatrixPages(
     truncated = true;
   }
   return { rows, truncated, head };
+}
+
+/** Complete server-authorized directory, independent of active report filters. */
+export async function loadCustomerReportDirectory(
+  period: string,
+  companyId: string,
+): Promise<readonly CustomerReportDirectoryEntry[]> {
+  if (isDemoMode()) return [];
+  const { rows, truncated } = await collectMatrixPages(period, companyId);
+  if (truncated) {
+    throw new Error('授权员工目录超过当前可加载上限，请联系管理员。');
+  }
+  return Array.from(new Map(rows.map((row) => [row.employeeId, {
+    employeeId: row.employeeId,
+    employeeNo: row.employeeNumber,
+    employee: row.employeeName,
+    organizationId: row.organizationId,
+    department: row.organizationName,
+  }])).values());
 }
 
 function emptyReport(
@@ -245,9 +277,9 @@ export async function loadCustomerReport(
     const { rows, truncated, head } = await collectMatrixPages(
       filters.month,
       scope.reference,
+      filters,
     );
-    const attendanceRows = toAttendanceDetailRows({ ...head, rows })
-      .filter((row) => matchesFilters(row, filters));
+    const attendanceRows = toAttendanceDetailRows({ ...head, rows });
     return {
       ...base,
       metadata: {
@@ -264,8 +296,13 @@ export async function loadCustomerReport(
     reportTypes[reportKey],
     filters.month,
     scope.reference,
+    filters,
   );
-  const sheet = sheetFor(reportKey, { ...head, rows }, filters);
+  const sheet = sheetFor(reportKey, { ...head, rows }, {
+    ...filters,
+    department: ALL_DEPARTMENTS,
+    employee: ALL_EMPLOYEES,
+  });
   return {
     ...base,
     ...sheet,
@@ -294,6 +331,8 @@ export interface CustomerReportExportSpec {
   period: string;
   companyId: string;
   reportTitle: string;
+  organizationId?: string;
+  employeeId?: string;
 }
 
 /** Ceiling on status polls before the caller is told the job did not finish. */
@@ -330,6 +369,8 @@ export async function exportCustomerReport(
     reportType,
     period: spec.period,
     companyId: spec.companyId,
+    organizationId: spec.organizationId,
+    employeeId: spec.employeeId,
     page: 0,
     size: 1,
   });

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
+import java.time.ZoneId;
 import org.junit.jupiter.api.Test;
 
 class OaMysqlPropertiesTest {
@@ -33,6 +34,8 @@ class OaMysqlPropertiesTest {
 
         properties.validateEnabled();
 
+        assertThat(properties.getSourceTimeZone())
+                .isEqualTo(ZoneId.of("Asia/Shanghai"));
         assertThat(properties.toString())
                 .doesNotContain(
                         properties.getJdbcUrl(),
@@ -41,6 +44,16 @@ class OaMysqlPropertiesTest {
                 .contains(
                         "jdbcUrl=<redacted>",
                         "password=<redacted>");
+    }
+
+    @Test
+    void rejectsAZoneThatWouldShiftOaDatetimeEvidence() {
+        var properties = configured();
+        properties.setSourceTimeZone(ZoneId.of("UTC"));
+
+        assertThatThrownBy(properties::validateEnabled)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("OA MySQL source time zone must be Asia/Shanghai");
     }
 
     @Test

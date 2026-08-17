@@ -94,8 +94,11 @@ Nginx 站点配置；它不会创建或启动 `shenzhouhr.service`。脚本完�
 
 安装脚本会创建：
 
-- `shenzhouhr_app`：应用运行账号，仅业务 CRUD；
-- `shenzhouhr_migrator`：仅安装/升级时执行结构迁移；
+- `shenzhouhr_app`：应用运行账号，仅业务 CRUD；V42 完成后只额外获得
+  `shenzhou_hr.szsc_oa_time_off_expire` 这个年结过程的 `EXECUTE`；
+- `shenzhouhr_migrator`：仅安装/升级时执行结构迁移；为完成 V1～V48，库级权限在原有
+  DDL/DML 上只增加 `CREATE VIEW` 与 `CREATE ROUTINE`，不授予库级 `EXECUTE`、
+  `ALTER ROUTINE` 或 `GRANT OPTION`；
 - `/etc/shenzhouhr/shenzhouhr.env`：应用环境，`root:shenzhouhr`、`0640`；
 - `/etc/shenzhouhr/shenzhouhr-migrator.env`：迁移环境，`root:root`、`0600`；
 - `/opt/shenzhouhr/app/shenzhou-hr.jar`：宝塔 Java 项目使用的 JAR；
@@ -104,7 +107,33 @@ Nginx 站点配置；它不会创建或启动 `shenzhouhr.service`。脚本完�
   `127.0.0.1:8080/api/`。
 
 真实数据库密码和账号开通恢复密钥不会打印到日志，不要把环境文件发到聊天、截图或
-Git 仓库。
+Git 仓库。首次账号创建和随后迁移授权是两个独立的最小权限阶段，因此安装过程中会在
+隐藏输入模式下再次询问 MySQL root 密码；密码只进入权限为 `0600` 的临时 client 文件，
+迁移结束或失败都会删除。
+
+### OA 生产只读同步
+
+OA 读取使用独立的只读 MySQL 连接池。先由客户数据库管理员创建仅有 `SELECT` 权限的
+OA 账号，再在 `/etc/shenzhouhr/shenzhouhr.env` 中配置 `OA_MYSQL_JDBC_URL`、
+`OA_MYSQL_USERNAME`、`OA_MYSQL_PASSWORD`，并保持
+`OA_MYSQL_SOURCE_TIME_ZONE=Asia/Shanghai`、
+`SHENZHOUHR_OA_AUTO_SYNC_ZONE=Asia/Shanghai`。首次接入先设置：
+
+```text
+OA_MYSQL_ENABLED=true
+SHENZHOUHR_OA_AUTO_SYNC_ENABLED=false
+```
+
+修改环境文件后在宝塔重启 Java 项目，再由具有 `ATTENDANCE_SOURCE:RUN` 权限且数据范围
+覆盖对应公司的用户，从正式同步任务接口触发单个 `OA_ATTENDANCE` 数据源。确认同步任务
+成功、抽样数据正确后，才把 `SHENZHOUHR_OA_AUTO_SYNC_ENABLED` 改为 `true` 并再次重启。
+自动同步默认每 30 分钟执行。生产 `prod` profile 不加载无鉴权 debug 同步入口；不要把
+OA 凭据写入发布包或仓库。
+
+当前版本不会把销假静默忽略：目标月份出现有效 `LEAVE_REVOCATION` 时，完整计算会以
+`OA_LEAVE_REVOCATION_UNRESOLVED` 失败关闭，避免原请假整段被错误计入。手动抽样发现该
+错误时不得发布该月 OA 请假结果，也不要开启自动同步；完整处理所需的原单关联、0..N
+当前销假集合、系统扣减/返还小时与一致水位须在后续受控变更中接通。
 
 ## 四、后续升级
 
@@ -119,8 +148,38 @@ bash upgrade.sh
 ```
 
 脚本会拒绝在 `8080` 仍被监听时升级，保留数据库和环境文件，备份旧 JAR/前端，执行
-前向迁移并替换文件。完成后回到宝塔 Java 项目列表启动 `kaoqinweb`，再执行健康和登录验收。
+前向迁移并替换文件。升级不会用发布包样例覆盖现有 env；已有 `OA_MYSQL_*`、
+`SHENZHOUHR_OA_AUTO_SYNC_*` 和得力配置会逐行保留且不会打印。迁移阶段会以隐藏输入再次
+询问 MySQL root 密码，用于补齐迁移账号的两个 DDL 权限，并在 V42 完成后只授予应用账号
+执行年结过程。完成后回到宝塔 Java 项目列表启动 `kaoqinweb`，再执行健康和登录验收。
 数据库迁移没有自动反向回滚，禁止 `flyway clean` 或修改已经执行过的旧迁移。
+
+### 已部署站点 `/workbench` 刷新 404 的独立修复
+
+当前模板和 `upgrade.sh` 都会生成 `try_files $uri $uri/ /index.html;`。如果旧发布包、
+宝塔「伪静态」操作或人工改动留下了默认 404 规则，可在**不改数据库、不停止 Java**的
+情况下使用发布包内的窄范围修复器。先从宝塔备份站点文件，并在服务器运行只读检查：
+
+```bash
+bash deploy/baota/scripts/repair-spa-routing.sh --check
+```
+
+检查返回 `REPAIR NEEDED` 时，再执行：
+
+```bash
+bash deploy/baota/scripts/repair-spa-routing.sh --apply
+```
+
+脚本只接受面板已登记的 `192.168.160.226:23272`、固定前端目录和固定代理 include；遇到
+未知站点、根目录代理、自定义 rewrite 或未知 `try_files` 会停止。应用前会备份原 vhost，
+随后原子替换候选配置、执行 `nginx -t`、重载，并同时验收 `/workbench` 与 `/api`；任一步
+失败都会尝试恢复原配置。重复执行不会重复添加规则。
+
+该脚本不修改路由器或防火墙。正式合同仍是外部 `23272` → 内部 `23272`、外部 `23273`
+→ 内部 `8080`。如果客户已批准暂时把外部 `23273` 作为前端地址，则它只能转发到内部
+`192.168.160.226:23272`，且不能同时承担直达 `8080` 的后端映射。若本机
+`23272/workbench` 已返回 200、外部 `23273/workbench` 仍是 404，说明外部流量落到了另一
+监听器或 vhost，应修正网络映射，不能反复修改本项目站点。
 
 ## 五、重要边界
 

@@ -1258,6 +1258,181 @@
         ORDER BY data_scope.scope_type, data_scope.scope_id
     </select>
 
+    <!--
+      Department attendance rates are weighted from employee-month day totals.
+      Employees whose monthly scheduled-day total is zero are removed before
+      department aggregation, so their actual-day values cannot enter the
+      numerator. Both the immutable projection and company boundary are
+      explicit on projection and fact rows.
+    -->
+    <select id="listAuthorizedDepartmentAttendanceRates"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$DepartmentAttendanceRateRow">
+        SELECT employee_month.company_id,
+               employee_month.organization_id,
+               SUM(employee_month.actual_attendance_days)
+                   AS actual_attendance_days,
+               SUM(employee_month.scheduled_attendance_days)
+                   AS scheduled_attendance_days,
+               SUM(employee_month.sick_leave_days)
+                   AS sick_leave_days,
+               CAST(
+                   ROUND(
+                       CAST(SUM(employee_month.actual_attendance_days)
+                           AS DECIMAL(19, 4))
+                       * 100
+                       / NULLIF(
+                           SUM(employee_month.scheduled_attendance_days),
+                           0
+                       ),
+                       2
+                   )
+                   AS DECIMAL(10, 2)
+               ) AS attendance_rate
+        FROM (
+            SELECT fact.company_id,
+                   fact.organization_id,
+                   fact.employee_id,
+                   SUM(fact.actual_attendance_days)
+                       AS actual_attendance_days,
+                   SUM(fact.scheduled_attendance_days)
+                       AS scheduled_attendance_days,
+                   SUM(CASE WHEN fact.leave_type = 'SICK'
+                            THEN fact.scheduled_attendance_days
+                            ELSE 0 END) AS sick_leave_days
+            FROM attendance_report_daily_fact fact
+            JOIN attendance_report_projection projection
+              ON projection.attendance_report_projection_id =
+                 fact.attendance_report_projection_id
+             AND projection.company_id = fact.company_id
+            WHERE projection.attendance_report_projection_id =
+                    #{projectionId}
+              AND projection.company_id = #{companyId}
+              AND fact.attendance_report_projection_id = #{projectionId}
+              AND fact.company_id = #{companyId}
+              AND <include refid="reportFactVisibility"/>
+              AND fact.business_date &gt;= #{periodStart}
+              AND fact.business_date &lt; #{periodEndExclusive}
+              AND (
+                    #{organizationId} IS NULL
+                    OR fact.organization_id = #{organizationId}
+              )
+            GROUP BY fact.company_id,
+                     fact.organization_id,
+                     fact.employee_id
+            HAVING SUM(fact.scheduled_attendance_days) &gt; 0
+        ) employee_month
+        GROUP BY employee_month.company_id,
+                 employee_month.organization_id
+        ORDER BY employee_month.organization_id
+    </select>
+
+    <select id="listAuthorizedEmployeeSickLeaveDays"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$EmployeeSickLeaveDaysRow">
+        SELECT fact.company_id,
+               fact.employee_id,
+               fact.organization_id,
+               SUM(fact.scheduled_attendance_days) AS sick_leave_days
+        FROM attendance_report_daily_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE projection.attendance_report_projection_id = #{projectionId}
+          AND projection.company_id = #{companyId}
+          AND fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.leave_type = 'SICK'
+          AND <include refid="reportFactVisibility"/>
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt; #{periodEndExclusive}
+          AND (#{organizationId} IS NULL
+               OR fact.organization_id = #{organizationId})
+          AND (#{employeeId} IS NULL
+               OR fact.employee_id = #{employeeId})
+        GROUP BY fact.company_id, fact.employee_id, fact.organization_id
+        ORDER BY fact.organization_id, fact.employee_id
+    </select>
+
+    <!--
+      One row per employee assignment period. The immutable daily fact stores
+      the assignment selected on the business date; joining that assignment's
+      effective interval makes the occurrence-time allocation explicit. A
+      transfer therefore splits rows without re-reading the employee's current
+      department, and grouping by the captured assignment prevents duplicate
+      days across the split.
+    -->
+    <select id="listAuthorizedEmployeeDepartmentAttendancePeriods"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$EmployeeDepartmentAttendancePeriodRow">
+        SELECT fact.company_id,
+               fact.employee_id,
+               MAX(employee_version.employee_number) AS employee_number,
+               MAX(employee_version.display_name) AS employee_name,
+               fact.organization_id,
+               MAX(organization_version.name) AS organization_name,
+               MIN(fact.business_date) AS period_start,
+               MAX(fact.business_date) AS period_end,
+               SUM(fact.actual_attendance_days)
+                   AS actual_attendance_days,
+               SUM(fact.scheduled_attendance_days)
+                   AS scheduled_attendance_days,
+               CASE
+                   WHEN SUM(fact.scheduled_attendance_days) = 0 THEN NULL
+                   ELSE CAST(
+                       ROUND(
+                           CAST(SUM(fact.actual_attendance_days)
+                               AS DECIMAL(19, 4))
+                           * 100
+                           / SUM(fact.scheduled_attendance_days),
+                           2
+                       )
+                       AS DECIMAL(10, 2)
+                   )
+               END AS attendance_rate
+        FROM attendance_report_daily_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        JOIN employment_assignment employment
+          ON employment.assignment_id = fact.employment_period_id
+         AND employment.employee_id = fact.employee_id
+         AND employment.organization_id = fact.organization_id
+         AND DATE(employment.effective_from) &lt;= fact.business_date
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; fact.business_date
+         )
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+         AND employee_version.employee_id = fact.employee_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+         AND organization_version.organization_id = fact.organization_id
+        WHERE projection.attendance_report_projection_id = #{projectionId}
+          AND projection.company_id = #{companyId}
+          AND fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND <include refid="reportFactVisibility"/>
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt; #{periodEndExclusive}
+          AND (
+                #{organizationId} IS NULL
+                OR fact.organization_id = #{organizationId}
+          )
+          AND (
+                #{employeeId} IS NULL
+                OR fact.employee_id = #{employeeId}
+          )
+        GROUP BY fact.company_id,
+                 fact.employee_id,
+                 fact.employment_period_id,
+                 fact.organization_id
+        ORDER BY employee_number,
+                 period_start,
+                 fact.organization_id
+    </select>
+
     <select id="listAuthorizedDailyFacts"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$DailyRow">
         SELECT fact.attendance_report_daily_fact_id AS fact_id,
@@ -1274,9 +1449,16 @@
                fact.scheduled_minutes,
                fact.confirmed_scheduled_work_minutes,
                fact.recognized_overtime_minutes,
+               fact.paid_overtime_minutes,
+               fact.compensatory_overtime_minutes,
+               fact.voluntary_overtime_minutes,
+               fact.total_overtime_minutes,
                fact.leave_or_time_off_minutes,
+               fact.leave_type,
                fact.absence_minutes,
                fact.actual_work_minutes,
+               fact.scheduled_attendance_days,
+               fact.actual_attendance_days,
                fact.late_minutes,
                fact.penalized_late_minutes,
                fact.early_departure_minutes,

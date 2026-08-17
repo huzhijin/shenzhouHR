@@ -14,6 +14,7 @@ import com.szsemicon.hr.attendance.calculation.domain.AttendanceCalculationModel
 import com.szsemicon.hr.attendance.calculation.domain.AttendanceCalculationModels.ResultCategory;
 import com.szsemicon.hr.attendance.calculation.domain.AttendanceCalculationModels.TimeInterval;
 import com.szsemicon.hr.attendance.calculation.domain.DeterministicAttendanceCalculator;
+import com.szsemicon.hr.attendance.domain.OvertimeType;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -109,8 +110,39 @@ class AttendanceCalculationBoundaryTest {
                 .singleElement()
                 .satisfies(value -> {
                     assertThat(value.rawMinutes()).isEqualTo(16);
-                    assertThat(value.includedMinutes()).isEqualTo(16);
+                    assertThat(value.includedMinutes()).isEqualTo(1);
                 });
+    }
+
+    @Test
+    void twenty_nine_minutes_after_grace_remains_late_and_attended() {
+        var result = lateResultAfterGrace(29);
+
+        assertThat(result.items())
+                .extracting(value -> value.category())
+                .contains(ResultCategory.SCHEDULED_WORK, ResultCategory.LATE)
+                .doesNotContain(ResultCategory.ABSENCE);
+        assertThat(result.metrics().confirmedScheduledWorkMinutes())
+                .isEqualTo(240);
+        assertThat(result.metrics().absenceMinutes()).isZero();
+        assertThat(result.ruleHits())
+                .filteredOn(value -> "LATE_CHARGEABLE"
+                        .equals(value.ruleCode()))
+                .singleElement()
+                .satisfies(value -> {
+                    assertThat(value.rawMinutes()).isEqualTo(44);
+                    assertThat(value.includedMinutes()).isEqualTo(29);
+                });
+    }
+
+    @Test
+    void thirty_minutes_after_grace_converts_to_full_segment_absence() {
+        assertLateConvertedToAbsence(lateResultAfterGrace(30), 45);
+    }
+
+    @Test
+    void forty_five_minutes_after_grace_converts_to_full_segment_absence() {
+        assertLateConvertedToAbsence(lateResultAfterGrace(45), 60);
     }
 
     @Test
@@ -441,7 +473,8 @@ class AttendanceCalculationBoundaryTest {
                                         "2026-07-15T12:00:00Z"),
                                 "synthetic-trigger-document",
                                 Instant.parse("2026-07-15T12:00:00Z"),
-                                true)),
+                                true,
+                                OvertimeType.PAID)),
                         List.of(),
                         belowTriggerPolicy,
                         SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
@@ -548,6 +581,34 @@ class AttendanceCalculationBoundaryTest {
                         SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
     }
 
+    private DailyAttendanceResult lateResultAfterGrace(int lateMinutes) {
+        return lateResult(
+                SyntheticAttendanceFixtures.defaultPolicy()
+                                .lateGraceMaxMinutes()
+                        + lateMinutes);
+    }
+
+    private void assertLateConvertedToAbsence(
+            DailyAttendanceResult result, long expectedRawMinutes) {
+        assertThat(result.items())
+                .extracting(value -> value.category())
+                .containsExactly(ResultCategory.ABSENCE);
+        assertThat(result.items().getFirst().reasonCode())
+                .isEqualTo("LATE_CONVERTED_TO_ABSENCE");
+        assertThat(result.metrics().confirmedScheduledWorkMinutes()).isZero();
+        assertThat(result.metrics().absenceMinutes()).isEqualTo(240);
+        assertThat(result.ruleHits())
+                .filteredOn(value -> "LATE_CONVERTED_TO_ABSENCE"
+                        .equals(value.ruleCode()))
+                .singleElement()
+                .satisfies(value -> {
+                    assertThat(value.rawMinutes())
+                            .isEqualTo(expectedRawMinutes);
+                    assertThat(value.includedMinutes()).isZero();
+                });
+        assertThat(result.exceptionFingerprints()).hasSize(1);
+    }
+
     private DailyAttendanceResult overtimeResult(int submissionLagMinutes) {
         var interval = SyntheticAttendanceFixtures.interval(
                 "2026-07-15T10:00:00Z",
@@ -602,6 +663,7 @@ class AttendanceCalculationBoundaryTest {
                 interval,
                 "synthetic-source-" + id,
                 firstSubmittedAt,
-                true);
+                true,
+                kind == EvidenceKind.OVERTIME ? OvertimeType.PAID : null);
     }
 }

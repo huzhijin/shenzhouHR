@@ -35,6 +35,24 @@ public final class AttendanceSourceSyncModels {
             long rowVersion) {
     }
 
+    public record ScheduledSyncResult(
+            long recordCount,
+            boolean successful,
+            String errorMessage) {
+
+        public ScheduledSyncResult {
+            if (recordCount < 0) {
+                throw new IllegalArgumentException(
+                        "Scheduled sync record count cannot be negative");
+            }
+            if (successful) {
+                errorMessage = null;
+            } else if (errorMessage == null || errorMessage.isBlank()) {
+                errorMessage = "DELI_SCHEDULED_SYNC_FAILED";
+            }
+        }
+    }
+
     public record PageState(
             String jobId,
             String sourceId,

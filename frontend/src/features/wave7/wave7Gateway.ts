@@ -24,7 +24,6 @@ import {
   assertAttendanceMonthMatrixProjection,
   assertLiveReportProjection,
   attendanceReportTypes,
-  hasNoReportIdentityFilter,
   normalizeReportExportPurpose,
   parseAttendanceDashboardResponse,
   parseSelfAttendanceDashboardResponse,
@@ -35,6 +34,8 @@ export interface ReportQuery {
   reportType: AttendanceReportType;
   period: string;
   companyId?: string;
+  organizationId?: string;
+  employeeId?: string;
   status?: ReportExceptionState;
   expectedProjectionVersion?: string;
   page?: number;
@@ -50,6 +51,7 @@ export interface AttendanceMonthMatrixQuery {
   period: string;
   companyId?: string;
   organizationId?: string;
+  employeeId?: string;
   expectedProjectionVersion?: string;
   page?: number;
   size?: number;
@@ -175,6 +177,12 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     if (normalized.companyId !== undefined) {
       parameters.set('companyId', normalized.companyId);
     }
+    if (normalized.organizationId !== undefined) {
+      parameters.set('organizationId', normalized.organizationId);
+    }
+    if (normalized.employeeId !== undefined) {
+      parameters.set('employeeId', normalized.employeeId);
+    }
     if (normalized.status !== undefined) {
       parameters.set('status', normalized.status);
     }
@@ -203,8 +211,9 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
         normalized.companyId !== undefined
         && response.filters.companyId !== normalized.companyId
       )
-      || (response.filters.organizationId ?? null) !== null
-      || !hasNoReportIdentityFilter(response.filters)
+      || (response.filters.organizationId ?? undefined)
+        !== normalized.organizationId
+      || (response.filters.employeeId ?? undefined) !== normalized.employeeId
       || (response.filters.status ?? null)
         !== (normalized.status ?? null)
       || (
@@ -228,6 +237,9 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     }
     if (normalized.organizationId !== undefined) {
       parameters.set('organizationId', normalized.organizationId);
+    }
+    if (normalized.employeeId !== undefined) {
+      parameters.set('employeeId', normalized.employeeId);
     }
     if (normalized.expectedProjectionVersion !== undefined) {
       parameters.set(
@@ -254,7 +266,7 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
       )
       || (response.filters.organizationId ?? undefined)
         !== normalized.organizationId
-      || !hasNoReportIdentityFilter(response.filters)
+      || (response.filters.employeeId ?? undefined) !== normalized.employeeId
       || (
         normalized.expectedProjectionVersion !== undefined
         && response.metadata.projectionVersion
@@ -349,6 +361,8 @@ interface NormalizedReportQuery {
   reportType: AttendanceReportType;
   period: string;
   companyId?: string;
+  organizationId?: string;
+  employeeId?: string;
   status?: ReportExceptionState;
   expectedProjectionVersion?: string;
   page: number;
@@ -359,6 +373,7 @@ interface NormalizedAttendanceMonthMatrixQuery {
   period: string;
   companyId?: string;
   organizationId?: string;
+  employeeId?: string;
   expectedProjectionVersion?: string;
   page: number;
   size: number;
@@ -375,6 +390,7 @@ function normalizeAttendanceMonthMatrixQuery(
         'period',
         'companyId',
         'organizationId',
+        'employeeId',
         'expectedProjectionVersion',
         'page',
         'size',
@@ -402,6 +418,7 @@ function normalizeAttendanceMonthMatrixQuery(
       query.organizationId,
       36,
     ),
+    employeeId: normalizeOptionalQueryFilter(query.employeeId, 36),
     expectedProjectionVersion: normalizeOptionalQueryFilter(
       query.expectedProjectionVersion,
       128,
@@ -420,6 +437,8 @@ function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {
         'reportType',
         'period',
         'companyId',
+        'organizationId',
+        'employeeId',
         'status',
         'expectedProjectionVersion',
         'page',
@@ -461,6 +480,8 @@ function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {
     reportType: query.reportType,
     period: query.period,
     companyId,
+    organizationId: normalizeOptionalQueryFilter(query.organizationId, 36),
+    employeeId: normalizeOptionalQueryFilter(query.employeeId, 36),
     status: normalizedStatus || undefined,
     expectedProjectionVersion: normalizeOptionalQueryFilter(
       query.expectedProjectionVersion,

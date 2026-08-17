@@ -4,21 +4,20 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.AnnualLeaveMapper">
 
-    <select id="findCurrentEmploymentPeriodId" resultType="string">
-        SELECT ea.employment_period_id
+    <select id="findCurrentEmployments"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$CurrentEmploymentRow">
+        SELECT ea.employee_id          AS employeeId,
+               ea.employment_period_id AS employmentPeriodId,
+               employee.company_id     AS companyId
         FROM employment_assignment ea
+        JOIN employee employee
+          ON employee.employee_id = ea.employee_id
         WHERE ea.employee_id = #{employeeId}
           AND ea.current_version_marker = 1
           AND ea.record_status = 'ACTIVE'
-        ORDER BY ea.effective_from DESC
-        LIMIT 1
-    </select>
-
-    <select id="findEmployeeCompanyId" resultType="string">
-        SELECT e.company_id
-        FROM employee e
-        WHERE e.employee_id = #{employeeId}
-        LIMIT 1
+          AND employee.employment_status = 'ACTIVE'
+          AND ea.effective_from &lt;= #{at}
+          AND (ea.effective_to IS NULL OR ea.effective_to &gt; #{at})
     </select>
 
     <select id="findPublishedPolicyVersionId" resultType="string">
@@ -42,9 +41,27 @@
                ta.row_version       AS rowVersion
         FROM time_account ta
         WHERE ta.employee_id   = #{employeeId}
+          AND ta.employment_period_id = #{employmentPeriodId}
           AND ta.account_type  = 'ANNUAL_LEAVE'
           AND ta.account_year  = #{year}
-        LIMIT 1
+    </select>
+
+    <select id="lockTimeAccount"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$TimeAccountRow">
+        SELECT ta.time_account_id   AS accountId,
+               ta.employee_id       AS employeeId,
+               ta.employment_period_id AS employmentPeriodId,
+               ta.company_id        AS companyId,
+               ta.account_year      AS year,
+               ta.balance_hours     AS balanceHours,
+               ta.policy_version_id AS policyVersionId,
+               ta.row_version       AS rowVersion
+        FROM time_account ta
+        WHERE ta.employee_id = #{employeeId}
+          AND ta.employment_period_id = #{employmentPeriodId}
+          AND ta.account_type = 'ANNUAL_LEAVE'
+          AND ta.account_year = #{year}
+        FOR UPDATE
     </select>
 
     <insert id="createTimeAccountIfAbsent">
@@ -74,6 +91,28 @@
         SELECT COALESCE(MAX(sequence_no), 0) + 1
         FROM time_account_ledger_entry
         WHERE time_account_id = #{accountId}
+    </select>
+
+    <select id="sumLedgerAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(amount_hours), 0.00)
+        FROM time_account_ledger_entry
+        WHERE time_account_id = #{accountId}
+    </select>
+
+    <select id="sumActiveReservations" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(reserved_hours), 0.00)
+        FROM oa_time_account_reservation
+        WHERE time_account_id = #{accountId}
+          AND reservation_status IN ('RESERVED', 'CONFIRMED')
+    </select>
+
+    <select id="summarizeOpeningImport"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$OpeningImportSummary">
+        SELECT COUNT(*) AS entryCount,
+               COALESCE(SUM(amount_hours), 0.00) AS totalHours
+        FROM time_account_ledger_entry
+        WHERE time_account_id = #{accountId}
+          AND source_type = 'HR_OPENING_IMPORT'
     </select>
 
     <insert id="insertLedgerEntry">
@@ -144,6 +183,76 @@
         FROM time_account_ledger_entry
         WHERE time_account_id = #{accountId}
     </select>
+
+    <insert id="claimBalanceIdempotency">
+        INSERT INTO annual_leave_balance_idempotency_record (
+            annual_leave_balance_idempotency_record_id,
+            principal_id,
+            idempotency_key,
+            operation,
+            request_digest,
+            claim_token,
+            time_account_id,
+            record_status,
+            resulting_ledger_entry_id,
+            resulting_balance_hours,
+            resulting_row_version,
+            created_at,
+            completed_at
+        ) VALUES (
+            #{recordId},
+            #{principalId},
+            #{idempotencyKey},
+            #{operation},
+            #{requestDigest},
+            #{claimToken},
+            #{accountId},
+            'PROCESSING',
+            NULL,
+            NULL,
+            NULL,
+            #{createdAt},
+            NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            annual_leave_balance_idempotency_record_id =
+                annual_leave_balance_idempotency_record_id
+    </insert>
+
+    <select id="lockBalanceIdempotency"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$BalanceIdempotencyRow">
+        SELECT
+            annual_leave_balance_idempotency_record_id AS recordId,
+            principal_id AS principalId,
+            idempotency_key AS idempotencyKey,
+            operation,
+            request_digest AS requestDigest,
+            claim_token AS claimToken,
+            time_account_id AS accountId,
+            record_status AS recordStatus,
+            resulting_ledger_entry_id AS resultingLedgerEntryId,
+            resulting_balance_hours AS resultingBalanceHours,
+            resulting_row_version AS resultingRowVersion,
+            created_at AS createdAt,
+            completed_at AS completedAt
+        FROM annual_leave_balance_idempotency_record
+        WHERE principal_id = #{principalId}
+          AND idempotency_key = #{idempotencyKey}
+        FOR UPDATE
+    </select>
+
+    <update id="completeBalanceIdempotency">
+        UPDATE annual_leave_balance_idempotency_record
+        SET record_status = 'COMPLETED',
+            resulting_ledger_entry_id = #{resultingLedgerEntryId},
+            resulting_balance_hours = #{resultingBalanceHours},
+            resulting_row_version = #{resultingRowVersion},
+            completed_at = #{completedAt}
+        WHERE principal_id = #{principalId}
+          AND idempotency_key = #{idempotencyKey}
+          AND claim_token = #{claimToken}
+          AND record_status = 'PROCESSING'
+    </update>
 
     <select id="canAccessEmployee" resultType="boolean">
         SELECT EXISTS (

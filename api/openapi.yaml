@@ -63,6 +63,28 @@ x-delivery-contract:
         - path: /api/attendance/groups
           status: NOT_CALLABLE
           reason: Missing the versioned base path and the attendance-setup bounded-context segment.
+    punchCorrection:
+      canonicalOpenApiPath: /attendance/punch-corrections
+      canonicalRuntimePath: /api/v1/attendance/punch-corrections
+      businessTermRuntimePath: /api/v1/attendance/punch-supplement
+      legacyRuntimePaths:
+        - /api/attendance/punch-corrections
+        - /api/attendance/punch-supplement
+      pathItemServers: [/api/v1, /api]
+      reason: >-
+        `/api/v1` 是正式入口；未版本化路径仅为现有客户端兼容。标准资源名和业务术语别名共享同一应用服务、配额与数据范围。
+      mutationHeaderContract:
+        csrf: REQUIRED
+        idempotency: NOT_IMPLEMENTED
+        optimisticConcurrency: NOT_IMPLEMENTED
+        changeReason: NOT_IMPLEMENTED
+      dataScope:
+        enforcement: PeopleRepository.canAccessEmployee
+        scopeTypes: [COMPANY, ORGANIZATION, SELF]
+        submitAsOf: businessDate
+        quotaAsOf: monthEnd
+        approveAsOf: requestBusinessDate
+        deniedResponse: 403 ACCESS_DENIED
   authorization:
     enforcement: SERVER
     default: DENY
@@ -291,6 +313,8 @@ tags:
     description: WAVE-4 离线异构 XLSX 模板、预检、发布、冲正和行级证据。
   - name: AttendanceEvidence
     description: WAVE-4 统一 raw→effective 证据追溯和近重复人工裁决。
+  - name: PunchCorrections
+    description: 每人每自然月一次的补卡申请、配额查询与 HR 审批。
   - name: AttendanceReports
     description: V1.9 正式考勤报表、异常报表及重新鉴权的受控 XLSX 导出。
 paths:
@@ -570,6 +594,7 @@ paths:
         - $ref: '#/components/parameters/Sort'
         - name: query
           in: query
+          description: 按用户名或显示名称进行模糊匹配
           schema: { type: string, maxLength: 100 }
         - name: status
           in: query
@@ -2073,6 +2098,7 @@ paths:
         - $ref: '#/components/parameters/Size'
         - name: query
           in: query
+          description: 按姓名、工号、当前任职部门名称或部门编码进行模糊匹配
           schema: { type: string, maxLength: 100 }
         - name: organizationId
           in: query
@@ -4690,6 +4716,252 @@ paths:
         '403': { $ref: '#/components/responses/AccessDenied' }
         '404': { $ref: '#/components/responses/ResourceNotAvailable' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /attendance/punch-corrections:
+    servers:
+      - url: /api/v1
+      - url: /api
+    post:
+      tags: [PunchCorrections]
+      operationId: submitPunchCorrection
+      summary: 提交补卡申请
+      description: |
+        为本月或上月的有效工作日提交补卡申请。待审批和已批准申请占用对应员工、对应自然月的唯一配额；
+        待审批申请不会立即改变缺卡计数，HR 批准后才进入考勤证据与重新计算链路。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:CREATE
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      x-error-codes:
+        '400': [VALIDATION_ERROR, PUNCH_CORRECTION_FUTURE_DATE, PUNCH_CORRECTION_DATE_TOO_OLD, PUNCH_CORRECTION_NOT_WORKDAY]
+        '409': [PUNCH_NOT_REQUIRED, PUNCH_CORRECTION_QUOTA_EXHAUSTED]
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchCorrectionSubmitRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/PunchCorrectionCreated' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance/punch-corrections/apply:
+    servers:
+      - url: /api/v1
+      - url: /api
+    post:
+      tags: [PunchCorrections]
+      operationId: submitPunchCorrectionAtApplyPath
+      summary: 通过 apply 兼容路径提交补卡申请
+      description: 与 `/attendance/punch-corrections` 共用同一提交、配额和员工数据范围校验。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:CREATE
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      x-error-codes:
+        '400': [VALIDATION_ERROR, PUNCH_CORRECTION_FUTURE_DATE, PUNCH_CORRECTION_DATE_TOO_OLD, PUNCH_CORRECTION_NOT_WORKDAY]
+        '409': [PUNCH_NOT_REQUIRED, PUNCH_CORRECTION_QUOTA_EXHAUSTED]
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchCorrectionSubmitRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/PunchCorrectionCreated' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance/punch-corrections/quota:
+    servers:
+      - url: /api/v1
+      - url: /api
+    get:
+      tags: [PunchCorrections]
+      operationId: getPunchCorrectionQuota
+      summary: 按查询参数读取补卡配额
+      description: 返回指定员工在指定自然月的剩余、已用和总配额。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:READ
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      parameters:
+        - { $ref: '#/components/parameters/PunchCorrectionEmployeeIdQuery' }
+        - { $ref: '#/components/parameters/PunchCorrectionMonthQuery' }
+      responses:
+        '200': { $ref: '#/components/responses/PunchCorrectionQuotaOk' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance/punch-corrections/quota/{employeeId}/{month}:
+    servers:
+      - url: /api/v1
+      - url: /api
+    parameters:
+      - { $ref: '#/components/parameters/PunchCorrectionEmployeeIdPath' }
+      - { $ref: '#/components/parameters/PunchCorrectionMonthPath' }
+    get:
+      tags: [PunchCorrections]
+      operationId: getPunchCorrectionQuotaByPath
+      summary: 按路径参数读取补卡配额
+      description: 与查询参数版本返回相同的自然月配额；保留用于现有客户端兼容。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:READ
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      responses:
+        '200': { $ref: '#/components/responses/PunchCorrectionQuotaOk' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance/punch-corrections/{requestId}/approve:
+    servers:
+      - url: /api/v1
+      - url: /api
+    parameters:
+      - { $ref: '#/components/parameters/PunchCorrectionRequestId' }
+    put:
+      tags: [PunchCorrections]
+      operationId: approvePunchCorrection
+      summary: HR 批准补卡申请
+      description: 仅待审批申请可批准；审批备注请求体可以省略。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:APPROVE
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      x-error-codes:
+        '404': [PUNCH_CORRECTION_NOT_FOUND]
+        '409': [PUNCH_CORRECTION_NOT_PENDING, PUNCH_CORRECTION_CONCURRENT_REVIEW]
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchCorrectionApprovalRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/PunchCorrectionOk' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance/punch-supplement:
+    servers:
+      - url: /api/v1
+      - url: /api
+    post:
+      tags: [PunchCorrections]
+      operationId: submitPunchSupplement
+      summary: 通过兼容路径提交补卡申请
+      description: 兼容别名；请求、授权、配额和审批语义与 `/attendance/punch-corrections` 相同。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:CREATE
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      x-error-codes:
+        '400': [VALIDATION_ERROR, PUNCH_CORRECTION_FUTURE_DATE, PUNCH_CORRECTION_DATE_TOO_OLD, PUNCH_CORRECTION_NOT_WORKDAY]
+        '409': [PUNCH_NOT_REQUIRED, PUNCH_CORRECTION_QUOTA_EXHAUSTED]
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchCorrectionSubmitRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/PunchCorrectionCreated' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance/punch-supplement/apply:
+    servers:
+      - url: /api/v1
+      - url: /api
+    post:
+      tags: [PunchCorrections]
+      operationId: submitPunchSupplementAtApplyPath
+      summary: 通过业务术语 apply 路径提交补卡申请
+      description: 与 `/attendance/punch-corrections` 共用同一提交、配额和员工数据范围校验。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:CREATE
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      x-error-codes:
+        '400': [VALIDATION_ERROR, PUNCH_CORRECTION_FUTURE_DATE, PUNCH_CORRECTION_DATE_TOO_OLD, PUNCH_CORRECTION_NOT_WORKDAY]
+        '409': [PUNCH_NOT_REQUIRED, PUNCH_CORRECTION_QUOTA_EXHAUSTED]
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchCorrectionSubmitRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/PunchCorrectionCreated' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance/punch-supplement/quota:
+    servers:
+      - url: /api/v1
+      - url: /api
+    get:
+      tags: [PunchCorrections]
+      operationId: getPunchSupplementQuota
+      summary: 通过兼容路径读取补卡配额
+      description: 兼容别名；返回值与补卡申请标准路径相同。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:READ
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      parameters:
+        - { $ref: '#/components/parameters/PunchCorrectionEmployeeIdQuery' }
+        - { $ref: '#/components/parameters/PunchCorrectionMonthQuery' }
+      responses:
+        '200': { $ref: '#/components/responses/PunchCorrectionQuotaOk' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance/punch-supplement/quota/{employeeId}/{month}:
+    servers:
+      - url: /api/v1
+      - url: /api
+    parameters:
+      - { $ref: '#/components/parameters/PunchCorrectionEmployeeIdPath' }
+      - { $ref: '#/components/parameters/PunchCorrectionMonthPath' }
+    get:
+      tags: [PunchCorrections]
+      operationId: getPunchSupplementQuotaByPath
+      summary: 通过兼容路径及路径参数读取补卡配额
+      description: 兼容别名；返回值与补卡申请标准路径相同。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:READ
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      responses:
+        '200': { $ref: '#/components/responses/PunchCorrectionQuotaOk' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance/punch-supplement/{requestId}/approve:
+    servers:
+      - url: /api/v1
+      - url: /api
+    parameters:
+      - { $ref: '#/components/parameters/PunchCorrectionRequestId' }
+    put:
+      tags: [PunchCorrections]
+      operationId: approvePunchSupplement
+      summary: 通过兼容路径批准补卡申请
+      description: 兼容别名；仅待审批申请可批准，审批备注请求体可以省略。
+      x-capability: ATTENDANCE_PUNCH_CORRECTION:APPROVE
+      x-data-scope: PEOPLE:EMPLOYEE_AS_OF
+      x-error-codes:
+        '404': [PUNCH_CORRECTION_NOT_FOUND]
+        '409': [PUNCH_CORRECTION_NOT_PENDING, PUNCH_CORRECTION_CONCURRENT_REVIEW]
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PunchCorrectionApprovalRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/PunchCorrectionOk' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /attendance-events/{eventId}/evidence:
     parameters:
       - { $ref: '#/components/parameters/EventId' }
@@ -5227,6 +5499,36 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/ResourceId' }
+    PunchCorrectionRequestId:
+      name: requestId
+      in: path
+      required: true
+      description: 补卡申请资源标识。
+      schema: { type: string, minLength: 1, maxLength: 36 }
+    PunchCorrectionEmployeeIdQuery:
+      name: employeeId
+      in: query
+      required: true
+      description: 被查询配额的员工标识；服务端按月末日期执行 COMPANY、ORGANIZATION 或 SELF 员工范围校验。
+      schema: { type: string, minLength: 1, maxLength: 36 }
+    PunchCorrectionMonthQuery:
+      name: month
+      in: query
+      required: true
+      description: 自然月。
+      schema: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+    PunchCorrectionEmployeeIdPath:
+      name: employeeId
+      in: path
+      required: true
+      description: 被查询配额的员工标识；服务端按月末日期执行 COMPANY、ORGANIZATION 或 SELF 员工范围校验。
+      schema: { type: string, minLength: 1, maxLength: 36 }
+    PunchCorrectionMonthPath:
+      name: month
+      in: path
+      required: true
+      description: 自然月。
+      schema: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
     EmploymentPeriodId:
       name: employmentPeriodId
       in: path
@@ -8069,6 +8371,76 @@ components:
         size: { type: integer, minimum: 1, maximum: 100 }
         totalElements: { type: integer, format: int64, minimum: 0 }
         totalPages: { type: integer, minimum: 0 }
+    PunchCorrectionSubmitRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeId, businessDate, punchSide, reason]
+      properties:
+        employeeId:
+          type: string
+          minLength: 1
+          maxLength: 36
+          description: 补卡员工标识；服务端按业务日通过 PeopleRepository.canAccessEmployee 绑定 COMPANY、ORGANIZATION 或 SELF 范围。
+        businessDate:
+          type: string
+          format: date
+          description: 本月或上月且属于该员工的有效工作日，不能是未来日期。
+        punchSide:
+          type: string
+          enum: [ENTRY, EXIT, BOTH]
+          description: 上班卡、下班卡或两侧都补。
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    PunchCorrectionApprovalRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        notes:
+          type: [string, 'null']
+          maxLength: 500
+          description: 可选 HR 审批备注；空白值按未提供处理。
+    PunchCorrectionRequestView:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+        - employeeId
+        - requestMonth
+        - businessDate
+        - punchSide
+        - reason
+        - status
+        - requestedAt
+        - requestedBy
+      properties:
+        requestId: { type: string, minLength: 1, maxLength: 36 }
+        employeeId: { type: string, minLength: 1, maxLength: 36 }
+        requestMonth:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        businessDate: { type: string, format: date }
+        punchSide:
+          type: string
+          enum: [ENTRY, EXIT, BOTH]
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, CANCELLED]
+        requestedAt: { type: string, format: date-time }
+        requestedBy: { type: string, minLength: 1, maxLength: 36 }
+        reviewedAt: { type: string, format: date-time }
+        reviewedBy: { type: string, minLength: 1, maxLength: 36 }
+        reviewNotes: { type: string, minLength: 1, maxLength: 500 }
+    PunchCorrectionQuotaStatus:
+      type: object
+      additionalProperties: false
+      required: [remainingQuota, usedQuota, totalQuota]
+      properties:
+        remainingQuota: { type: integer, minimum: 0, maximum: 1 }
+        usedQuota: { type: integer, minimum: 0, maximum: 1 }
+        totalQuota: { type: integer, const: 1 }
     W4ResourceView:
       type: object
       additionalProperties: false
@@ -9186,6 +9558,30 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/PunchImportRowPage' }
+    PunchCorrectionCreated:
+      description: 补卡申请已创建为待审批状态。
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PunchCorrectionRequestView' }
+    PunchCorrectionOk:
+      description: 补卡申请审批成功。
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PunchCorrectionRequestView' }
+    PunchCorrectionQuotaOk:
+      description: 指定员工在指定自然月的补卡配额状态。
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PunchCorrectionQuotaStatus' }
     W4PageOk:
       description: 经过服务端作用域过滤后再分页的稳定 W4 资源页
       headers:

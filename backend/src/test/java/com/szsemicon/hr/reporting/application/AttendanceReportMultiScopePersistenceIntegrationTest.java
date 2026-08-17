@@ -17,11 +17,15 @@ import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.Enco
 import com.szsemicon.hr.reporting.application.AttendanceReportExportEncoder.ExportContext;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportService.RequestedExportBinding;
 import com.szsemicon.hr.reporting.application.AttendanceReportExportStore.ExportJob;
+import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.DepartmentAttendanceRate;
+import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.EmployeeDepartmentAttendancePeriod;
 import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportField;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
+import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -182,6 +186,414 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 .isEqualTo(companyA.scope().authorizationDigest());
         assertThat(dashboardB.snapshot().scope().authorizationDigest())
                 .isEqualTo(companyB.scope().authorizationDigest());
+    }
+
+    @Test
+    void persistedAttendanceRateUsesDayFieldsInsteadOfMinuteFields() {
+        jdbc.update(
+                """
+                UPDATE attendance_report_daily_fact
+                SET confirmed_scheduled_work_minutes = 240,
+                    actual_work_minutes = 240
+                WHERE attendance_report_daily_fact_id = ?
+                """,
+                "7f000000-0000-0000-0000-000000000001");
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        when(capabilities.currentCapabilities()).thenReturn(
+                Set.of(CapabilityCodes.ATTENDANCE_REPORT_READ));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                () -> PRINCIPAL,
+                reportRepository,
+                CLOCK);
+
+        AttendanceReportPage report = service.query(
+                ReportType.ATTENDANCE_RATE,
+                PERIOD,
+                COMPANY_A,
+                ORGANIZATION_A,
+                null,
+                null,
+                0,
+                20);
+
+        assertThat(report.rows()).singleElement().satisfies(row ->
+                assertThat(row.values())
+                        .containsEntry(
+                                ReportField.SCHEDULED_ATTENDANCE_DAYS, "1")
+                        .containsEntry(
+                                ReportField.ACTUAL_ATTENDANCE_DAYS, "1")
+                        .containsEntry(ReportField.ATTENDANCE_RATE, "100.00"));
+    }
+
+    @Test
+    void persistedSevereLateAbsenceAndMissingPunchRemainDistinctInReports() {
+        jdbc.update(
+                """
+                UPDATE attendance_report_daily_fact
+                SET confirmed_scheduled_work_minutes = 0,
+                    absence_minutes = 480, actual_work_minutes = 0,
+                    actual_attendance_days = 0, late_minutes = 0,
+                    penalized_late_minutes = 0, missing_punch_count = 2
+                WHERE attendance_report_daily_fact_id = ?
+                """,
+                "7f000000-0000-0000-0000-000000000001");
+        jdbc.update(
+                """
+                UPDATE attendance_report_exception_fact
+                SET exception_type = 'LATE_CONVERTED_TO_ABSENCE',
+                    exception_minutes = 480
+                WHERE attendance_report_exception_fact_id = ?
+                """,
+                "7e000000-0000-0000-0000-000000000001");
+        AttendanceReportQueryService service = readableReportService();
+
+        AttendanceReportPage detail = query(service, ReportType.ATTENDANCE_DETAIL);
+        assertThat(detail.rows()).singleElement().satisfies(row ->
+                assertThat(row.values())
+                        .containsEntry(ReportField.ABSENCE_HOURS, "8.00")
+                        .containsEntry(ReportField.LATE_MINUTES, "0")
+                        .containsEntry(ReportField.MISSING_PUNCH_COUNT, "2"));
+        assertThat(query(service, ReportType.ATTENDANCE_RATE).rows())
+                .singleElement().satisfies(row -> assertThat(row.values())
+                        .containsEntry(ReportField.SCHEDULED_ATTENDANCE_DAYS, "1")
+                        .containsEntry(ReportField.ACTUAL_ATTENDANCE_DAYS, "0")
+                        .containsEntry(ReportField.ATTENDANCE_RATE, "0.00"));
+        assertThat(query(service, ReportType.MISSED_PUNCH).rows())
+                .singleElement().satisfies(row -> assertThat(row.values())
+                        .containsEntry(ReportField.MISSING_PUNCH_COUNT, "2"));
+        assertThat(query(service, ReportType.LATE).rows()).isEmpty();
+        assertThat(query(service, ReportType.EXCEPTIONS).rows())
+                .singleElement().satisfies(row -> assertThat(row.values())
+                        .containsEntry(ReportField.EXCEPTION_TYPE,
+                                "LATE_CONVERTED_TO_ABSENCE")
+                        .containsEntry(ReportField.EXCEPTION_MINUTES, "480"));
+    }
+
+    @Test
+    void persistedLeaveTypesUseDayRateAndExposeSickLeaveSeparately() {
+        jdbc.update(
+                "UPDATE attendance_report_daily_fact SET leave_type = 'SICK',"
+                        + " leave_or_time_off_minutes = 480,"
+                        + " confirmed_scheduled_work_minutes = 0,"
+                        + " actual_work_minutes = 0"
+                        + " WHERE attendance_report_daily_fact_id = ?",
+                "7f000000-0000-0000-0000-000000000001");
+        insertDepartmentAttendanceDay(
+                "leave-personal", "b0000000-0000-0000-0000-000000000002",
+                "e0000000-0000-0000-0000-000000000002", 6, 1, 0);
+        jdbc.update("UPDATE attendance_report_daily_fact SET leave_type = 'PERSONAL',"
+                        + " leave_or_time_off_minutes = 480, absence_minutes = 0"
+                        + " WHERE attendance_report_daily_fact_id = ?",
+                "leave-personal");
+        insertDepartmentAttendanceDay(
+                "leave-annual", "b0000000-0000-0000-0000-000000000002",
+                "e0000000-0000-0000-0000-000000000002", 7, 1, 1);
+        jdbc.update("UPDATE attendance_report_daily_fact SET leave_type = 'ANNUAL',"
+                        + " leave_or_time_off_minutes = 480,"
+                        + " confirmed_scheduled_work_minutes = 0,"
+                        + " actual_work_minutes = 0"
+                        + " WHERE attendance_report_daily_fact_id = ?",
+                "leave-annual");
+        AttendanceReportQueryService service = readableReportService();
+
+        assertThat(query(service, ReportType.ATTENDANCE_RATE).rows())
+                .singleElement().satisfies(row -> assertThat(row.values())
+                        .containsEntry(ReportField.SCHEDULED_ATTENDANCE_DAYS, "3")
+                        .containsEntry(ReportField.ACTUAL_ATTENDANCE_DAYS, "2")
+                        .containsEntry(ReportField.SICK_LEAVE_DAYS, "1")
+                        .containsEntry(ReportField.ATTENDANCE_RATE, "66.67"));
+        assertThat(reportRepository.listAuthorizedEmployeeSickLeaveDays(
+                PRINCIPAL, CapabilityCodes.ATTENDANCE_REPORT_READ,
+                new ReportFilter(PERIOD, COMPANY_A, ORGANIZATION_A, null, null),
+                AUTHORIZATION_TIME)).singleElement().satisfies(value ->
+                        assertThat(value.sickLeaveDays()).isEqualTo(1));
+        assertThat(jdbc.queryForObject(
+                "SELECT leave_type FROM attendance_report_daily_fact"
+                        + " WHERE attendance_report_daily_fact_id = ?",
+                String.class, "leave-annual")).isEqualTo("ANNUAL");
+        insertOaLeaveFact("leave-oa-sick", "SICK_LEAVE", 480);
+        insertOaLeaveFact("leave-oa-annual", "ANNUAL_LEAVE", 480);
+        assertThat(query(service, ReportType.LEAVE).rows())
+                .extracting(row -> row.values().get(ReportField.DOCUMENT_TYPE))
+                .containsExactlyInAnyOrder("SICK_LEAVE", "ANNUAL_LEAVE");
+    }
+
+    @Test
+    void persistedOvertimeClassificationUsesOnlyTheFourNewMetrics() {
+        jdbc.update(
+                """
+                UPDATE attendance_report_daily_fact
+                SET recognized_overtime_minutes = 210,
+                    paid_overtime_minutes = 120,
+                    compensatory_overtime_minutes = 60,
+                    voluntary_overtime_minutes = 30,
+                    total_overtime_minutes = 210,
+                    actual_work_minutes = 690,
+                    unexcused_overtime_minutes = 999,
+                    excused_overtime_minutes = 999
+                WHERE attendance_report_daily_fact_id = ?
+                """,
+                "7f000000-0000-0000-0000-000000000001");
+
+        assertThat(query(readableReportService(), ReportType.OVERTIME).rows())
+                .singleElement().satisfies(row -> assertThat(row.values())
+                        .containsEntry(ReportField.PAID_OVERTIME_HOURS, "2.00")
+                        .containsEntry(ReportField.COMPENSATORY_OVERTIME_HOURS, "1.00")
+                        .containsEntry(ReportField.VOLUNTARY_OVERTIME_HOURS, "0.50")
+                        .containsEntry(ReportField.TOTAL_OVERTIME_HOURS, "3.50")
+                        .containsEntry(ReportField.RECOGNIZED_OVERTIME_HOURS, "3.50"));
+    }
+
+    @Test
+    void persistedExemptionAndOutingResultsKeepScheduledDaysAndPunchOutcomes() {
+        insertDepartmentAttendanceDay(
+                "exempt-attended", "b0000000-0000-0000-0000-000000000002",
+                "e0000000-0000-0000-0000-000000000002", 6, 1, 1);
+        insertDepartmentAttendanceDay(
+                "outing-no-punch", "b0000000-0000-0000-0000-000000000002",
+                "e0000000-0000-0000-0000-000000000002", 7, 1, 0);
+        jdbc.update("UPDATE attendance_report_daily_fact SET missing_punch_count = 2"
+                        + " WHERE attendance_report_daily_fact_id = ?",
+                "outing-no-punch");
+        AttendanceReportQueryService service = readableReportService();
+
+        assertThat(query(service, ReportType.ATTENDANCE_RATE).rows())
+                .singleElement().satisfies(row -> assertThat(row.values())
+                        .containsEntry(ReportField.SCHEDULED_ATTENDANCE_DAYS, "3")
+                        .containsEntry(ReportField.ACTUAL_ATTENDANCE_DAYS, "2")
+                        .containsEntry(ReportField.ATTENDANCE_RATE, "66.67"));
+        assertThat(query(service, ReportType.MISSED_PUNCH).rows())
+                .singleElement().satisfies(row -> assertThat(row.values())
+                        .containsEntry(ReportField.MISSING_PUNCH_COUNT, "2"));
+    }
+
+    @Test
+    void departmentRateIsDayWeightedExcludesZeroScheduleAndStaysInCompany() {
+        jdbc.update(
+                "DELETE FROM attendance_report_daily_fact"
+                        + " WHERE attendance_report_projection_id = ?"
+                        + " AND company_id = ?",
+                PROJECTION_A,
+                COMPANY_A);
+        jdbc.update(
+                "UPDATE employment_assignment"
+                        + " SET organization_id = ?, effective_to = NULL"
+                        + " WHERE employee_id IN (?, ?)",
+                ORGANIZATION_A,
+                "b0000000-0000-0000-0000-000000000001",
+                "b0000000-0000-0000-0000-000000000003");
+
+        for (int day = 1; day <= 20; day++) {
+            insertDepartmentAttendanceDay(
+                    "rate-bob-" + day,
+                    "b0000000-0000-0000-0000-000000000002",
+                    "e0000000-0000-0000-0000-000000000002",
+                    day,
+                    1,
+                    1);
+        }
+        for (int day = 1; day <= 22; day++) {
+            insertDepartmentAttendanceDay(
+                    "rate-carol-" + day,
+                    "b0000000-0000-0000-0000-000000000003",
+                    "e0000000-0000-0000-0000-000000000003",
+                    day,
+                    1,
+                    day <= 20 ? 1 : 0);
+        }
+        for (int day = 1; day <= 3; day++) {
+            insertDepartmentAttendanceDay(
+                    "rate-alice-" + day,
+                    "b0000000-0000-0000-0000-000000000001",
+                    "e0000000-0000-0000-0000-000000000001",
+                    day,
+                    0,
+                    1);
+        }
+        jdbc.update(
+                "UPDATE attendance_report_daily_fact SET leave_type = 'SICK'"
+                        + " WHERE attendance_report_daily_fact_id IN (?, ?)",
+                "rate-bob-1",
+                "rate-bob-2");
+
+        List<DepartmentAttendanceRate> rates =
+                reportRepository.listAuthorizedDepartmentAttendanceRates(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        new ReportFilter(
+                                PERIOD, COMPANY_A, null, null, null),
+                        AUTHORIZATION_TIME);
+
+        assertThat(rates).singleElement().satisfies(rate -> {
+            assertThat(rate.companyId()).isEqualTo(COMPANY_A);
+            assertThat(rate.organizationId()).isEqualTo(ORGANIZATION_A);
+            assertThat(rate.actualAttendanceDays()).isEqualTo(40);
+            assertThat(rate.scheduledAttendanceDays()).isEqualTo(42);
+            assertThat(rate.sickLeaveDays()).isEqualTo(2);
+            assertThat(rate.attendanceRate())
+                    .isEqualByComparingTo(new BigDecimal("95.24"));
+        });
+        assertThat(reportRepository.listAuthorizedEmployeeSickLeaveDays(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                new ReportFilter(PERIOD, COMPANY_A, null, null, null),
+                AUTHORIZATION_TIME)).singleElement().satisfies(sickLeave -> {
+                    assertThat(sickLeave.employeeId()).isEqualTo(
+                            "b0000000-0000-0000-0000-000000000002");
+                    assertThat(sickLeave.sickLeaveDays()).isEqualTo(2);
+                });
+    }
+
+    @Test
+    void augustFifteenthTransferSplitsPeriodsWithoutDuplicateDays() {
+        String employeeId =
+                "b0000000-0000-0000-0000-000000000002";
+        String employeeVersionId =
+                "e0000000-0000-0000-0000-000000000002";
+        String departmentAAssignment =
+                "c0000000-0000-0000-0000-000000000002";
+        String departmentBAssignment =
+                "c0000000-0000-0000-0000-000000000020";
+
+        jdbc.update(
+                "UPDATE auth_data_scope"
+                        + " SET scope_type = 'COMPANY', company_id = ?,"
+                        + " organization_id = NULL, include_descendants = FALSE"
+                        + " WHERE scope_id = ?",
+                COMPANY_A,
+                SCOPE_A);
+        jdbc.update(
+                "DELETE FROM attendance_report_daily_fact"
+                        + " WHERE attendance_report_projection_id = ?"
+                        + " AND company_id = ?",
+                PROJECTION_A,
+                COMPANY_A);
+        jdbc.update(
+                "UPDATE employment_assignment"
+                        + " SET effective_from = ?, effective_to = ?"
+                        + " WHERE assignment_id = ?",
+                Timestamp.valueOf("2026-08-01 00:00:00"),
+                Timestamp.valueOf("2026-08-15 00:00:00"),
+                departmentAAssignment);
+        jdbc.update(
+                """
+                INSERT INTO employment_assignment (
+                    assignment_id, employment_period_id, employee_id,
+                    organization_id, effective_from, effective_to
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                departmentBAssignment,
+                departmentBAssignment,
+                employeeId,
+                UNAUTHORIZED_ORGANIZATION_A,
+                Timestamp.valueOf("2026-08-15 00:00:00"),
+                Timestamp.valueOf("2026-09-01 00:00:00"));
+
+        for (int day = 1; day <= 14; day++) {
+            int attendanceDay = day <= 10 ? 1 : 0;
+            insertTransferredAttendanceDay(
+                    "transfer-a-" + day,
+                    employeeId,
+                    employeeVersionId,
+                    departmentAAssignment,
+                    ORGANIZATION_A,
+                    "50000000-0000-0000-0000-000000000002",
+                    day,
+                    attendanceDay);
+        }
+        for (int day = 15; day <= 31; day++) {
+            int attendanceDay = day <= 26 ? 1 : 0;
+            insertTransferredAttendanceDay(
+                    "transfer-b-" + day,
+                    employeeId,
+                    employeeVersionId,
+                    departmentBAssignment,
+                    UNAUTHORIZED_ORGANIZATION_A,
+                    "50000000-0000-0000-0000-000000000003",
+                    day,
+                    attendanceDay);
+        }
+
+        List<EmployeeDepartmentAttendancePeriod> periods =
+                reportRepository
+                        .listAuthorizedEmployeeDepartmentAttendancePeriods(
+                                PRINCIPAL,
+                                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                                new ReportFilter(
+                                        PERIOD,
+                                        COMPANY_A,
+                                        null,
+                                        employeeId,
+                                        null),
+                                AUTHORIZATION_TIME);
+
+        assertThat(periods).hasSize(2);
+        EmployeeDepartmentAttendancePeriod departmentA = periods.get(0);
+        assertThat(departmentA.employeeId()).isEqualTo(employeeId);
+        assertThat(departmentA.employeeName()).isEqualTo("Bob");
+        assertThat(departmentA.organizationId()).isEqualTo(ORGANIZATION_A);
+        assertThat(departmentA.organizationName()).isEqualTo("制造中心");
+        assertThat(departmentA.periodStart()).isEqualTo(PERIOD.atDay(1));
+        assertThat(departmentA.periodEnd()).isEqualTo(PERIOD.atDay(14));
+        assertThat(departmentA.actualAttendanceDays()).isEqualTo(10);
+        assertThat(departmentA.scheduledAttendanceDays()).isEqualTo(10);
+        assertThat(departmentA.attendanceRate())
+                .isEqualByComparingTo("100.00");
+
+        EmployeeDepartmentAttendancePeriod departmentB = periods.get(1);
+        assertThat(departmentB.organizationId())
+                .isEqualTo(UNAUTHORIZED_ORGANIZATION_A);
+        assertThat(departmentB.organizationName()).isEqualTo("封装部");
+        assertThat(departmentB.periodStart()).isEqualTo(PERIOD.atDay(15));
+        assertThat(departmentB.periodEnd()).isEqualTo(PERIOD.atEndOfMonth());
+        assertThat(departmentB.actualAttendanceDays()).isEqualTo(12);
+        assertThat(departmentB.scheduledAttendanceDays()).isEqualTo(12);
+        assertThat(departmentB.attendanceRate())
+                .isEqualByComparingTo("100.00");
+        assertThat(periods.stream()
+                        .mapToLong(EmployeeDepartmentAttendancePeriod
+                                ::scheduledAttendanceDays)
+                        .sum())
+                .isEqualTo(22);
+        assertThat(periods.stream()
+                        .mapToLong(EmployeeDepartmentAttendancePeriod
+                                ::actualAttendanceDays)
+                        .sum())
+                .isEqualTo(22);
+
+        List<EmployeeDepartmentAttendancePeriod> departmentAOnly =
+                reportRepository
+                        .listAuthorizedEmployeeDepartmentAttendancePeriods(
+                                PRINCIPAL,
+                                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                                new ReportFilter(
+                                        PERIOD,
+                                        COMPANY_A,
+                                        ORGANIZATION_A,
+                                        employeeId,
+                                        null),
+                                AUTHORIZATION_TIME);
+        assertThat(departmentAOnly).containsExactly(departmentA);
+
+        List<DepartmentAttendanceRate> departmentRates =
+                reportRepository.listAuthorizedDepartmentAttendanceRates(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        new ReportFilter(
+                                PERIOD, COMPANY_A, null, null, null),
+                        AUTHORIZATION_TIME);
+        assertThat(departmentRates)
+                .extracting(
+                        DepartmentAttendanceRate::organizationId,
+                        DepartmentAttendanceRate::actualAttendanceDays,
+                        DepartmentAttendanceRate::scheduledAttendanceDays)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                ORGANIZATION_A, 10L, 10L),
+                        org.assertj.core.groups.Tuple.tuple(
+                                UNAUTHORIZED_ORGANIZATION_A, 12L, 12L));
     }
 
     @Test
@@ -580,6 +992,20 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                         .toList());
     }
 
+    private AttendanceReportQueryService readableReportService() {
+        CurrentCapabilityService capabilities = mock(CurrentCapabilityService.class);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        return new AttendanceReportQueryService(
+                capabilities, () -> PRINCIPAL, reportRepository, CLOCK);
+    }
+
+    private static AttendanceReportPage query(
+            AttendanceReportQueryService service, ReportType type) {
+        return service.query(
+                type, PERIOD, COMPANY_A, ORGANIZATION_A, null, null, 0, 20);
+    }
+
     private void seedCompanyBOrganizationsAndEmployees() {
         jdbc.update(
                 """
@@ -873,13 +1299,16 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                     shift_label, scheduled_minutes,
                     confirmed_scheduled_work_minutes,
                     recognized_overtime_minutes, leave_or_time_off_minutes,
-                    absence_minutes, actual_work_minutes, late_minutes,
+                    absence_minutes, actual_work_minutes,
+                    scheduled_attendance_days, actual_attendance_days,
+                    late_minutes,
                     penalized_late_minutes, early_departure_minutes,
                     missing_punch_count, first_punch_at, last_punch_at,
+                    unexcused_overtime_minutes, excused_overtime_minutes,
                     calculation_version_id, result_digest
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WEEKDAY', '标准班',
-                    480, 480, 0, 0, 0, 480, 0, 0, 0, 0,
-                    ?, ?, 'calculation-v1', ?)
+                    480, 480, 0, 0, 0, 480, 1, 1, 0, 0, 0, 0,
+                    ?, ?, 0, 0, 'calculation-v1', ?)
                 """,
                 factId,
                 projectionId,
@@ -892,6 +1321,142 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 Timestamp.from(Instant.parse("2026-08-05T01:00:00Z")),
                 Timestamp.from(Instant.parse("2026-08-05T09:00:00Z")),
                 "result-" + factId);
+    }
+
+    private void insertDepartmentAttendanceDay(
+            String factId,
+            String employeeId,
+            String employeeVersionId,
+            int dayOfMonth,
+            int scheduledAttendanceDays,
+            int actualAttendanceDays) {
+        long scheduledMinutes = scheduledAttendanceDays * 480L;
+        long confirmedMinutes = scheduledAttendanceDays == 1
+                        && actualAttendanceDays == 1
+                ? 480L
+                : 0L;
+        long overtimeMinutes = scheduledAttendanceDays == 0
+                        && actualAttendanceDays == 1
+                ? 480L
+                : 0L;
+        long absenceMinutes = scheduledAttendanceDays == 1
+                        && actualAttendanceDays == 0
+                ? 480L
+                : 0L;
+        jdbc.update(
+                """
+                INSERT INTO attendance_report_daily_fact (
+                    attendance_report_daily_fact_id,
+                    attendance_report_projection_id, company_id,
+                    employee_id, employee_version_id, organization_id,
+                    organization_version_id, business_date, day_type,
+                    shift_label, scheduled_minutes,
+                    confirmed_scheduled_work_minutes,
+                    recognized_overtime_minutes, leave_or_time_off_minutes,
+                    absence_minutes, actual_work_minutes,
+                    scheduled_attendance_days, actual_attendance_days,
+                    late_minutes, penalized_late_minutes,
+                    early_departure_minutes, missing_punch_count,
+                    first_punch_at, last_punch_at,
+                    unexcused_overtime_minutes, excused_overtime_minutes,
+                    calculation_version_id, result_digest
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'WEEKDAY', '标准班',
+                    ?, ?, ?, 0, ?, ?, ?, ?, 0, 0, 0, 0,
+                    NULL, NULL, 0, 0, 'department-rate-v1', ?)
+                """,
+                factId,
+                PROJECTION_A,
+                COMPANY_A,
+                employeeId,
+                employeeVersionId,
+                ORGANIZATION_A,
+                "50000000-0000-0000-0000-000000000002",
+                Date.valueOf(PERIOD.atDay(dayOfMonth)),
+                scheduledMinutes,
+                confirmedMinutes,
+                overtimeMinutes,
+                absenceMinutes,
+                confirmedMinutes + overtimeMinutes,
+                scheduledAttendanceDays,
+                actualAttendanceDays,
+                "result-" + factId);
+    }
+
+    private void insertTransferredAttendanceDay(
+            String factId,
+            String employeeId,
+            String employeeVersionId,
+            String employmentAssignmentId,
+            String organizationId,
+            String organizationVersionId,
+            int dayOfMonth,
+            int attendanceDay) {
+        long attendanceMinutes = attendanceDay * 480L;
+        jdbc.update(
+                """
+                INSERT INTO attendance_report_daily_fact (
+                    attendance_report_daily_fact_id,
+                    attendance_report_projection_id, company_id,
+                    employee_id, employee_version_id, employment_period_id,
+                    organization_id, organization_version_id,
+                    business_date, day_type, shift_label,
+                    scheduled_minutes, confirmed_scheduled_work_minutes,
+                    recognized_overtime_minutes, leave_or_time_off_minutes,
+                    absence_minutes, actual_work_minutes,
+                    scheduled_attendance_days, actual_attendance_days,
+                    late_minutes, penalized_late_minutes,
+                    early_departure_minutes, missing_punch_count,
+                    first_punch_at, last_punch_at,
+                    unexcused_overtime_minutes, excused_overtime_minutes,
+                    calculation_version_id, result_digest
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'WEEKDAY', '标准班',
+                    ?, ?, 0, 0, 0, ?, ?, ?, 0, 0, 0, 0,
+                    NULL, NULL, 0, 0, 'transfer-allocation-v1', ?)
+                """,
+                factId,
+                PROJECTION_A,
+                COMPANY_A,
+                employeeId,
+                employeeVersionId,
+                employmentAssignmentId,
+                organizationId,
+                organizationVersionId,
+                Date.valueOf(PERIOD.atDay(dayOfMonth)),
+                attendanceMinutes,
+                attendanceMinutes,
+                attendanceMinutes,
+                attendanceDay,
+                attendanceDay,
+                "result-" + factId);
+    }
+
+    private void insertOaLeaveFact(
+            String factId, String leaveTypeCode, long recognizedMinutes) {
+        jdbc.update(
+                """
+                INSERT INTO attendance_report_oa_fact (
+                    attendance_report_oa_fact_id,
+                    attendance_report_projection_id, company_id,
+                    oa_attendance_document_id, employee_id,
+                    employee_version_id, organization_id,
+                    organization_version_id, document_type, leave_type_code,
+                    interval_start, interval_end, recognized_minutes,
+                    source_status, source_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'LEAVE', ?, ?, ?, ?,
+                    'APPROVED', 'oa-test-v1')
+                """,
+                factId,
+                PROJECTION_A,
+                COMPANY_A,
+                "oa-document-" + factId,
+                "b0000000-0000-0000-0000-000000000002",
+                "e0000000-0000-0000-0000-000000000002",
+                ORGANIZATION_A,
+                "50000000-0000-0000-0000-000000000002",
+                leaveTypeCode,
+                Timestamp.from(Instant.parse("2026-08-05T01:00:00Z")),
+                Timestamp.from(Instant.parse("2026-08-05T09:00:00Z")),
+                recognizedMinutes);
     }
 
     private void insertExceptionFact(
@@ -948,6 +1513,7 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 company_id VARCHAR(36) NOT NULL,
                 employee_id VARCHAR(36) NOT NULL,
                 employee_version_id VARCHAR(36) NOT NULL,
+                employment_period_id VARCHAR(36),
                 organization_id VARCHAR(36) NOT NULL,
                 organization_version_id VARCHAR(36) NOT NULL,
                 business_date DATE NOT NULL,
@@ -956,9 +1522,18 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 scheduled_minutes BIGINT NOT NULL,
                 confirmed_scheduled_work_minutes BIGINT NOT NULL,
                 recognized_overtime_minutes BIGINT NOT NULL,
+                paid_overtime_minutes BIGINT NOT NULL DEFAULT 0,
+                compensatory_overtime_minutes BIGINT NOT NULL DEFAULT 0,
+                voluntary_overtime_minutes BIGINT NOT NULL DEFAULT 0,
+                total_overtime_minutes BIGINT NOT NULL DEFAULT 0,
                 leave_or_time_off_minutes BIGINT NOT NULL,
+                leave_type VARCHAR(32),
                 absence_minutes BIGINT NOT NULL,
                 actual_work_minutes BIGINT NOT NULL,
+                scheduled_attendance_days INTEGER NOT NULL,
+                actual_attendance_days INTEGER NOT NULL,
+                unexcused_overtime_minutes BIGINT NOT NULL,
+                excused_overtime_minutes BIGINT NOT NULL,
                 late_minutes BIGINT NOT NULL,
                 penalized_late_minutes BIGINT NOT NULL,
                 early_departure_minutes BIGINT NOT NULL,

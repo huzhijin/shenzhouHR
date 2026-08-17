@@ -89,6 +89,23 @@ class ReadApiSecurityIntegrationTest {
     }
 
     @Test
+    void employeeDirectorySearchMatchesDepartmentNameAndCode() throws Exception {
+        mockMvc.perform(get("/api/v1/employees")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("query", "制造中"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].displayName").value("Bob"));
+
+        mockMvc.perform(get("/api/v1/employees")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("query", "30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].displayName").value("Carol"));
+    }
+
+    @Test
     void rejectsPageSizesOutsideTheDocumentedBoundary() throws Exception {
         mockMvc.perform(get("/api/v1/employees")
                         .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)

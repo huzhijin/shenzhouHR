@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.DeliSyncLogMapper">
+
+    <insert id="insertStarted">
+        INSERT INTO deli_sync_log (
+            deli_sync_log_id, sync_started_at, sync_completed_at,
+            sync_status, record_count, new_record_count, duplicate_count,
+            error_message, sync_time_range_start, sync_time_range_end,
+            execution_duration_ms, created_at
+        ) VALUES (
+            #{logId}, #{startedAt}, NULL,
+            'IN_PROGRESS', 0, NULL, NULL,
+            NULL, #{syncTimeRangeStart}, #{syncTimeRangeEnd},
+            NULL, #{startedAt}
+        )
+    </insert>
+
+    <update id="markSucceeded">
+        UPDATE deli_sync_log
+        SET sync_completed_at = #{completedAt},
+            sync_status = 'SUCCESS',
+            record_count = #{recordCount},
+            error_message = NULL,
+            execution_duration_ms = #{executionDurationMs}
+        WHERE deli_sync_log_id = #{logId}
+          AND sync_status = 'IN_PROGRESS'
+    </update>
+
+    <update id="markFailed">
+        UPDATE deli_sync_log
+        SET sync_completed_at = #{completedAt},
+            sync_status = 'FAILED',
+            record_count = #{recordCount},
+            error_message = #{errorMessage},
+            execution_duration_ms = #{executionDurationMs}
+        WHERE deli_sync_log_id = #{logId}
+          AND sync_status = 'IN_PROGRESS'
+    </update>
+
+    <select id="findLatestCompleted"
+            resultType="com.szsemicon.hr.evidenceingestion.application.DeliSyncLogModels$SyncStatus">
+        SELECT COALESCE(sync_completed_at, sync_started_at) AS last_sync_time,
+               COALESCE(record_count, 0) AS record_count,
+               sync_status AS status,
+               error_message
+        FROM deli_sync_log
+        WHERE sync_status IN ('SUCCESS', 'FAILED')
+        ORDER BY sync_started_at DESC, deli_sync_log_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findLastSuccessfulSyncTime" resultType="java.time.Instant">
+        SELECT sync_time_range_end
+        FROM deli_sync_log
+        WHERE sync_status = 'SUCCESS'
+          AND sync_time_range_end IS NOT NULL
+        ORDER BY sync_time_range_end DESC, deli_sync_log_id DESC
+        LIMIT 1
+    </select>
+
+    <delete id="deleteStartedBefore">
+        DELETE FROM deli_sync_log
+        WHERE sync_started_at &lt; #{cutoff}
+    </delete>
+</mapper>

@@ -129,6 +129,9 @@ class NativePreflightTest(unittest.TestCase):
                         "OA_MYSQL_JDBC_URL=jdbc:mysql://oa.internal/hr",
                         "OA_MYSQL_USERNAME=synthetic-user",
                         "OA_MYSQL_PASSWORD=synthetic-password",
+                        "OA_MYSQL_SOURCE_TIME_ZONE=Asia/Shanghai",
+                        "SHENZHOUHR_OA_AUTO_SYNC_ENABLED=true",
+                        "SHENZHOUHR_OA_AUTO_SYNC_ZONE=Asia/Shanghai",
                     )
                 )
                 + "\n",
@@ -139,6 +142,37 @@ class NativePreflightTest(unittest.TestCase):
             self.assertEqual("PASS", result.status)
             self.assertNotIn("synthetic-secret", result.detail)
             self.assertNotIn("synthetic-password", result.detail)
+
+    def test_environment_file_rejects_oa_auto_sync_without_oa_reader(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "shenzhouhr.env"
+            env_file.write_text(
+                self._valid_environment_text()
+                + "SHENZHOUHR_OA_AUTO_SYNC_ENABLED=true\n"
+                + "OA_MYSQL_ENABLED=false\n",
+                encoding="utf-8",
+            )
+            os.chmod(env_file, 0o600)
+
+            result = inspect_environment_file(env_file)
+
+            self.assertEqual("FAIL", result.status)
+            self.assertIn("requires OA_MYSQL_ENABLED=true", result.detail)
+
+    def test_environment_file_rejects_non_shanghai_oa_time_zone(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "shenzhouhr.env"
+            env_file.write_text(
+                self._valid_environment_text()
+                + "OA_MYSQL_SOURCE_TIME_ZONE=UTC\n",
+                encoding="utf-8",
+            )
+            os.chmod(env_file, 0o600)
+
+            result = inspect_environment_file(env_file)
+
+            self.assertEqual("FAIL", result.status)
+            self.assertIn("must be Asia/Shanghai", result.detail)
 
     def test_environment_file_rejects_development_and_bootstrap_overrides(
         self,

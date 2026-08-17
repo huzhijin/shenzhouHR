@@ -2,6 +2,7 @@ package com.szsemicon.hr.reporting.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.szsemicon.hr.attendance.domain.LeaveType;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
@@ -79,18 +80,67 @@ class AttendanceReportCalculatorTest {
     }
 
     @Test
-    void attendanceRateUsesVersionedFormulaWithoutExposingItsInternalName() {
+    void attendanceRateUsesDayFieldsAndRoundsTwentyOfTwentyTwoDays() {
         var report = calculator.calculate(
                 ReportType.ATTENDANCE_RATE,
-                snapshot(null, "employee-a"));
+                attendanceSnapshot(20, 0, 2));
         var row = report.rows().getFirst();
 
         assertThat(row.values())
-                .containsEntry(ReportField.ATTENDANCE_RATE, "87.50")
+                .containsEntry(ReportField.SCHEDULED_ATTENDANCE_DAYS, "22")
+                .containsEntry(ReportField.ACTUAL_ATTENDANCE_DAYS, "20")
+                .containsEntry(ReportField.ATTENDANCE_RATE, "90.91")
                 .doesNotContainKey(ReportField.RATE_FORMULA_VERSION);
         assertThat(report.calculationFormulaVersion())
                 .isEqualTo(
                         AttendanceReportModels.ATTENDANCE_RATE_FORMULA_VERSION);
+    }
+
+    @Test
+    void paidAnnualLeaveKeepsTwentyPunchDaysAtFullAttendance() {
+        var report = calculator.calculate(
+                ReportType.ATTENDANCE_RATE,
+                attendanceSnapshot(20, 2, 0));
+
+        assertThat(report.rows().getFirst().values())
+                .containsEntry(ReportField.SCHEDULED_ATTENDANCE_DAYS, "22")
+                .containsEntry(ReportField.ACTUAL_ATTENDANCE_DAYS, "22")
+                .containsEntry(ReportField.ATTENDANCE_RATE, "100.00");
+    }
+
+    @Test
+    void sickLeaveCountsAsAttendanceButPersonalLeaveDoesNotAndSickDaysDisplay() {
+        DailyFact firstSickDay = withLeaveType(
+                attendanceDay(1, false, true), LeaveType.SICK);
+        DailyFact secondSickDay = withLeaveType(
+                attendanceDay(2, false, true), LeaveType.SICK);
+        DailyFact personalLeaveDay = withLeaveType(
+                attendanceDay(3, false, false), LeaveType.PERSONAL);
+        var report = calculator.calculate(
+                ReportType.ATTENDANCE_RATE,
+                snapshotWithDailyFacts(List.of(
+                        firstSickDay, secondSickDay, personalLeaveDay)));
+
+        assertThat(report.rows()).singleElement().satisfies(row ->
+                assertThat(row.values())
+                        .containsEntry(
+                                ReportField.SCHEDULED_ATTENDANCE_DAYS, "3")
+                        .containsEntry(
+                                ReportField.ACTUAL_ATTENDANCE_DAYS, "2")
+                        .containsEntry(ReportField.SICK_LEAVE_DAYS, "2")
+                        .containsEntry(ReportField.ATTENDANCE_RATE, "66.67"));
+    }
+
+    @Test
+    void lateConvertedToAbsenceReducesMonthlyAttendanceRate() {
+        var report = calculator.calculate(
+                ReportType.ATTENDANCE_RATE,
+                attendanceSnapshot(21, 0, 1));
+
+        assertThat(report.rows().getFirst().values())
+                .containsEntry(ReportField.SCHEDULED_ATTENDANCE_DAYS, "22")
+                .containsEntry(ReportField.ACTUAL_ATTENDANCE_DAYS, "21")
+                .containsEntry(ReportField.ATTENDANCE_RATE, "95.45");
     }
 
     @Test
@@ -190,6 +240,8 @@ class AttendanceReportCalculatorTest {
                 original.leaveOrTimeOffMinutes(),
                 original.absenceMinutes(),
                 original.actualWorkMinutes(),
+                original.scheduledAttendanceDays(),
+                original.actualAttendanceDays(),
                 original.lateMinutes(),
                 original.penalizedLateMinutes(),
                 original.earlyDepartureMinutes(),
@@ -219,6 +271,119 @@ class AttendanceReportCalculatorTest {
                 .extracting(row ->
                         row.values().get(ReportField.ORGANIZATION))
                 .containsExactlyInAnyOrder("制造中心", "供应链中心");
+    }
+
+    private ReportSourceSnapshot attendanceSnapshot(
+            int punchedDays, int paidLeaveDays, int absentDays) {
+        var base = snapshot(null, "employee-a");
+        var facts = new java.util.ArrayList<DailyFact>();
+        int dayOfMonth = 1;
+        for (int index = 0; index < punchedDays; index++) {
+            facts.add(attendanceDay(dayOfMonth++, true, false));
+        }
+        for (int index = 0; index < paidLeaveDays; index++) {
+            facts.add(attendanceDay(dayOfMonth++, false, true));
+        }
+        for (int index = 0; index < absentDays; index++) {
+            facts.add(attendanceDay(dayOfMonth++, false, false));
+        }
+        return new ReportSourceSnapshot(
+                base.scope(),
+                base.filter(),
+                base.projectionVersion(),
+                base.periodState(),
+                base.dataAsOf(),
+                base.sourceVersions(),
+                facts,
+                base.oaDocumentFacts(),
+                base.exceptionFacts(),
+                base.timeAccountFacts());
+    }
+
+    private DailyFact attendanceDay(
+            int dayOfMonth, boolean punched, boolean paidLeave) {
+        long confirmedMinutes = punched ? 480 : 0;
+        long leaveMinutes = paidLeave ? 480 : 0;
+        boolean attended = punched || paidLeave;
+        return new DailyFact(
+                "attendance-day-" + dayOfMonth,
+                "legal-a",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "organization-version-a",
+                "制造中心",
+                LocalDate.of(2026, 7, dayOfMonth),
+                DayType.WEEKDAY,
+                "总部夏令班",
+                480,
+                confirmedMinutes,
+                0,
+                leaveMinutes,
+                attended ? 0 : 480,
+                confirmedMinutes,
+                1,
+                attended ? 1 : 0,
+                0,
+                0,
+                0,
+                attended ? 0 : 2,
+                null,
+                null,
+                "calculation-day-" + dayOfMonth,
+                "digest-day-" + dayOfMonth);
+    }
+
+    private DailyFact withLeaveType(DailyFact base, LeaveType leaveType) {
+        return new DailyFact(
+                base.factId(),
+                base.companyId(),
+                base.employeeId(),
+                base.employeeNumber(),
+                base.employeeName(),
+                base.organizationId(),
+                base.organizationVersionId(),
+                base.organizationName(),
+                base.businessDate(),
+                base.dayType(),
+                base.shiftLabel(),
+                base.scheduledMinutes(),
+                base.confirmedScheduledWorkMinutes(),
+                base.recognizedOvertimeMinutes(),
+                base.paidOvertimeMinutes(),
+                base.compensatoryOvertimeMinutes(),
+                base.voluntaryOvertimeMinutes(),
+                base.totalOvertimeMinutes(),
+                base.leaveOrTimeOffMinutes(),
+                base.absenceMinutes(),
+                base.actualWorkMinutes(),
+                base.scheduledAttendanceDays(),
+                base.actualAttendanceDays(),
+                base.lateMinutes(),
+                base.penalizedLateMinutes(),
+                base.earlyDepartureMinutes(),
+                base.missingPunchCount(),
+                base.firstPunchAt(),
+                base.lastPunchAt(),
+                base.calculationVersionId(),
+                base.resultDigest(),
+                leaveType);
+    }
+
+    private ReportSourceSnapshot snapshotWithDailyFacts(List<DailyFact> facts) {
+        var base = snapshot(null, "employee-a");
+        return new ReportSourceSnapshot(
+                base.scope(),
+                base.filter(),
+                base.projectionVersion(),
+                base.periodState(),
+                base.dataAsOf(),
+                base.sourceVersions(),
+                facts,
+                base.oaDocumentFacts(),
+                base.exceptionFacts(),
+                base.timeAccountFacts());
     }
 
     private ReportSourceSnapshot snapshot(
@@ -258,6 +423,8 @@ class AttendanceReportCalculatorTest {
                                 60,
                                 0,
                                 510,
+                                1,  // scheduledAttendanceDays
+                                1,  // actualAttendanceDays
                                 10,
                                 0,
                                 0,
@@ -284,6 +451,8 @@ class AttendanceReportCalculatorTest {
                                 0,
                                 0,
                                 120,
+                                0,  // scheduledAttendanceDays (休息日)
+                                1,  // actualAttendanceDays (有实际工作)
                                 0,
                                 0,
                                 0,
@@ -310,6 +479,8 @@ class AttendanceReportCalculatorTest {
                                 0,
                                 240,
                                 240,
+                                1,  // scheduledAttendanceDays
+                                1,  // actualAttendanceDays (有部分实际工作)
                                 0,
                                 0,
                                 0,

@@ -284,9 +284,10 @@ npm run dev
 
 ### 登录
 
-`http://127.0.0.1:5173/login` — `szsc_admin_faa41d5bd802` / `Shenzhou@2026Dev`
+`http://127.0.0.1:5173/login` — `szsc_admin_faa41d5bd802` / `<从受控密码库获取>`
 
-密码是上一轮重置的，原哈希备份在 `/tmp/szhr-dev/old-hash.bak`（0600）可回滚。
+密码不得写入仓库；从受控环境变量或密码库注入。原哈希备份在
+`/tmp/szhr-dev/old-hash.bak`（0600）可回滚。
 该账号有 HR_ADMIN + SYSTEM_ADMIN，覆盖 SZJN/SZSC/SZSZ/SZXY 四家公司。
 
 **dev 旁路的陷阱**：`DevelopmentPrincipalFilter` 只授予 `List.of()` **空权限**，

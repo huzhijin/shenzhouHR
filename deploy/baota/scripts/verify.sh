@@ -49,6 +49,7 @@ detect_python() {
 
 cleanup_verify() {
   [[ -z "${MYSQL_DEFAULTS:-}" ]] || rm -f -- "$MYSQL_DEFAULTS"
+  [[ -z "${MIGRATOR_MYSQL_DEFAULTS:-}" ]] || rm -f -- "$MIGRATOR_MYSQL_DEFAULTS"
   [[ -z "${NGINX_DUMP:-}" ]] || rm -f -- "$NGINX_DUMP"
   [[ -z "${API_HEADERS:-}" ]] || rm -f -- "$API_HEADERS"
 }
@@ -89,6 +90,26 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+APP_DB_URL="${SHENZHOUHR_DB_URL:-}"
+APP_DB_USERNAME="${SHENZHOUHR_DB_USERNAME:-}"
+APP_DB_PASSWORD="${SHENZHOUHR_DB_PASSWORD:-}"
+set -a
+# shellcheck disable=SC1090
+source "$MIGRATOR_ENV_FILE"
+set +a
+MIGRATOR_DB_URL="${SHENZHOUHR_DB_URL:-}"
+MIGRATOR_DB_USERNAME="${SHENZHOUHR_DB_USERNAME:-}"
+MIGRATOR_DB_PASSWORD="${SHENZHOUHR_DB_PASSWORD:-}"
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+[[ "$APP_DB_USERNAME" == "shenzhouhr_app" ]] \
+  || die 'App env must use the fixed shenzhouhr_app database account'
+[[ "$MIGRATOR_DB_USERNAME" == "shenzhouhr_migrator" ]] \
+  || die 'Migrator env must use the fixed shenzhouhr_migrator database account'
+[[ "$APP_DB_URL" == "$MIGRATOR_DB_URL" ]] \
+  || die 'App and migrator env files must target the same database URL'
 APP_SERVER_PORT="${SHENZHOUHR_SERVER_PORT:-8080}"
 [[ "$APP_SERVER_PORT" =~ ^[0-9]+$ ]] \
   || die "Invalid application server port: $APP_SERVER_PORT"
@@ -128,7 +149,8 @@ MYSQL_BIN_RESOLVED="$(command -v "$MYSQL_BIN" 2>/dev/null || true)"
   || die "MySQL client not found: $MYSQL_BIN"
 MYSQL_BIN="$MYSQL_BIN_RESOLVED"
 MYSQL_DEFAULTS="$(mktemp /tmp/shenzhouhr-verify.XXXXXX.cnf)"
-chmod 600 "$MYSQL_DEFAULTS"
+MIGRATOR_MYSQL_DEFAULTS="$(mktemp /tmp/shenzhouhr-verify-migrator.XXXXXX.cnf)"
+chmod 600 "$MYSQL_DEFAULTS" "$MIGRATOR_MYSQL_DEFAULTS"
 
 printf 'Checking application health...\n'
 HEALTH_RESPONSE="$(curl --fail --silent --show-error --max-time 10 "$HEALTH_URL")" \
@@ -146,12 +168,20 @@ DB_PORT_VALUE="${DB_HOST_PORT#*:}"
 [[ "$DB_HOST_VALUE" == "$DB_PORT_VALUE" ]] && DB_PORT_VALUE=3306
 {
   printf '[client]\n'
-  printf 'user=%s\n' "$(mysql_option_value "$SHENZHOUHR_DB_USERNAME")"
-  printf 'password=%s\n' "$(mysql_option_value "$SHENZHOUHR_DB_PASSWORD")"
+  printf 'user=%s\n' "$(mysql_option_value "$APP_DB_USERNAME")"
+  printf 'password=%s\n' "$(mysql_option_value "$APP_DB_PASSWORD")"
   printf 'host=%s\n' "$(mysql_option_value "$DB_HOST_VALUE")"
   printf 'port=%s\n' "$DB_PORT_VALUE"
   printf 'protocol=tcp\n'
 } > "$MYSQL_DEFAULTS"
+{
+  printf '[client]\n'
+  printf 'user=%s\n' "$(mysql_option_value "$MIGRATOR_DB_USERNAME")"
+  printf 'password=%s\n' "$(mysql_option_value "$MIGRATOR_DB_PASSWORD")"
+  printf 'host=%s\n' "$(mysql_option_value "$DB_HOST_VALUE")"
+  printf 'port=%s\n' "$DB_PORT_VALUE"
+  printf 'protocol=tcp\n'
+} > "$MIGRATOR_MYSQL_DEFAULTS"
 DB_CHECK_OUTPUT="$("$MYSQL_BIN" --defaults-extra-file="$MYSQL_DEFAULTS" --batch --skip-column-names \
   -e "SELECT VERSION(), DATABASE(); SELECT MAX(CAST(version AS UNSIGNED)), SUM(success = 0) FROM flyway_schema_history WHERE version IS NOT NULL;" \
   "$DB_NAME_VALUE" 2>/dev/null)" || die 'Database verification failed'
@@ -168,6 +198,75 @@ FLYWAY_FAILURES="${FLYWAY_STATUS#*$'\t'}"
 [[ "$FLYWAY_FAILURES" == "0" ]] || die "Flyway history contains $FLYWAY_FAILURES failed migration(s)"
 printf '%s\n' "$DB_CHECK_OUTPUT"
 
+printf 'Checking least-privilege migration and runtime grants...\n'
+APP_GRANT_STATUS="$("$MYSQL_BIN" --defaults-extra-file="$MYSQL_DEFAULTS" \
+  --batch --skip-column-names -e "SELECT
+    COALESCE((SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',')
+      FROM information_schema.SCHEMA_PRIVILEGES
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND GRANTEE = CONCAT(QUOTE('shenzhouhr_app'), '@', QUOTE('127.0.0.1'))), ''),
+    (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES
+      WHERE GRANTEE = CONCAT(QUOTE('shenzhouhr_app'), '@', QUOTE('127.0.0.1'))
+        AND PRIVILEGE_TYPE <> 'USAGE'),
+    (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND GRANTEE = CONCAT(QUOTE('shenzhouhr_app'), '@', QUOTE('127.0.0.1'))
+        AND IS_GRANTABLE <> 'NO'),
+    (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND GRANTEE = CONCAT(QUOTE('shenzhouhr_app'), '@', QUOTE('127.0.0.1'))),
+    (SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND GRANTEE = CONCAT(QUOTE('shenzhouhr_app'), '@', QUOTE('127.0.0.1'))),
+    (SELECT COUNT(*) FROM information_schema.VIEWS
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND TABLE_NAME = 'szsc_oa_time_account_balance_v'
+        AND SECURITY_TYPE = 'DEFINER'
+        AND DEFINER = 'shenzhouhr_migrator@127.0.0.1'),
+    (SELECT COUNT(*) FROM information_schema.ROUTINES
+      WHERE ROUTINE_SCHEMA = '$DB_NAME_VALUE'
+        AND ROUTINE_NAME = 'szsc_oa_time_off_expire'
+        AND ROUTINE_TYPE = 'PROCEDURE'
+        AND SECURITY_TYPE = 'DEFINER'
+        AND DEFINER = 'shenzhouhr_migrator@127.0.0.1');" \
+  "$DB_NAME_VALUE" 2>/dev/null)" || die 'Application grant verification failed'
+EXPECTED_APP_GRANT_STATUS=$'DELETE,INSERT,SELECT,UPDATE\t0\t0\t0\t0\t1\t1'
+[[ "$APP_GRANT_STATUS" == "$EXPECTED_APP_GRANT_STATUS" ]] \
+  || die 'Application grants differ from CRUD plus the single year-end procedure EXECUTE contract'
+APP_SHOW_GRANTS="$("$MYSQL_BIN" --defaults-extra-file="$MYSQL_DEFAULTS" \
+  --batch --skip-column-names -e 'SHOW GRANTS FOR CURRENT_USER' 2>/dev/null)" \
+  || die 'Application SHOW GRANTS verification failed'
+EXPECTED_APP_ROUTINE_GRANT='GRANT EXECUTE ON PROCEDURE `shenzhou_hr`.`szsc_oa_time_off_expire` TO `shenzhouhr_app`@`127.0.0.1`'
+[[ "$(printf '%s\n' "$APP_SHOW_GRANTS" | grep -Fxc "$EXPECTED_APP_ROUTINE_GRANT")" == "1" ]] \
+  || die 'Application must have exactly the single year-end procedure EXECUTE grant'
+[[ "$(printf '%s\n' "$APP_SHOW_GRANTS" | grep -Ec 'GRANT .*EXECUTE' || true)" == "1" ]] \
+  || die 'Application has an unexpected additional EXECUTE grant'
+
+MIGRATOR_GRANT_STATUS="$("$MYSQL_BIN" --defaults-extra-file="$MIGRATOR_MYSQL_DEFAULTS" \
+  --batch --skip-column-names -e "SELECT
+    COALESCE((SELECT GROUP_CONCAT(PRIVILEGE_TYPE ORDER BY PRIVILEGE_TYPE SEPARATOR ',')
+      FROM information_schema.SCHEMA_PRIVILEGES
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND GRANTEE = CONCAT(QUOTE('shenzhouhr_migrator'), '@', QUOTE('127.0.0.1'))), ''),
+    (SELECT COUNT(*) FROM information_schema.USER_PRIVILEGES
+      WHERE GRANTEE = CONCAT(QUOTE('shenzhouhr_migrator'), '@', QUOTE('127.0.0.1'))
+        AND PRIVILEGE_TYPE <> 'USAGE'),
+    (SELECT COUNT(*) FROM information_schema.SCHEMA_PRIVILEGES
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND GRANTEE = CONCAT(QUOTE('shenzhouhr_migrator'), '@', QUOTE('127.0.0.1'))
+        AND IS_GRANTABLE <> 'NO'),
+    (SELECT COUNT(*) FROM information_schema.TABLE_PRIVILEGES
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND GRANTEE = CONCAT(QUOTE('shenzhouhr_migrator'), '@', QUOTE('127.0.0.1'))),
+    (SELECT COUNT(*) FROM information_schema.COLUMN_PRIVILEGES
+      WHERE TABLE_SCHEMA = '$DB_NAME_VALUE'
+        AND GRANTEE = CONCAT(QUOTE('shenzhouhr_migrator'), '@', QUOTE('127.0.0.1')));" \
+  "$DB_NAME_VALUE" 2>/dev/null)" || die 'Migrator grant verification failed'
+EXPECTED_MIGRATOR_GRANT_STATUS=$'ALTER,CREATE,CREATE ROUTINE,CREATE VIEW,DELETE,DROP,INDEX,INSERT,REFERENCES,SELECT,UPDATE\t0\t0\t0\t0'
+[[ "$MIGRATOR_GRANT_STATUS" == "$EXPECTED_MIGRATOR_GRANT_STATUS" ]] \
+  || die 'Migrator grants differ from the V1-V48 least-privilege contract'
+printf '%s\n' 'Least-privilege database grants... passed'
+
 printf 'Checking SPA and /api routing through port %s...\n' "$CUSTOMER_SITE_PORT"
 SPA_STATUS="$(curl --silent --show-error --output /dev/null \
   --write-out '%{http_code}' --max-time 10 \
@@ -176,6 +275,13 @@ SPA_STATUS="$(curl --silent --show-error --output /dev/null \
   || die 'Static site request through BaoTa Nginx failed'
 [[ "$SPA_STATUS" == "200" ]] \
   || die "Static site returned HTTP $SPA_STATUS instead of 200"
+SPA_ROUTE_STATUS="$(curl --silent --show-error --output /dev/null \
+  --write-out '%{http_code}' --max-time 10 \
+  --header "Host: $CUSTOMER_DOMAIN" \
+  "http://127.0.0.1:$CUSTOMER_SITE_PORT/workbench")" \
+  || die 'SPA route request through BaoTa Nginx failed'
+[[ "$SPA_ROUTE_STATUS" == "200" ]] \
+  || die "SPA route returned HTTP $SPA_ROUTE_STATUS instead of 200"
 API_STATUS="$(curl --silent --show-error --output /dev/null \
   --dump-header "$API_HEADERS" --write-out '%{http_code}' --max-time 10 \
   --header "Host: $CUSTOMER_DOMAIN" \

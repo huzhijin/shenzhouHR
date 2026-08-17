@@ -2,6 +2,12 @@
 
 当前正式需求基线为 V1.9 `docs_confirm`。仓库包含按波次交付的访问控制、人员、规则与考勤能力；任何发布结论必须以最终 integrated commit 的门禁证据为准。
 
+## 2026-08 已确认考勤业务规则
+
+`business-rules-alignment-2026-08` 的业务规则和验收标准以 [OpenSpec change](openspec/changes/business-rules-alignment-2026-08/proposal.md) 及其 `specs/` 为准，[客户业务决策签字稿](.umadev/explore/FINAL-BUSINESS-DECISIONS-SIGNOFF.md) 中的 17 项决策均作为已确认事实。数据库规划阶段所称 V32 已按仓库连续迁移号落为 [V48](backend/src/main/resources/db/migration/V48__business_rules_alignment_schema.sql)。
+
+本次规则的 API、数据库、发布说明、HR 沟通、补卡流程、部署检查和分阶段回滚入口见 [2026-08 考勤业务规则发布文档](docs/business-rules-2026-08/README.md)。文档与清单就绪不代表已经安排窗口、部署预发布或生产，也不代表完成生产观察；这些状态必须以实际执行证据更新。
+
 ## 公司数据边界
 
 公司是员工、组织、考勤配置、外部来源、计算、报表和权限的唯一顶层业务维度。当前公开契约和运行时统一使用 `companyId`、`Company`、`COMPANY` 和“公司”；组织范围必须先证明属于一个明确公司，员工本人范围只从服务端会话解析。公司 HR、高管、部门负责人和员工本人仍需同时满足各自 capability 与明确的 `COMPANY`、`ORGANIZATION` 或 `SELF` 范围，角色名称和前端隐藏都不能扩大权限。

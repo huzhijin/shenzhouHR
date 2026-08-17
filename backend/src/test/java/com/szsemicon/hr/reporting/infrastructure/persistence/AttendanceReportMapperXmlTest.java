@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.sql.DriverManager;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.Map;
 import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.io.Resources;
@@ -43,6 +44,10 @@ class AttendanceReportMapperXmlTest {
                         NAMESPACE + "listAuthorizedCompanies",
                         NAMESPACE + "listLatestAuthorizedProjections",
                         NAMESPACE + "listAuthorizedScopes",
+                        NAMESPACE
+                                + "listAuthorizedDepartmentAttendanceRates",
+                        NAMESPACE
+                                + "listAuthorizedEmployeeDepartmentAttendancePeriods",
                         NAMESPACE + "listAuthorizedDailyFacts",
                         NAMESPACE + "listAuthorizedOaFacts",
                         NAMESPACE + "listAuthorizedExceptionFacts",
@@ -112,6 +117,83 @@ class AttendanceReportMapperXmlTest {
                 }
             }
         }
+    }
+
+    @Test
+    void departmentRateSqlUsesEmployeeMonthDayTotalsAndExplicitBoundaries()
+            throws Exception {
+        var parameters = new HashMap<String, Object>();
+        parameters.put("principalId", "principal-1");
+        parameters.put("capabilityCode", "ATTENDANCE_REPORT:READ");
+        parameters.put("projectionId", "projection-1");
+        parameters.put("periodStart", LocalDate.of(2026, 8, 1));
+        parameters.put("periodEndExclusive", LocalDate.of(2026, 9, 1));
+        parameters.put("companyId", "company-a");
+        parameters.put("organizationId", null);
+        parameters.put(
+                "authorizationTime",
+                Instant.parse("2026-08-31T00:00:00Z"));
+
+        String sql = configuration()
+                .getMappedStatement(
+                        NAMESPACE
+                                + "listAuthorizedDepartmentAttendanceRates")
+                .getBoundSql(parameters)
+                .getSql()
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+
+        assertThat(sql)
+                .contains(
+                        "sum(employee_month.actual_attendance_days)",
+                        "sum(employee_month.scheduled_attendance_days)",
+                        "having sum(fact.scheduled_attendance_days) > 0",
+                        "projection.attendance_report_projection_id = ?",
+                        "projection.company_id = ?",
+                        "fact.attendance_report_projection_id = ?",
+                        "fact.company_id = ?");
+    }
+
+    @Test
+    void transferPeriodSqlUsesCapturedEffectiveAssignmentAndSplitsRows()
+            throws Exception {
+        var parameters = new HashMap<String, Object>();
+        parameters.put("principalId", "principal-1");
+        parameters.put("capabilityCode", "ATTENDANCE_REPORT:READ");
+        parameters.put("projectionId", "projection-1");
+        parameters.put("periodStart", LocalDate.of(2026, 8, 1));
+        parameters.put("periodEndExclusive", LocalDate.of(2026, 9, 1));
+        parameters.put("companyId", "company-a");
+        parameters.put("organizationId", "department-a");
+        parameters.put("employeeId", null);
+        parameters.put(
+                "authorizationTime",
+                Instant.parse("2026-08-31T00:00:00Z"));
+
+        String sql = configuration()
+                .getMappedStatement(
+                        NAMESPACE
+                                + "listAuthorizedEmployeeDepartmentAttendancePeriods")
+                .getBoundSql(parameters)
+                .getSql()
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+
+        assertThat(sql)
+                .contains(
+                        "employment.assignment_id = fact.employment_period_id",
+                        "date(employment.effective_from) <= fact.business_date",
+                        "date(employment.effective_to) > fact.business_date",
+                        "min(fact.business_date) as period_start",
+                        "max(fact.business_date) as period_end",
+                        "group by fact.company_id, fact.employee_id, fact.employment_period_id, fact.organization_id",
+                        "fact.organization_id = ?",
+                        "projection.attendance_report_projection_id = ?",
+                        "projection.company_id = ?",
+                        "fact.attendance_report_projection_id = ?",
+                        "fact.company_id = ?");
     }
 
     private static Configuration configuration() throws Exception {

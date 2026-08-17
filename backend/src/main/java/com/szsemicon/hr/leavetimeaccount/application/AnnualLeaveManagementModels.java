@@ -1,9 +1,10 @@
 package com.szsemicon.hr.leavetimeaccount.application;
 
+import com.szsemicon.hr.shared.validation.IdempotencyKeyPolicy;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -49,6 +50,7 @@ public final class AnnualLeaveManagementModels {
             Objects.requireNonNull(balanceHours, "balanceHours");
             Objects.requireNonNull(reason, "reason");
             Objects.requireNonNull(requestId, "requestId");
+            balanceHours = normalizeHours(balanceHours, "opening balance");
             if (balanceHours.compareTo(BigDecimal.ZERO) < 0) {
                 throw new IllegalArgumentException("opening balance cannot be negative");
             }
@@ -65,6 +67,7 @@ public final class AnnualLeaveManagementModels {
                 throw new IllegalArgumentException(
                         "opening date must fall inside the account year");
             }
+            validateMutationReferences(employeeId, reason, requestId);
         }
     }
 
@@ -80,12 +83,14 @@ public final class AnnualLeaveManagementModels {
             Objects.requireNonNull(adjustmentHours, "adjustmentHours");
             Objects.requireNonNull(reason, "reason");
             Objects.requireNonNull(requestId, "requestId");
+            adjustmentHours = normalizeHours(adjustmentHours, "adjustment");
             if (adjustmentHours.abs().compareTo(new BigDecimal("9999")) > 0) {
                 throw new IllegalArgumentException("adjustment too large");
             }
             if (year < 2000 || year > 2100) {
                 throw new IllegalArgumentException("year out of range");
             }
+            validateMutationReferences(employeeId, reason, requestId);
         }
     }
 
@@ -111,20 +116,52 @@ public final class AnnualLeaveManagementModels {
             case "OPENING" -> "期初录入";
             case "GRANT" -> "系统发放";
             case "OVERTIME_CREDIT" -> "加班换休";
-            case "MANUAL_INCREASE" -> "手动增加";
-            case "USED" -> "已使用";
-            case "EXPIRED" -> "已到期";
+            case "ADJUSTMENT" -> "人工调整";
+            case "USE" -> "已使用";
+            case "EXPIRY" -> "已到期";
             case "RETURN" -> "退回";
-            case "MANUAL_DEDUCTION" -> "手动扣减";
+            case "REVERSAL" -> "冲正";
             default -> entryType;
         };
     }
 
-    /** Generate a stable account ID for an employee + year (deterministic). */
-    public static String accountId(String employeeId, int year) {
+    /** Generate a stable account ID for one employment period + year. */
+    public static String accountId(
+            String employeeId,
+            String employmentPeriodId,
+            int year) {
         return UUID.nameUUIDFromBytes(
-                ("ANNUAL_LEAVE:" + employeeId + ":" + year)
+                ("ANNUAL_LEAVE:"
+                        + employeeId + ":"
+                        + employmentPeriodId + ":"
+                        + year)
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 .toString();
+    }
+
+    private static BigDecimal normalizeHours(BigDecimal value, String field) {
+        try {
+            return value.setScale(2, RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException(
+                    field + " may contain at most two decimal places", exception);
+        }
+    }
+
+    private static void validateMutationReferences(
+            String employeeId,
+            String reason,
+            String requestId) {
+        if (employeeId.isBlank() || employeeId.length() > 36) {
+            throw new IllegalArgumentException("invalid employee id");
+        }
+        if (reason.isBlank()
+                || reason.length() > 500
+                || reason.codePoints().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("invalid adjustment reason");
+        }
+        if (!IdempotencyKeyPolicy.isValid(requestId)) {
+            throw new IllegalArgumentException("invalid idempotency key");
+        }
     }
 }

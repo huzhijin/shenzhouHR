@@ -61,6 +61,10 @@ public final class AttendanceReportCalculator {
                 ReportField.SCHEDULED_HOURS,
                 ReportField.CONFIRMED_HOURS,
                 ReportField.RECOGNIZED_OVERTIME_HOURS,
+                ReportField.PAID_OVERTIME_HOURS,
+                ReportField.COMPENSATORY_OVERTIME_HOURS,
+                ReportField.VOLUNTARY_OVERTIME_HOURS,
+                ReportField.TOTAL_OVERTIME_HOURS,
                 ReportField.LEAVE_HOURS,
                 ReportField.ABSENCE_HOURS,
                 ReportField.ACTUAL_WORK_HOURS,
@@ -89,6 +93,14 @@ public final class AttendanceReportCalculator {
                                         hours(fact.confirmedScheduledWorkMinutes())),
                                 entry(ReportField.RECOGNIZED_OVERTIME_HOURS,
                                         hours(fact.recognizedOvertimeMinutes())),
+                                entry(ReportField.PAID_OVERTIME_HOURS,
+                                        hours(fact.paidOvertimeMinutes())),
+                                entry(ReportField.COMPENSATORY_OVERTIME_HOURS,
+                                        hours(fact.compensatoryOvertimeMinutes())),
+                                entry(ReportField.VOLUNTARY_OVERTIME_HOURS,
+                                        hours(fact.voluntaryOvertimeMinutes())),
+                                entry(ReportField.TOTAL_OVERTIME_HOURS,
+                                        hours(fact.totalOvertimeMinutes())),
                                 entry(ReportField.LEAVE_HOURS,
                                         hours(fact.leaveOrTimeOffMinutes())),
                                 entry(ReportField.ABSENCE_HOURS,
@@ -117,7 +129,7 @@ public final class AttendanceReportCalculator {
                 "月度考勤明细",
                 fields,
                 rows,
-                "PRD_V1_9_DAILY_SEGMENT_METRICS_V1");
+                "PRD_V1_9_DAILY_SEGMENT_METRICS_V2");
     }
 
     private ReportDataSet leave(ReportSourceSnapshot snapshot) {
@@ -175,6 +187,10 @@ public final class AttendanceReportCalculator {
                 ReportField.SATURDAY_OVERTIME_HOURS,
                 ReportField.SUNDAY_OVERTIME_HOURS,
                 ReportField.HOLIDAY_OVERTIME_HOURS,
+                ReportField.PAID_OVERTIME_HOURS,
+                ReportField.COMPENSATORY_OVERTIME_HOURS,
+                ReportField.VOLUNTARY_OVERTIME_HOURS,
+                ReportField.TOTAL_OVERTIME_HOURS,
                 ReportField.RECOGNIZED_OVERTIME_HOURS);
         List<ReportRow> rows = aggregateDaily(visibleDaily(snapshot)).values()
                 .stream()
@@ -195,6 +211,14 @@ public final class AttendanceReportCalculator {
                                         hours(value.sundayOvertime)),
                                 entry(ReportField.HOLIDAY_OVERTIME_HOURS,
                                         hours(value.holidayOvertime)),
+                                entry(ReportField.PAID_OVERTIME_HOURS,
+                                        hours(value.paidOvertime)),
+                                entry(ReportField.COMPENSATORY_OVERTIME_HOURS,
+                                        hours(value.compensatoryOvertime)),
+                                entry(ReportField.VOLUNTARY_OVERTIME_HOURS,
+                                        hours(value.voluntaryOvertime)),
+                                entry(ReportField.TOTAL_OVERTIME_HOURS,
+                                        hours(value.totalOvertime)),
                                 entry(ReportField.RECOGNIZED_OVERTIME_HOURS,
                                         hours(value.recognizedOvertime))),
                         "employee:" + value.reference()))
@@ -204,7 +228,7 @@ public final class AttendanceReportCalculator {
                 "认可加班汇总",
                 fields,
                 rows,
-                "PRD_V1_9_ACTUAL_EVIDENCE_INTERSECT_APPROVAL_MINUS_MEALS_V1");
+                "OVERTIME_CLASSIFICATION_PAID_COMPENSATORY_VOLUNTARY_V2");
     }
 
     private ReportDataSet workHours(ReportSourceSnapshot snapshot) {
@@ -367,8 +391,9 @@ public final class AttendanceReportCalculator {
                 ReportField.EMPLOYEE_NUMBER,
                 ReportField.EMPLOYEE_NAME,
                 ReportField.ORGANIZATION,
-                ReportField.SCHEDULED_HOURS,
-                ReportField.CONFIRMED_HOURS,
+                ReportField.SCHEDULED_ATTENDANCE_DAYS,
+                ReportField.ACTUAL_ATTENDANCE_DAYS,
+                ReportField.SICK_LEAVE_DAYS,
                 ReportField.ATTENDANCE_RATE);
         List<ReportRow> rows = aggregateDaily(visibleDaily(snapshot)).values()
                 .stream()
@@ -381,12 +406,14 @@ public final class AttendanceReportCalculator {
                                         value.employeeName),
                                 entry(ReportField.ORGANIZATION,
                                         value.organizationName),
-                                entry(ReportField.SCHEDULED_HOURS,
-                                        hours(value.scheduled)),
-                                entry(ReportField.CONFIRMED_HOURS,
-                                        hours(value.confirmed)),
+                                entry(ReportField.SCHEDULED_ATTENDANCE_DAYS,
+                                        Integer.toString(value.scheduledAttendanceDays)),
+                                entry(ReportField.ACTUAL_ATTENDANCE_DAYS,
+                                        Integer.toString(value.actualAttendanceDays)),
+                                entry(ReportField.SICK_LEAVE_DAYS,
+                                        Integer.toString(value.sickLeaveDays)),
                                 entry(ReportField.ATTENDANCE_RATE,
-                                        rate(value.confirmed, value.scheduled))),
+                                        rateByDays(value.actualAttendanceDays, value.scheduledAttendanceDays))),
                         "employee:" + value.reference()))
                 .toList();
         return dataSet(
@@ -585,14 +612,14 @@ public final class AttendanceReportCalculator {
         return value == null ? "—" : value.toString();
     }
 
-    private static String rate(long confirmed, long scheduled) {
-        if (scheduled == 0) {
+    private static String rateByDays(int actualDays, int scheduledDays) {
+        if (scheduledDays == 0) {
             return "N/A";
         }
-        return BigDecimal.valueOf(confirmed)
+        return BigDecimal.valueOf(actualDays)
                 .multiply(BigDecimal.valueOf(100))
                 .divide(
-                        BigDecimal.valueOf(scheduled),
+                        BigDecimal.valueOf(scheduledDays),
                         2,
                         RoundingMode.HALF_UP)
                 .toPlainString();
@@ -609,9 +636,16 @@ public final class AttendanceReportCalculator {
         private long scheduled;
         private long confirmed;
         private long recognizedOvertime;
+        private long paidOvertime;
+        private long compensatoryOvertime;
+        private long voluntaryOvertime;
+        private long totalOvertime;
         private long leave;
         private long absence;
         private long actualWork;
+        private int scheduledAttendanceDays;
+        private int actualAttendanceDays;
+        private int sickLeaveDays;
         private long weekdayOvertime;
         private long saturdayOvertime;
         private long sundayOvertime;
@@ -644,9 +678,19 @@ public final class AttendanceReportCalculator {
             scheduled += fact.scheduledMinutes();
             confirmed += fact.confirmedScheduledWorkMinutes();
             recognizedOvertime += fact.recognizedOvertimeMinutes();
+            paidOvertime += fact.paidOvertimeMinutes();
+            compensatoryOvertime += fact.compensatoryOvertimeMinutes();
+            voluntaryOvertime += fact.voluntaryOvertimeMinutes();
+            totalOvertime += fact.totalOvertimeMinutes();
             leave += fact.leaveOrTimeOffMinutes();
             absence += fact.absenceMinutes();
             actualWork += fact.actualWorkMinutes();
+            scheduledAttendanceDays += fact.scheduledAttendanceDays();
+            actualAttendanceDays += fact.actualAttendanceDays();
+            if (fact.leaveType()
+                    == com.szsemicon.hr.attendance.domain.LeaveType.SICK) {
+                sickLeaveDays += fact.scheduledAttendanceDays();
+            }
             if (fact.lateMinutes() > 0) {
                 lateEvents++;
             }

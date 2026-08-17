@@ -430,6 +430,16 @@ public class AttendanceReportProjectionPublisher
                 fact.recognizedOvertimeMinutes(),
                 "recognizedOvertimeMinutes");
         AttendanceReportPublicationModels.unsignedInt(
+                fact.paidOvertimeMinutes(), "paidOvertimeMinutes");
+        AttendanceReportPublicationModels.unsignedInt(
+                fact.compensatoryOvertimeMinutes(),
+                "compensatoryOvertimeMinutes");
+        AttendanceReportPublicationModels.unsignedInt(
+                fact.voluntaryOvertimeMinutes(),
+                "voluntaryOvertimeMinutes");
+        AttendanceReportPublicationModels.unsignedInt(
+                fact.totalOvertimeMinutes(), "totalOvertimeMinutes");
+        AttendanceReportPublicationModels.unsignedInt(
                 fact.leaveOrTimeOffMinutes(), "leaveOrTimeOffMinutes");
         AttendanceReportPublicationModels.unsignedInt(
                 fact.absenceMinutes(), "absenceMinutes");
@@ -560,6 +570,10 @@ public class AttendanceReportProjectionPublisher
         add(digest, fact.scheduledMinutes());
         add(digest, fact.confirmedScheduledWorkMinutes());
         add(digest, fact.recognizedOvertimeMinutes());
+        add(digest, fact.paidOvertimeMinutes());
+        add(digest, fact.compensatoryOvertimeMinutes());
+        add(digest, fact.voluntaryOvertimeMinutes());
+        add(digest, fact.totalOvertimeMinutes());
         add(digest, fact.leaveOrTimeOffMinutes());
         add(digest, fact.absenceMinutes());
         add(digest, fact.actualWorkMinutes());

@@ -249,6 +249,8 @@ class AttendanceMonthMatrixAssemblerTest {
                 leave,
                 0,
                 confirmed + overtime,
+                scheduled > 0 ? 1 : 0,  // scheduledAttendanceDays
+                (confirmed + overtime) > 0 ? 1 : 0,  // actualAttendanceDays
                 late,
                 penalizedLate,
                 early,

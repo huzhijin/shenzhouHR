@@ -1,5 +1,6 @@
 package com.szsemicon.hr.reporting.domain;
 
+import com.szsemicon.hr.attendance.domain.LeaveType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -13,7 +14,7 @@ import java.util.Objects;
 public final class AttendanceReportModels {
 
     public static final String ATTENDANCE_RATE_FORMULA_VERSION =
-            "ATTENDANCE_RATE_ACTUAL_OVER_REQUIRED_V1";
+            "ATTENDANCE_RATE_ACTUAL_DAYS_OVER_SCHEDULED_DAYS_V2";
 
     private AttendanceReportModels() {
     }
@@ -70,10 +71,19 @@ public final class AttendanceReportModels {
         ORGANIZATION("organization", "发生时组织"),
         SHIFT("shift", "班次"),
         SCHEDULED_HOURS("scheduled-hours", "应出勤工时"),
+        SCHEDULED_ATTENDANCE_DAYS("scheduled-attendance-days", "应出勤天数"),
+        ACTUAL_ATTENDANCE_DAYS("actual-attendance-days", "实际出勤天数"),
         CONFIRMED_HOURS("confirmed-hours", "排班内确认工作"),
         RECOGNIZED_OVERTIME_HOURS(
                 "recognized-overtime-hours", "认可加班"),
+        PAID_OVERTIME_HOURS("paid-overtime-hours", "计薪加班"),
+        COMPENSATORY_OVERTIME_HOURS(
+                "compensatory-overtime-hours", "转调休加班"),
+        VOLUNTARY_OVERTIME_HOURS(
+                "voluntary-overtime-hours", "义务加班"),
+        TOTAL_OVERTIME_HOURS("total-overtime-hours", "汇总加班"),
         LEAVE_HOURS("leave-hours", "请假/调休"),
+        SICK_LEAVE_DAYS("sick-leave-days", "病假天数"),
         ABSENCE_HOURS("absence-hours", "旷工"),
         ACTUAL_WORK_HOURS("actual-work-hours", "实际工作工时"),
         LATE_MINUTES("late-minutes", "迟到分钟"),
@@ -196,9 +206,15 @@ public final class AttendanceReportModels {
             long scheduledMinutes,
             long confirmedScheduledWorkMinutes,
             long recognizedOvertimeMinutes,
+            long paidOvertimeMinutes,
+            long compensatoryOvertimeMinutes,
+            long voluntaryOvertimeMinutes,
+            long totalOvertimeMinutes,
             long leaveOrTimeOffMinutes,
             long absenceMinutes,
             long actualWorkMinutes,
+            int scheduledAttendanceDays,
+            int actualAttendanceDays,
             long lateMinutes,
             long penalizedLateMinutes,
             long earlyDepartureMinutes,
@@ -206,7 +222,8 @@ public final class AttendanceReportModels {
             Instant firstPunchAt,
             Instant lastPunchAt,
             String calculationVersionId,
-            String resultDigest) {
+            String resultDigest,
+            LeaveType leaveType) {
 
         public DailyFact {
             factId = requireText(factId, "factId");
@@ -226,6 +243,10 @@ public final class AttendanceReportModels {
                     scheduledMinutes,
                     confirmedScheduledWorkMinutes,
                     recognizedOvertimeMinutes,
+                    paidOvertimeMinutes,
+                    compensatoryOvertimeMinutes,
+                    voluntaryOvertimeMinutes,
+                    totalOvertimeMinutes,
                     leaveOrTimeOffMinutes,
                     absenceMinutes,
                     actualWorkMinutes,
@@ -233,12 +254,34 @@ public final class AttendanceReportModels {
                     penalizedLateMinutes,
                     earlyDepartureMinutes,
                     missingPunchCount);
+            if (scheduledAttendanceDays != 0 && scheduledAttendanceDays != 1) {
+                throw new IllegalArgumentException(
+                        "scheduledAttendanceDays must be 0 or 1");
+            }
+            if (actualAttendanceDays != 0 && actualAttendanceDays != 1) {
+                throw new IllegalArgumentException(
+                        "actualAttendanceDays must be 0 or 1");
+            }
             if (actualWorkMinutes
                     != confirmedScheduledWorkMinutes
                             + recognizedOvertimeMinutes) {
                 throw new IllegalArgumentException(
                         "actual work must equal confirmed scheduled work"
                                 + " plus recognized overtime");
+            }
+            long classifiedOvertime = Math.addExact(
+                    Math.addExact(
+                            paidOvertimeMinutes,
+                            compensatoryOvertimeMinutes),
+                    voluntaryOvertimeMinutes);
+            if (totalOvertimeMinutes != classifiedOvertime) {
+                throw new IllegalArgumentException(
+                        "total overtime must equal paid, compensatory,"
+                                + " and voluntary overtime");
+            }
+            if (totalOvertimeMinutes > recognizedOvertimeMinutes) {
+                throw new IllegalArgumentException(
+                        "classified overtime cannot exceed recognized overtime");
             }
             if (penalizedLateMinutes > lateMinutes) {
                 throw new IllegalArgumentException(
@@ -247,6 +290,142 @@ public final class AttendanceReportModels {
             calculationVersionId = requireText(
                     calculationVersionId, "calculationVersionId");
             resultDigest = requireText(resultDigest, "resultDigest");
+        }
+
+        /**
+         * Compatibility constructor for pre-classification callers. New
+         * calculation and persistence paths use the canonical constructor and
+         * explicitly supply all four classified overtime metrics.
+         */
+        public DailyFact(
+                String factId,
+                String companyId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationVersionId,
+                String organizationName,
+                LocalDate businessDate,
+                DayType dayType,
+                String shiftLabel,
+                long scheduledMinutes,
+                long confirmedScheduledWorkMinutes,
+                long recognizedOvertimeMinutes,
+                long leaveOrTimeOffMinutes,
+                long absenceMinutes,
+                long actualWorkMinutes,
+                int scheduledAttendanceDays,
+                int actualAttendanceDays,
+                long lateMinutes,
+                long penalizedLateMinutes,
+                long earlyDepartureMinutes,
+                int missingPunchCount,
+                Instant firstPunchAt,
+                Instant lastPunchAt,
+                String calculationVersionId,
+                String resultDigest) {
+            this(
+                    factId,
+                    companyId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationVersionId,
+                    organizationName,
+                    businessDate,
+                    dayType,
+                    shiftLabel,
+                    scheduledMinutes,
+                    confirmedScheduledWorkMinutes,
+                    recognizedOvertimeMinutes,
+                    0,
+                    0,
+                    0,
+                    0,
+                    leaveOrTimeOffMinutes,
+                    absenceMinutes,
+                    actualWorkMinutes,
+                    scheduledAttendanceDays,
+                    actualAttendanceDays,
+                    lateMinutes,
+                    penalizedLateMinutes,
+                    earlyDepartureMinutes,
+                    missingPunchCount,
+                    firstPunchAt,
+                    lastPunchAt,
+                    calculationVersionId,
+                    resultDigest,
+                    null);
+        }
+
+        /** Compatibility constructor for callers already supplying classified overtime. */
+        public DailyFact(
+                String factId,
+                String companyId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationVersionId,
+                String organizationName,
+                LocalDate businessDate,
+                DayType dayType,
+                String shiftLabel,
+                long scheduledMinutes,
+                long confirmedScheduledWorkMinutes,
+                long recognizedOvertimeMinutes,
+                long paidOvertimeMinutes,
+                long compensatoryOvertimeMinutes,
+                long voluntaryOvertimeMinutes,
+                long totalOvertimeMinutes,
+                long leaveOrTimeOffMinutes,
+                long absenceMinutes,
+                long actualWorkMinutes,
+                int scheduledAttendanceDays,
+                int actualAttendanceDays,
+                long lateMinutes,
+                long penalizedLateMinutes,
+                long earlyDepartureMinutes,
+                int missingPunchCount,
+                Instant firstPunchAt,
+                Instant lastPunchAt,
+                String calculationVersionId,
+                String resultDigest) {
+            this(
+                    factId,
+                    companyId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationVersionId,
+                    organizationName,
+                    businessDate,
+                    dayType,
+                    shiftLabel,
+                    scheduledMinutes,
+                    confirmedScheduledWorkMinutes,
+                    recognizedOvertimeMinutes,
+                    paidOvertimeMinutes,
+                    compensatoryOvertimeMinutes,
+                    voluntaryOvertimeMinutes,
+                    totalOvertimeMinutes,
+                    leaveOrTimeOffMinutes,
+                    absenceMinutes,
+                    actualWorkMinutes,
+                    scheduledAttendanceDays,
+                    actualAttendanceDays,
+                    lateMinutes,
+                    penalizedLateMinutes,
+                    earlyDepartureMinutes,
+                    missingPunchCount,
+                    firstPunchAt,
+                    lastPunchAt,
+                    calculationVersionId,
+                    resultDigest,
+                    null);
         }
     }
 

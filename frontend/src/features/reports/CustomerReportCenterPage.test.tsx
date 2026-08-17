@@ -219,6 +219,51 @@ describe('customer report center demo', () => {
     expect(screen.getByRole('status')).toHaveTextContent('“月度考勤明细矩阵”已按当前筛选条件导出');
   });
 
+  it('fuzzy-searches authorized departments and employees by name, number, or department', () => {
+    render(<CustomerReportCenterPage />);
+
+    const departmentSelect = screen.getByLabelText('部门');
+    fireEvent.mouseDown(departmentSelect);
+    fireEvent.change(departmentSelect, { target: { value: '研发' } });
+
+    expect(screen.getByRole('option', { name: '研发中心' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '制造中心' })).not.toBeInTheDocument();
+    fireEvent.keyDown(departmentSelect, {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+    });
+    dismissReportSelect(departmentSelect);
+
+    const employeeSelect = screen.getByLabelText('员工');
+    fireEvent.mouseDown(employeeSelect);
+    fireEvent.change(employeeSelect, { target: { value: '张' } });
+    expect(screen.getByRole('option', { name: /^张伟/ })).toBeInTheDocument();
+
+    fireEvent.change(employeeSelect, { target: { value: 'sz0318' } });
+    expect(screen.getByRole('option', { name: /^张伟/ })).toBeInTheDocument();
+    expect(screen.getByText('SZ0318 · 研发中心')).toBeInTheDocument();
+
+    fireEvent.change(employeeSelect, { target: { value: '研发中心' } });
+    expect(screen.getByRole('option', { name: /^张伟/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^林晓雯/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /^周晴/ })).not.toBeInTheDocument();
+
+    fireEvent.change(employeeSelect, { target: { value: 'sz0318' } });
+    fireEvent.keyDown(employeeSelect, {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+    });
+    expect(screen.getByTestId('report-table')).toHaveTextContent('SZ0318');
+    expect(screen.getByTestId('report-table')).not.toHaveTextContent('SZ0342');
+
+    fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
+    expect(screen.getByText('全部部门 · 全部员工')).toBeInTheDocument();
+  });
+
   it('disables export without create permission and never invokes the export callback', () => {
     const onExport = vi.fn();
     render(
@@ -365,6 +410,42 @@ describe('customer report center demo', () => {
     }
   });
 
+  it('exports classified overtime and dedicated sick-leave day columns', () => {
+    const report = getCustomerReportDemo({
+      month: '2026-06',
+      department: '全部部门',
+      employee: '全部员工',
+    });
+    const commonRequest = {
+      month: '2026-06',
+      department: '全部部门',
+      employee: '全部员工',
+      generatedAt: '2026-08-17T08:00:00.000Z',
+      reportFilters: {},
+      report,
+    };
+
+    const overtime = buildCustomerReportCsv({
+      ...commonRequest,
+      reportKey: 'overtime',
+      reportTitle: '加班统计',
+    }).csv;
+    expect(overtime).toContain('"计薪加班","转调休加班","义务加班","汇总加班"');
+    expect(overtime).not.toContain('"平时加班"');
+    expect(overtime).not.toContain('"周末加班"');
+    expect(overtime).not.toContain('"法定节假日加班"');
+
+    const attendanceRate = buildCustomerReportCsv({
+      ...commonRequest,
+      reportKey: 'attendance-rate',
+      reportTitle: '出勤率统计',
+    }).csv;
+    expect(attendanceRate).toContain(
+      '"应出勤天数","实际出勤天数","病假天数","出勤率"',
+    );
+    expect(attendanceRate).toContain('"2","100.00%","病假计入实际出勤"');
+  });
+
   it('exports only rows authorized by the active data scope', () => {
     const manufacturingScope = requiredManufacturingScope();
     const report = getCustomerReportDemo({
@@ -414,23 +495,36 @@ describe('customer report center demo', () => {
     render(<CustomerReportCenterPage />);
     fireEvent.click(screen.getByRole('tab', { name: '年休假汇总' }));
 
+    selectReportOption('一级部门', '研发中心');
+    openReportSelect('二级部门');
+    expect(screen.getByRole('option', { name: '全部二级部门' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '产品研发部' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '晶圆制造部' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('二级部门'), {
+      target: { value: '产品研发部' },
+    });
+    fireEvent.keyDown(screen.getByLabelText('二级部门'), {
+      key: 'Enter',
+      code: 'Enter',
+      keyCode: 13,
+      which: 13,
+    });
+    expectSelectedReportOption('二级部门', '产品研发部');
+
+    selectReportOption('一级部门', '制造中心');
+    expectSelectedReportOption('二级部门', '全部二级部门');
+  });
+
+  it('allows manual fuzzy input in reusable report-specific selectors', () => {
+    render(<CustomerReportCenterPage />);
+    fireEvent.click(screen.getByRole('tab', { name: '年休假汇总' }));
+
     const levelOne = screen.getByLabelText('一级部门');
-    const levelTwo = screen.getByLabelText('二级部门');
-    fireEvent.change(levelOne, { target: { value: '研发中心' } });
+    fireEvent.mouseDown(levelOne);
+    fireEvent.change(levelOne, { target: { value: '研发' } });
 
-    expect(within(levelTwo).getAllByRole('option').map((option) => option.textContent)).toEqual([
-      '全部二级部门',
-      '产品研发部',
-    ]);
-    fireEvent.change(levelTwo, { target: { value: '产品研发部' } });
-    expect(levelTwo).toHaveValue('产品研发部');
-
-    fireEvent.change(levelOne, { target: { value: '制造中心' } });
-    expect(levelTwo).toHaveValue('全部二级部门');
-    expect(within(levelTwo).getAllByRole('option').map((option) => option.textContent)).toEqual([
-      '全部二级部门',
-      '晶圆制造部',
-    ]);
+    expect(screen.getByRole('option', { name: '研发中心' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '制造中心' })).not.toBeInTheDocument();
   });
 
   it('shows criteria matched to every report and query/reset updates the visible result', () => {
@@ -441,7 +535,7 @@ describe('customer report center demo', () => {
     fireEvent.click(screen.getByRole('tab', { name: '请假统计' }));
     expect(screen.getByLabelText('请假类型')).toBeInTheDocument();
     expect(screen.getByTestId('specific-result-count')).toHaveTextContent('8 条');
-    fireEvent.change(screen.getByLabelText('请假类型'), { target: { value: '事假' } });
+    selectReportOption('请假类型', '事假');
     fireEvent.click(screen.getByRole('button', { name: '查询请假统计' }));
     expect(screen.getByTestId('specific-result-count')).toHaveTextContent('2 条');
     fireEvent.click(screen.getByRole('button', { name: '重置请假统计筛选' }));
@@ -450,6 +544,12 @@ describe('customer report center demo', () => {
     fireEvent.click(screen.getByRole('tab', { name: '加班汇总与每日加班' }));
     expect(screen.getByLabelText('加班类型')).toBeInTheDocument();
     expect(screen.getByLabelText('加班日期')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader', { name: '计薪加班' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: '转调休加班' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: '义务加班' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('columnheader', { name: '平时加班' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '周末加班' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '法定加班' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: '个人月度工时' }));
     expect(screen.getByLabelText('在职状态')).toBeInTheDocument();
@@ -458,9 +558,9 @@ describe('customer report center demo', () => {
     expect(screen.getByLabelText('异常类型')).toBeInTheDocument();
     expect(screen.getByLabelText('异常级别')).toBeInTheDocument();
     expect(screen.getByLabelText('处理状态')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('异常类型'), { target: { value: '旷工' } });
-    fireEvent.change(screen.getByLabelText('异常级别'), { target: { value: '高' } });
-    fireEvent.change(screen.getByLabelText('处理状态'), { target: { value: '处理中' } });
+    selectReportOption('异常类型', '旷工');
+    selectReportOption('异常级别', '高');
+    selectReportOption('处理状态', '处理中');
     fireEvent.click(screen.getByRole('button', { name: '查询考勤异常总览' }));
     expect(screen.getByTestId('specific-result-count')).toHaveTextContent('1 条');
     expect(screen.getByTestId('report-table')).toHaveTextContent('吴昊');
@@ -475,6 +575,10 @@ describe('customer report center demo', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '出勤率统计' }));
     expect(screen.getByLabelText('出勤类型')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '应出勤天数' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '实际出勤天数' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '病假天数' })).toBeInTheDocument();
+    expect(screen.getByTestId('report-table')).toHaveTextContent('病假计入实际出勤');
 
     fireEvent.click(screen.getByRole('tab', { name: '年休假汇总' }));
     expect(screen.getByLabelText('年休假余额状态')).toBeInTheDocument();
@@ -534,6 +638,46 @@ function selectPermissionRole(actorLabel: string) {
   fireEvent.mouseDown(screen.getByLabelText('权限角色'));
   const options = screen.getAllByText(actorLabel);
   fireEvent.click(options.at(-1)!);
+}
+
+function openReportSelect(label: string) {
+  fireEvent.mouseDown(document.body);
+  fireEvent.click(document.body);
+  screen.getAllByRole('combobox')
+    .filter((select) => select.getAttribute('aria-expanded') === 'true')
+    .forEach(dismissReportSelect);
+  const select = screen.getByLabelText(label);
+  fireEvent.mouseDown(select);
+  fireEvent.change(select, { target: { value: '' } });
+}
+
+function selectReportOption(label: string, optionLabel: string) {
+  openReportSelect(label);
+  const select = screen.getByLabelText(label);
+  fireEvent.change(select, { target: { value: optionLabel } });
+  fireEvent.keyDown(select, {
+    key: 'Enter',
+    code: 'Enter',
+    keyCode: 13,
+    which: 13,
+  });
+  dismissReportSelect(select);
+}
+
+function dismissReportSelect(select: HTMLElement) {
+  fireEvent.keyDown(select, {
+    key: 'Escape',
+    code: 'Escape',
+    keyCode: 27,
+    which: 27,
+  });
+  fireEvent.blur(select);
+  fireEvent.mouseDown(document.body);
+  fireEvent.click(document.body);
+}
+
+function expectSelectedReportOption(label: string, optionLabel: string) {
+  expect(screen.getByLabelText(label).closest('.ant-select')).toHaveTextContent(optionLabel);
 }
 
 function allVisibleEmployees(

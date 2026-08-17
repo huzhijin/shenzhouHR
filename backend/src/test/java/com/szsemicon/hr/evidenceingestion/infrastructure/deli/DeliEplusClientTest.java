@@ -7,6 +7,7 @@ import com.szsemicon.hr.evidenceingestion.domain.EvidenceLedger.Direction;
 import com.szsemicon.hr.evidenceingestion.port.DeliPunchSourcePort;
 import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort.ConfirmedBindingKind;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -29,6 +30,22 @@ class DeliEplusClientTest {
     private static final String APP_SECRET = "example-app-secret";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void parsesOfflineSyntheticFixtureWithoutCallingTheVendor() throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse(readFixture(
+                "/fixtures/deli-eplus/checkin-page.synthetic.json")));
+
+        var page = client(transport).fetchPage("source-offline-test", null);
+
+        assertThat(page.records()).hasSize(1);
+        assertThat(page.records().getFirst().sourceRecordId())
+                .isEqualTo("SYNTHETIC-RECORD-001");
+        assertThat(page.records().getFirst().externalPersonRef())
+                .isEqualTo("SYNTHETIC-EMPLOYEE-001");
+        assertThat(transport.requests()).hasSize(1);
+    }
 
     @Test
     void postsCanonicalSignedQueryAndParsesEveryRequiredCheckinField() throws Exception {
@@ -547,6 +564,15 @@ class DeliEplusClientTest {
 
     private static DeliEplusHttpResponse okResponse(String body) {
         return new DeliEplusHttpResponse(200, body);
+    }
+
+    private static String readFixture(String resource) throws Exception {
+        try (var input = DeliEplusClientTest.class.getResourceAsStream(resource)) {
+            if (input == null) {
+                throw new IllegalStateException("missing test fixture " + resource);
+            }
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     private static String emptyPage(String nextId) {

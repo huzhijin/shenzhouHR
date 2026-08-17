@@ -74,7 +74,7 @@ export function StatePanel({
   return (
     <section className="async-state" data-state={state} aria-live={state === 'error' ? 'assertive' : 'polite'}>
       <div className="state-panel">
-        <Icon aria-hidden="true" stroke={2} size="var(--size-icon-lg)" />
+        <Icon aria-hidden="true" stroke={2} size={32} />
         <h2>{title ?? defaultTitle(normalizedState)}</h2>
         {description ? <p>{description}</p> : null}
         {onRetry ? <Button onClick={onRetry}>{translate('state.retry')}</Button> : null}

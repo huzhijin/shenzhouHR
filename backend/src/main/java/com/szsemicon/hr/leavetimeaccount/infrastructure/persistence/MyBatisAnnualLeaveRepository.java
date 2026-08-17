@@ -5,7 +5,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,14 +19,10 @@ class MyBatisAnnualLeaveRepository implements AnnualLeaveManagementRepository {
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<String> findCurrentEmploymentPeriodId(String employeeId) {
-        return mapper.findCurrentEmploymentPeriodId(employeeId);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Optional<String> findEmployeeCompanyId(String employeeId) {
-        return mapper.findEmployeeCompanyId(employeeId);
+    public List<CurrentEmploymentRow> findCurrentEmployments(
+            String employeeId,
+            Instant at) {
+        return mapper.findCurrentEmployments(employeeId, at);
     }
 
     @Override
@@ -38,8 +33,20 @@ class MyBatisAnnualLeaveRepository implements AnnualLeaveManagementRepository {
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<TimeAccountRow> findTimeAccount(String employeeId, int year) {
-        return mapper.findTimeAccount(employeeId, year);
+    public Optional<TimeAccountRow> findTimeAccount(
+            String employeeId,
+            String employmentPeriodId,
+            int year) {
+        return mapper.findTimeAccount(employeeId, employmentPeriodId, year);
+    }
+
+    @Override
+    @Transactional
+    public Optional<TimeAccountRow> lockTimeAccount(
+            String employeeId,
+            String employmentPeriodId,
+            int year) {
+        return mapper.lockTimeAccount(employeeId, employmentPeriodId, year);
     }
 
     @Override
@@ -71,6 +78,24 @@ class MyBatisAnnualLeaveRepository implements AnnualLeaveManagementRepository {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public BigDecimal sumLedgerAmount(String accountId) {
+        return mapper.sumLedgerAmount(accountId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BigDecimal sumActiveReservations(String accountId) {
+        return mapper.sumActiveReservations(accountId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public OpeningImportSummary summarizeOpeningImport(String accountId) {
+        return mapper.summarizeOpeningImport(accountId);
+    }
+
+    @Override
     @Transactional
     public void insertLedgerEntry(LedgerEntryRow entry) {
         mapper.insertLedgerEntry(entry);
@@ -87,6 +112,40 @@ class MyBatisAnnualLeaveRepository implements AnnualLeaveManagementRepository {
     @Transactional(readOnly = true)
     public long countLedgerEntries(String accountId) {
         return mapper.countLedgerEntries(accountId);
+    }
+
+    @Override
+    @Transactional
+    public void claimBalanceIdempotency(BalanceIdempotencyRow row) {
+        mapper.claimBalanceIdempotency(row);
+    }
+
+    @Override
+    @Transactional
+    public Optional<BalanceIdempotencyRow> lockBalanceIdempotency(
+            String principalId,
+            String idempotencyKey) {
+        return mapper.lockBalanceIdempotency(principalId, idempotencyKey);
+    }
+
+    @Override
+    @Transactional
+    public boolean completeBalanceIdempotency(
+            String principalId,
+            String idempotencyKey,
+            String claimToken,
+            String resultingLedgerEntryId,
+            BigDecimal resultingBalanceHours,
+            long resultingRowVersion,
+            Instant completedAt) {
+        return mapper.completeBalanceIdempotency(
+                principalId,
+                idempotencyKey,
+                claimToken,
+                resultingLedgerEntryId,
+                resultingBalanceHours,
+                resultingRowVersion,
+                completedAt) == 1;
     }
 
     @Override

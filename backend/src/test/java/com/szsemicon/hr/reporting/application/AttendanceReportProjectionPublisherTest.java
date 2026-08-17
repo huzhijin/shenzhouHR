@@ -393,6 +393,8 @@ class AttendanceReportProjectionPublisherTest {
                 0,
                 20,
                 460,
+                1,  // scheduledAttendanceDays
+                1,  // actualAttendanceDays
                 lateMinutes,
                 penalizedLateMinutes,
                 10,

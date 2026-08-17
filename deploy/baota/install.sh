@@ -521,7 +521,9 @@ install -o root -g shenzhouhr -m 0640 "$RELEASE_ROOT/db/migration/"*.sql "$APP_D
 
 "$BAOTA_ROOT/scripts/migrate.sh" \
   --jar "$APP_DIR/shenzhou-hr.jar" \
-  --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env"
+  --app-env-file "$ENV_ROOT/shenzhouhr.env" \
+  --migrator-env-file "$ENV_ROOT/shenzhouhr-migrator.env" \
+  --mysql-bin "$MYSQL_BIN"
 
 printf '%s\n' \
   'Four companies and one production administrator are required for this empty customer database.'

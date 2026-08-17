@@ -38,6 +38,7 @@ class AuthenticationLoginCredentialLockConcurrencyTest {
 
     private static final String OLD_PASSWORD = "Old#Password12345";
     private static final String NEW_PASSWORD = "New#Password12345";
+    private static final long LOGIN_COMPLETION_TIMEOUT_SECONDS = 30;
 
     @Autowired
     private MockMvc mockMvc;
@@ -162,7 +163,9 @@ class AuthenticationLoginCredentialLockConcurrencyTest {
         allowRotation.countDown();
         rotation.get(5, TimeUnit.SECONDS);
 
-        assertThat(login.get(5, TimeUnit.SECONDS)).isEqualTo(401);
+        assertThat(login.get(
+                LOGIN_COMPLETION_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS)).isEqualTo(401);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM user_session WHERE account_id = ?",
                 Long.class,

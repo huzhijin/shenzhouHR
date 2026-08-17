@@ -3,6 +3,7 @@ package com.szsemicon.hr.reporting.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -86,6 +87,47 @@ class AttendanceReportPublicationApplicationServiceTest {
         verify(useCase).publish(command);
     }
 
+    @Test
+    void truncatesSystemClockToDatabaseMicrosecondPrecision() {
+        Instant nanosecondNow = Instant.parse(
+                "2026-08-08T10:00:00.123456789Z");
+        Instant expectedDatabaseNow = Instant.parse(
+                "2026-08-08T10:00:00.123456Z");
+        AttendanceReportCalculationOrchestrator orchestrator =
+                mock(AttendanceReportCalculationOrchestrator.class);
+        AttendanceReportProjectionPublicationUseCase useCase =
+                mock(AttendanceReportProjectionPublicationUseCase.class);
+        PublishCommand command = minimalCommand();
+        PublicationResult expected = new PublicationResult(
+                "10000000-0000-0000-0000-000000000099",
+                "ARP1-" + "a".repeat(64),
+                "a".repeat(64),
+                PeriodState.OPEN,
+                expectedDatabaseNow,
+                expectedDatabaseNow,
+                true);
+
+        when(orchestrator.assemble(
+                eq(COMPANY), eq(PERIOD), eq(PeriodState.OPEN), eq(PRINCIPAL),
+                argThat(expectedDatabaseNow::equals)))
+                .thenReturn(command);
+        when(useCase.publish(command)).thenReturn(expected);
+
+        var service = service(
+                List.of(orchestrator),
+                useCase,
+                Clock.fixed(nanosecondNow, ZoneOffset.UTC));
+
+        PublicationResult result = service.publish(
+                COMPANY, PERIOD, PeriodState.OPEN, "manual run");
+
+        assertThat(result).isEqualTo(expected);
+        verify(orchestrator).assemble(
+                eq(COMPANY), eq(PERIOD), eq(PeriodState.OPEN), eq(PRINCIPAL),
+                argThat(expectedDatabaseNow::equals));
+        verify(useCase).publish(command);
+    }
+
     // ---- helpers --------------------------------------------------------
 
     private static PublishCommand minimalCommand() {
@@ -111,6 +153,16 @@ class AttendanceReportPublicationApplicationServiceTest {
     private AttendanceReportPublicationApplicationService service(
             List<AttendanceReportCalculationOrchestrator> orchestrators,
             AttendanceReportProjectionPublicationUseCase useCase) {
+        return service(
+                orchestrators,
+                useCase,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private AttendanceReportPublicationApplicationService service(
+            List<AttendanceReportCalculationOrchestrator> orchestrators,
+            AttendanceReportProjectionPublicationUseCase useCase,
+            Clock clock) {
         CurrentCapabilityService caps = mock(CurrentCapabilityService.class);
         CurrentPrincipalProvider principal =
                 mock(CurrentPrincipalProvider.class);
@@ -121,6 +173,6 @@ class AttendanceReportPublicationApplicationServiceTest {
                 useCase,
                 orchestrators,
                 mock(AuditService.class),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                clock);
     }
 }

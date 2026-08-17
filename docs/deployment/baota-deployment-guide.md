@@ -1563,7 +1563,11 @@ archive_owner=root:root
 
 点击确定后，数据库列表必须立即出现 `shenzhou_hr`。`shenzhouhr_panel` 是客户在面板中
 管理/备份数据库的账号；Java 日常运行不会使用它。安装脚本稍后会另外创建最小权限的
-`shenzhouhr_app` 和迁移专用 `shenzhouhr_migrator`。
+`shenzhouhr_app` 和迁移专用 `shenzhouhr_migrator`。V1～V48 的权限合同是：应用账号
+只有库级 `SELECT/INSERT/UPDATE/DELETE`，并在 V42 创建完成后仅获得
+`shenzhou_hr.szsc_oa_time_off_expire` 的 `EXECUTE`；迁移账号在原有 DDL/DML 上只增加
+V41/V42 必需的 `CREATE VIEW`、`CREATE ROUTINE`，不获得库级 `EXECUTE`、
+`ALTER ROUTINE` 或 `GRANT OPTION`。
 
 用 MySQL root/DBA 核对新库此时只有一个本地面板账号拥有库级权限：
 
@@ -1695,7 +1699,7 @@ bash install.sh
 | 管理员信息 | 按客户确认内容填写，密码至少 12 位且含大小写、数字、符号 |
 | 四公司确认串 | 按脚本显示输入 `SZSZ,SZJN,SZSC,SZXY` |
 | MySQL root user | `root` |
-| MySQL root password | 宝塔 MySQL root 密码，输入时屏幕不显示字符 |
+| MySQL root password | 宝塔 MySQL root 密码；账号创建阶段和迁移授权阶段各询问一次，输入时屏幕均不显示字符 |
 
 脚本会在任何数据库写入前先收集并校验管理员信息和签名的四公司目录，再询问 MySQL root 凭据。全新库
 必须创建首个生产管理员，客户专用脚本不会提供跳过选项；中途不要关闭终端。
@@ -1706,7 +1710,10 @@ bash install.sh
 - 强制确认宝塔已经创建并登记的 `shenzhou_hr` 存在且为空；
 - 把数据库默认字符集/排序规则设为 `utf8mb4/utf8mb4_0900_ai_ci`；
 - 创建 `shenzhouhr_app` 和 `shenzhouhr_migrator`；
+- 仅为迁移账号补齐 V41/V42 所需的 `CREATE VIEW`、`CREATE ROUTINE`，并拒绝意外的全局、
+  GRANT OPTION、table/column 级或其他库级权限；
 - 执行 Flyway V1 到当前发布最高版本；
+- V42 完成后，仅为应用账号授予执行 `szsc_oa_time_off_expire` 年结过程的权限；
 - 原子创建固定 4 家公司、首个生产管理员、4 个公司数据范围和 8 个管理员角色授权；
 - 安装 JAR 到 `/opt/shenzhouhr/app/shenzhou-hr.jar`；
 - 复制前端到 `/www/wwwroot/192.168.160.226`；
@@ -1926,6 +1933,45 @@ fi
 
 第一条必须显示 `syntax is ok` 和 `test is successful`。
 
+### 16.1 已部署站点直接打开或刷新 `/workbench` 返回 404
+
+这是 SPA 历史路由没有回退到 `index.html`，与 MySQL 是否可用无关。当前安装和升级模板
+已经包含正确规则；旧发布包、在宝塔点击「伪静态」或人工改动 vhost 后，可能遗留
+`try_files $uri =404;`、`try_files $uri $uri/ =404;`，或者完全缺少 `try_files`。
+
+先确认本机实际命中的站点，不要直接编辑配置：
+
+```bash
+curl -sS -o /dev/null -w 'root=%{http_code}\n' \
+  -H 'Host: 192.168.160.226' http://127.0.0.1:23272/
+curl -sS -o /dev/null -w 'workbench=%{http_code}\n' \
+  -H 'Host: 192.168.160.226' http://127.0.0.1:23272/workbench
+```
+
+根路径为 200、`workbench` 为 404 时，先在宝塔备份站点文件，再进入已经完成两层
+SHA-256 校验的新发布目录执行只读检查：
+
+```bash
+bash deploy/baota/scripts/repair-spa-routing.sh --check
+```
+
+仅当输出 `REPAIR NEEDED` 时执行：
+
+```bash
+bash deploy/baota/scripts/repair-spa-routing.sh --apply
+```
+
+修复器只处理面板已登记的 `192.168.160.226:23272` 和固定前端目录；它不会创建站点、
+覆盖未知根目录代理、修改数据库或改动外部端口映射。脚本先保存原 vhost，再安装窄范围
+候选配置，依次执行 `nginx -t`、重载、本机 `/workbench` 200 和未登录 `/api` 401 验收；
+任一步失败会尝试自动恢复。成功输出会给出原配置备份的绝对路径。
+
+本项目正式网络合同仍为外部 `23272` → 内部 `23272`，外部 `23273` → 内部 `8080`。
+如果客户已批准现网临时将外部 `23273` 用作前端入口，它必须转发到内部
+`192.168.160.226:23272`，且不能同时再直达 `8080`。本机 `/workbench` 已是 200、外部
+仍为 404 时，外部流量实际落在另一监听器或 vhost，应由网络管理员修正 NAT/端口映射，
+不要再次修改本项目 Nginx 配置。
+
 本客户站点使用经过校验的完整固定配置，日常可在宝塔查看、启停 `kaoqin-api` 和重载；
 不要修改它的名称、目录、目标、缓存或内容替换，也不要新增第二条代理。不要点击站点的
 “SSL”“伪静态/重写”向导。公网 TLS、新增 rewrite 或代理变更必须先由交付与安全负责人
@@ -1985,6 +2031,10 @@ bash deploy/baota/scripts/verify.sh \
   --health-url http://127.0.0.1:8080/actuator/health
 ```
 
+验证脚本除健康、路由、Flyway 版本外，还会只读核对 V41 视图、V42 年结过程、迁移账号的
+精确 schema 权限集合，以及应用账号唯一的过程级 `EXECUTE`。任何一项不符都不能作为
+“部署完成”签字。
+
 ### 17.4 浏览器验收
 
 1. 内网打开 `http://192.168.160.226:23272`；
@@ -2001,6 +2051,31 @@ http://<WAN地址>:23273/actuator/health
 ```
 
 第二个地址只应对批准来源可达。
+
+### 17.5 OA 生产只读接入与首次抽样
+
+OA 连接只允许 `SELECT`，同步会把规范化证据写入神州 HR 数据库，但不会写 OA。先在
+`/etc/shenzhouhr/shenzhouhr.env` 配置 `OA_MYSQL_JDBC_URL`、
+`OA_MYSQL_USERNAME`、`OA_MYSQL_PASSWORD`，并固定：
+
+```dotenv
+OA_MYSQL_ENABLED=true
+OA_MYSQL_SOURCE_TIME_ZONE=Asia/Shanghai
+SHENZHOUHR_OA_AUTO_SYNC_ENABLED=false
+SHENZHOUHR_OA_AUTO_SYNC_ZONE=Asia/Shanghai
+```
+
+从宝塔重启 Java 后，先由具备 `ATTENDANCE_SOURCE:RUN` 且公司数据范围正确的管理员，
+通过正式 `POST /api/v1/attendance-source-jobs` 接口只触发一个 ACTIVE 的
+`OA_ATTENDANCE` 来源。必须核对同步任务状态、接受/隔离数量、员工匹配、时间区间和当月
+报表样例；生产 `prod` profile 不提供无鉴权 debug 同步入口。
+
+本版对尚未形成完整当前集合的 OA 销假明确失败关闭：如计算月份存在有效
+`LEAVE_REVOCATION`，完整计算返回 `OA_LEAVE_REVOCATION_UNRESOLVED`，不会静默忽略销假，
+也不会继续把原请假整段计入。此时可以保留已同步证据用于排查，但不得发布该月 OA 请假
+结果，也不得开启自动同步。只有手动单源抽样与业务对账通过，并确认目标月份没有该阻断，
+或后续版本已接通原请假流水号、0..N 销假完整集合、系统扣减/返还小时和一致水位后，才可
+设置 `SHENZHOUHR_OA_AUTO_SYNC_ENABLED=true` 并再次重启。
 
 ## 18. 日常操作全部从宝塔完成
 
@@ -2080,7 +2155,10 @@ bash upgrade.sh
 ```
 
 脚本会在任何写入前确认旧 Java 已停止，再检查 MySQL/Flyway 历史并备份旧 JAR/前端；
-它先用待发布 JAR 执行前向迁移，成功后才原子替换活动 JAR。迁移失败时旧 JAR 文件虽然
+它不会用样例 env 覆盖现网文件，已有 `OA_MYSQL_*`、`SHENZHOUHR_OA_AUTO_SYNC_*`、
+得力配置和密码会原样保留且不输出。迁移阶段会在隐藏输入模式询问 MySQL root 凭据，
+只把它写入 `0600` 临时 client 文件：迁移前补齐两个 DDL 权限，迁移后授予单个年结过程，
+随即删除临时文件。它先用待发布 JAR 执行前向迁移，成功后才原子替换活动 JAR。迁移失败时旧 JAR 文件虽然
 保持不动，但某些 MySQL DDL 可能已经部分落库，**绝不能因此启动旧 JAR**；保留数据库备份、
 新包和日志，交给交付人员判断恢复或继续迁移。
 完成后：
@@ -2110,6 +2188,7 @@ bash upgrade.sh
 | 安装提示 Baota site was not found/root/listen 不符 | 面板站点未按第 12 步登记 | 回宝塔修正站点，不要手建 `shenzhouhr.conf` |
 | 安装提示 backend port in use | 8080 有旧 Java/其他服务 | 用 `ss` 查 PID 和 JAR，不能直接杀所有 Java |
 | 前端打不开 | Nginx 未监听 23272或防火墙未放行 | 查站点状态、`nginx -t`、23272 规则 |
+| 首页能打开但直接访问或刷新 `/workbench` 为 404 | 旧 vhost 缺少 SPA `index.html` 回退，或外部端口落到另一 vhost | 先比较本机 23272 的 `/` 与 `/workbench`；命中固定站点时按 16.1 节运行修复器，否则修正 NAT |
 | 页面打开但接口 502 | Java 未启动或 Nginx 代理写错 | Java 日志；确认代理为 `127.0.0.1:8080` |
 | 外部 23273 不通 | Java 只监听 127.0.0.1、NAT/来源规则错误 | env 必须 `0.0.0.0:8080`，再查网络规则 |
 | 登录后仍跳回登录页 | HTTP 环境误启 Secure Cookie | `SHENZHOUHR_SESSION_COOKIE_SECURE=false` 后重启 Java |

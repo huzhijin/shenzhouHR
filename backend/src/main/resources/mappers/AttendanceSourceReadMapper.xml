@@ -178,7 +178,11 @@
                source.source_code AS code,
                source.display_name,
                source.status AS state,
-               COALESCE(configuration.source_time_zone, 'UNKNOWN') AS time_zone,
+               CASE
+                   WHEN source.source_type = 'OA_ATTENDANCE'
+                   THEN 'Asia/Shanghai'
+                   ELSE COALESCE(configuration.source_time_zone, 'UNKNOWN')
+               END AS time_zone,
                COALESCE(configuration.revision_number, 0) AS configuration_revision,
                watermark.committed_cursor AS committed_watermark,
                (

@@ -2,6 +2,7 @@ package com.szsemicon.hr.wave4;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.szsemicon.hr.evidenceingestion.application.SourceIntegrationStatus;
 import com.szsemicon.hr.evidenceingestion.domain.AttendanceSourceModels.SourceConfigurationRevision;
@@ -39,6 +40,48 @@ class Wave4SourceAdapterContractTest {
         assertThat(page.records())
                 .filteredOn(record -> record.sourceStatus().name().equals("UNKNOWN"))
                 .allSatisfy(record -> assertThat(record.effectiveCandidate()).isFalse());
+        assertThat(page.records())
+                .filteredOn(record -> record.sourceStatus()
+                        == OaAttendanceDocumentSourcePort.SourceStatus.REVOKED)
+                .singleElement()
+                .satisfies(record -> {
+                    assertThat(record.documentType())
+                            .isEqualTo(OaAttendanceDocumentSourcePort
+                                    .DocumentType.LEAVE);
+                    assertThat(record.approvedAt()).isNotNull();
+                    assertThat(record.revokedAt())
+                            .isAfter(record.approvedAt());
+                    assertThat(record.effectiveCandidate()).isFalse();
+                });
+        assertThat(page.records())
+                .filteredOn(record -> record.documentType()
+                        == OaAttendanceDocumentSourcePort
+                        .DocumentType.LEAVE_REVOCATION)
+                .singleElement()
+                .satisfies(record -> {
+                    assertThat(record.sourceStatus())
+                            .isEqualTo(OaAttendanceDocumentSourcePort
+                                    .SourceStatus.APPROVED);
+                    assertThat(record.firstSubmittedAt())
+                            .isBefore(record.approvedAt());
+                    assertThat(record.revokedAt()).isNull();
+                    assertThat(record.effectiveCandidate()).isTrue();
+                });
+        assertThat(page.records())
+                .extracting(
+                        record -> record.sourceBusinessKey(),
+                        record -> record.sourceVersion())
+                .doesNotHaveDuplicates()
+                .contains(
+                        tuple(
+                                "OA-SYNTHETIC-9223372036854775808",
+                                "7"),
+                        tuple(
+                                "OA-SYNTHETIC-LEAVE-REVOCATION-9223372036854775808",
+                                "1"));
+        assertThat(page.records())
+                .noneMatch(record -> record.documentType()
+                        == OaAttendanceDocumentSourcePort.DocumentType.TRIP);
     }
 
     @Test

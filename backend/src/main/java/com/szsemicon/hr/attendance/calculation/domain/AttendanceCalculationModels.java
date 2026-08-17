@@ -1,5 +1,7 @@
 package com.szsemicon.hr.attendance.calculation.domain;
 
+import com.szsemicon.hr.attendance.domain.LeaveType;
+import com.szsemicon.hr.attendance.domain.OvertimeType;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -158,7 +160,9 @@ public final class AttendanceCalculationModels {
             TimeInterval interval,
             String sourceReference,
             Instant firstSubmittedAt,
-            boolean effective) {
+            boolean effective,
+            OvertimeType overtimeType,
+            LeaveType leaveType) {
 
         public IntervalEvidence {
             evidenceId = requireText(evidenceId, "evidenceId");
@@ -169,6 +173,51 @@ public final class AttendanceCalculationModels {
                 throw new IllegalArgumentException(
                         "point punches must use PunchEvent");
             }
+            if (kind != EvidenceKind.OVERTIME && overtimeType != null) {
+                throw new IllegalArgumentException(
+                        "overtimeType is only valid for overtime evidence");
+            }
+            if (kind != EvidenceKind.LEAVE && leaveType != null) {
+                throw new IllegalArgumentException(
+                        "leaveType is only valid for leave evidence");
+            }
+        }
+
+        public IntervalEvidence(
+                String evidenceId,
+                EvidenceKind kind,
+                TimeInterval interval,
+                String sourceReference,
+                Instant firstSubmittedAt,
+                boolean effective,
+                OvertimeType overtimeType) {
+            this(
+                    evidenceId,
+                    kind,
+                    interval,
+                    sourceReference,
+                    firstSubmittedAt,
+                    effective,
+                    overtimeType,
+                    null);
+        }
+
+        public IntervalEvidence(
+                String evidenceId,
+                EvidenceKind kind,
+                TimeInterval interval,
+                String sourceReference,
+                Instant firstSubmittedAt,
+                boolean effective) {
+            this(
+                    evidenceId,
+                    kind,
+                    interval,
+                    sourceReference,
+                    firstSubmittedAt,
+                    effective,
+                    null,
+                    null);
         }
     }
 
@@ -296,6 +345,7 @@ public final class AttendanceCalculationModels {
             List<IntervalEvidence> intervalEvidence,
             List<AdjustmentFact> adjustments,
             GraceConsumptionSnapshot graceConsumption,
+            boolean punchExempt,
             CalculationPolicy policy,
             String configurationSnapshotReference,
             String configurationDigest,
@@ -462,6 +512,10 @@ public final class AttendanceCalculationModels {
             long confirmedScheduledWorkMinutes,
             long extendedPresenceMinutes,
             long recognizedOvertimeMinutes,
+            long paidOvertimeMinutes,
+            long compensatoryOvertimeMinutes,
+            long voluntaryOvertimeMinutes,
+            long totalOvertimeMinutes,
             long leaveOrTimeOffMinutes,
             long absenceMinutes,
             long actualWorkMinutes) {
@@ -471,11 +525,28 @@ public final class AttendanceCalculationModels {
                     || confirmedScheduledWorkMinutes < 0
                     || extendedPresenceMinutes < 0
                     || recognizedOvertimeMinutes < 0
+                    || paidOvertimeMinutes < 0
+                    || compensatoryOvertimeMinutes < 0
+                    || voluntaryOvertimeMinutes < 0
+                    || totalOvertimeMinutes < 0
                     || leaveOrTimeOffMinutes < 0
                     || absenceMinutes < 0
                     || actualWorkMinutes < 0) {
                 throw new IllegalArgumentException(
                         "attendance metrics must be non-negative");
+            }
+            long classifiedOvertime = Math.addExact(
+                    Math.addExact(
+                            paidOvertimeMinutes,
+                            compensatoryOvertimeMinutes),
+                    voluntaryOvertimeMinutes);
+            if (totalOvertimeMinutes != classifiedOvertime) {
+                throw new IllegalArgumentException(
+                        "total overtime must equal the sum of its three types");
+            }
+            if (totalOvertimeMinutes > recognizedOvertimeMinutes) {
+                throw new IllegalArgumentException(
+                        "classified overtime cannot exceed recognized overtime");
             }
             if (actualWorkMinutes
                     != confirmedScheduledWorkMinutes
@@ -483,6 +554,28 @@ public final class AttendanceCalculationModels {
                 throw new IllegalArgumentException(
                         "actual work must equal W_in + O");
             }
+        }
+
+        public AttendanceMetrics(
+                long scheduledMinutes,
+                long confirmedScheduledWorkMinutes,
+                long extendedPresenceMinutes,
+                long recognizedOvertimeMinutes,
+                long leaveOrTimeOffMinutes,
+                long absenceMinutes,
+                long actualWorkMinutes) {
+            this(
+                    scheduledMinutes,
+                    confirmedScheduledWorkMinutes,
+                    extendedPresenceMinutes,
+                    recognizedOvertimeMinutes,
+                    0,
+                    0,
+                    0,
+                    0,
+                    leaveOrTimeOffMinutes,
+                    absenceMinutes,
+                    actualWorkMinutes);
         }
     }
 

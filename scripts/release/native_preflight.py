@@ -54,10 +54,14 @@ ALLOWED_PRODUCTION_ENVIRONMENT_KEYS = frozenset(
         "DELI_EPLUS_MAX_RESPONSE_BYTES",
         "DELI_EPLUS_SOURCE_TIME_ZONE",
         "DELI_EPLUS_CREDENTIAL_REFERENCE_NAME",
+        "SHENZHOUHR_OA_AUTO_SYNC_ENABLED",
+        "SHENZHOUHR_OA_AUTO_SYNC_CRON",
+        "SHENZHOUHR_OA_AUTO_SYNC_ZONE",
         "OA_MYSQL_ENABLED",
         "OA_MYSQL_JDBC_URL",
         "OA_MYSQL_USERNAME",
         "OA_MYSQL_PASSWORD",
+        "OA_MYSQL_SOURCE_TIME_ZONE",
         "OA_MYSQL_MAX_POOL_SIZE",
         "OA_MYSQL_CONNECTION_TIMEOUT",
         "OA_MYSQL_QUERY_TIMEOUT",
@@ -74,6 +78,7 @@ REQUIRED_ENVIRONMENT_VALUES = {
 BOOLEAN_ENVIRONMENT_KEYS = frozenset(
     {
         "SHENZHOUHR_PAYROLL_RESERVATION_ENABLED",
+        "SHENZHOUHR_OA_AUTO_SYNC_ENABLED",
         "DELI_EPLUS_ENABLED",
         "OA_MYSQL_ENABLED",
     }
@@ -369,6 +374,7 @@ def inspect_environment_file(path: Path) -> PreflightCheck:
             "OA_MYSQL_JDBC_URL",
             "OA_MYSQL_USERNAME",
             "OA_MYSQL_PASSWORD",
+            "OA_MYSQL_SOURCE_TIME_ZONE",
         },
     }
     for switch, required_names in dependent_requirements.items():
@@ -398,6 +404,25 @@ def inspect_environment_file(path: Path) -> PreflightCheck:
             "DEPLOY-ENV-FILE",
             "FAIL",
             "OA_MYSQL_JDBC_URL must use the MySQL JDBC scheme",
+        )
+    if values.get("SHENZHOUHR_OA_AUTO_SYNC_ENABLED") == "true" and values.get(
+        "OA_MYSQL_ENABLED"
+    ) != "true":
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            "SHENZHOUHR_OA_AUTO_SYNC_ENABLED requires OA_MYSQL_ENABLED=true",
+        )
+    invalid_oa_zones = sorted(
+        name
+        for name in ("OA_MYSQL_SOURCE_TIME_ZONE", "SHENZHOUHR_OA_AUTO_SYNC_ZONE")
+        if name in values and values[name] != "Asia/Shanghai"
+    )
+    if invalid_oa_zones:
+        return PreflightCheck(
+            "DEPLOY-ENV-FILE",
+            "FAIL",
+            f"OA production time-zone variables must be Asia/Shanghai: {invalid_oa_zones}",
         )
     return PreflightCheck(
         "DEPLOY-ENV-FILE",

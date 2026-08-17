@@ -125,6 +125,47 @@ interface AttendanceReportMapper {
             @Param("companyId") String companyId,
             @Param("authorizationTime") Instant authorizationTime);
 
+    List<ReportRows.DepartmentAttendanceRateRow>
+            listAuthorizedDepartmentAttendanceRates(
+                    @Param("principalId") String principalId,
+                    @Param("capabilityCode") String capabilityCode,
+                    @Param("projectionId") String projectionId,
+                    @Param("periodStart") LocalDate periodStart,
+                    @Param("periodEndExclusive")
+                            LocalDate periodEndExclusive,
+                    @Param("companyId") String companyId,
+                    @Param("organizationId") String organizationId,
+                    @Param("authorizationTime")
+                            Instant authorizationTime);
+
+    List<ReportRows.EmployeeSickLeaveDaysRow>
+            listAuthorizedEmployeeSickLeaveDays(
+                    @Param("principalId") String principalId,
+                    @Param("capabilityCode") String capabilityCode,
+                    @Param("projectionId") String projectionId,
+                    @Param("periodStart") LocalDate periodStart,
+                    @Param("periodEndExclusive")
+                            LocalDate periodEndExclusive,
+                    @Param("companyId") String companyId,
+                    @Param("organizationId") String organizationId,
+                    @Param("employeeId") String employeeId,
+                    @Param("authorizationTime")
+                            Instant authorizationTime);
+
+    List<ReportRows.EmployeeDepartmentAttendancePeriodRow>
+            listAuthorizedEmployeeDepartmentAttendancePeriods(
+                    @Param("principalId") String principalId,
+                    @Param("capabilityCode") String capabilityCode,
+                    @Param("projectionId") String projectionId,
+                    @Param("periodStart") LocalDate periodStart,
+                    @Param("periodEndExclusive")
+                            LocalDate periodEndExclusive,
+                    @Param("companyId") String companyId,
+                    @Param("organizationId") String organizationId,
+                    @Param("employeeId") String employeeId,
+                    @Param("authorizationTime")
+                            Instant authorizationTime);
+
     List<ReportRows.DailyRow> listAuthorizedDailyFacts(
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,

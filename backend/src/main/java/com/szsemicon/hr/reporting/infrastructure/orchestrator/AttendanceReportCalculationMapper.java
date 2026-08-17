@@ -6,6 +6,10 @@ import com.szsemicon.hr.reporting.infrastructure.orchestrator
         .AttendanceReportCalculationRows.EmployeeIdentityIntervalRow;
 import com.szsemicon.hr.reporting.infrastructure.orchestrator
         .AttendanceReportCalculationRows.PunchEventRow;
+import com.szsemicon.hr.reporting.infrastructure.orchestrator
+        .AttendanceReportCalculationRows.PunchCorrectionRow;
+import com.szsemicon.hr.reporting.infrastructure.orchestrator
+        .AttendanceReportCalculationRows.PunchExemptionRoleIntervalRow;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -38,6 +42,23 @@ interface AttendanceReportCalculationMapper {
     List<PunchEventRow> findActivatedPunchEvents(
             @Param("companyId") String companyId,
             @Param("windowStart") Instant windowStart,
+            @Param("windowEndExclusive") Instant windowEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    /**
+     * Returns approved punch corrections visible at the knowledge cutoff.
+     * Pending/rejected records never enter calculation evidence.
+     */
+    List<PunchCorrectionRow> findApprovedPunchCorrections(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    /** Returns EXECUTIVE no-punch role intervals overlapping the month. */
+    List<PunchExemptionRoleIntervalRow> findPunchExemptionRoleIntervals(
+            @Param("companyId") String companyId,
+            @Param("windowStart") Instant windowStart,
             @Param("windowEndExclusive") Instant windowEndExclusive);
 
     /**
@@ -47,5 +68,60 @@ interface AttendanceReportCalculationMapper {
     List<CalendarDayRow> findPublishedCalendarDays(
             @Param("companyId") String companyId,
             @Param("periodStart") LocalDate periodStart,
-            @Param("periodEndExclusive") LocalDate periodEndExclusive);
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    /**
+     * Returns the latest effective OA attendance-document version for each
+     * source/business key in the company and time window. Version selection
+     * happens before approval filtering so a newer pending or revoked version
+     * cannot leave an older approved version active.
+     */
+    List<AttendanceReportCalculationRows.OaDocumentRow> findEffectiveOaDocuments(
+            @Param("companyId") String companyId,
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEndExclusive") Instant windowEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    /**
+     * Returns the latest approved leave/time-off documents that must be copied
+     * into the immutable monthly report. The knowledge cutoff is applied
+     * before version ranking, so a historical publication cannot see a later
+     * OA ingestion or lifecycle update.
+     */
+    List<AttendanceReportCalculationRows.OaReportFactRow> findReportableOaDocuments(
+            @Param("companyId") String companyId,
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEndExclusive") Instant windowEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    /**
+     * Returns ledger-derived account components for assignments overlapping
+     * the report month at the same knowledge cutoff as daily calculation.
+     */
+    List<AttendanceReportCalculationRows.TimeAccountSnapshotRow>
+            findTimeAccountSnapshots(
+                    @Param("companyId") String companyId,
+                    @Param("periodStart") LocalDate periodStart,
+                    @Param("periodEndExclusive") LocalDate periodEndExclusive,
+                    @Param("dataAsOf") Instant dataAsOf);
+
+    /**
+     * Returns scheduled work segments for all employees in the company for
+     * the given period, based on their assigned shift templates and work
+     * calendar days.
+     */
+    List<AttendanceReportCalculationRows.ShiftSegmentRow> findScheduledWorkSegments(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    /**
+     * Returns the attendance policy configuration for the company.
+     * If no policy is found, returns null and the orchestrator will use
+     * default values.
+     */
+    AttendanceReportCalculationRows.AttendancePolicyRow findAttendancePolicy(
+            @Param("companyId") String companyId);
 }

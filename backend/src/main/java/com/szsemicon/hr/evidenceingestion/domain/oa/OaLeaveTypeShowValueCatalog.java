@@ -16,9 +16,14 @@ import java.util.Objects;
  *
  * <p>Source: OA data dictionary confirmed 2026-08-08. Values match
  * {@link com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog
- * FormKind.LEAVE} field {@code field0089} ("类别").</p>
+ * FormKind.LEAVE} field {@code field0089} ("类别") and
+ * {@link com.szsemicon.hr.evidenceingestion.domain.oa.OaStaticFormMappingCatalog
+ * FormKind.LEAVE_REVOCATION} fields {@code field0089} ("请假类别") and
+ * {@code field0100} ("销假类型"). All three fields share this same business
+ * enum catalog; their physical enum IDs still require live-schema
+ * verification before activation.</p>
  *
- * <p>TODO (needs user confirmation): 调休 can appear as both a leave type
+ * <p>调休 can appear as both a leave type
  * ("TIME_OFF") and as an overtime category payout type ("TIME_OFF_IN_LIEU").
  * The mapping here covers the leave-form context only; the overtime form uses
  * {@link OaOvertimeTypeCatalog} for its category field.</p>
@@ -49,16 +54,16 @@ public final class OaLeaveTypeShowValueCatalog {
 
     /**
      * Set of leave codes that count as paid attendance under the current
-     * company policy (年假/调休/婚/产/陪产/丧/工伤). Used by the attendance
+     * company policy (年假/病假/调休/婚/产/陪产/丧/工伤). Used by the attendance
      * calculation engine when deciding whether a leave day contributes to the
      * confirmed-attendance numerator.
      *
-     * <p>病假 and 事假 are explicitly absent -- they are unpaid and must not
-     * count as attended.</p>
+     * <p>事假是唯一不计实际出勤的假别；病假计实际出勤但单独展示。</p>
      */
     public static final java.util.Set<String> PAID_ATTENDANCE_LEAVE_CODES =
             java.util.Set.of(
                     ANNUAL_LEAVE,
+                    SICK_LEAVE,
                     TIME_OFF,
                     MARRIAGE_LEAVE,
                     MATERNITY_LEAVE,

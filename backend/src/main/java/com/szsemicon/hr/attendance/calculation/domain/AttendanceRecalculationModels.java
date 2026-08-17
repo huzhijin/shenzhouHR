@@ -221,13 +221,19 @@ public final class AttendanceRecalculationModels {
     }
 
     static Map<String, Long> metricMap(AttendanceMetrics metrics) {
-        return Map.of(
-                "S", metrics.scheduledMinutes(),
-                "W_IN", metrics.confirmedScheduledWorkMinutes(),
-                "E", metrics.extendedPresenceMinutes(),
-                "O", metrics.recognizedOvertimeMinutes(),
-                "L", metrics.leaveOrTimeOffMinutes(),
-                "A", metrics.absenceMinutes(),
-                "ACTUAL_WORK", metrics.actualWorkMinutes());
+        return Map.ofEntries(
+                Map.entry("S", metrics.scheduledMinutes()),
+                Map.entry("W_IN", metrics.confirmedScheduledWorkMinutes()),
+                Map.entry("E", metrics.extendedPresenceMinutes()),
+                Map.entry("O", metrics.recognizedOvertimeMinutes()),
+                Map.entry("O_PAID", metrics.paidOvertimeMinutes()),
+                Map.entry(
+                        "O_COMPENSATORY",
+                        metrics.compensatoryOvertimeMinutes()),
+                Map.entry("O_VOLUNTARY", metrics.voluntaryOvertimeMinutes()),
+                Map.entry("O_TOTAL", metrics.totalOvertimeMinutes()),
+                Map.entry("L", metrics.leaveOrTimeOffMinutes()),
+                Map.entry("A", metrics.absenceMinutes()),
+                Map.entry("ACTUAL_WORK", metrics.actualWorkMinutes()));
     }
 }

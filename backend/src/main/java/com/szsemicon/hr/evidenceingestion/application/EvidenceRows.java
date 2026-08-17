@@ -1,5 +1,7 @@
 package com.szsemicon.hr.evidenceingestion.application;
 
+import com.szsemicon.hr.attendance.domain.LeaveType;
+import com.szsemicon.hr.attendance.domain.OvertimeType;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -104,6 +106,52 @@ public final class EvidenceRows {
             String periodVersion,
             String requestId,
             String intentDigest,
+            Instant createdAt) {
+    }
+
+    /**
+     * One row to be inserted into {@code oa_attendance_document}.
+     * The normalizedAttendanceRecordId is the FK into the normalized table
+     * that must already exist before this row is inserted.
+     */
+    public record OaDocumentRow(
+            String oaAttendanceDocumentId,
+            String attendanceSourceId,
+            String sourceBusinessKey,
+            String sourceVersion,
+            String documentType,
+            OvertimeType overtimeType,
+            LeaveType leaveType,
+            String sourceStatus,
+            String normalizedAttendanceRecordId,
+            long knowledgeRank,
+            String supersedesDocumentId,
+            Instant firstSubmittedAt,
+            Instant approvedAt,
+            Instant modifiedAt,
+            Instant revokedAt,
+            Instant createdAt) {
+    }
+
+    /**
+     * Trusted classification context for one approved OA overtime document.
+     * The runtime-contract id must resolve to a real published revision for
+     * the same attendance source before this row is constructed.
+     */
+    public record OaDocumentContextRow(
+            String oaAttendanceDocumentContextId,
+            String oaAttendanceDocumentId,
+            String oaRuntimeContractRevisionId,
+            String attendanceGroupRevisionId,
+            String activationDecision,
+            String rawStatusValue,
+            String overtimeTreatment,
+            OvertimeType overtimeType,
+            int recognizedWorkMinutes,
+            int payrollCreditMinutes,
+            int timeOffCreditMinutes,
+            String authorizedContextJson,
+            String contextDigest,
             Instant createdAt) {
     }
 

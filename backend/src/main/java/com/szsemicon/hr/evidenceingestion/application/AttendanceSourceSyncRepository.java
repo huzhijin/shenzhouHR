@@ -5,6 +5,12 @@ import java.util.Optional;
 
 public interface AttendanceSourceSyncRepository {
 
+    Optional<String> findAuthorizedActiveSourceType(
+            String sourceId,
+            String principalId,
+            String capability,
+            Instant authorizationTime);
+
     StartResult createAuthorizedDeliJob(
             String sourceId,
             String principalId,
@@ -51,6 +57,50 @@ public interface AttendanceSourceSyncRepository {
             String jobId,
             String correlationId,
             Instant at);
+
+    /** Return IDs of every active OA_ATTENDANCE source (for scheduled jobs). */
+    java.util.List<String> findAllActiveOaSourceIds();
+
+    /** Create an OA sync job with SYSTEM principal — no capability check. */
+    StartResult createScheduledOaJob(
+            String sourceId,
+            String jobId,
+            String correlationId,
+            Instant at);
+
+    /** Create a manual OA sync job with principal authorization. */
+    StartResult createManualOaJob(
+            String sourceId,
+            String jobId,
+            String correlationId,
+            String principalId,
+            Instant at);
+
+    AttendanceSourceSyncModels.PageState lockOaPageForCommit(
+            String jobId,
+            String sourceId,
+            String principalId,
+            String capability,
+            Instant authorizationTime);
+
+    /** Lock an OA page for a SYSTEM-scheduled job. */
+    AttendanceSourceSyncModels.PageState lockSystemOaPageForCommit(
+            String jobId,
+            String sourceId);
+
+    interface Job {
+        String jobId();
+        String sourceId();
+        String status();
+        String requestedWatermark();
+        Instant createdAt();
+        Instant startedAt();
+        Instant finishedAt();
+        Integer pageCount();
+        Integer acceptedCount();
+        Integer quarantinedCount();
+        String correlationId();
+    }
 
     void insertCommittedPage(AttendanceSourceSyncModels.CommittedPage page);
 

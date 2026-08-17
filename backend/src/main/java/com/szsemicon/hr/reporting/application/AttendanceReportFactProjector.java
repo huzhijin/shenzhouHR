@@ -8,6 +8,7 @@ import com.szsemicon.hr.attendance.calculation.domain.AttendanceExceptionModels.
 import com.szsemicon.hr.attendance.calculation.domain.AttendanceExceptionModels.ExceptionFinding;
 import com.szsemicon.hr.attendance.calculation.domain.AttendanceExceptionModels.ExceptionTransitionType;
 import com.szsemicon.hr.attendance.calculation.domain.AttendanceExceptionModels.ExceptionType;
+import com.szsemicon.hr.attendance.domain.LeaveType;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionFact;
@@ -60,6 +61,30 @@ public final class AttendanceReportFactProjector {
                 .distinct()
                 .count();
         var metrics = result.metrics();
+
+        // Calculate attendance days
+        int scheduledAttendanceDays = metrics.scheduledMinutes() > 0 ? 1 : 0;
+        int actualAttendanceDays;
+        boolean lateConvertedToAbsence = result.ruleHits().stream()
+                .anyMatch(value -> "LATE_CONVERTED_TO_ABSENCE"
+                        .equals(value.ruleCode()));
+        if (scheduledAttendanceDays == 0 || lateConvertedToAbsence) {
+            actualAttendanceDays = 0;
+        } else if (metrics.actualWorkMinutes() > 0) {
+            actualAttendanceDays = 1;
+        } else if (metrics.leaveOrTimeOffMinutes() > 0
+                && (context.leaveType() == null
+                        || context.leaveType().countsAsAttendance())) {
+            // A null type here represents non-leave paid time-off. Unknown OA
+            // leave classifications are quarantined before calculation, while
+            // explicit unpaid leave types fail closed via countsAsAttendance.
+            actualAttendanceDays = 1;
+        } else if (metrics.absenceMinutes() > 0) {
+            actualAttendanceDays = 0;
+        } else {
+            actualAttendanceDays = 0;
+        }
+
         DailyFact daily = new DailyFact(
                 context.factId(),
                 context.companyId(),
@@ -75,9 +100,15 @@ public final class AttendanceReportFactProjector {
                 metrics.scheduledMinutes(),
                 metrics.confirmedScheduledWorkMinutes(),
                 metrics.recognizedOvertimeMinutes(),
+                metrics.paidOvertimeMinutes(),
+                metrics.compensatoryOvertimeMinutes(),
+                metrics.voluntaryOvertimeMinutes(),
+                metrics.totalOvertimeMinutes(),
                 metrics.leaveOrTimeOffMinutes(),
                 metrics.absenceMinutes(),
                 metrics.actualWorkMinutes(),
+                scheduledAttendanceDays,
+                actualAttendanceDays,
                 rawLate,
                 penalizedLate,
                 early,
@@ -85,7 +116,8 @@ public final class AttendanceReportFactProjector {
                 context.firstPunchAt(),
                 context.lastPunchAt(),
                 result.calculationVersionId(),
-                result.resultDigest());
+                result.resultDigest(),
+                context.leaveType());
         return new ProjectionFacts(
                 daily,
                 exceptionFacts(result, context, penalizedLate > 0));
@@ -380,7 +412,8 @@ public final class AttendanceReportFactProjector {
             DayType dayType,
             String shiftLabel,
             Instant firstPunchAt,
-            Instant lastPunchAt) {
+            Instant lastPunchAt,
+            LeaveType leaveType) {
 
         public ProjectionContext {
             require(factId, "factId");
@@ -400,6 +433,37 @@ public final class AttendanceReportFactProjector {
                 throw new IllegalArgumentException(
                         "last punch cannot precede first punch");
             }
+        }
+
+        public ProjectionContext(
+                String factId,
+                String companyId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationVersionId,
+                String organizationName,
+                LocalDate businessDate,
+                DayType dayType,
+                String shiftLabel,
+                Instant firstPunchAt,
+                Instant lastPunchAt) {
+            this(
+                    factId,
+                    companyId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationVersionId,
+                    organizationName,
+                    businessDate,
+                    dayType,
+                    shiftLabel,
+                    firstPunchAt,
+                    lastPunchAt,
+                    null);
         }
     }
 

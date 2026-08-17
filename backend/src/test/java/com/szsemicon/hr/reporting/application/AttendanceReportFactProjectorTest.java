@@ -15,6 +15,7 @@ import com.szsemicon.hr.attendance.calculation.domain.AttendanceExceptionModels.
 import com.szsemicon.hr.attendance.calculation.domain.AttendanceExceptionModels.ExceptionTransition;
 import com.szsemicon.hr.attendance.calculation.domain.AttendanceExceptionModels.ExceptionTransitionType;
 import com.szsemicon.hr.attendance.calculation.domain.AttendanceExceptionModels.ExceptionType;
+import com.szsemicon.hr.attendance.domain.LeaveType;
 import com.szsemicon.hr.reporting.application.AttendanceReportFactProjector.CurrentExceptionProjectionContext;
 import com.szsemicon.hr.reporting.application.AttendanceReportFactProjector.ProjectionContext;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
@@ -154,6 +155,90 @@ class AttendanceReportFactProjectorTest {
     }
 
     @Test
+    void lateConvertedToAbsencePreservesAuditMinutesButRemovesAttendanceCredit() {
+        var result = new DailyAttendanceResult(
+                "calculation-v1",
+                "input-digest",
+                "result-digest",
+                "algorithm-v1",
+                new AttendanceMetrics(480, 0, 0, 0, 0, 480, 0),
+                List.of(item(
+                        "late-absence",
+                        "08:30:00Z",
+                        "16:30:00Z",
+                        ResultCategory.ABSENCE,
+                        480,
+                        "LATE_CONVERTED_TO_ABSENCE",
+                        "late-absence-fingerprint")),
+                List.of(new RuleHit(
+                        "late-absence-rule",
+                        "policy-v1",
+                        "segment-late-absence",
+                        "LATE_CONVERTED_TO_ABSENCE",
+                        45,
+                        0,
+                        List.of("secret-punch-id"))),
+                List.of(),
+                new ExplanationGraph(List.of(), List.of()),
+                Set.of("secret-punch-id"),
+                List.of("late-absence-fingerprint"));
+
+        var projected = new AttendanceReportFactProjector().project(
+                result, context());
+
+        assertThat(result.ruleHits().getFirst().rawMinutes()).isEqualTo(45);
+        assertThat(projected.dailyFact().scheduledAttendanceDays()).isEqualTo(1);
+        assertThat(projected.dailyFact().actualAttendanceDays()).isZero();
+        assertThat(projected.dailyFact().lateMinutes()).isZero();
+        assertThat(projected.dailyFact().penalizedLateMinutes()).isZero();
+        assertThat(projected.dailyFact().absenceMinutes()).isEqualTo(480);
+        assertThat(projected.exceptionFacts())
+                .extracting(value -> value.exceptionType())
+                .containsExactly("LATE_CONVERTED_TO_ABSENCE");
+    }
+
+    @Test
+    void restDayOvertimeDoesNotCreateAnAttendanceDay() {
+        var result = result(new AttendanceMetrics(
+                0,
+                0,
+                120,
+                120,
+                120,
+                0,
+                0,
+                120,
+                0,
+                0,
+                120));
+
+        var daily = new AttendanceReportFactProjector()
+                .project(result, context())
+                .dailyFact();
+
+        assertThat(daily.scheduledAttendanceDays()).isZero();
+        assertThat(daily.actualAttendanceDays()).isZero();
+        assertThat(daily.paidOvertimeMinutes()).isEqualTo(120);
+    }
+
+    @Test
+    void explicitPaidAndUnpaidLeaveTypesControlAttendanceCredit() {
+        var result = result(new AttendanceMetrics(
+                480, 0, 0, 0, 480, 0, 0));
+        var projector = new AttendanceReportFactProjector();
+
+        var annual = projector.project(
+                result, context(LeaveType.ANNUAL)).dailyFact();
+        var personal = projector.project(
+                result, context(LeaveType.PERSONAL)).dailyFact();
+
+        assertThat(annual.actualAttendanceDays()).isEqualTo(1);
+        assertThat(annual.leaveType()).isEqualTo(LeaveType.ANNUAL);
+        assertThat(personal.actualAttendanceDays()).isZero();
+        assertThat(personal.leaveType()).isEqualTo(LeaveType.PERSONAL);
+    }
+
+    @Test
     void projectsEveryReconciledExceptionTypeFromItsCurrentState() {
         var projector = new AttendanceReportFactProjector();
         var context = new CurrentExceptionProjectionContext(
@@ -236,5 +321,39 @@ class AttendanceReportFactProjectorTest {
                 "总部夏令班",
                 Instant.parse("2026-07-15T00:40:00Z"),
                 Instant.parse("2026-07-15T09:20:00Z"));
+    }
+
+    private ProjectionContext context(LeaveType leaveType) {
+        ProjectionContext base = context();
+        return new ProjectionContext(
+                base.factId(),
+                base.companyId(),
+                base.employeeId(),
+                base.employeeNumber(),
+                base.employeeName(),
+                base.organizationId(),
+                base.organizationVersionId(),
+                base.organizationName(),
+                base.businessDate(),
+                base.dayType(),
+                base.shiftLabel(),
+                base.firstPunchAt(),
+                base.lastPunchAt(),
+                leaveType);
+    }
+
+    private DailyAttendanceResult result(AttendanceMetrics metrics) {
+        return new DailyAttendanceResult(
+                "calculation-v1",
+                "input-digest",
+                "result-digest",
+                "algorithm-v1",
+                metrics,
+                List.of(),
+                List.of(),
+                List.of(),
+                new ExplanationGraph(List.of(), List.of()),
+                Set.of(),
+                List.of());
     }
 }

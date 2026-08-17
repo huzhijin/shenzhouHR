@@ -5,12 +5,16 @@ import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "shenzhouhr.integrations.oa-mysql")
 public final class OaMysqlProperties {
+
+    static final ZoneId REQUIRED_SOURCE_TIME_ZONE =
+            ZoneId.of("Asia/Shanghai");
 
     private static final Duration MIN_CONNECTION_TIMEOUT =
             Duration.ofMillis(250);
@@ -37,6 +41,7 @@ public final class OaMysqlProperties {
     private String jdbcUrl = "";
     private String username = "";
     private String password = "";
+    private ZoneId sourceTimeZone = REQUIRED_SOURCE_TIME_ZONE;
     private int maximumPoolSize = 2;
     private Duration connectionTimeout = Duration.ofSeconds(5);
     private Duration queryTimeout = Duration.ofSeconds(3);
@@ -71,6 +76,14 @@ public final class OaMysqlProperties {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public ZoneId getSourceTimeZone() {
+        return sourceTimeZone;
+    }
+
+    public void setSourceTimeZone(ZoneId sourceTimeZone) {
+        this.sourceTimeZone = sourceTimeZone;
     }
 
     public int getMaximumPoolSize() {
@@ -110,6 +123,10 @@ public final class OaMysqlProperties {
             throw new IllegalStateException(
                     "OA MySQL credentials are not configured safely");
         }
+        if (!REQUIRED_SOURCE_TIME_ZONE.equals(sourceTimeZone)) {
+            throw new IllegalStateException(
+                    "OA MySQL source time zone must be Asia/Shanghai");
+        }
         if (maximumPoolSize < 1 || maximumPoolSize > 4) {
             throw new IllegalStateException(
                     "OA MySQL pool size must be between 1 and 4");
@@ -142,6 +159,8 @@ public final class OaMysqlProperties {
                 + ", jdbcUrl=<redacted>, username=<redacted>"
                 + ", password=<redacted>, maximumPoolSize="
                 + maximumPoolSize
+                + ", sourceTimeZone="
+                + sourceTimeZone
                 + ", connectionTimeout="
                 + connectionTimeout
                 + ", queryTimeout="

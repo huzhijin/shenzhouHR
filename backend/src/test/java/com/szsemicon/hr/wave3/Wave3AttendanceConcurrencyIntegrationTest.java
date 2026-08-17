@@ -9,7 +9,8 @@ import com.jayway.jsonpath.JsonPath;
 import java.nio.charset.StandardCharsets;
 import java.sql.Date;
 import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -21,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
@@ -43,8 +45,14 @@ class Wave3AttendanceConcurrencyIntegrationTest
             "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
     private static final AtomicLong AUTO_IDEMPOTENCY_SEQUENCE = new AtomicLong();
 
+    @Autowired
+    private Clock clock;
+
+    private ConcurrencyDates testDates;
+
     @BeforeEach
     void seedAttendancePoliciesForConcurrency() {
+        testDates = ConcurrencyDates.after(LocalDate.now(clock));
         insertPolicy(
                 "96000000-0000-0000-0000-000000000001",
                 "MEAL_DEDUCTION",
@@ -103,11 +111,14 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "code":"CONCURRENCY",
                   "name":"并发测试地点",
                   "timeZone":"Asia/Shanghai",
-                  "effectiveFrom":"2026-08-01",
-                  "effectiveTo":"2027-01-01",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 并发地点建档"
                 }
-                """.formatted(COMPANY)), "$.locationId");
+                """.formatted(
+                        COMPANY,
+                        testDates.setupEffectiveFrom(),
+                        testDates.locationEffectiveTo())), "$.locationId");
         String competingShiftId = createShift(
                 locationId, "CONCURRENT_SHIFT", "wave3-concurrency-shift");
         String firstVersionId = createVersion(
@@ -156,15 +167,21 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 {
                   "companyId":"%s",
                   "locationId":"%s",
-                  "code":"CONCURRENCY_2026",
+                  "code":"CONCURRENCY_%d",
                   "name":"并发测试日历",
-                  "calendarYear":2026,
+                  "calendarYear":%d,
                   "timeZone":"Asia/Shanghai",
-                  "effectiveFrom":"2026-08-15",
-                  "effectiveTo":"2026-08-17",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 并发日历建档"
                 }
-                """.formatted(COMPANY, locationId));
+                """.formatted(
+                        COMPANY,
+                        locationId,
+                        testDates.calendarYear(),
+                        testDates.calendarYear(),
+                        testDates.periodStart(),
+                        testDates.periodEndExclusive()));
         String calendarId = value(calendar, "$.calendarId");
         String calendarVersionId = value(calendar, "$.calendarVersionId");
         MvcResult calendarDays = perform(
@@ -177,15 +194,17 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 """
                 [
                   {
-                    "businessDate":"2026-08-15",
+                    "businessDate":"%s",
                     "dayType":"WORKDAY"
                   },
                   {
-                    "businessDate":"2026-08-16",
+                    "businessDate":"%s",
                     "dayType":"WORKDAY"
                   }
                 ]
-                """);
+                """.formatted(
+                        testDates.periodStart(),
+                        testDates.concurrentEffectiveFrom()));
         calendarVersionId = value(calendarDays, "$.calendarVersionId");
         perform(
                 post("/api/v1/attendance-setup/calendars/{calendarId}/versions/{versionId}/publish",
@@ -206,12 +225,17 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "locationId":"%s",
                   "calendarId":"%s",
                   "shiftTemplateId":"%s",
-                  "effectiveFrom":"2026-08-15",
-                  "effectiveTo":"2026-08-17",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 并发考勤组建档"
                 }
                 """.formatted(
-                        COMPANY, locationId, calendarId, baseShiftId)),
+                        COMPANY,
+                        locationId,
+                        calendarId,
+                        baseShiftId,
+                        testDates.periodStart(),
+                        testDates.periodEndExclusive())),
                 "$.groupId");
 
         String bindingFamilyId = jdbc.queryForObject(
@@ -242,11 +266,15 @@ class Wave3AttendanceConcurrencyIntegrationTest
                           "policyVersionId":"97000000-0000-0000-0000-000000000002",
                           "groupId":"%s",
                           "groupRevisionId":"%s",
-                          "effectiveFrom":"2026-08-16",
-                          "effectiveTo":"2026-08-17",
+                          "effectiveFrom":"%s",
+                          "effectiveTo":"%s",
                           "reason":"WAVE-3 并发策略绑定替换"
                         }
-                        """.formatted(groupId, groupRevisionId)),
+                        """.formatted(
+                                groupId,
+                                groupRevisionId,
+                                testDates.concurrentEffectiveFrom(),
+                                testDates.periodEndExclusive())),
                 "$.impactToken");
         List<MvcResult> bindingResults = concurrent(
                 () -> createBinding(
@@ -292,12 +320,17 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "locationId":"%s",
                   "calendarId":"%s",
                   "shiftTemplateId":"%s",
-                  "effectiveFrom":"2026-08-16",
-                  "effectiveTo":"2026-08-17",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 第二并发考勤组建档"
                 }
                 """.formatted(
-                        COMPANY, locationId, calendarId, baseShiftId)),
+                        COMPANY,
+                        locationId,
+                        calendarId,
+                        baseShiftId,
+                        testDates.concurrentEffectiveFrom(),
+                        testDates.periodEndExclusive())),
                 "$.groupId");
 
         List<MvcResult> sameKeyAssignments = concurrent(
@@ -366,12 +399,17 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "locationId":"%s",
                   "calendarId":"%s",
                   "shiftTemplateId":"%s",
-                  "effectiveFrom":"2026-08-15",
-                  "effectiveTo":"2026-08-17",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 并发换版考勤组建档"
                 }
                 """.formatted(
-                        COMPANY, locationId, calendarId, baseShiftId)),
+                        COMPANY,
+                        locationId,
+                        calendarId,
+                        baseShiftId,
+                        testDates.periodStart(),
+                        testDates.periodEndExclusive())),
                 "$.groupId");
         List<MvcResult> groupRolloverResults = concurrent(
                 () -> rolloverGroup(
@@ -426,11 +464,14 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "code":"CONCURRENT_TEMPLATE_STATUS",
                   "name":"并发班次模板状态地点",
                   "timeZone":"Asia/Shanghai",
-                  "effectiveFrom":"2026-08-01",
-                  "effectiveTo":"2027-01-01",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 并发班次模板状态地点"
                 }
-                """.formatted(COMPANY)), "$.locationId");
+                """.formatted(
+                        COMPANY,
+                        testDates.setupEffectiveFrom(),
+                        testDates.locationEffectiveTo())), "$.locationId");
         String shiftId = createShift(
                 locationId,
                 "CONCURRENT_TEMPLATE_STATUS",
@@ -602,7 +643,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 idempotencyKey,
                 """
                 {
-                  "effectiveFrom":"2026-08-01",
+                  "effectiveFrom":"%s",
                   "segments":[{
                     "segmentType":"WORK",
                     "startLocalTime":"08:00:00",
@@ -612,7 +653,8 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   }],
                   "reason":"WAVE-3 并发班次版本"
                 }
-                """), "$.shiftVersionId");
+                """.formatted(testDates.setupEffectiveFrom())),
+                "$.shiftVersionId");
     }
 
     private MvcResult publish(String shiftId, String versionId) throws Exception {
@@ -646,12 +688,17 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "policyVersionId":"97000000-0000-0000-0000-000000000002",
                   "groupId":"%s",
                   "groupRevisionId":"%s",
-                  "effectiveFrom":"2026-08-16",
-                  "effectiveTo":"2026-08-17",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 并发策略绑定替换",
                   "impactToken":"%s"
                 }
-                """.formatted(groupId, groupRevisionId, impactToken));
+                """.formatted(
+                        groupId,
+                        groupRevisionId,
+                        testDates.concurrentEffectiveFrom(),
+                        testDates.periodEndExclusive(),
+                        impactToken));
     }
 
     private MvcResult createAssignment(
@@ -664,11 +711,14 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 """
                 {
                   "employeeId":"%s",
-                  "effectiveFrom":"2026-08-15",
-                  "effectiveTo":"2026-08-16",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 并发人员分配"
                 }
-                """.formatted(employeeId));
+                """.formatted(
+                        employeeId,
+                        testDates.periodStart(),
+                        testDates.concurrentEffectiveFrom()));
     }
 
     private MvcResult changeShiftTemplateStatus(
@@ -704,8 +754,8 @@ class Wave3AttendanceConcurrencyIntegrationTest
                   "locationId":"%s",
                   "calendarId":"%s",
                   "shiftTemplateId":"%s",
-                  "effectiveFrom":"2026-08-16",
-                  "effectiveTo":"2026-08-17",
+                  "effectiveFrom":"%s",
+                  "effectiveTo":"%s",
                   "reason":"WAVE-3 不同 key 并发考勤组换版"
                 }
                 """.formatted(
@@ -743,7 +793,9 @@ class Wave3AttendanceConcurrencyIntegrationTest
                                 FETCH FIRST 1 ROW ONLY
                                 """,
                                 String.class,
-                                groupId)));
+                                groupId),
+                        testDates.concurrentEffectiveFrom(),
+                        testDates.periodEndExclusive()));
     }
 
     private MvcResult validatePolicy(
@@ -778,10 +830,12 @@ class Wave3AttendanceConcurrencyIntegrationTest
                 """
                 {
                   "basedOnVersionId":"%s",
-                  "effectiveFrom":"2026-08-16",
+                  "effectiveFrom":"%s",
                   "reason":"WAVE-3 并发校验草稿"
                 }
-                """.formatted(basedOnVersionId));
+                """.formatted(
+                        basedOnVersionId,
+                        testDates.concurrentEffectiveFrom()));
     }
 
     private MvcResult deactivatePolicy(
@@ -800,10 +854,10 @@ class Wave3AttendanceConcurrencyIntegrationTest
                         .header("Idempotency-Key", idempotencyKey),
                 """
                 {
-                  "effectiveFrom":"2026-10-01",
+                  "effectiveFrom":"%s",
                   "reason":"WAVE-3 并发停用"
                 }
-                """);
+                """.formatted(testDates.deactivationEffectiveFrom()));
     }
 
     private List<MvcResult> concurrent(
@@ -899,7 +953,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
             String code,
             String versionId,
             String parameters) {
-        Timestamp now = Timestamp.from(Instant.parse("2026-07-20T00:00:00Z"));
+        Timestamp now = Timestamp.from(clock.instant());
         jdbc.update(
                 """
                 INSERT INTO attendance_policy_template (
@@ -931,7 +985,7 @@ class Wave3AttendanceConcurrencyIntegrationTest
                     '{"valid":true,"issues":[]}', '{}', ?, NULL, 1, ?, ?)
                 """,
                 versionId, scopeId(templateId),
-                parameters, Date.valueOf("2026-08-01"),
+                parameters, Date.valueOf(testDates.setupEffectiveFrom()),
                 DIGEST, ADMIN_PRINCIPAL, now);
         jdbc.update(
                 """
@@ -943,8 +997,32 @@ class Wave3AttendanceConcurrencyIntegrationTest
                     'WAVE-3 并发受控策略发布', ?, ?, ?)
                 """,
                 lifecycleId(templateId), scopeId(templateId), versionId,
-                Date.valueOf("2026-08-01"), ADMIN_PRINCIPAL,
+                Date.valueOf(testDates.setupEffectiveFrom()), ADMIN_PRINCIPAL,
                 "fixture-" + code, now);
+    }
+
+    private record ConcurrencyDates(
+            LocalDate setupEffectiveFrom,
+            LocalDate periodStart,
+            LocalDate concurrentEffectiveFrom,
+            LocalDate periodEndExclusive,
+            LocalDate locationEffectiveTo,
+            LocalDate deactivationEffectiveFrom) {
+
+        private static ConcurrencyDates after(LocalDate today) {
+            LocalDate periodStart = today.plusMonths(2).withDayOfMonth(1);
+            return new ConcurrencyDates(
+                    today.minusDays(1),
+                    periodStart,
+                    periodStart.plusDays(1),
+                    periodStart.plusDays(2),
+                    periodStart.plusYears(1),
+                    periodStart.plusMonths(2));
+        }
+
+        private int calendarYear() {
+            return periodStart.getYear();
+        }
     }
 
     private String scopeId(String templateId) {

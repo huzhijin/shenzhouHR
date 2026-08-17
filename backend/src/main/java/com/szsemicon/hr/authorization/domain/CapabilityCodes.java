@@ -86,6 +86,12 @@ public final class CapabilityCodes {
             "ATTENDANCE_REPORT:REFRESH";
     public static final String ATTENDANCE_SELF_READ =
             "ATTENDANCE_SELF:READ";
+    public static final String ATTENDANCE_PUNCH_CORRECTION_READ =
+            "ATTENDANCE_PUNCH_CORRECTION:READ";
+    public static final String ATTENDANCE_PUNCH_CORRECTION_CREATE =
+            "ATTENDANCE_PUNCH_CORRECTION:CREATE";
+    public static final String ATTENDANCE_PUNCH_CORRECTION_APPROVE =
+            "ATTENDANCE_PUNCH_CORRECTION:APPROVE";
     public static final String LEAVE_SELF_READ =
             "LEAVE_SELF:READ";
     public static final String ANNUAL_LEAVE_READ =

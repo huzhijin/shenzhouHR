@@ -9,14 +9,11 @@ import java.util.Optional;
 public interface AnnualLeaveManagementRepository {
 
     /**
-     * Find the current employment period ID for an employee (latest active assignment).
+     * Resolve the employee's single current, effective employment period.
      */
-    Optional<String> findCurrentEmploymentPeriodId(String employeeId);
-
-    /**
-     * Find the company ID for the given employee.
-     */
-    Optional<String> findEmployeeCompanyId(String employeeId);
+    List<CurrentEmploymentRow> findCurrentEmployments(
+            String employeeId,
+            Instant at);
 
     /**
      * Find published annual leave policy version ID for a company.
@@ -26,7 +23,16 @@ public interface AnnualLeaveManagementRepository {
     /**
      * Find an existing annual leave time account for the employee in the given year.
      */
-    Optional<TimeAccountRow> findTimeAccount(String employeeId, int year);
+    Optional<TimeAccountRow> findTimeAccount(
+            String employeeId,
+            String employmentPeriodId,
+            int year);
+
+    /** Lock the account row before inspecting or appending its ledger. */
+    Optional<TimeAccountRow> lockTimeAccount(
+            String employeeId,
+            String employmentPeriodId,
+            int year);
 
     /**
      * Create a new annual leave time account if none exists (idempotent via INSERT IGNORE).
@@ -47,12 +53,21 @@ public interface AnnualLeaveManagementRepository {
     boolean updateBalance(String accountId, BigDecimal newBalance, long expectedRowVersion);
 
     /**
-     * Return the next ledger sequence number for this account.
+     * Return the next ledger sequence number while the caller holds the account lock.
      */
     int nextSequenceNo(String accountId);
 
+    /** Sum the immutable ledger for fail-closed balance reconciliation. */
+    BigDecimal sumLedgerAmount(String accountId);
+
+    /** Sum OA reservations that still reduce the administratively available balance. */
+    BigDecimal sumActiveReservations(String accountId);
+
+    /** Summarize all entries that establish/correct the imported opening amount. */
+    OpeningImportSummary summarizeOpeningImport(String accountId);
+
     /**
-     * Insert a ledger entry (OPENING, MANUAL_ADJUSTMENT, etc.).
+     * Insert a canonical ledger entry (OPENING, ADJUSTMENT, etc.).
      */
     void insertLedgerEntry(LedgerEntryRow entry);
 
@@ -66,11 +81,35 @@ public interface AnnualLeaveManagementRepository {
      */
     long countLedgerEntries(String accountId);
 
+    /** Claim an idempotency key without overwriting an existing claim. */
+    void claimBalanceIdempotency(BalanceIdempotencyRow row);
+
+    /** Lock and return the durable idempotency record. */
+    Optional<BalanceIdempotencyRow> lockBalanceIdempotency(
+            String principalId,
+            String idempotencyKey);
+
+    /** Complete the caller-owned claim with the committed account result. */
+    boolean completeBalanceIdempotency(
+            String principalId,
+            String idempotencyKey,
+            String claimToken,
+            String resultingLedgerEntryId,
+            BigDecimal resultingBalanceHours,
+            long resultingRowVersion,
+            Instant completedAt);
+
     /**
      * Check whether the principal can access this employee's leave data.
      */
     boolean canAccessEmployee(
             String principalId, String capability, String employeeId, Instant at);
+
+    record CurrentEmploymentRow(
+            String employeeId,
+            String employmentPeriodId,
+            String companyId) {
+    }
 
     record TimeAccountRow(
             String accountId,
@@ -81,6 +120,27 @@ public interface AnnualLeaveManagementRepository {
             BigDecimal balanceHours,
             String policyVersionId,
             long rowVersion) {
+    }
+
+    record OpeningImportSummary(
+            long entryCount,
+            BigDecimal totalHours) {
+    }
+
+    record BalanceIdempotencyRow(
+            String recordId,
+            String principalId,
+            String idempotencyKey,
+            String operation,
+            String requestDigest,
+            String claimToken,
+            String accountId,
+            String recordStatus,
+            String resultingLedgerEntryId,
+            BigDecimal resultingBalanceHours,
+            Long resultingRowVersion,
+            Instant createdAt,
+            Instant completedAt) {
     }
 
     record LedgerEntryRow(

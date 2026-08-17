@@ -2,6 +2,7 @@ package com.szsemicon.hr.evidenceingestion.interfaces.rest;
 
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels;
+import com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncDispatchService;
 import com.szsemicon.hr.evidenceingestion.application.DeliPunchSyncApplicationService;
 import com.szsemicon.hr.shared.web.ChangeReasonHeader;
 import com.szsemicon.hr.shared.web.CorrelationIdFilter;
@@ -26,11 +27,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/attendance-source-jobs")
 public class AttendanceSourceSyncController {
 
-    private final DeliPunchSyncApplicationService service;
+    private final AttendanceSourceSyncDispatchService startService;
+    private final DeliPunchSyncApplicationService jobService;
 
     public AttendanceSourceSyncController(
-            DeliPunchSyncApplicationService service) {
-        this.service = service;
+            AttendanceSourceSyncDispatchService startService,
+            DeliPunchSyncApplicationService jobService) {
+        this.startService = startService;
+        this.jobService = jobService;
     }
 
     @PostMapping
@@ -38,7 +42,7 @@ public class AttendanceSourceSyncController {
     ResponseEntity<AttendanceSourceSyncModels.JobStatus> run(
             @Valid @RequestBody StartSyncRequest request,
             HttpServletRequest servletRequest) {
-        var result = service.run(
+        var result = startService.run(
                 request.sourceId(), correlationId(servletRequest));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .cacheControl(CacheControl.noStore())
@@ -51,7 +55,7 @@ public class AttendanceSourceSyncController {
             @PathVariable String jobId) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(service.get(jobId));
+                .body(jobService.get(jobId));
     }
 
     @PostMapping("/{jobId}/retry")
@@ -62,7 +66,7 @@ public class AttendanceSourceSyncController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason,
             HttpServletRequest servletRequest) {
-        var result = service.retry(
+        var result = jobService.retry(
                 jobId,
                 StrongEtag.parseVersion(ifMatch),
                 idempotencyKey,

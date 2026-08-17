@@ -54,6 +54,25 @@ class AttendanceSourceSyncSqlContractTest {
     }
 
     @Test
+    void oaManualAndScheduledPagesUseTheCanonicalAtomicJobProtocol()
+            throws Exception {
+        String sql = Files.readString(MAPPER);
+
+        assertThat(sql)
+                .contains("<select id=\"findAuthorizedActiveSourceType\"")
+                .contains("source.source_type IN ('DELI_CLOUD', 'OA_ATTENDANCE')")
+                .contains("<insert id=\"insertJob\">")
+                .contains("'QUEUED', NULL, NULL, 0, 0")
+                .contains("<select id=\"lockOaPageForCommit\"")
+                .contains("<select id=\"lockSystemOaPageForCommit\"")
+                .contains("source.source_type = 'OA_ATTENDANCE'")
+                .contains("job.status = 'RUNNING'")
+                .contains("AND <include refid=\"companyCapability\"/>")
+                .contains("<insert id=\"insertCommittedPage\">")
+                .contains("<update id=\"advanceWatermark\">");
+    }
+
+    @Test
     void staleJobsRecoverAndRetryIsScopedVersionedAndIdempotent()
             throws Exception {
         String sql = Files.readString(MAPPER);

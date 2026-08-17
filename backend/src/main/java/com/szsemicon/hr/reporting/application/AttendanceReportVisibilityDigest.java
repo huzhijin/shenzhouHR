@@ -276,6 +276,10 @@ final class AttendanceReportVisibilityDigest {
             digest.add(fact.scheduledMinutes());
             digest.add(fact.confirmedScheduledWorkMinutes());
             digest.add(fact.recognizedOvertimeMinutes());
+            digest.add(fact.paidOvertimeMinutes());
+            digest.add(fact.compensatoryOvertimeMinutes());
+            digest.add(fact.voluntaryOvertimeMinutes());
+            digest.add(fact.totalOvertimeMinutes());
             digest.add(fact.leaveOrTimeOffMinutes());
             digest.add(fact.absenceMinutes());
             digest.add(fact.actualWorkMinutes());

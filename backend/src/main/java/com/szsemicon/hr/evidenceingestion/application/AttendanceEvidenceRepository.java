@@ -48,6 +48,18 @@ public interface AttendanceEvidenceRepository {
             String companyId,
             String eventId);
 
+    EvidenceRows.RawFactRow findRawOaBySourceIdentity(
+            String sourceId,
+            String sourceBusinessKey,
+            String sourceVersion);
+
+    String findLatestPublishedOaRuntimeContractRevisionId(String sourceId);
+
+    void insertOaAttendanceDocument(EvidenceRows.OaDocumentRow row);
+
+    void insertOaAttendanceDocumentContext(
+            EvidenceRows.OaDocumentContextRow row);
+
     record AffectedDate(
             String companyId,
             String employeeId,

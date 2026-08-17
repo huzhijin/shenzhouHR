@@ -17,7 +17,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -62,15 +61,12 @@ public class AnnualLeaveManagementController {
     ResponseEntity<LeaveAccountResponse> setOpeningBalance(
             @PathVariable String employeeId,
             @Valid @RequestBody OpeningBalanceRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
-        String requestId = idempotencyKey != null
-                ? idempotencyKey
-                : UUID.randomUUID().toString();
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
         int year = request.year() != null ? request.year()
                 : java.time.Year.now().getValue();
         var command = new OpeningBalanceCommand(
                 employeeId, request.balanceHours(), year,
-                request.openingDate(), request.reason(), requestId);
+                request.openingDate(), request.reason(), idempotencyKey);
         LeaveAccountView view = service.setOpeningBalance(command);
         return ResponseEntity.status(HttpStatus.OK)
                 .cacheControl(CacheControl.noStore())
@@ -82,15 +78,12 @@ public class AnnualLeaveManagementController {
     ResponseEntity<LeaveAccountResponse> adjustBalance(
             @PathVariable String employeeId,
             @Valid @RequestBody AdjustBalanceRequest request,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
-        String requestId = idempotencyKey != null
-                ? idempotencyKey
-                : UUID.randomUUID().toString();
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
         int year = request.year() != null ? request.year()
                 : java.time.Year.now().getValue();
         var command = new AdjustBalanceCommand(
                 employeeId, request.adjustmentHours(), year,
-                request.reason(), requestId);
+                request.reason(), idempotencyKey);
         LeaveAccountView view = service.adjustBalance(command);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())

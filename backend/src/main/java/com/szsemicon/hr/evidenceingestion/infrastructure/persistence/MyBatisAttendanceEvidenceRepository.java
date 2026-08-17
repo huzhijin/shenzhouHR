@@ -104,4 +104,30 @@ public class MyBatisAttendanceEvidenceRepository
             String eventId) {
         return List.copyOf(mapper.evidenceTrace(companyId, eventId));
     }
+
+    @Override
+    public EvidenceRows.RawFactRow findRawOaBySourceIdentity(
+            String sourceId,
+            String sourceBusinessKey,
+            String sourceVersion) {
+        return mapper.findRawOaBySourceIdentity(sourceId, sourceBusinessKey, sourceVersion);
+    }
+
+    @Override
+    public String findLatestPublishedOaRuntimeContractRevisionId(
+            String sourceId) {
+        return mapper.findLatestPublishedOaRuntimeContractRevisionId(
+                sourceId);
+    }
+
+    @Override
+    public void insertOaAttendanceDocument(EvidenceRows.OaDocumentRow row) {
+        mapper.insertOaAttendanceDocument(row);
+    }
+
+    @Override
+    public void insertOaAttendanceDocumentContext(
+            EvidenceRows.OaDocumentContextRow row) {
+        mapper.insertOaAttendanceDocumentContext(row);
+    }
 }

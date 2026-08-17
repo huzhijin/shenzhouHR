@@ -34,12 +34,16 @@ export interface CustomerReportFilters {
   month: string;
   department: string;
   employee: string;
+  /** Stable formal-report identity; demo and legacy callers continue to use labels. */
+  organizationId?: string;
+  /** Stable formal-report identity; demo and legacy callers continue to use labels. */
+  employeeId?: string;
 }
 
 export interface CustomerReportSpecificFilters {
   attendanceStatus: '全部状态' | AttendanceStatusKey;
   leaveType: string;
-  overtimeType: '全部类型' | '工作日加班' | '周末加班' | '法定节假日加班';
+  overtimeType: '全部类型' | '计薪加班' | '转调休加班' | '义务加班';
   overtimeDay: string;
   employmentStatus: '全部状态' | '在职' | '本月入职' | '本月离职';
   exceptionType: '全部异常' | AttendanceExceptionType;
@@ -63,9 +67,15 @@ export interface AttendanceDayCell {
   note?: string;
 }
 
+export interface CustomerReportRowIdentity {
+  rowKey?: string;
+  employeeId?: string;
+  organizationId?: string;
+}
+
 // 可选字段表示正式投影当前不产出该列（见 docs/reporting/task-b-attendance-reporting-prd.md
 // 的缺列清单）。渲染层必须回退为占位符，绝不允许用 0 或空串冒充真实值。
-export interface AttendanceDetailRow {
+export interface AttendanceDetailRow extends CustomerReportRowIdentity {
   employeeNo: string;
   department: string;
   employee: string;
@@ -73,7 +83,7 @@ export interface AttendanceDetailRow {
   days: AttendanceDayCell[];
 }
 
-export interface LeaveReportRow {
+export interface LeaveReportRow extends CustomerReportRowIdentity {
   id: number;
   employee: string;
   department: string;
@@ -84,17 +94,23 @@ export interface LeaveReportRow {
   approvalState: string;
 }
 
-export interface OvertimeReportRow {
+export interface OvertimeReportRow extends CustomerReportRowIdentity {
   employee: string;
   department: string;
-  weekdayHours: number;
-  weekendHours: number;
-  statutoryHours: number;
+  /** Missing means the legacy API did not publish business classification. */
+  paidHours?: number;
+  /** Missing means the legacy API did not publish business classification. */
+  compensatoryHours?: number;
+  /** Missing means the legacy API did not publish business classification. */
+  voluntaryHours?: number;
+  /** May fall back to legacy recognized overtime, but never to a typed bucket. */
+  totalHours?: number;
+  classificationAvailable: boolean;
   exchangedHours?: number;
   dailyHours?: number[];
 }
 
-export interface WorkHoursReportRow {
+export interface WorkHoursReportRow extends CustomerReportRowIdentity {
   employee: string;
   department: string;
   plannedHours: number;
@@ -106,7 +122,7 @@ export interface WorkHoursReportRow {
   note?: string;
 }
 
-export interface ExceptionReportRow {
+export interface ExceptionReportRow extends CustomerReportRowIdentity {
   id: number;
   employee: string;
   department: string;
@@ -158,7 +174,7 @@ export type AttendanceExceptionState =
   | '处理中'
   | '已处理';
 
-export interface AttendanceExceptionReportRow {
+export interface AttendanceExceptionReportRow extends CustomerReportRowIdentity {
   id: number;
   businessDate: string;
   employeeNo: string;
@@ -176,17 +192,20 @@ export interface AttendanceExceptionReportRow {
   dueAt?: string;
 }
 
-export interface AttendanceRateReportRow {
+export interface AttendanceRateReportRow extends CustomerReportRowIdentity {
   id: number;
   employee: string;
   department: string;
   type?: string;
-  hours: number;
+  hours?: number;
+  scheduledDays?: number;
+  actualDays?: number;
+  sickLeaveDays?: number;
   rate: string;
   note?: string;
 }
 
-export interface AnnualLeaveReportRow {
+export interface AnnualLeaveReportRow extends CustomerReportRowIdentity {
   id: number;
   departmentLevelOne?: string;
   departmentLevelTwo?: string;
@@ -305,8 +324,20 @@ export const defaultCustomerReportSpecificFilters: CustomerReportSpecificFilters
 };
 
 export const reportSpecificFilterOptions = {
-  leaveTypes: ['全部类型', '事假', '丧假', '病假', '婚假', '陪产假', '年假', '调休'],
-  overtimeTypes: ['全部类型', '工作日加班', '周末加班', '法定节假日加班'],
+  leaveTypes: [
+    '全部类型',
+    '年假',
+    '病假',
+    '婚假',
+    '产假',
+    '陪产假',
+    '丧假',
+    '工伤假',
+    '孕检/哺乳假',
+    '事假',
+    '调休',
+  ],
+  overtimeTypes: ['全部类型', '计薪加班', '转调休加班', '义务加班'],
   employmentStatuses: ['全部状态', '在职', '本月入职', '本月离职'],
   exceptionTypes: [
     '全部异常',
@@ -461,15 +492,20 @@ function buildOvertimeRows(month: string): OvertimeReportRow[] {
       if ((day + index * 2) % 23 === 0) return 3.5;
       return 0;
     });
-    const weekdayHours = roundHours(
+    const totalHours = roundHours(
       dailyHours.reduce<number>((total, hours) => total + hours, 0),
     );
+    const compensatoryHours = index % 3 === 0 ? roundHours(totalHours * 0.25) : 0;
+    const voluntaryHours = index % 5 === 0 ? roundHours(totalHours * 0.1) : 0;
+    const paidHours = roundHours(totalHours - compensatoryHours - voluntaryHours);
     return {
       employee: person.employee,
       department: person.department,
-      weekdayHours,
-      weekendHours: index % 3 === 0 ? 7.5 : index % 4 === 0 ? 4 : 0,
-      statutoryHours: 0,
+      paidHours,
+      compensatoryHours,
+      voluntaryHours,
+      totalHours,
+      classificationAvailable: true,
       exchangedHours: index === 4 ? 10.5 : 0,
       dailyHours,
     };
@@ -485,9 +521,7 @@ function buildWorkHoursRows(
     const leaveHours = [0, 8, 16, 0, 8, 16, 0, 4][index]!;
     const annualLeaveHours = [0, 0, 4.5, 0, 8, 0, 0, 0][index]!;
     const exchangedHours = index === 4 ? 44.5 : index === 6 ? 10.5 : 0;
-    const overtimeHours = roundHours(
-      monthlyOvertimeRows[index]!.weekdayHours + monthlyOvertimeRows[index]!.weekendHours,
-    );
+    const overtimeHours = monthlyOvertimeRows[index]!.totalHours ?? 0;
     const plannedHours = index === 0 ? 120 : index === 4 ? 80 : index === 7 ? 88 : 168;
     const noteTemplate = [
       '22日离职',
@@ -699,14 +733,14 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
 ];
 
 const attendanceRateRows: AttendanceRateReportRow[] = [
-  { id: 1, employee: '陈思远', department: '制造中心', type: '事假', hours: 11, rate: '91.6%', note: '含月中离职折算' },
-  { id: 2, employee: '周晴', department: '制造中心', type: '事假', hours: 11.5, rate: '93.2%', note: '全月应出勤 168 小时' },
-  { id: 3, employee: '张伟', department: '研发中心', type: '事假', hours: 16, rate: '90.5%', note: '全月应出勤 168 小时' },
-  { id: 4, employee: '林晓雯', department: '研发中心', type: '事假', hours: 16.5, rate: '89.8%', note: '含入职日折算' },
-  { id: 5, employee: '赵凯', department: '制造中心', type: '病假', hours: 16, rate: '80.0%', note: '月中离职' },
-  { id: 6, employee: '蒋宁', department: '职能中心', type: '年假', hours: 8, rate: '95.2%', note: '全月应出勤 168 小时' },
-  { id: 7, employee: '吴昊', department: '研发中心', type: '调休', hours: 7.5, rate: '95.5%', note: '全月应出勤 168 小时' },
-  { id: 8, employee: '沈佳', department: '职能中心', type: '事假', hours: 4, rate: '95.5%', note: '含入职日折算' },
+  { id: 1, employee: '陈思远', department: '制造中心', type: '事假', hours: 8, scheduledDays: 16, actualDays: 15, sickLeaveDays: 0, rate: '93.75%', note: '按实际出勤天数 ÷ 应出勤天数' },
+  { id: 2, employee: '周晴', department: '制造中心', scheduledDays: 22, actualDays: 22, sickLeaveDays: 0, rate: '100.00%', note: '按实际出勤天数 ÷ 应出勤天数' },
+  { id: 3, employee: '张伟', department: '研发中心', type: '事假', hours: 16, scheduledDays: 22, actualDays: 20, sickLeaveDays: 0, rate: '90.91%', note: '按实际出勤天数 ÷ 应出勤天数' },
+  { id: 4, employee: '林晓雯', department: '研发中心', type: '病假', hours: 8, scheduledDays: 18, actualDays: 18, sickLeaveDays: 1, rate: '100.00%', note: '病假计入实际出勤' },
+  { id: 5, employee: '赵凯', department: '制造中心', type: '病假', hours: 16, scheduledDays: 12, actualDays: 12, sickLeaveDays: 2, rate: '100.00%', note: '病假计入实际出勤' },
+  { id: 6, employee: '蒋宁', department: '职能中心', type: '年假', hours: 8, scheduledDays: 22, actualDays: 22, sickLeaveDays: 0, rate: '100.00%', note: '带薪假计入实际出勤' },
+  { id: 7, employee: '吴昊', department: '研发中心', scheduledDays: 22, actualDays: 21, sickLeaveDays: 0, rate: '95.45%', note: '按实际出勤天数 ÷ 应出勤天数' },
+  { id: 8, employee: '沈佳', department: '职能中心', scheduledDays: 11, actualDays: 11, sickLeaveDays: 0, rate: '100.00%', note: '按实际出勤天数 ÷ 应出勤天数' },
 ];
 
 const annualLeaveRows: AnnualLeaveReportRow[] = staff.map((person, index) => {
@@ -995,9 +1029,9 @@ function matchesOvertimeType(
   row: OvertimeReportRow,
   type: CustomerReportSpecificFilters['overtimeType'],
 ): boolean {
-  if (type === '工作日加班') return row.weekdayHours > 0;
-  if (type === '周末加班') return row.weekendHours > 0;
-  if (type === '法定节假日加班') return row.statutoryHours > 0;
+  if (type === '计薪加班') return (row.paidHours ?? 0) > 0;
+  if (type === '转调休加班') return (row.compensatoryHours ?? 0) > 0;
+  if (type === '义务加班') return (row.voluntaryHours ?? 0) > 0;
   return true;
 }
 

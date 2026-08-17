@@ -10,6 +10,12 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 interface AttendanceSourceSyncMapper {
 
+    String findAuthorizedActiveSourceType(
+            @Param("sourceId") String sourceId,
+            @Param("principalId") String principalId,
+            @Param("capability") String capability,
+            @Param("authorizationTime") Instant authorizationTime);
+
     String lockAuthorizedCompany(
             @Param("companyId") String companyId,
             @Param("principalId") String principalId,
@@ -166,6 +172,32 @@ interface AttendanceSourceSyncMapper {
             @Param("capability") String capability,
             @Param("at") Instant at);
 
+    /** List IDs of every ACTIVE OA_ATTENDANCE source for scheduler use. */
+    java.util.List<String> findAllActiveOaSourceIds();
+
+    /** Lock one active OA_ATTENDANCE source without principal auth check. */
+    AuthorizedOaSourceRow lockSystemOaSource(
+            @Param("sourceId") String sourceId,
+            @Param("at") Instant at);
+
+    /** Lock one active OA_ATTENDANCE source with principal auth check. */
+    AuthorizedOaSourceRow lockAuthorizedOaSource(
+            @Param("sourceId") String sourceId,
+            @Param("principalId") String principalId,
+            @Param("capability") String capability,
+            @Param("at") Instant at);
+
+    AttendanceSourceSyncModels.PageState lockOaPageForCommit(
+            @Param("jobId") String jobId,
+            @Param("sourceId") String sourceId,
+            @Param("principalId") String principalId,
+            @Param("capability") String capability,
+            @Param("authorizationTime") Instant authorizationTime);
+
+    AttendanceSourceSyncModels.PageState lockSystemOaPageForCommit(
+            @Param("jobId") String jobId,
+            @Param("sourceId") String sourceId);
+
     record AuthorizedDeliSourceRow(
             String sourceId,
             String companyId,
@@ -204,5 +236,13 @@ interface AttendanceSourceSyncMapper {
             String requestDigest,
             String status,
             String replayJobId) {
+    }
+
+    record AuthorizedOaSourceRow(
+            String sourceId,
+            String companyId,
+            String displayName,
+            String sourceTimeZone,
+            String committedWatermark) {
     }
 }

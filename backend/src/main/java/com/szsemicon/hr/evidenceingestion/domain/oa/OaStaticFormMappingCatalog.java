@@ -12,11 +12,12 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Compile-time allowlist for the six OA attendance form families.
+ * Compile-time allowlist for the seven OA attendance form families.
  *
  * <p>This catalog contains identifiers transcribed from the supplied OA
  * screenshots. It is not a live database contract and deliberately contains no
- * SQL, approval-state column, main/detail foreign key or enum value mapping.</p>
+ * SQL, approval-state column, main/detail foreign key or enum value mapping.
+ * Cross-document linkage is intentionally resolved outside this catalog.</p>
  */
 public final class OaStaticFormMappingCatalog {
 
@@ -33,6 +34,7 @@ public final class OaStaticFormMappingCatalog {
                 new EnumMap<>(FormKind.class);
         register(mappings, trip());
         register(mappings, leave());
+        register(mappings, leaveRevocation());
         register(mappings, overtime());
         register(mappings, outing());
         register(mappings, exemptPunch());
@@ -55,6 +57,7 @@ public final class OaStaticFormMappingCatalog {
     public enum FormKind {
         TRIP,
         LEAVE,
+        LEAVE_REVOCATION,
         OVERTIME,
         OUTING,
         EXEMPT_PUNCH,
@@ -78,8 +81,10 @@ public final class OaStaticFormMappingCatalog {
         TEMPORAL_START,
         TEMPORAL_END,
         TEMPORAL_POINT,
+        LEAVE_TYPE_ENUM,
         ENUM_NOT_VERIFIED,
         DURATION_CHECK_ONLY,
+        SYSTEM_CALCULATED_HOURS,
         CONTEXT_ONLY
     }
 
@@ -228,8 +233,8 @@ public final class OaStaticFormMappingCatalog {
 
         public List<LocatedColumn> enumColumns() {
             return columns().stream()
-                    .filter(column -> column.column().purpose()
-                            == FieldPurpose.ENUM_NOT_VERIFIED)
+                    .filter(column -> column.column().valueKind()
+                            == SourceValueKind.ENUM)
                     .toList();
         }
 
@@ -358,12 +363,19 @@ public final class OaStaticFormMappingCatalog {
                 table(
                         "formmain_0170",
                         RowRole.MAIN,
+                        context(
+                                "field0097",
+                                "流水号（关联销假单）",
+                                SourceValueKind.TEXT),
                         member("field0083", "主体选人"),
                         employeeCode("field0084", "表单工号"),
                         dateTimeStart("field0086", "开始"),
                         dateTimeEnd("field0087", "结束"),
                         duration("field0088", "天数"),
-                        unknownEnum("field0089", "类别"),
+                        systemCalculatedHours(
+                                "field0103",
+                                "系统计算小时"),
+                        leaveTypeEnum("field0089", "类别"),
                         context("field0090", "备注", SourceValueKind.TEXT),
                         context("field0091", "说明", SourceValueKind.TEXT),
                         context("field0092", "岗位", SourceValueKind.TEXT),
@@ -374,6 +386,45 @@ public final class OaStaticFormMappingCatalog {
                         context("field0074", "填表人", SourceValueKind.TEXT),
                         context("field0075", "填表部门", SourceValueKind.TEXT),
                         context("field0076", "填表日期", SourceValueKind.DATE)));
+    }
+
+    private static FormMapping leaveRevocation() {
+        return singleTable(
+                FormKind.LEAVE_REVOCATION,
+                TemporalShape.INTERVAL,
+                table(
+                        "formmain_0370",
+                        RowRole.MAIN,
+                        context("field0097", "流水号", SourceValueKind.TEXT),
+                        context("field0074", "填写人", SourceValueKind.TEXT),
+                        context("field0075", "部门", SourceValueKind.TEXT),
+                        context("field0076", "填写日期", SourceValueKind.DATE),
+                        leaveTypeEnum("field0100", "销假类型"),
+                        context("field0098", "原请假单", SourceValueKind.TEXT),
+                        context(
+                                "field0099",
+                                "原请假单流水号",
+                                SourceValueKind.TEXT),
+                        member("field0083", "请假人"),
+                        context("field0092", "请假人岗位", SourceValueKind.TEXT),
+                        context(
+                                "field0093",
+                                "请假人职务级别",
+                                SourceValueKind.TEXT),
+                        context("field0085", "请假人部门", SourceValueKind.TEXT),
+                        employeeCode("field0084", "请假人工号"),
+                        leaveTypeEnum("field0089", "请假类别"),
+                        dateTimeStart("field0086", "实际请假开始时间"),
+                        dateTimeEnd("field0087", "实际请假结束时间"),
+                        duration("field0088", "共计天数"),
+                        systemCalculatedHours(
+                                "field0107",
+                                "系统计算返还小时"),
+                        context("field0090", "备注", SourceValueKind.TEXT),
+                        context("field0091", "销假说明", SourceValueKind.TEXT),
+                        context("field0094", "代理人", SourceValueKind.TEXT),
+                        context("field0095", "所属部门", SourceValueKind.TEXT),
+                        employeeCode("field0096", "工号（二次核验）")));
     }
 
     private static FormMapping overtime() {
@@ -584,6 +635,15 @@ public final class OaStaticFormMappingCatalog {
                 VerificationStatus.NOT_VERIFIED);
     }
 
+    private static Column leaveTypeEnum(String name, String label) {
+        return new Column(
+                name,
+                label,
+                FieldPurpose.LEAVE_TYPE_ENUM,
+                SourceValueKind.ENUM,
+                VerificationStatus.NOT_VERIFIED);
+    }
+
     private static Column duration(String name, String label) {
         return new Column(
                 name,
@@ -591,6 +651,15 @@ public final class OaStaticFormMappingCatalog {
                 FieldPurpose.DURATION_CHECK_ONLY,
                 SourceValueKind.DECIMAL,
                 VerificationStatus.SCREENSHOT_DECLARED);
+    }
+
+    private static Column systemCalculatedHours(String name, String label) {
+        return new Column(
+                name,
+                label,
+                FieldPurpose.SYSTEM_CALCULATED_HOURS,
+                SourceValueKind.DECIMAL,
+                VerificationStatus.NOT_VERIFIED);
     }
 
     private static Column context(

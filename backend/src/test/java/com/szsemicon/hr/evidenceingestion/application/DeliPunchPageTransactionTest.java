@@ -3,6 +3,7 @@ package com.szsemicon.hr.evidenceingestion.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -138,8 +139,39 @@ class DeliPunchPageTransactionTest {
         assertThat(raw.getValue().rawObjectRef()).isNull();
         assertThat(raw.getValue().canonicalPayloadDigest())
                 .matches("[0-9a-f]{64}");
-        verify(evidenceRepository).insertEffectiveEvent(any());
-        verify(evidenceRepository).insertLifecycleFact(any());
+        ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
+                ArgumentCaptor.forClass(EvidenceRows.NormalizedRecordRow.class);
+        ArgumentCaptor<EvidenceRows.MatchDecisionRow> match =
+                ArgumentCaptor.forClass(EvidenceRows.MatchDecisionRow.class);
+        ArgumentCaptor<EvidenceRows.EffectiveEventRow> event =
+                ArgumentCaptor.forClass(EvidenceRows.EffectiveEventRow.class);
+        ArgumentCaptor<EvidenceRows.LifecycleFactRow> lifecycle =
+                ArgumentCaptor.forClass(EvidenceRows.LifecycleFactRow.class);
+        ArgumentCaptor<EvidenceRows.EvidenceLinkRow> link =
+                ArgumentCaptor.forClass(EvidenceRows.EvidenceLinkRow.class);
+        verify(evidenceRepository).insertNormalizedRecord(normalized.capture());
+        verify(evidenceRepository).insertMatchDecision(match.capture());
+        verify(evidenceRepository).insertEffectiveEvent(event.capture());
+        verify(evidenceRepository).insertLifecycleFact(lifecycle.capture());
+        verify(evidenceRepository).insertEvidenceLink(link.capture());
+        assertThat(normalized.getValue().rawAttendanceFactId())
+                .isEqualTo(raw.getValue().rawAttendanceFactId());
+        assertThat(match.getValue().normalizedAttendanceRecordId())
+                .isEqualTo(normalized.getValue().normalizedAttendanceRecordId());
+        assertThat(match.getValue().matchStatus()).isEqualTo("MATCHED");
+        assertThat(link.getValue().effectiveAttendanceEventId())
+                .isEqualTo(event.getValue().effectiveAttendanceEventId());
+        assertThat(link.getValue().rawAttendanceFactId())
+                .isEqualTo(raw.getValue().rawAttendanceFactId());
+        assertThat(link.getValue().normalizedAttendanceRecordId())
+                .isEqualTo(normalized.getValue().normalizedAttendanceRecordId());
+        assertThat(link.getValue().employeeMatchDecisionId())
+                .isEqualTo(match.getValue().employeeMatchDecisionId());
+        assertThat(link.getValue().linkType()).isEqualTo("PRIMARY");
+        assertThat(lifecycle.getValue().effectiveAttendanceEventId())
+                .isEqualTo(event.getValue().effectiveAttendanceEventId());
+        assertThat(lifecycle.getValue().lifecycleType())
+                .isEqualTo("ACTIVATED");
 
         ArgumentCaptor<EvidenceRows.RecalculationIntentRow> intents =
                 ArgumentCaptor.forClass(
@@ -251,6 +283,55 @@ class DeliPunchPageTransactionTest {
         verify(evidenceRepository, never()).insertEffectiveEvent(any());
         verify(syncRepository, never()).advanceWatermark(
                 any(), any(Long.class), any(), any(), any());
+    }
+
+    @Test
+    void unavailablePeriodProtectionFailsClosedBeforeWatermarkAdvance() {
+        when(employeeResolver.resolveByConfirmedBinding(
+                        "source-1",
+                        "legal-1",
+                        null,
+                        "terminal-1",
+                        ConfirmedBindingKind.DELI_EXT_ID,
+                        "deli-ext-1",
+                        EARLY_MORNING_PUNCH))
+                .thenReturn(List.of(
+                        new EmployeeEmploymentResolverPort.Resolution(
+                                "employee-1",
+                                "employment-1",
+                                MATCH_DIGEST)));
+        when(configurationResolver.resolve(
+                        "legal-1", "employee-1", EARLY_MORNING_PUNCH))
+                .thenReturn(new AttendanceConfigurationResolverPort.Resolution(
+                        "location-1",
+                        "group-revision-1",
+                        "shift-version-1",
+                        ZoneId.of("Asia/Shanghai"),
+                        Set.of(LocalDate.parse("2026-07-29")),
+                        CONFIG_DIGEST,
+                        true));
+        when(periodProtection.protectionFor(
+                        eq("legal-1"), eq("employee-1"), any()))
+                .thenReturn(null);
+
+        assertThatThrownBy(() -> transaction.commitPage(
+                        job(),
+                        ACTOR,
+                        REQUEST,
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        1,
+                        page(record(null, "deli-ext-1")),
+                        configurationResolver,
+                        periodProtection))
+                .isInstanceOf(AttendanceSourceSyncFailure.class)
+                .hasMessage("ATTENDANCE_PERIOD_PROTECTION_UNAVAILABLE");
+
+        verify(evidenceRepository, never()).insertRawFact(any());
+        verify(syncRepository, never()).insertCommittedPage(any());
+        verify(syncRepository, never()).advanceWatermark(
+                any(), any(Long.class), any(), any(), any());
+        verify(syncRepository, never())
+                .incrementJobCounters(any(), anyInt(), anyInt());
     }
 
     private static SourceJobStart job() {

@@ -84,6 +84,11 @@ class BaotaProvisioningEnvironmentTest(unittest.TestCase):
         self.assertEqual(1, provision.count("OA_MYSQL_JDBC_URL="))
         self.assertEqual(1, provision.count("OA_MYSQL_USERNAME="))
         self.assertEqual(1, provision.count("OA_MYSQL_PASSWORD="))
+        self.assertEqual(
+            2, provision.count("SHENZHOUHR_OA_AUTO_SYNC_ENABLED=false")
+        )
+        self.assertEqual(1, provision.count("OA_MYSQL_SOURCE_TIME_ZONE=Asia/Shanghai"))
+        self.assertEqual(1, provision.count("SHENZHOUHR_OA_AUTO_SYNC_ZONE=Asia/Shanghai"))
         self.assertNotRegex(provision, r"(?m)^OA_MYSQL_JDBC_URL=.+$")
         self.assertNotRegex(provision, r"(?m)^OA_MYSQL_USERNAME=.+$")
         self.assertNotRegex(provision, r"(?m)^OA_MYSQL_PASSWORD=.+$")
@@ -187,6 +192,203 @@ class BaotaProvisioningEnvironmentTest(unittest.TestCase):
             script,
         )
         self.assertIn("spring-boot-flyway-", script)
+
+    def test_v48_migration_and_runtime_grants_are_least_privilege(self) -> None:
+        provision = PROVISION.read_text(encoding="utf-8")
+        migrate = MIGRATE.read_text(encoding="utf-8")
+        verify = VERIFY.read_text(encoding="utf-8")
+        install = INSTALL.read_text(encoding="utf-8")
+        upgrade = UPGRADE.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "REFERENCES, CREATE VIEW, CREATE ROUTINE ON \\`$DB_NAME\\`.* "
+            "TO '$MIGRATOR_USER'@'$ACCOUNT_HOST'",
+            provision,
+        )
+        self.assertNotIn("ALTER ROUTINE ON \\`$DB_NAME\\`.*", provision)
+        self.assertNotIn("EXECUTE ON \\`$DB_NAME\\`.*", provision)
+        self.assertIn("@@GLOBAL.automatic_sp_privileges", migrate)
+        self.assertIn(
+            "GRANT CREATE VIEW, CREATE ROUTINE ON \\`$DB_NAME\\`.* "
+            "TO '$MIGRATOR_USER'@'$ACCOUNT_HOST';",
+            migrate,
+        )
+        self.assertIn(
+            "GRANT EXECUTE ON PROCEDURE \\`$DB_NAME\\`.\\`$YEAR_END_PROCEDURE\\` "
+            "TO '$APP_USER'@'$ACCOUNT_HOST';",
+            migrate,
+        )
+        self.assertNotRegex(
+            migrate,
+            r"GRANT\s+EXECUTE\s+ON\s+(?!PROCEDURE\s+\\`\$DB_NAME\\`\.\\`\$YEAR_END_PROCEDURE\\`)",
+        )
+        self.assertIn("EXPECTED_PRE_MIGRATION_GRANTS=", migrate)
+        self.assertIn("APP_ROUTINE_GRANTS", migrate)
+        self.assertIn("EXPECTED_APP_ROUTINE_GRANT=", verify)
+        self.assertIn("EXPECTED_MIGRATOR_GRANT_STATUS=", verify)
+        for entrypoint in (install, upgrade):
+            self.assertIn('--app-env-file "$ENV_ROOT/shenzhouhr.env"', entrypoint)
+            self.assertIn('--mysql-bin "$MYSQL_BIN"', entrypoint)
+
+    def test_migrate_applies_two_phase_grants_without_secret_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            jar_path = root / "app.jar"
+            app_env = root / "app.env"
+            migrator_env = root / "migrator.env"
+            fake_java = root / "java"
+            fake_jar = root / "jar"
+            fake_mysql = root / "mysql"
+            mysql_log = root / "mysql.sql"
+            root_secret = "synthetic-root-migration-secret"
+            app_secret = "synthetic-app-secret"
+            migrator_secret = "synthetic-migrator-secret"
+            oa_secret = "synthetic-oa-secret"
+            db_url = (
+                "jdbc:mysql://127.0.0.1:3306/shenzhou_hr?"
+                "sslMode=DISABLED"
+            )
+
+            jar_path.write_bytes(b"synthetic jar")
+            app_env.write_text(
+                "SHENZHOUHR_DB_URL='" + db_url + "'\n"
+                "SHENZHOUHR_DB_USERNAME=shenzhouhr_app\n"
+                f"SHENZHOUHR_DB_PASSWORD={app_secret}\n"
+                "SHENZHOUHR_FLYWAY_ENABLED=false\n"
+                "OA_MYSQL_ENABLED=true\n"
+                f"OA_MYSQL_PASSWORD={oa_secret}\n",
+                encoding="utf-8",
+            )
+            migrator_env.write_text(
+                "SHENZHOUHR_DB_URL='" + db_url + "'\n"
+                "SHENZHOUHR_DB_USERNAME=shenzhouhr_migrator\n"
+                f"SHENZHOUHR_DB_PASSWORD={migrator_secret}\n"
+                "SHENZHOUHR_FLYWAY_ENABLED=true\n"
+                "SHENZHOUHR_FLYWAY_URL='" + db_url + "'\n",
+                encoding="utf-8",
+            )
+            fake_java.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"${1:-}\" == '-version' ]]; then\n"
+                "  printf 'openjdk version \"21.0.1\"\\n' >&2\n"
+                "else\n"
+                "  [[ -z \"${OA_MYSQL_PASSWORD:-}\" ]] || exit 92\n"
+                "  printf 'Started ShenzhouHrApplication\\n'\n"
+                "  sleep 2\n"
+                "fi\n",
+                encoding="utf-8",
+            )
+            fake_jar.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'BOOT-INF/lib/spring-boot-flyway-3.5.0.jar\\n'\n",
+                encoding="utf-8",
+            )
+            fake_mysql.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"$*\" == *'SUBSTRING_INDEX(VERSION()'* ]]; then\n"
+                "  printf '8.0.45\\n'\n"
+                "elif [[ \"$*\" == *'automatic_sp_privileges'* ]]; then\n"
+                "  printf '1\\t1\\t1\\t1\\n'\n"
+                "elif [[ \"$*\" == *'GROUP_CONCAT(PRIVILEGE_TYPE'* ]]; then\n"
+                "  printf 'DELETE,INSERT,SELECT,UPDATE\\tALTER,CREATE,CREATE ROUTINE,CREATE VIEW,DELETE,DROP,INDEX,INSERT,REFERENCES,SELECT,UPDATE\\t0\\t0\\t0\\t0\\n'\n"
+                "elif [[ \"$*\" == *'information_schema.ROUTINES'* ]]; then\n"
+                "  printf '1\\n'\n"
+                "elif [[ \"$*\" == *'mysql.procs_priv'* ]]; then\n"
+                "  printf '1\\t1\\n'\n"
+                "else\n"
+                "  while IFS= read -r line; do\n"
+                "    printf '%s\\n' \"$line\" >> \"$FAKE_MYSQL_LOG\"\n"
+                "  done\n"
+                "fi\n",
+                encoding="utf-8",
+            )
+            for executable in (fake_java, fake_jar, fake_mysql):
+                os.chmod(executable, 0o700)
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-x",
+                    str(MIGRATE),
+                    "--jar",
+                    str(jar_path),
+                    "--app-env-file",
+                    str(app_env),
+                    "--migrator-env-file",
+                    str(migrator_env),
+                    "--mysql-bin",
+                    str(fake_mysql),
+                    "--timeout-sec",
+                    "5",
+                ],
+                cwd=REPOSITORY,
+                env={
+                    **os.environ,
+                    "JAVA_BIN": str(fake_java),
+                    "JAR_BIN": str(fake_jar),
+                    "FAKE_MYSQL_LOG": str(mysql_log),
+                },
+                input=f"root\n{root_secret}\n",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            sql = mysql_log.read_text(encoding="utf-8")
+            self.assertIn(
+                "GRANT CREATE VIEW, CREATE ROUTINE ON `shenzhou_hr`.* "
+                "TO 'shenzhouhr_migrator'@'127.0.0.1';",
+                sql,
+            )
+            self.assertIn(
+                "GRANT EXECUTE ON PROCEDURE `shenzhou_hr`."
+                "`szsc_oa_time_off_expire` TO "
+                "'shenzhouhr_app'@'127.0.0.1';",
+                sql,
+            )
+            self.assertNotIn("GRANT EXECUTE ON `shenzhou_hr`.*", sql)
+            for secret in (root_secret, app_secret, migrator_secret, oa_secret):
+                self.assertNotIn(secret, result.stdout + result.stderr)
+
+    def test_upgrade_env_convergence_preserves_oa_values_without_leaking(self) -> None:
+        upgrade = UPGRADE.read_text(encoding="utf-8")
+        synthetic_oa_secret = "synthetic-oa-secret-must-not-appear"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app_env = root / "app.env"
+            migrator_env = root / "migrator.env"
+            app_before = (
+                "BASE_VALUE=present\n"
+                "OA_MYSQL_ENABLED=true\n"
+                "OA_MYSQL_JDBC_URL='jdbc:mysql://oa.internal:3306/oa?sslMode=VERIFY_IDENTITY'\n"
+                "OA_MYSQL_USERNAME=readonly_oa\n"
+                f"OA_MYSQL_PASSWORD={synthetic_oa_secret}\n"
+                "OA_MYSQL_MAX_POOL_SIZE=2\n"
+                "OA_MYSQL_CONNECTION_TIMEOUT=PT5S\n"
+                "OA_MYSQL_QUERY_TIMEOUT=PT3S\n"
+            )
+            app_env.write_text(app_before, encoding="utf-8")
+            migrator_env.write_text("MIGRATOR_VALUE=present\n", encoding="utf-8")
+            os.chmod(app_env, 0o640)
+            os.chmod(migrator_env, 0o600)
+
+            result = self._run_helper(
+                "provisioning_sync_env_pair", app_env, migrator_env
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertTrue(app_env.read_text(encoding="utf-8").startswith(app_before))
+            self.assertNotIn(
+                synthetic_oa_secret,
+                result.stdout + result.stderr,
+            )
+            self.assertNotIn(
+                synthetic_oa_secret,
+                migrator_env.read_text(encoding="utf-8"),
+            )
+        self.assertIn("provisioning_sync_env_pair", upgrade)
+        self.assertNotIn("OA_MYSQL_PASSWORD", upgrade)
 
     def test_baota_jdbc_url_supports_local_mysql_caching_sha2_auth(self) -> None:
         script = PROVISION.read_text(encoding="utf-8")

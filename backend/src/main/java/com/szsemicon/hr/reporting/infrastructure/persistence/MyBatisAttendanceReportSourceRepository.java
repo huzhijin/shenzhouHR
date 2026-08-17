@@ -3,6 +3,8 @@ package com.szsemicon.hr.reporting.infrastructure.persistence;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.CompanyOption;
+import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.DepartmentAttendanceRate;
+import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.EmployeeDepartmentAttendancePeriod;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
@@ -185,6 +187,149 @@ public class MyBatisAttendanceReportSourceRepository
                         .stream()
                         .map(ReportRows.TimeAccountRow::toDomain)
                         .toList()));
+    }
+
+    @Override
+    public List<DepartmentAttendanceRate>
+            listAuthorizedDepartmentAttendanceRates(
+                    String principalId,
+                    String capabilityCode,
+                    ReportFilter filter,
+                    Instant authorizationTime) {
+        Objects.requireNonNull(filter, "filter");
+        Objects.requireNonNull(authorizationTime, "authorizationTime");
+        if (principalId == null
+                || principalId.isBlank()
+                || !CapabilityCodes.ATTENDANCE_REPORT_READ.equals(
+                        capabilityCode)) {
+            return List.of();
+        }
+        var periodStart = filter.period().atDay(1);
+        var periodEndExclusive = filter.period().plusMonths(1).atDay(1);
+        List<ReportRows.ProjectionRow> projections =
+                mapper.listLatestAuthorizedProjections(
+                        principalId,
+                        capabilityCode,
+                        periodStart,
+                        periodEndExclusive,
+                        filter.companyId(),
+                        authorizationTime);
+        if (projections == null || projections.size() != 1) {
+            return List.of();
+        }
+        ReportRows.ProjectionRow projection = projections.getFirst();
+        if (filter.companyId() != null
+                && !filter.companyId().equals(projection.companyId())) {
+            return List.of();
+        }
+        return nullSafe(mapper.listAuthorizedDepartmentAttendanceRates(
+                        principalId,
+                        capabilityCode,
+                        projection.projectionId(),
+                        periodStart,
+                        periodEndExclusive,
+                        projection.companyId(),
+                        filter.organizationId(),
+                        authorizationTime))
+                .stream()
+                .map(ReportRows.DepartmentAttendanceRateRow::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<EmployeeSickLeaveDays> listAuthorizedEmployeeSickLeaveDays(
+            String principalId,
+            String capabilityCode,
+            ReportFilter filter,
+            Instant authorizationTime) {
+        Objects.requireNonNull(filter, "filter");
+        Objects.requireNonNull(authorizationTime, "authorizationTime");
+        if (principalId == null
+                || principalId.isBlank()
+                || !CapabilityCodes.ATTENDANCE_REPORT_READ.equals(
+                        capabilityCode)) {
+            return List.of();
+        }
+        var periodStart = filter.period().atDay(1);
+        var periodEndExclusive = filter.period().plusMonths(1).atDay(1);
+        List<ReportRows.ProjectionRow> projections =
+                mapper.listLatestAuthorizedProjections(
+                        principalId,
+                        capabilityCode,
+                        periodStart,
+                        periodEndExclusive,
+                        filter.companyId(),
+                        authorizationTime);
+        if (projections == null || projections.size() != 1) {
+            return List.of();
+        }
+        ReportRows.ProjectionRow projection = projections.getFirst();
+        if (filter.companyId() != null
+                && !filter.companyId().equals(projection.companyId())) {
+            return List.of();
+        }
+        return nullSafe(mapper.listAuthorizedEmployeeSickLeaveDays(
+                        principalId,
+                        capabilityCode,
+                        projection.projectionId(),
+                        periodStart,
+                        periodEndExclusive,
+                        projection.companyId(),
+                        filter.organizationId(),
+                        filter.employeeId(),
+                        authorizationTime))
+                .stream()
+                .map(ReportRows.EmployeeSickLeaveDaysRow::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<EmployeeDepartmentAttendancePeriod>
+            listAuthorizedEmployeeDepartmentAttendancePeriods(
+                    String principalId,
+                    String capabilityCode,
+                    ReportFilter filter,
+                    Instant authorizationTime) {
+        Objects.requireNonNull(filter, "filter");
+        Objects.requireNonNull(authorizationTime, "authorizationTime");
+        if (principalId == null
+                || principalId.isBlank()
+                || !CapabilityCodes.ATTENDANCE_REPORT_READ.equals(
+                        capabilityCode)) {
+            return List.of();
+        }
+        var periodStart = filter.period().atDay(1);
+        var periodEndExclusive = filter.period().plusMonths(1).atDay(1);
+        List<ReportRows.ProjectionRow> projections =
+                mapper.listLatestAuthorizedProjections(
+                        principalId,
+                        capabilityCode,
+                        periodStart,
+                        periodEndExclusive,
+                        filter.companyId(),
+                        authorizationTime);
+        if (projections == null || projections.size() != 1) {
+            return List.of();
+        }
+        ReportRows.ProjectionRow projection = projections.getFirst();
+        if (filter.companyId() != null
+                && !filter.companyId().equals(projection.companyId())) {
+            return List.of();
+        }
+        return nullSafe(
+                        mapper.listAuthorizedEmployeeDepartmentAttendancePeriods(
+                                principalId,
+                                capabilityCode,
+                                projection.projectionId(),
+                                periodStart,
+                                periodEndExclusive,
+                                projection.companyId(),
+                                filter.organizationId(),
+                                filter.employeeId(),
+                                authorizationTime))
+                .stream()
+                .map(ReportRows.EmployeeDepartmentAttendancePeriodRow::toDomain)
+                .toList();
     }
 
     @Override

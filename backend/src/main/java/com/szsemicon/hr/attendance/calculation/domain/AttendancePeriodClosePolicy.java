@@ -228,6 +228,10 @@ public final class AttendancePeriodClosePolicy {
         long confirmed = 0;
         long extended = 0;
         long overtime = 0;
+        long paidOvertime = 0;
+        long compensatoryOvertime = 0;
+        long voluntaryOvertime = 0;
+        long totalOvertime = 0;
         long leave = 0;
         long absence = 0;
         for (CloseSnapshotMember member : members) {
@@ -236,6 +240,10 @@ public final class AttendancePeriodClosePolicy {
             confirmed += metrics.confirmedScheduledWorkMinutes();
             extended += metrics.extendedPresenceMinutes();
             overtime += metrics.recognizedOvertimeMinutes();
+            paidOvertime += metrics.paidOvertimeMinutes();
+            compensatoryOvertime += metrics.compensatoryOvertimeMinutes();
+            voluntaryOvertime += metrics.voluntaryOvertimeMinutes();
+            totalOvertime += metrics.totalOvertimeMinutes();
             leave += metrics.leaveOrTimeOffMinutes();
             absence += metrics.absenceMinutes();
         }
@@ -244,6 +252,10 @@ public final class AttendancePeriodClosePolicy {
                 confirmed,
                 extended,
                 overtime,
+                paidOvertime,
+                compensatoryOvertime,
+                voluntaryOvertime,
+                totalOvertime,
                 leave,
                 absence,
                 confirmed + overtime);

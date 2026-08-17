@@ -137,6 +137,10 @@ class Wave4DomainContractTest {
                     ConfirmedBindingKind bindingKind,
                     String externalPersonRef,
                     Instant at) {
+                if (bindingKind == null) {
+                    throw new AssertionError(
+                            "an untyped external reference must not be resolved");
+                }
                 return "BOUND".equals(externalPersonRef)
                         ? List.of(resolution("employee-binding"))
                         : List.of();
@@ -163,6 +167,10 @@ class Wave4DomainContractTest {
                 "device-1", "NONE", ConfirmedBindingKind.DELI_EXT_ID,
                 Instant.EPOCH).status())
                 .isEqualTo(EvidenceResolutionPolicy.MatchStatus.UNMATCHED);
+        assertThat(EvidenceResolutionPolicy.resolve(
+                resolver, "source-1", "legal-1", null, null,
+                null, "OA_MEMBER_ID", null, Instant.EPOCH).reason())
+                .isEqualTo("NO_AUTHORITATIVE_MATCH");
     }
 
     @Test

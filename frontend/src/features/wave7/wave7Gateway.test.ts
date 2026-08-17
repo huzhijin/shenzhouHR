@@ -158,6 +158,8 @@ describe('Wave 7 production gateway', () => {
       reportType: 'EXCEPTIONS',
       period: '2026-07',
       companyId: '30000000-0000-0000-0000-000000000001',
+      organizationId: 'org-a',
+      employeeId: 'employee-a',
       status: 'PENDING_REVIEW',
       expectedProjectionVersion: 'FORMAL-REPORT-2026-07-V1',
       page: 2,
@@ -183,6 +185,8 @@ describe('Wave 7 production gateway', () => {
     expect(target.searchParams.get('period')).toBe('2026-07');
     expect(target.searchParams.get('companyId'))
       .toBe('30000000-0000-0000-0000-000000000001');
+    expect(target.searchParams.get('organizationId')).toBe('org-a');
+    expect(target.searchParams.get('employeeId')).toBe('employee-a');
     expect(target.searchParams.get('status')).toBe('PENDING_REVIEW');
     expect(target.searchParams.get('expectedProjectionVersion'))
       .toBe('FORMAL-REPORT-2026-07-V1');
@@ -196,6 +200,7 @@ describe('Wave 7 production gateway', () => {
       period: '2026-07',
       companyId: 'company-a',
       organizationId: 'org-a',
+      employeeId: 'employee-a',
       expectedProjectionVersion: 'FORMAL-REPORT-2026-07-V1',
       page: 1,
       size: 20,
@@ -219,6 +224,7 @@ describe('Wave 7 production gateway', () => {
       period: '2026-07',
       companyId: 'company-a',
       organizationId: 'org-a',
+      employeeId: 'employee-a',
       expectedProjectionVersion: 'FORMAL-REPORT-2026-07-V1',
       page: '1',
       size: '20',
@@ -317,6 +323,36 @@ describe('Wave 7 production gateway', () => {
       });
   });
 
+  it('rejects report responses that echo another organization or employee', async () => {
+    const query: ReportQuery = {
+      reportType: 'ATTENDANCE_DETAIL',
+      period: '2026-07',
+      companyId: 'company-a',
+      organizationId: 'organization-a',
+      employeeId: 'employee-a',
+    };
+    const response = reportResponse(query);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        ...response,
+        filters: { ...response.filters, organizationId: 'organization-b' },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ...response,
+        filters: { ...response.filters, employeeId: 'employee-b' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadReport(query)).rejects.toMatchObject({
+      status: 502,
+      code: 'INVALID_RESPONSE_BODY',
+    });
+    await expect(wave7ProjectionGateway.loadReport(query)).rejects.toMatchObject({
+      status: 502,
+      code: 'INVALID_RESPONSE_BODY',
+    });
+  });
+
   it('rejects malformed or query-mismatched runtime responses', async () => {
     const query: ReportQuery = {
       reportType: 'ATTENDANCE_DETAIL',
@@ -397,6 +433,14 @@ describe('Wave 7 production gateway', () => {
     await expect(wave7ProjectionGateway.loadReport({
       reportType: 'LATE',
       period: '2026-13',
+    })).rejects.toMatchObject({
+      status: 400,
+      code: 'INVALID_REPORT_QUERY',
+    });
+    await expect(wave7ProjectionGateway.loadReport({
+      reportType: 'LATE',
+      period: '2026-07',
+      employeeId: 'e'.repeat(37),
     })).rejects.toMatchObject({
       status: 400,
       code: 'INVALID_REPORT_QUERY',
@@ -705,8 +749,8 @@ function reportResponse(query: ReportQuery) {
       scopeReference: 'scope:formal:authorized',
       companyId: query.companyId
         ?? '30000000-0000-0000-0000-000000000001',
-      organizationId: null,
-      employeeId: null,
+      organizationId: query.organizationId ?? null,
+      employeeId: query.employeeId ?? null,
       status: query.status?.trim() ?? null,
     },
     columns: [
@@ -757,7 +801,7 @@ function monthMatrixResponse(query: AttendanceMonthMatrixQuery) {
       scopeReference: 'scope:formal:authorized',
       companyId,
       organizationId: query.organizationId ?? null,
-      employeeId: null,
+      employeeId: query.employeeId ?? null,
     },
     dates,
     employeeCount: 40,

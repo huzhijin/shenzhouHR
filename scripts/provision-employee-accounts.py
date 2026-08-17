@@ -6,7 +6,7 @@
   python3 scripts/provision-employee-accounts.py \
       --base-url http://127.0.0.1:8080 \
       --username szsc_admin_faa41d5bd802 \
-      --password "Shenzhou@2026Dev" \
+      --password "$SHENZHOUHR_ADMIN_PASSWORD" \
       --output /tmp/szhr-credentials.csv
 
 要求：

@@ -112,10 +112,10 @@ class OaEnumShowValueCatalogTest {
     }
 
     @Test
-    @DisplayName("病假和事假不计入带薪出勤，其余带薪假计入")
+    @DisplayName("病假计入带薪出勤，事假不计入")
     void excludesUnpaidLeaveFromPaidAttendance() {
         assertThat(OaLeaveTypeShowValueCatalog.isPaidAttendance("SICK_LEAVE"))
-                .isFalse();
+                .isTrue();
         assertThat(OaLeaveTypeShowValueCatalog.isPaidAttendance(
                 "PERSONAL_LEAVE")).isFalse();
         assertThat(OaLeaveTypeShowValueCatalog.isPaidAttendance(null))

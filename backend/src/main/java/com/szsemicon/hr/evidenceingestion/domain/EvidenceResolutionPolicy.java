@@ -51,7 +51,9 @@ public final class EvidenceResolutionPolicy {
                     MatchStatus.AMBIGUOUS, "EMPLOYEE_NUMBER_MULTIPLE");
         }
         List<EmployeeEmploymentResolverPort.Resolution> byBinding =
-                normalized(externalPersonRef == null || externalPersonRef.isBlank()
+                normalized(bindingKind == null
+                                || externalPersonRef == null
+                                || externalPersonRef.isBlank()
                         ? List.of()
                         : resolver.resolveByConfirmedBinding(
                                 sourceId,

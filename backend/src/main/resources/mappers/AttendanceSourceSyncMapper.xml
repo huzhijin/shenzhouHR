@@ -4,6 +4,15 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper">
 
+    <select id="findAuthorizedActiveSourceType" resultType="string">
+        SELECT source.source_type
+        FROM attendance_source source
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.status = 'ACTIVE'
+          AND source.source_type IN ('DELI_CLOUD', 'OA_ATTENDANCE')
+          AND <include refid="companyCapability"/>
+    </select>
+
     <select id="lockAuthorizedCompany" resultType="string">
         SELECT entity.company_id
         FROM company entity
@@ -661,4 +670,95 @@
                 )
           )
     </select>
+
+    <select id="findAllActiveOaSourceIds" resultType="string">
+        SELECT source.attendance_source_id
+        FROM attendance_source source
+        WHERE source.source_type = 'OA_ATTENDANCE'
+          AND source.status = 'ACTIVE'
+    </select>
+
+    <!--
+      OA does not use secret-based config revisions; the JDBC connection is
+      supplied directly via application properties. The query returns the fixed
+      time zone and watermark without joining config_revision.
+    -->
+    <select id="lockSystemOaSource"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$AuthorizedOaSourceRow">
+        SELECT source.attendance_source_id AS source_id,
+               source.company_id,
+               source.display_name,
+               'Asia/Shanghai'                AS source_time_zone,
+               watermark.committed_cursor     AS committed_watermark
+        FROM attendance_source source
+        LEFT JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'OA_ATTENDANCE'
+          AND source.status = 'ACTIVE'
+        FOR UPDATE
+    </select>
+
+    <select id="lockAuthorizedOaSource"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceSyncMapper$AuthorizedOaSourceRow">
+        SELECT source.attendance_source_id AS source_id,
+               source.company_id,
+               source.display_name,
+               'Asia/Shanghai'                AS source_time_zone,
+               watermark.committed_cursor     AS committed_watermark
+        FROM attendance_source source
+        LEFT JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'OA_ATTENDANCE'
+          AND source.status = 'ACTIVE'
+          AND <include refid="companyCapability"/>
+        FOR UPDATE
+    </select>
+
+    <select id="lockOaPageForCommit"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$PageState">
+        SELECT job.attendance_sync_job_id AS job_id,
+               source.attendance_source_id AS source_id,
+               source.company_id,
+               job.status AS job_status,
+               job.page_count AS committed_pages,
+               watermark.committed_cursor,
+               watermark.row_version AS watermark_version
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{jobId}
+          AND source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'OA_ATTENDANCE'
+          AND source.status = 'ACTIVE'
+          AND job.status = 'RUNNING'
+          AND <include refid="companyCapability"/>
+        FOR UPDATE
+    </select>
+
+    <select id="lockSystemOaPageForCommit"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$PageState">
+        SELECT job.attendance_sync_job_id AS job_id,
+               source.attendance_source_id AS source_id,
+               source.company_id,
+               job.status AS job_status,
+               job.page_count AS committed_pages,
+               watermark.committed_cursor,
+               watermark.row_version AS watermark_version
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{jobId}
+          AND source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'OA_ATTENDANCE'
+          AND source.status = 'ACTIVE'
+          AND job.status = 'RUNNING'
+        FOR UPDATE
+    </select>
+
 </mapper>

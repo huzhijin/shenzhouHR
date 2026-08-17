@@ -10,6 +10,7 @@ import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.http.HttpStatus;
@@ -67,7 +68,10 @@ public class AttendanceReportPublicationApplicationService {
             String reason) {
         capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_REFRESH);
         String principalId = principalProvider.currentPrincipalId();
-        Instant now = clock.instant();
+        // All report timestamps are persisted in DATETIME(6). A system clock
+        // can expose nanoseconds, so normalize at the application boundary
+        // before constructing the database-precision metadata contract.
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
 
         if (orchestrators.size() != 1) {
             auditService.recordFailure(

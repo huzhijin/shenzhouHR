@@ -14,7 +14,7 @@ Excel 格式（.xlsx），必须包含以下列（列名不区分大小写，忽
       --file 年假期初2026.xlsx \\
       --base-url http://127.0.0.1:8080 \\
       --username szsc_admin_faa41d5bd802 \\
-      --password Shenzhou@2026Dev \\
+      --password "$SHENZHOUHR_ADMIN_PASSWORD" \\
       --year 2026 \\
       [--dry-run]
 """

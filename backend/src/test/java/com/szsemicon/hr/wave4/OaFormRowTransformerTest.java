@@ -227,6 +227,54 @@ class OaFormRowTransformerTest {
     }
 
     @Test
+    void transformsTheCompleteLeaveRevocationAllowlistFailClosed() {
+        var result = OaFormRowTransformer.transform(
+                FormKind.LEAVE_REVOCATION,
+                Map.ofEntries(
+                        Map.entry("field0097", "REV-001"),
+                        Map.entry("field0074", "filler"),
+                        Map.entry("field0075", "HR"),
+                        Map.entry("field0076", LocalDate.of(2026, 8, 13)),
+                        Map.entry("field0100", 1L),
+                        Map.entry("field0098", "original leave"),
+                        Map.entry("field0099", "LEAVE-001"),
+                        Map.entry("field0083", "123"),
+                        Map.entry("field0092", "engineer"),
+                        Map.entry("field0093", "P5"),
+                        Map.entry("field0085", "R&D"),
+                        Map.entry("field0084", "0007A"),
+                        Map.entry("field0089", 5959840635913392019L),
+                        Map.entry("field0086", START),
+                        Map.entry("field0087", END),
+                        Map.entry("field0088", 1.0d),
+                        Map.entry("field0090", "note"),
+                        Map.entry("field0091", "revocation reason"),
+                        Map.entry("field0094", "delegate"),
+                        Map.entry("field0095", "R&D"),
+                        Map.entry("field0096", "0007A")),
+                Map.of(),
+                matching("0007A"));
+
+        assertThat(result.candidate()).isNotNull();
+        assertThat(result.candidate().formKind())
+                .isEqualTo(FormKind.LEAVE_REVOCATION);
+        assertThat(result.candidate().temporal())
+                .isEqualTo(new LocalInterval(START, END));
+        assertThat(result.issues())
+                .extracting(issue -> issue.code())
+                .contains(
+                        IssueCode.LIVE_SCHEMA_NOT_VERIFIED,
+                        IssueCode.APPROVAL_STATUS_NOT_VERIFIED,
+                        IssueCode.ENUM_MAPPING_NOT_VERIFIED,
+                        IssueCode.SOURCE_TIME_ZONE_NOT_VERIFIED)
+                .doesNotContain(
+                        IssueCode.UNKNOWN_COLUMN,
+                        IssueCode.MAIN_DETAIL_FOREIGN_KEY_NOT_VERIFIED,
+                        IssueCode.EMPLOYEE_CODE_MISMATCH);
+        assertThat(result.effectiveCandidate()).isFalse();
+    }
+
+    @Test
     void rejectsUnknownColumnsAndUnverifiedEnumContracts() {
         var result = OaFormRowTransformer.transform(
                 FormKind.OVERTIME,
@@ -287,6 +335,7 @@ class OaFormRowTransformerTest {
         return OaFormRowTransformer.transform(
                 FormKind.LEAVE,
                 Map.of(
+                        "field0097", "LEAVE-001",
                         "field0083", memberId,
                         "field0084", employeeNumber,
                         "field0086", START,

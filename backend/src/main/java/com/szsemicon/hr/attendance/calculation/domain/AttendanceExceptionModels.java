@@ -14,6 +14,7 @@ public final class AttendanceExceptionModels {
 
     public enum ExceptionType {
         LATE(false),
+        LATE_CONVERTED_TO_ABSENCE(true),
         EARLY_DEPARTURE(false),
         MISSING_PUNCH_PENDING(true),
         MISSING_PUNCH_OVERDUE(true),

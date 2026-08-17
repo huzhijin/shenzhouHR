@@ -30,6 +30,12 @@ import type {
 
 type RowValues = ReportRowProjection['values'];
 
+function reportIdentity(row: ReportRowProjection) {
+  return {
+    rowKey: row.rowReference,
+  };
+}
+
 function text(values: RowValues, key: ReportColumnKey): string | undefined {
   const value = values[key];
   if (value === undefined || value === '') return undefined;
@@ -80,14 +86,33 @@ function localDate(value: string | undefined): string {
   }).format(timestamp);
 }
 
+const leaveTypeLabels: Readonly<Record<string, string>> = {
+  ANNUAL: '年假',
+  SICK: '病假',
+  MARRIAGE: '婚假',
+  MATERNITY: '产假',
+  PATERNITY: '陪产假',
+  BEREAVEMENT: '丧假',
+  WORK_INJURY: '工伤假',
+  PRENATAL_NURSING: '孕检/哺乳假',
+  PERSONAL: '事假',
+  COMPENSATORY: '调休',
+};
+
+function leaveType(values: RowValues): string {
+  const raw = required(values, 'document-type');
+  return raw === '—' ? raw : leaveTypeLabels[raw.toUpperCase()] ?? raw;
+}
+
 export function toLeaveRows(
   response: ReportProjection,
 ): LeaveReportRow[] {
   return response.rows.map((row, index) => ({
+    ...reportIdentity(row),
     id: index + 1,
     employee: required(row.values, 'employee-name'),
     department: required(row.values, 'organization'),
-    type: required(row.values, 'document-type'),
+    type: leaveType(row.values),
     hours: count(row.values, 'recognized-hours'),
     period: period(row.values),
     approvalState: required(row.values, 'approval-state'),
@@ -98,14 +123,41 @@ export function toOvertimeRows(
   response: ReportProjection,
 ): OvertimeReportRow[] {
   return response.rows.map((row) => {
-    const saturday = count(row.values, 'saturday-overtime-hours');
-    const sunday = count(row.values, 'sunday-overtime-hours');
+    const paidHours = decimal(row.values, 'paid-overtime-hours');
+    const compensatoryHours = decimal(row.values, 'compensatory-overtime-hours');
+    const voluntaryHours = decimal(row.values, 'voluntary-overtime-hours');
+    const classificationAvailable = [
+      paidHours,
+      compensatoryHours,
+      voluntaryHours,
+    ].every((value) => value !== undefined);
+    const classifiedTotal = decimal(row.values, 'total-overtime-hours')
+      ?? (classificationAvailable
+        ? (paidHours ?? 0) + (compensatoryHours ?? 0) + (voluntaryHours ?? 0)
+        : undefined);
+
+    // Old deployments only expose calendar buckets. They remain unclassified:
+    // never reinterpret weekday/weekend/holiday as paid/compensatory/voluntary.
+    const legacyParts = [
+      decimal(row.values, 'weekday-overtime-hours'),
+      decimal(row.values, 'saturday-overtime-hours'),
+      decimal(row.values, 'sunday-overtime-hours'),
+      decimal(row.values, 'holiday-overtime-hours'),
+    ];
+    const legacyCalendarTotal = legacyParts.some((value) => value !== undefined)
+      ? legacyParts.reduce<number>((total, value) => total + (value ?? 0), 0)
+      : undefined;
+    const legacyTotal = decimal(row.values, 'recognized-overtime-hours')
+      ?? legacyCalendarTotal;
     return {
+      ...reportIdentity(row),
       employee: required(row.values, 'employee-name'),
       department: required(row.values, 'organization'),
-      weekdayHours: count(row.values, 'weekday-overtime-hours'),
-      weekendHours: saturday + sunday,
-      statutoryHours: count(row.values, 'holiday-overtime-hours'),
+      paidHours,
+      compensatoryHours,
+      voluntaryHours,
+      totalHours: classifiedTotal ?? legacyTotal,
+      classificationAvailable,
     };
   });
 }
@@ -114,6 +166,7 @@ export function toWorkHoursRows(
   response: ReportProjection,
 ): WorkHoursReportRow[] {
   return response.rows.map((row) => ({
+    ...reportIdentity(row),
     employee: required(row.values, 'employee-name'),
     department: required(row.values, 'organization'),
     plannedHours: count(row.values, 'scheduled-hours'),
@@ -126,13 +179,27 @@ export function toWorkHoursRows(
 export function toAttendanceRateRows(
   response: ReportProjection,
 ): AttendanceRateReportRow[] {
-  return response.rows.map((row, index) => ({
-    id: index + 1,
-    employee: required(row.values, 'employee-name'),
-    department: required(row.values, 'organization'),
-    hours: count(row.values, 'confirmed-hours'),
-    rate: `${required(row.values, 'attendance-rate')}%`,
-  }));
+  return response.rows.map((row, index) => {
+    const rawRate = required(row.values, 'attendance-rate');
+    const hasDayMetrics = decimal(row.values, 'scheduled-attendance-days') !== undefined
+      || decimal(row.values, 'actual-attendance-days') !== undefined;
+    return {
+      ...reportIdentity(row),
+      id: index + 1,
+      employee: required(row.values, 'employee-name'),
+      department: required(row.values, 'organization'),
+      hours: decimal(row.values, 'confirmed-hours'),
+      scheduledDays: decimal(row.values, 'scheduled-attendance-days'),
+      actualDays: decimal(row.values, 'actual-attendance-days'),
+      sickLeaveDays: decimal(row.values, 'sick-leave-days'),
+      rate: rawRate === '—'
+        || rawRate.toUpperCase() === 'N/A'
+        || rawRate.endsWith('%')
+        ? rawRate
+        : `${rawRate}%`,
+      note: hasDayMetrics ? '按实际出勤天数 ÷ 应出勤天数' : undefined,
+    };
+  });
 }
 
 export function toLateRows(
@@ -146,6 +213,7 @@ export function toLateRows(
       penalized === undefined ? undefined : `计罚 ${penalized} 分钟`,
     ].filter((value): value is string => value !== undefined);
     return {
+      ...reportIdentity(row),
       id: index + 1,
       employee: required(row.values, 'employee-name'),
       department: required(row.values, 'organization'),
@@ -160,6 +228,7 @@ export function toMissedPunchRows(
   response: ReportProjection,
 ): ExceptionReportRow[] {
   return response.rows.map((row, index) => ({
+    ...reportIdentity(row),
     id: index + 1,
     employee: required(row.values, 'employee-name'),
     department: required(row.values, 'organization'),
@@ -215,6 +284,7 @@ export function toAttendanceExceptionRows(
     const rawSeverity = text(row.values, 'exception-severity');
     const rawState = text(row.values, 'exception-state');
     return {
+      ...reportIdentity(row),
       id: index + 1,
       businessDate: localDate(text(row.values, 'business-date')),
       employeeNo: required(row.values, 'employee-number'),
@@ -254,6 +324,7 @@ export function toAnnualLeaveRows(
         ?? balanceHours / HOURS_PER_LEAVE_DAY;
       const accountType = text(row.values, 'account-type');
       return {
+        ...reportIdentity(row),
         id: index + 1,
         department: required(row.values, 'organization'),
         employee: required(row.values, 'employee-name'),
@@ -311,7 +382,9 @@ export function toAttendanceDetailRows(
   response: AttendanceMonthMatrixProjection,
 ): AttendanceDetailRow[] {
   return response.rows.map((employeeRow) => ({
+    employeeId: employeeRow.employeeId,
     employeeNo: employeeRow.employeeNumber,
+    organizationId: employeeRow.organizationId,
     department: employeeRow.organizationName,
     employee: employeeRow.employeeName,
     days: employeeRow.days.map((cell): AttendanceDayCell => {

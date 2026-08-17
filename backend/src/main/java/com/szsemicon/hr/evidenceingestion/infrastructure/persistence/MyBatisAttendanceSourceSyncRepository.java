@@ -1,5 +1,6 @@
 package com.szsemicon.hr.evidenceingestion.infrastructure.persistence;
 
+import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels;
 import com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncRepository;
 import java.time.Duration;
@@ -22,6 +23,20 @@ public class MyBatisAttendanceSourceSyncRepository
     public MyBatisAttendanceSourceSyncRepository(
             AttendanceSourceSyncMapper mapper) {
         this.mapper = mapper;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<String> findAuthorizedActiveSourceType(
+            String sourceId,
+            String principalId,
+            String capability,
+            Instant authorizationTime) {
+        return Optional.ofNullable(mapper.findAuthorizedActiveSourceType(
+                sourceId,
+                principalId,
+                capability,
+                authorizationTime));
     }
 
     @Override
@@ -292,6 +307,119 @@ public class MyBatisAttendanceSourceSyncRepository
             Instant at) {
         return Optional.ofNullable(mapper.findAuthorizedJob(
                 jobId, principalId, capability, at));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<String> findAllActiveOaSourceIds() {
+        return mapper.findAllActiveOaSourceIds();
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public StartResult createScheduledOaJob(
+            String sourceId,
+            String jobId,
+            String correlationId,
+            Instant at) {
+        var source = mapper.lockSystemOaSource(sourceId, at);
+        if (source == null) {
+            return StartResult.resourceUnavailable();
+        }
+        int recoveredStaleJobs = mapper.expireStaleActiveJobs(
+                sourceId, at.minus(ACTIVE_JOB_LEASE), at);
+        if (mapper.countActiveJobs(sourceId) != 0) {
+            return StartResult.alreadyRunning();
+        }
+        mapper.insertWatermarkIfAbsent(sourceId);
+        mapper.insertJob(
+                jobId,
+                sourceId,
+                source.committedWatermark(),
+                correlationId,
+                "SYSTEM",
+                at);
+        return StartResult.created(
+                new AttendanceSourceSyncModels.SourceJobStart(
+                        jobId,
+                        source.sourceId(),
+                        source.companyId(),
+                        source.displayName(),
+                        null,  // OA 不需要 secret reference
+                        source.sourceTimeZone(),
+                        200,   // 与 OA 多流适配器的原始行页上限一致
+                        0,     // OA 无频率限制
+                        0,     // OA 无退避
+                        source.committedWatermark()),
+                recoveredStaleJobs);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public StartResult createManualOaJob(
+            String sourceId,
+            String jobId,
+            String correlationId,
+            String principalId,
+            Instant at) {
+        var source = mapper.lockAuthorizedOaSource(
+                sourceId,
+                principalId,
+                CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                at);
+        if (source == null) {
+            return StartResult.resourceUnavailable();
+        }
+        int recoveredStaleJobs = mapper.expireStaleActiveJobs(
+                sourceId, at.minus(ACTIVE_JOB_LEASE), at);
+        if (mapper.countActiveJobs(sourceId) != 0) {
+            return StartResult.alreadyRunning();
+        }
+        mapper.insertWatermarkIfAbsent(sourceId);
+        mapper.insertJob(
+                jobId,
+                sourceId,
+                source.committedWatermark(),
+                correlationId,
+                principalId,
+                at);
+        return StartResult.created(
+                new AttendanceSourceSyncModels.SourceJobStart(
+                        jobId,
+                        source.sourceId(),
+                        source.companyId(),
+                        source.displayName(),
+                        null,
+                        source.sourceTimeZone(),
+                        200,
+                        0,
+                        0,
+                        source.committedWatermark()),
+                recoveredStaleJobs);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AttendanceSourceSyncModels.PageState lockOaPageForCommit(
+            String jobId,
+            String sourceId,
+            String principalId,
+            String capability,
+            Instant authorizationTime) {
+        return mapper.lockOaPageForCommit(
+                jobId,
+                sourceId,
+                principalId,
+                capability,
+                authorizationTime);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AttendanceSourceSyncModels.PageState lockSystemOaPageForCommit(
+            String jobId,
+            String sourceId) {
+        return mapper.lockSystemOaPageForCommit(jobId, sourceId);
     }
 
     private static void requireOne(int count, String message) {

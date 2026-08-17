@@ -134,7 +134,7 @@ class CalculationEngineOrchestratorTest {
     void publishedCalendarDrivesDayTypeAndWeekdayIsTheFallback() {
         givenIdentities(identity(EMPLOYEE, "2026-02-14", "2026-02-17"));
         givenNoPunches();
-        when(mapper.findPublishedCalendarDays(any(), any(), any()))
+        when(mapper.findPublishedCalendarDays(any(), any(), any(), any()))
                 .thenReturn(List.of(
                         // Saturday published as an adjusted workday.
                         new CalendarDayRow(
@@ -160,7 +160,7 @@ class CalculationEngineOrchestratorTest {
     void weekendCalendarDayIsSplitBySaturdayAndSunday() {
         givenIdentities(identity(EMPLOYEE, "2026-02-14", "2026-02-16"));
         givenNoPunches();
-        when(mapper.findPublishedCalendarDays(any(), any(), any()))
+        when(mapper.findPublishedCalendarDays(any(), any(), any(), any()))
                 .thenReturn(List.of(
                         new CalendarDayRow(
                                 LocalDate.parse("2026-02-14"), "WEEKEND"),
@@ -176,7 +176,7 @@ class CalculationEngineOrchestratorTest {
     void conflictingCalendarsFallBackToWeekdayClassification() {
         givenIdentities(identity(EMPLOYEE, "2026-02-16", "2026-02-17"));
         givenNoPunches();
-        when(mapper.findPublishedCalendarDays(any(), any(), any()))
+        when(mapper.findPublishedCalendarDays(any(), any(), any(), any()))
                 .thenReturn(List.of(
                         new CalendarDayRow(
                                 LocalDate.parse("2026-02-16"), "WORKDAY"),
@@ -188,7 +188,7 @@ class CalculationEngineOrchestratorTest {
     }
 
     @Test
-    void ambiguousIdentityDaysAreSkippedInsteadOfGuessed() {
+    void overlappingAssignmentsUseTheLatestEffectiveDate() {
         givenIdentities(
                 identity(EMPLOYEE, "2026-02-10", "2026-02-13"),
                 // A second assignment overlaps only 2026-02-11.
@@ -211,10 +211,19 @@ class CalculationEngineOrchestratorTest {
         givenNoPunches();
 
         assertThat(assemble().calculatedFacts())
-                .extracting(value -> value.facts().dailyFact().businessDate())
+                .extracting(
+                        value -> value.facts().dailyFact().businessDate(),
+                        value -> value.employmentAssignmentId())
                 .containsExactly(
-                        LocalDate.parse("2026-02-10"),
-                        LocalDate.parse("2026-02-12"));
+                        org.assertj.core.groups.Tuple.tuple(
+                                LocalDate.parse("2026-02-10"),
+                                "assignment-1"),
+                        org.assertj.core.groups.Tuple.tuple(
+                                LocalDate.parse("2026-02-11"),
+                                "assignment-2"),
+                        org.assertj.core.groups.Tuple.tuple(
+                                LocalDate.parse("2026-02-12"),
+                                "assignment-1"));
     }
 
     @Test
@@ -303,17 +312,17 @@ class CalculationEngineOrchestratorTest {
     }
 
     private void givenNoCalendar() {
-        when(mapper.findPublishedCalendarDays(any(), any(), any()))
+        when(mapper.findPublishedCalendarDays(any(), any(), any(), any()))
                 .thenReturn(List.of());
     }
 
     private void givenNoPunches() {
-        when(mapper.findActivatedPunchEvents(any(), any(), any()))
+        when(mapper.findActivatedPunchEvents(any(), any(), any(), any()))
                 .thenReturn(List.of());
     }
 
     private void givenPunches(PunchEventRow... rows) {
-        when(mapper.findActivatedPunchEvents(any(), any(), any()))
+        when(mapper.findActivatedPunchEvents(any(), any(), any(), any()))
                 .thenReturn(List.of(rows));
     }
 

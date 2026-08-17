@@ -799,6 +799,8 @@ class AttendanceReportExportServiceSecurityTest {
                 0,
                 0,
                 480,
+                1,  // scheduledAttendanceDays
+                1,  // actualAttendanceDays
                 0,
                 0,
                 0,

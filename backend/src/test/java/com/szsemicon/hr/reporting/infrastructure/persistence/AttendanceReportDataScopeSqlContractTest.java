@@ -15,7 +15,17 @@ class AttendanceReportDataScopeSqlContractTest {
             "listAuthorizedDailyFacts",
             "listAuthorizedOaFacts",
             "listAuthorizedExceptionFacts",
-            "listAuthorizedTimeAccountFacts");
+            "listAuthorizedTimeAccountFacts",
+            "listAuthorizedDepartmentAttendanceRates",
+            "listAuthorizedEmployeeSickLeaveDays",
+            "listAuthorizedEmployeeDepartmentAttendancePeriods");
+    private static final List<String> EMPLOYEE_FILTERED_FACT_QUERY_IDS = List.of(
+            "listAuthorizedDailyFacts",
+            "listAuthorizedOaFacts",
+            "listAuthorizedExceptionFacts",
+            "listAuthorizedTimeAccountFacts",
+            "listAuthorizedEmployeeSickLeaveDays",
+            "listAuthorizedEmployeeDepartmentAttendancePeriods");
 
     @Test
     void everyFactQueryUsesTheSameFailClosedVisibilityPredicate()
@@ -100,16 +110,35 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("principal.employee_id = fact.employee_id");
 
         assertThat(count(xml, "<include refid=\"reportFactVisibility\"/>"))
-                .as("all four fact reads must share one scope predicate")
+                .as("all enumerated fact reads must share one scope predicate")
                 .isEqualTo(FACT_QUERY_IDS.size());
         for (String queryId : FACT_QUERY_IDS) {
             assertThat(select(xml, queryId))
+                    .as("fact query %s", queryId)
                     .contains("<include refid=\"reportFactVisibility\"/>")
+                    .contains("projection.company_id = fact.company_id")
+                    .contains(
+                            "fact.attendance_report_projection_id ="
+                                    + " #{projectionId}")
                     .contains("fact.company_id = #{companyId}")
                     .contains("fact.organization_id = #{organizationId}")
-                    .contains("fact.employee_id = #{employeeId}")
                     .doesNotContain(" OFFSET ")
                     .doesNotContain(" COUNT(");
+        }
+        for (String queryId : EMPLOYEE_FILTERED_FACT_QUERY_IDS) {
+            assertThat(select(xml, queryId))
+                    .as("employee-filtered fact query %s", queryId)
+                    .contains("fact.employee_id = #{employeeId}");
+        }
+        for (String queryId : List.of(
+                "listAuthorizedDepartmentAttendanceRates",
+                "listAuthorizedEmployeeDepartmentAttendancePeriods")) {
+            assertThat(select(xml, queryId))
+                    .as("aggregate fact query %s", queryId)
+                    .containsPattern(
+                            "projection\\.attendance_report_projection_id"
+                                    + "\\s*=\\s*#\\{projectionId}")
+                    .contains("projection.company_id = #{companyId}");
         }
     }
 
