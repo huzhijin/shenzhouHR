@@ -21,4 +21,9 @@ interface EvidenceEmployeeResolverMapper {
             @Param("externalPersonRef") String externalPersonRef,
             @Param("sourceLocalTime") LocalDateTime sourceLocalTime,
             @Param("businessDate") LocalDate businessDate);
+
+    List<EvidenceEmployeeResolverRow> resolveByDisplayName(
+            @Param("companyId") String companyId,
+            @Param("displayName") String displayName,
+            @Param("businessDate") LocalDate businessDate);
 }

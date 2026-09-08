@@ -203,7 +203,7 @@ class AttendanceDashboardSqlContractTest {
                 .contains("projection.status = 'PUBLISHED'")
                 .containsPattern(
                         "projection\\.formula_catalog_version\\s*=\\s*"
-                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
+                                + "'FULL_CALCULATION_OA_FORM_HOURS_V8'")
                 .contains(
                         "<include refid=\"dashboardProjectionVisibility\"/>");
         assertThat(projection)
@@ -212,12 +212,12 @@ class AttendanceDashboardSqlContractTest {
                 .contains("projection.status = 'PUBLISHED'")
                 .containsPattern(
                         "projection\\.formula_catalog_version\\s*=\\s*"
-                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
+                                + "'FULL_CALCULATION_OA_FORM_HOURS_V8'")
                 .contains("NOT EXISTS (")
                 .contains("newer_projection.published_at")
                 .containsPattern(
                         "newer_projection\\.formula_catalog_version\\s*=\\s*"
-                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
+                                + "'FULL_CALCULATION_OA_FORM_HOURS_V8'")
                 .contains("LIMIT 1")
                 .contains(
                         "<include refid=\"dashboardProjectionVisibility\"/>");

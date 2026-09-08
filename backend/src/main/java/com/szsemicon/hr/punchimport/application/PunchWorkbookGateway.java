@@ -29,10 +29,12 @@ public interface PunchWorkbookGateway {
     record ParsedWorkbook(
             String templateVersion,
             String fieldContractDigest,
+            String workbookKind,
             List<Map<String, String>> punchRows,
             List<Map<String, String>> deviceMappingRows) {
 
         public ParsedWorkbook {
+            workbookKind = workbookKind == null ? "OFFICIAL_TEMPLATE" : workbookKind;
             punchRows = punchRows.stream().map(Map::copyOf).toList();
             deviceMappingRows = deviceMappingRows.stream().map(Map::copyOf).toList();
         }

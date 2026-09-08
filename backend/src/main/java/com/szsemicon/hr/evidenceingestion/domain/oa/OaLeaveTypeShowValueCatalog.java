@@ -72,7 +72,9 @@ public final class OaLeaveTypeShowValueCatalog {
                     WORK_INJURY_LEAVE,
                     NURSING_LEAVE,
                     BREASTFEEDING_TIME,
-                    PRENATAL_EXAM_TIME);
+                    PRENATAL_EXAM_TIME,
+                    FAMILY_PLANNING_LEAVE,
+                    OTHER_LEAVE);
 
     /** Exact Chinese showvalue strings transcribed from OA ctp_enum_item. */
     private static final Map<String, String> BY_SHOW_VALUE = Map.ofEntries(

@@ -38,6 +38,8 @@ class AttendanceReportControllerLegacyParameterTest {
                         null,
                         null,
                         null,
+                        null,
+                        null,
                         0,
                         50,
                         parameters))
@@ -71,6 +73,8 @@ class AttendanceReportControllerLegacyParameterTest {
                 ReportType.ATTENDANCE_DETAIL,
                 YearMonth.of(2026, 7),
                 "30000000-0000-0000-0000-000000000001",
+                null,
+                null,
                 null,
                 null,
                 null,

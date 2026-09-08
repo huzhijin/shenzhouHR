@@ -144,6 +144,15 @@ public interface PeopleRepository {
             String employeeId, String employeeNumber, String displayName, String status,
             long expectedVersion, Instant at);
 
+    void correctCurrentEmployeeVersion(
+            String employeeId,
+            String employeeNumber,
+            String displayName,
+            String status,
+            LocalDate effectiveTo,
+            String changeReason,
+            long expectedVersion);
+
     void saveEmployeeVersion(EmployeeVersion version);
 
     void closeCurrentEmployeeVersion(String employeeId, LocalDate effectiveTo, long expectedVersion);

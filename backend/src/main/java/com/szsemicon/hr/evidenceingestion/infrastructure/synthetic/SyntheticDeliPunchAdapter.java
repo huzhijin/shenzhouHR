@@ -23,6 +23,7 @@ public class SyntheticDeliPunchAdapter implements DeliPunchSourcePort {
                 "SYNTHETIC-PERSON-001",
                 ConfirmedBindingKind.DELI_EXT_ID,
                 null,
+                null,
                 Instant.parse("2026-07-28T01:00:00Z"),
                 "2026-07-28 09:00:00",
                 "Asia/Shanghai",

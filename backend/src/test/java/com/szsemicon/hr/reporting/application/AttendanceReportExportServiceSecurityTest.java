@@ -8,6 +8,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -131,8 +132,7 @@ class AttendanceReportExportServiceSecurityTest {
         order.verify(fixture.transactions).readCommitted(any());
         order.verify(fixture.capabilities).require(
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE);
-        order.verify(fixture.capabilities).require(
-                CapabilityCodes.ATTENDANCE_REPORT_READ);
+        order.verify(fixture.capabilities, times(2)).currentCapabilities();
         order.verify(fixture.source).loadAuthorizedSnapshot(
                 PRINCIPAL,
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
@@ -463,8 +463,7 @@ class AttendanceReportExportServiceSecurityTest {
         order.verify(fixture.transactions).serialized(any());
         order.verify(fixture.capabilities).require(
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD);
-        order.verify(fixture.capabilities).require(
-                CapabilityCodes.ATTENDANCE_REPORT_READ);
+        order.verify(fixture.capabilities).currentCapabilities();
         order.verify(fixture.store).findOwnedJob(
                 "export-1", PRINCIPAL);
         order.verify(fixture.source).loadAuthorizedSnapshot(
@@ -811,6 +810,54 @@ class AttendanceReportExportServiceSecurityTest {
                 "result-" + factId);
     }
 
+    @Test
+    void queryReadWithExportCreateCanCreateExport() {
+        Fixture fixture = new Fixture();
+        when(fixture.capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE));
+        YearMonth period = YearMonth.of(2026, 7);
+        ReportFilter filter =
+                new ReportFilter(period, "legal-1", null, null, null);
+        ReportSourceSnapshot currentSnapshot = snapshot(filter);
+        when(fixture.source.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.source.loadAuthorizedSnapshotIntersection(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                currentSnapshot,
+                true,
+                NOW)).thenReturn(Optional.of(currentSnapshot));
+        when(fixture.encoder.encode(any(), any(ExportContext.class)))
+                .thenReturn(new EncodedExport(
+                        "application/octet-stream",
+                        "xlsx",
+                        new byte[] {1, 2, 3}));
+        var dataSet = new AttendanceReportCalculator()
+                .calculate(ReportType.WORK_HOURS, currentSnapshot);
+        fixture.service.create(
+                ReportType.WORK_HOURS,
+                filter,
+                new RequestedExportBinding(
+                        currentSnapshot.projectionVersion(),
+                        AttendanceReportQueryService.fingerprint(
+                                ReportType.WORK_HOURS,
+                                currentSnapshot.filter(),
+                                currentSnapshot.projectionVersion(),
+                                currentSnapshot.scope().authorizationDigest(),
+                                dataSet.calculationFormulaVersion()),
+                        currentSnapshot.scope().reference(),
+                        currentSnapshot.scope().reference(),
+                        dataSet.exportAllowlist().stream()
+                                .map(ReportField::key)
+                                .toList()),
+                "查询页导出");
+        verify(fixture.store).insert(any(), any());
+    }
+
     private static final class Fixture {
 
         private final CurrentCapabilityService capabilities =
@@ -826,17 +873,24 @@ class AttendanceReportExportServiceSecurityTest {
         private final AuditService audit = mock(AuditService.class);
         private final CurrentPrincipalProvider principal =
                 () -> PRINCIPAL;
-        private final AttendanceReportExportService service =
-                new AttendanceReportExportService(
-                        capabilities,
-                        principal,
-                        source,
-                        store,
-                        encoder,
-                        new AttendanceReportCalculator(),
-                        transactions,
-                        audit,
-                        CLOCK,
-                        Duration.ofHours(24));
+        private final AttendanceReportExportService service;
+
+        private Fixture() {
+            when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                    CapabilityCodes.ATTENDANCE_REPORT_READ,
+                    CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                    CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD));
+            service = new AttendanceReportExportService(
+                    capabilities,
+                    principal,
+                    source,
+                    store,
+                    encoder,
+                    new AttendanceReportCalculator(),
+                    transactions,
+                    audit,
+                    CLOCK,
+                    Duration.ofHours(24));
+        }
     }
 }

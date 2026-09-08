@@ -17,7 +17,8 @@ class EvidenceEmployeeResolverSqlContractTest {
         String sql = Files.readString(MAPPER);
 
         assertThat(sql)
-                .contains("employee.company_id = #{companyId}")
+                .doesNotContain("employee.company_id = #{companyId}")
+                .contains("employee.employee_id,\n        employee.company_id,")
                 .contains(
                         "employee_version.employee_number ="
                                 + " #{employeeNumber}")
@@ -27,10 +28,10 @@ class EvidenceEmployeeResolverSqlContractTest {
                 .contains("organization.identity_status = 'ACTIVE'")
                 .contains("binding.binding_status = 'CONFIRMED'")
                 .contains("binding.confirmation_ref IS NOT NULL")
-                .contains("#{bindingKind} = 'DELI_EXT_ID'")
-                .contains("#{bindingKind} = 'DELI_USER_ID'")
+                .contains("#{bindingKind} IN ('DELI_EXT_ID', 'DELI_USER_ID')")
                 .contains("binding.deli_user_id = #{externalPersonRef}")
                 .contains("binding.deli_ext_id = #{externalPersonRef}")
+                .contains("employee_version.display_name = #{displayName}")
                 .contains("LIMIT 2");
         assertThat(sql)
                 .doesNotContain(
@@ -40,5 +41,23 @@ class EvidenceEmployeeResolverSqlContractTest {
                 .doesNotContain("LOWER(")
                 .doesNotContain("TRIM(")
                 .doesNotContain("CAST(#{EMPLOYEENUMBER}");
+    }
+
+    @Test
+    void resolverRowConstructorKeepsNullableBindingIdBeforePrimitiveVersions()
+            throws Exception {
+        String sql = Files.readString(MAPPER);
+        int identityThenBinding = sql.indexOf(
+                "<include refid=\"resolverIdentityProjection\"/>,\n"
+                        + "            NULL AS binding_id,\n"
+                        + "            <include refid=\"resolverVersionProjection\"/>");
+        int identityThenConfirmedBinding = sql.indexOf(
+                "<include refid=\"resolverIdentityProjection\"/>,\n"
+                        + "            binding.binding_id,\n"
+                        + "            <include refid=\"resolverVersionProjection\"/>");
+
+        assertThat(identityThenBinding).isGreaterThan(0);
+        assertThat(identityThenConfirmedBinding).isGreaterThan(0);
+        assertThat(sql).doesNotContain("resultMap=");
     }
 }

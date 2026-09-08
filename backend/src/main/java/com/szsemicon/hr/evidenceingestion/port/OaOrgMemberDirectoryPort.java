@@ -15,6 +15,10 @@ public interface OaOrgMemberDirectoryPort {
 
     List<OrgMemberRecord> findById(BigInteger orgMemberId);
 
-    record OrgMemberRecord(BigInteger id, String code) {
+    record OrgMemberRecord(BigInteger id, String code, String name) {
+
+        public OrgMemberRecord(BigInteger id, String code) {
+            this(id, code, null);
+        }
     }
 }

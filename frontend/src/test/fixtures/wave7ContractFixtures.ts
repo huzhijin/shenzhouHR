@@ -72,6 +72,8 @@ export const selfDashboardFixture: SelfAttendanceDashboardProjection = {
     recognizedOvertimeMinutes: 0,
     leaveMinutes: 0,
     issueCount: 1,
+    firstPunchAt: '2026-07-28T00:42:00Z',
+    lastPunchAt: null,
   }],
   today: {
     shiftLabel: '合成日班',

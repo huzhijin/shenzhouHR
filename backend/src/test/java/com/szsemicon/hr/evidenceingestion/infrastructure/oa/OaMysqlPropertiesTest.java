@@ -36,6 +36,12 @@ class OaMysqlPropertiesTest {
 
         assertThat(properties.getSourceTimeZone())
                 .isEqualTo(ZoneId.of("Asia/Shanghai"));
+        assertThat(properties.getSyncNotBefore())
+                .isEqualTo(java.time.LocalDate.of(2016, 1, 1));
+        assertThat(properties.syncNotBeforeInstant())
+                .isEqualTo(java.time.LocalDate.of(2016, 1, 1)
+                        .atStartOfDay(ZoneId.of("Asia/Shanghai"))
+                        .toInstant());
         assertThat(properties.toString())
                 .doesNotContain(
                         properties.getJdbcUrl(),
@@ -115,6 +121,23 @@ class OaMysqlPropertiesTest {
         properties.setQueryTimeout(Duration.ofMillis(1_001));
         properties.validateEnabled();
         assertThat(properties.queryTimeoutSeconds()).isEqualTo(2);
+
+        properties = configured();
+        properties.setQueryTimeout(Duration.ofSeconds(60));
+        properties.validateEnabled();
+        assertThat(properties.queryTimeoutSeconds()).isEqualTo(60);
+
+        properties = configured();
+        properties.setQueryTimeout(Duration.ofSeconds(181));
+        assertThatThrownBy(properties::validateEnabled)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("OA MySQL timeouts are invalid");
+
+        properties = configured();
+        properties.setSyncNotBefore(java.time.LocalDate.of(2015, 12, 31));
+        assertThatThrownBy(properties::validateEnabled)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("OA MySQL sync-not-before date is invalid");
     }
 
     private static OaMysqlProperties configured() {

@@ -29,7 +29,8 @@ public interface AttendanceReportExportEncoder {
             String visibleContentDigest,
             Instant createdAt,
             Instant generatedAt,
-            List<ReportField> selectedFields) {
+            List<ReportField> selectedFields,
+            AttendanceMonthMatrixPage monthMatrix) {
 
         public ExportContext {
             requireText(exportId, "exportId");

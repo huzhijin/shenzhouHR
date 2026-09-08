@@ -132,7 +132,6 @@ const searchItems = [
   { label: '考勤电子表格导入', description: '上传、预检并发布离线打卡', path: '/sources/attendance-excel' },
   { label: '考勤报表中心', description: '查询并导出九张独立报表', path: '/attendance/reports' },
   { label: '考勤运行大屏', description: '查看公司与部门聚合指标', path: '/attendance/screen' },
-  { label: '员工反馈中心', description: '查看并提交本人考勤反馈', path: '/me/feedback' },
 ] as const;
 
 function MetricCard({ metric }: { metric: WorkbenchMetric }) {
@@ -421,7 +420,7 @@ export function OpenDesignWorkbenchPage({ onLogout }: OpenDesignWorkbenchPagePro
         <header className="odw-page-head">
           <div>
             <nav className="odw-breadcrumb" aria-label="面包屑">
-              <Link to="/workbench">神州 HR</Link>
+              <Link to="/workbench">神州考勤系统</Link>
               <span aria-hidden="true">/</span>
               <span>工作台</span>
             </nav>

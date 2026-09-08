@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 @Component
-@Profile({"dev", "test"})
+@Profile("test")
 public class SyntheticStoredObjectAdapter implements StoredObjectPort {
 
     private final Map<String, byte[]> objects = new ConcurrentHashMap<>();

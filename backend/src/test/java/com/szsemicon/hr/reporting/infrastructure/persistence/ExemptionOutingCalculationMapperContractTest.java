@@ -18,7 +18,8 @@ class ExemptionOutingCalculationMapperContractTest {
         String mapper = normalized(Files.readString(CALCULATION_MAPPER));
 
         assertThat(mapper).contains(
-                "where oa.version_rank = 1 and oa.source_status = 'approved'",
+                "where oa.version_rank = 1",
+                "oa.source_status in ( 'approved', 'modified', 'supplemented', 'unknown')",
                 "and oa.document_type &lt;&gt; 'trip'",
                 "normalized.interval_start &lt; #{windowendexclusive}",
                 "normalized.interval_end &gt; #{windowstart}");

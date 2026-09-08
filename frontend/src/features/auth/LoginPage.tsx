@@ -9,9 +9,15 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
+import szstVisionPanel from '../../assets/szst-vision-panel.jpg';
+import { AppearanceToggle } from '../../shared/appearance/AppearanceToggle';
 import { BrandLogo } from '../../shared/components/BrandLogo';
 import { isDemoMode } from '../../shared/config/runtimeMode';
-import { passwordMeetsPolicy } from '../../shared/security/passwordPolicy';
+import {
+  passwordPolicyChecks,
+  passwordPolicyIssues,
+  type PasswordPolicyIssueCode,
+} from '../../shared/security/passwordPolicy';
 import {
   DEMO_PASSWORD,
   DEMO_USERNAME,
@@ -112,7 +118,13 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
         caught instanceof ApiRequestError
         && caught.code === 'PASSWORD_POLICY_VIOLATION'
       ) {
-        setFirstChangeError(t('app.newPasswordPolicy'));
+        setFirstChangeError(t('login.passwordRejected'));
+        setState('first-password-change');
+      } else if (
+        caught instanceof ApiRequestError
+        && caught.code === 'CSRF_VALIDATION_FAILED'
+      ) {
+        setFirstChangeError(t('login.requestRejected'));
         setState('first-password-change');
       } else if (
         caught instanceof ApiRequestError
@@ -155,23 +167,18 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
 
   return (
     <main className="login-page">
-      <section className="login-brand" aria-label={t('login.systemDescription')}>
-        <BrandLogo />
-        <div>
-          <p className="login-brand__eyebrow">{t('app.companyName')}</p>
-          <h1>{t('app.name')}</h1>
-          <p>{t('login.entryDescription')}</p>
-        </div>
-        <dl className="login-security-note">
-          <div><dt>{t('login.localAccount')}</dt><dd>{t('login.localAccountDescription')}</dd></div>
-          <div><dt>{t('login.authorization')}</dt><dd>{t('login.authorizationDescription')}</dd></div>
-          <div><dt>{t('login.audit')}</dt><dd>{t('login.auditDescription')}</dd></div>
-        </dl>
+      <section className="login-brand" aria-label={t('login.brandPanelLabel')}>
+        <img
+          className="login-brand__art"
+          src={szstVisionPanel}
+          alt={t('login.brandPanelAlt')}
+        />
       </section>
       <section className="login-panel" aria-live="polite">
         <div className="login-panel__brand" aria-label={t('app.name')}>
           <BrandLogo />
           <span>{t('app.name')}</span>
+          <AppearanceToggle />
         </div>
         <div className="login-card">
           <div className="login-card__heading">
@@ -187,26 +194,53 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
           {state === 'request-error' ? <Alert id="login-error" showIcon type="error" title={t('login.requestRejected')} description={errorDescription} action={<Button size="small" icon={<IconRefresh stroke={2} />} onClick={() => setState('idle')}>{t('state.retry')}</Button>} /> : null}
           {state === 'success' ? <Alert showIcon type="success" title={t('login.success')} /> : null}
           {state === 'first-password-change' ? (
-            <Form layout="vertical" onFinish={(values) => void submitFirstChange(values)}>
+            <Form
+              layout="vertical"
+              scrollToFirstError
+              onFinish={(values) => void submitFirstChange(values)}
+              onFinishFailed={(info) => {
+                const candidate = info.values.newPassword;
+                const fieldErrors = info.errorFields.flatMap((field) => field.errors);
+                const issueText = passwordPolicyIssues(candidate)
+                  .map((issue) => passwordIssueLabel(t, issue.code, candidate))
+                  .join('；');
+                setFirstChangeError(
+                  [t('login.passwordRejected'), issueText, ...fieldErrors]
+                    .filter((part, index, all) => part && all.indexOf(part) === index)
+                    .join(' '),
+                );
+              }}
+            >
               <Alert showIcon type="info" icon={<IconAlertTriangle stroke={2} />} title={t('login.firstChangeNotice')} />
               {firstChangeError ? <Alert id="first-change-error" showIcon type="error" title={t('login.firstChangeFailed')} description={firstChangeError} /> : null}
               <Form.Item
                 label={t('app.newPassword')}
                 name="newPassword"
+                validateTrigger={['onChange', 'onBlur', 'onSubmit']}
                 rules={[
                   { required: true, message: t('app.newPasswordPolicy') },
                   {
-                    validator: (_rule, value) => (
-                      value === undefined || passwordMeetsPolicy(value)
+                    validator: (_rule, value) => {
+                      if (value === undefined || value === '') {
+                        return Promise.resolve();
+                      }
+                      const issues = passwordPolicyIssues(value);
+                      return issues.length === 0
                         ? Promise.resolve()
-                        : Promise.reject(new Error(t('app.newPasswordPolicy')))
-                    ),
+                        : Promise.reject(new Error(
+                          issues.map((issue) => passwordIssueLabel(t, issue.code, value)).join('；'),
+                        ));
+                    },
                   },
                 ]}
               >
                 <Input.Password autoComplete="new-password" aria-describedby="first-change-help" />
               </Form.Item>
-              <p id="first-change-help" className="form-help">{t('login.passwordHelp')}</p>
+              <Form.Item shouldUpdate noStyle>
+                {({ getFieldValue }) => (
+                  <PasswordPolicyChecklist value={getFieldValue('newPassword')} t={t} />
+                )}
+              </Form.Item>
               <Form.Item
                 label={t('app.confirmPassword')}
                 name="confirmation"
@@ -218,7 +252,9 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
               >
                 <Input.Password autoComplete="new-password" />
               </Form.Item>
-              <Button block type="primary" htmlType="submit" loading={firstChangeSubmitting} disabled={firstChangeSubmitting}>{t('login.completeFirstChange')}</Button>
+              <Form.Item>
+                <Button block type="primary" htmlType="submit" loading={firstChangeSubmitting} disabled={firstChangeSubmitting}>{t('login.completeFirstChange')}</Button>
+              </Form.Item>
             </Form>
           ) : (
             <Form
@@ -258,6 +294,58 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
         </div>
       </section>
     </main>
+  );
+}
+
+function passwordIssueLabel(
+  t: (key: string, variables?: Record<string, string>) => string,
+  code: PasswordPolicyIssueCode,
+  value: unknown,
+): string {
+  const length = typeof value === 'string' ? String(value.length) : '0';
+  switch (code) {
+    case 'length-short':
+      return t('login.passwordTooShort', { length });
+    case 'length-long':
+      return t('login.passwordTooLong');
+    case 'upper':
+      return t('login.passwordNeedUpper');
+    case 'lower':
+      return t('login.passwordNeedLower');
+    case 'digit':
+      return t('login.passwordNeedDigit');
+    case 'symbol':
+      return t('login.passwordNeedSymbol');
+  }
+}
+
+function PasswordPolicyChecklist({
+  value,
+  t,
+}: {
+  value: unknown;
+  t: (key: string, variables?: Record<string, string>) => string;
+}) {
+  const checks = passwordPolicyChecks(value);
+  const length = typeof value === 'string' ? value.length : 0;
+  return (
+    <ul id="first-change-help" className="password-policy-checklist">
+      {checks.map((check) => (
+        <li
+          key={check.code}
+          className={check.met
+            ? 'password-policy-checklist__item is-met'
+            : 'password-policy-checklist__item is-missing'}
+        >
+          {check.code === 'length-short' || check.code === 'length-long'
+            ? `${t('login.passwordRuleLength')}（当前 ${length} 位）`
+            : check.code === 'upper' ? t('login.passwordRuleUpper')
+              : check.code === 'lower' ? t('login.passwordRuleLower')
+                : check.code === 'digit' ? t('login.passwordRuleDigit')
+                  : t('login.passwordRuleSymbol')}
+        </li>
+      ))}
+    </ul>
   );
 }
 

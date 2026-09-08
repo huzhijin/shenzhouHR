@@ -23,6 +23,7 @@ import com.szsemicon.hr.attendance.calculation.domain.AttendanceCalculationModel
 import com.szsemicon.hr.attendance.domain.OvertimeType;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -250,6 +251,14 @@ public final class DeterministicAttendanceCalculator {
             }
             return;
         }
+        if (confirmByDayPresence(
+                snapshot,
+                segment,
+                uncovered,
+                consumedPunchIds,
+                accumulator)) {
+            return;
+        }
         PunchSelection selection = selectPunches(
                 snapshot.punchEvents(), segment, consumedPunchIds);
         if (selection.ambiguous()) {
@@ -262,11 +271,11 @@ public final class DeterministicAttendanceCalculator {
                     accumulator);
             return;
         }
-        selection.selectedIds().forEach(consumedPunchIds::add);
         if (selection.arrival() == null || selection.departure() == null) {
             if (!selection.selectedIds().isEmpty()
                     && missingPunchSides(segment, uncovered, selection)
                             .isEmpty()) {
+                selection.selectedIds().forEach(consumedPunchIds::add);
                 for (TimeInterval slice : uncovered) {
                     accumulator.items.add(item(
                             segment,
@@ -280,6 +289,7 @@ public final class DeterministicAttendanceCalculator {
                 }
                 return;
             }
+            selection.selectedIds().forEach(consumedPunchIds::add);
             addMissingOrAmbiguous(
                     snapshot,
                     segment,
@@ -289,6 +299,7 @@ public final class DeterministicAttendanceCalculator {
                     accumulator);
             return;
         }
+        selection.selectedIds().forEach(consumedPunchIds::add);
         boolean convertedToAbsence = addLateOrConvertToAbsence(
                 snapshot,
                 segment,
@@ -331,70 +342,115 @@ public final class DeterministicAttendanceCalculator {
         }
     }
 
+    private void addLateWithoutAbsence(
+            CalculationInputSnapshot snapshot,
+            ScheduledWorkSegment segment,
+            List<TimeInterval> uncovered,
+            PunchSelection selection,
+            Accumulator accumulator) {
+        recordLate(
+                snapshot,
+                segment,
+                uncovered,
+                selection,
+                accumulator,
+                false);
+    }
+
     private boolean addLateOrConvertToAbsence(
             CalculationInputSnapshot snapshot,
             ScheduledWorkSegment segment,
             List<TimeInterval> uncovered,
             PunchSelection selection,
             Accumulator accumulator) {
-        if (selection.arrival().instant().isAfter(segment.interval().start())) {
-            TimeInterval rawInterval = new TimeInterval(
-                    segment.interval().start(),
-                    selection.arrival().instant());
-            long rawMinutes = intersectionsMinutes(rawInterval, uncovered);
-            if (rawMinutes > 0) {
-                boolean graceAvailable = snapshot.graceConsumption().used()
+        return recordLate(
+                snapshot,
+                segment,
+                uncovered,
+                selection,
+                accumulator,
+                true);
+    }
+
+    /**
+     * Arrival at or after the published start is late. Exact-on-start has
+     * zero raw minutes and does not consume monthly grace, but is still a
+     * late event.
+     */
+    private boolean recordLate(
+            CalculationInputSnapshot snapshot,
+            ScheduledWorkSegment segment,
+            List<TimeInterval> uncovered,
+            PunchSelection selection,
+            Accumulator accumulator,
+            boolean convertToAbsenceEnabled) {
+        Instant arrival = selection.arrival().instant();
+        Instant start = segment.interval().start();
+        if (arrival.isBefore(start)) {
+            return false;
+        }
+        boolean exactStart = !arrival.isAfter(start);
+        TimeInterval rawInterval = exactStart
+                ? new TimeInterval(start, start.plusNanos(1))
+                : new TimeInterval(start, arrival);
+        long rawMinutes = exactStart
+                ? 0
+                : intersectionsMinutes(rawInterval, uncovered);
+        if (!exactStart && rawMinutes <= 0) {
+            return false;
+        }
+        boolean graceAvailable = !exactStart
+                && snapshot.graceConsumption().used()
                         < snapshot.policy().monthlyLateGraceUses();
-                long graceMinutes = graceAvailable
-                        ? Math.min(
-                                rawMinutes,
-                                snapshot.policy().lateGraceMaxMinutes())
-                        : 0;
-                long includedMinutes = rawMinutes - graceMinutes;
-                boolean convertedToAbsence = includedMinutes >= 30;
-                String ruleCode = convertedToAbsence
-                        ? "LATE_CONVERTED_TO_ABSENCE"
+        long graceMinutes = graceAvailable
+                ? Math.min(rawMinutes, snapshot.policy().lateGraceMaxMinutes())
+                : 0;
+        long includedMinutes = rawMinutes - graceMinutes;
+        boolean convertedToAbsence = convertToAbsenceEnabled
+                && includedMinutes >= 30;
+        String ruleCode = convertedToAbsence
+                ? "LATE_CONVERTED_TO_ABSENCE"
+                : exactStart
+                        ? "LATE_AT_SHIFT_START"
                         : includedMinutes == 0
                                 ? "MONTHLY_LATE_GRACE_CONSUMED"
                                 : "LATE_CHARGEABLE";
-                accumulator.ruleHits.add(new RuleHit(
-                        ruleId(segment, "LATE"),
-                        snapshot.configurationSnapshotReference(),
-                        segment.segmentId(),
-                        ruleCode,
-                        rawMinutes,
-                        convertedToAbsence ? 0 : includedMinutes,
-                        List.of(selection.arrival().eventId())));
-                if (convertedToAbsence) {
-                    String fingerprint = exceptionFingerprint(
-                            snapshot,
-                            segment.segmentId(),
-                            segment.interval(),
-                            ruleCode,
-                            List.of(selection.arrival().eventId()));
-                    accumulator.exceptionFingerprints.add(fingerprint);
-                    accumulator.items.add(item(
-                            segment,
-                            segment.interval(),
-                            ResultCategory.ABSENCE,
-                            segment.interval().minutes(),
-                            ruleCode,
-                            List.of(selection.arrival().eventId()),
-                            fingerprint,
-                            "late-absence"));
-                    return true;
-                }
-                accumulator.items.add(item(
-                        segment,
-                        rawInterval,
-                        ResultCategory.LATE,
-                        includedMinutes,
-                        ruleCode,
-                        List.of(selection.arrival().eventId()),
-                        null,
-                        "late"));
-            }
+        accumulator.ruleHits.add(new RuleHit(
+                ruleId(segment, "LATE"),
+                snapshot.configurationSnapshotReference(),
+                segment.segmentId(),
+                ruleCode,
+                rawMinutes,
+                convertedToAbsence ? 0 : includedMinutes,
+                List.of(selection.arrival().eventId())));
+        if (convertedToAbsence) {
+            String fingerprint = exceptionFingerprint(
+                    snapshot,
+                    segment.segmentId(),
+                    segment.interval(),
+                    ruleCode,
+                    List.of(selection.arrival().eventId()));
+            accumulator.exceptionFingerprints.add(fingerprint);
+            accumulator.items.add(item(
+                    segment,
+                    segment.interval(),
+                    ResultCategory.ABSENCE,
+                    segment.interval().minutes(),
+                    ruleCode,
+                    List.of(selection.arrival().eventId()),
+                    fingerprint,
+                    "late-absence"));
+            return true;
         }
+        accumulator.items.add(item(
+                segment,
+                rawInterval,
+                ResultCategory.LATE,
+                includedMinutes,
+                ruleCode,
+                List.of(selection.arrival().eventId()),
+                null,
+                "late"));
         return false;
     }
 
@@ -526,7 +582,8 @@ public final class DeterministicAttendanceCalculator {
                 .toInstant();
         return snapshot.intervalEvidence().stream()
                 .filter(IntervalEvidence::effective)
-                .filter(value -> value.kind() == EvidenceKind.OUTING)
+                .filter(value -> value.kind() == EvidenceKind.OUTING
+                        || value.kind() == EvidenceKind.TRIP)
                 .filter(value -> value.interval().start().isBefore(dayEnd))
                 .filter(value -> value.interval().end().isAfter(dayStart))
                 .sorted(Comparator.comparing(IntervalEvidence::evidenceId))
@@ -560,47 +617,16 @@ public final class DeterministicAttendanceCalculator {
                 .map(IntervalEvidence::evidenceId)
                 .sorted()
                 .toList();
-        List<String> missingSides = missingPunchSides(
-                segment,
-                uncovered,
-                new PunchSelection(null, null, false));
-        if (missingSides.isEmpty()) {
-            for (TimeInterval slice : uncovered) {
-                accumulator.items.add(item(
-                        segment,
-                        slice,
-                        ResultCategory.ABSENCE,
-                        slice.minutes(),
-                        "OUTING_APPROVED_WITHOUT_PUNCH",
-                        evidenceIds,
-                        null,
-                        "outing-absence"));
-            }
-            return;
-        }
-        for (int sideIndex = 0;
-                sideIndex < missingSides.size();
-                sideIndex++) {
-            String side = missingSides.get(sideIndex);
-            String reasonCode = "MISSING_PUNCH_OUTING_" + side;
-            String fingerprint = exceptionFingerprint(
-                    snapshot,
-                    segment.segmentId(),
-                    segment.interval(),
-                    reasonCode,
-                    evidenceIds);
-            accumulator.exceptionFingerprints.add(fingerprint);
-            for (TimeInterval slice : uncovered) {
-                accumulator.items.add(item(
-                        segment,
-                        slice,
-                        ResultCategory.ABSENCE,
-                        sideIndex == 0 ? slice.minutes() : 0,
-                        reasonCode,
-                        evidenceIds,
-                        fingerprint,
-                        "outing-missing-" + side.toLowerCase()));
-            }
+        for (TimeInterval slice : uncovered) {
+            accumulator.items.add(item(
+                    segment,
+                    slice,
+                    ResultCategory.OUTING_WORK,
+                    slice.minutes(),
+                    "OUTING_APPROVED_WITHOUT_PUNCH",
+                    evidenceIds,
+                    null,
+                    "outing-work-no-punch"));
         }
     }
 
@@ -613,31 +639,41 @@ public final class DeterministicAttendanceCalculator {
                         .filter(IntervalEvidence::effective)
                         .filter(value ->
                                 value.kind() == EvidenceKind.OVERTIME)
-                        .filter(value -> value.overtimeType() != null)
                         .toList();
         for (IntervalEvidence authorization : overtimeEvidence) {
-            List<PunchEvent> available = snapshot.punchEvents().stream()
-                    .filter(value -> !consumedPunchIds.contains(value.eventId()))
-                    .filter(value -> inclusiveContains(
-                            authorization.interval(), value.instant()))
+            // Pair the day's punches first, then clip to the approved form.
+            // Use every punch, not leftovers after scheduled matching: the same
+            // in/out pair that confirmed the shift still proves after-hours
+            // overtime. Subtract scheduled segments so weekday work is not
+            // counted twice. Punches just outside the form still prove a
+            // covering span; the recognized interval is the intersection.
+            List<PunchEvent> ordered = snapshot.punchEvents().stream()
                     .sorted(Comparator.comparing(PunchEvent::instant)
                             .thenComparing(PunchEvent::eventId))
                     .toList();
-            List<PresenceSpan> presence = pairPresence(available).stream()
+            List<PresenceSpan> presence = pairPresence(ordered).stream()
                     .map(span -> span.intersection(authorization.interval()))
                     .filter(Objects::nonNull)
                     .toList();
             if (presence.isEmpty()) {
                 continue;
             }
+            List<TimeInterval> eligibleParts = new ArrayList<>();
+            for (PresenceSpan span : presence) {
+                eligibleParts.addAll(subtractScheduled(
+                        span.interval(), snapshot.segments()));
+            }
+            if (eligibleParts.isEmpty()) {
+                continue;
+            }
             presence.stream()
                     .flatMap(span -> span.punchIds().stream())
                     .forEach(consumedPunchIds::add);
             TimeInterval eligible = new TimeInterval(
-                    presence.getFirst().interval().start(),
-                    presence.getLast().interval().end());
-            long actualMinutes = presence.stream()
-                    .mapToLong(span -> span.interval().minutes())
+                    eligibleParts.getFirst().start(),
+                    eligibleParts.getLast().end());
+            long actualMinutes = eligibleParts.stream()
+                    .mapToLong(TimeInterval::minutes)
                     .sum();
             List<String> punchIds = presence.stream()
                     .flatMap(span -> span.punchIds().stream())
@@ -663,9 +699,16 @@ public final class DeterministicAttendanceCalculator {
                         null,
                         "overtime-presence"));
             }
-            boolean timely = overtimeTimely(
+            boolean fake = overlapsUnleavedScheduledWork(
+                    authorization.interval(), snapshot);
+            boolean timely = !fake && overtimeTimely(
                     snapshot, authorization, eligible.end());
             long recognized = timely ? actualMinutes : 0;
+            String overtimeReason = fake
+                    ? "FAKE_OVERTIME"
+                    : (timely
+                            ? "OVERTIME_AUTHORIZED_AND_TIMELY"
+                            : "OVERTIME_DOCUMENT_MISSING_OR_LATE");
             if (timely) {
                 for (MealDeductionRule rule :
                         snapshot.policy().mealDeductions()) {
@@ -685,26 +728,73 @@ public final class DeterministicAttendanceCalculator {
                     ruleId(synthetic, "OVERTIME"),
                     authorization.sourceReference(),
                     segmentId,
-                    timely
-                            ? "OVERTIME_AUTHORIZED_AND_TIMELY"
-                            : "OVERTIME_DOCUMENT_MISSING_OR_LATE",
+                    overtimeReason,
                     actualMinutes,
                     recognized,
                     evidenceReferences(
                             authorization.evidenceId(), punchIds)));
+            String fingerprint = fake
+                    ? exceptionFingerprint(
+                            snapshot,
+                            segmentId,
+                            eligible,
+                            "FAKE_OVERTIME",
+                            List.of(authorization.evidenceId()))
+                    : null;
+            if (fingerprint != null) {
+                accumulator.exceptionFingerprints.add(fingerprint);
+            }
             accumulator.items.add(item(
                     synthetic,
                     eligible,
                     ResultCategory.RECOGNIZED_OVERTIME,
                     recognized,
-                    timely
-                            ? "OVERTIME_AUTHORIZED_AND_TIMELY"
-                            : "OVERTIME_DOCUMENT_MISSING_OR_LATE",
+                    overtimeReason,
                     evidenceReferences(
                             authorization.evidenceId(), punchIds),
-                    null,
+                    fingerprint,
                     "recognized-overtime"));
         }
+    }
+
+    private boolean overlapsUnleavedScheduledWork(
+            TimeInterval overtime, CalculationInputSnapshot snapshot) {
+        List<TimeInterval> leave = snapshot.intervalEvidence().stream()
+                .filter(IntervalEvidence::effective)
+                .filter(value -> value.kind() == EvidenceKind.LEAVE
+                        || value.kind() == EvidenceKind.TIME_OFF)
+                .map(IntervalEvidence::interval)
+                .toList();
+        for (ScheduledWorkSegment segment : snapshot.segments()) {
+            List<TimeInterval> remaining = List.of(segment.interval());
+            for (TimeInterval covered : leave) {
+                remaining = remaining.stream()
+                        .flatMap(part -> subtractInterval(part, covered).stream())
+                        .toList();
+            }
+            for (TimeInterval part : remaining) {
+                if (overtime.overlaps(part)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<TimeInterval> subtractInterval(
+            TimeInterval value, TimeInterval covered) {
+        TimeInterval overlap = value.intersection(covered);
+        if (overlap == null) {
+            return List.of(value);
+        }
+        List<TimeInterval> remaining = new ArrayList<>();
+        if (value.start().isBefore(overlap.start())) {
+            remaining.add(new TimeInterval(value.start(), overlap.start()));
+        }
+        if (overlap.end().isBefore(value.end())) {
+            remaining.add(new TimeInterval(overlap.end(), value.end()));
+        }
+        return remaining;
     }
 
     /**
@@ -784,6 +874,154 @@ public final class DeterministicAttendanceCalculator {
                         .substring(0, 20);
     }
 
+    private boolean confirmByDayPresence(
+            CalculationInputSnapshot snapshot,
+            ScheduledWorkSegment segment,
+            List<TimeInterval> uncovered,
+            Set<String> consumedPunchIds,
+            Accumulator accumulator) {
+        List<PunchEvent> dayPunches = snapshot.punchEvents();
+        if (!canUseDayPresence(dayPunches)) {
+            return false;
+        }
+        PunchEvent morning = earliestMorningPunch(snapshot, dayPunches);
+        PunchEvent afternoon = latestAfternoonPunch(snapshot, dayPunches);
+        if (morning == null || afternoon == null) {
+            return false;
+        }
+        PresenceSpan covering = coveringPresence(morning, afternoon, dayPunches);
+        if (covering == null) {
+            return false;
+        }
+        if (!covering.interval().overlaps(segment.interval())) {
+            return false;
+        }
+        PunchSelection selection = new PunchSelection(
+                morning, afternoon, false);
+        covering.punchIds().forEach(consumedPunchIds::add);
+        if (isFirstScheduledSegment(snapshot, segment)) {
+            addLateWithoutAbsence(
+                    snapshot,
+                    segment,
+                    uncovered,
+                    selection,
+                    accumulator);
+        }
+        for (TimeInterval slice : uncovered) {
+            accumulator.items.add(item(
+                    segment,
+                    slice,
+                    ResultCategory.SCHEDULED_WORK,
+                    slice.minutes(),
+                    "DAY_PRESENCE_CONFIRMED",
+                    selection.selectedIds(),
+                    null,
+                    "work"));
+        }
+        if (isLastScheduledSegment(snapshot, segment)) {
+            addEarlyDeparture(
+                    snapshot,
+                    segment,
+                    uncovered,
+                    selection,
+                    accumulator);
+        }
+        return true;
+    }
+
+    private boolean isFirstScheduledSegment(
+            CalculationInputSnapshot snapshot, ScheduledWorkSegment segment) {
+        return snapshot.segments().stream()
+                .map(value -> value.interval().start())
+                .min(Comparator.naturalOrder())
+                .filter(start -> start.equals(segment.interval().start()))
+                .isPresent();
+    }
+
+    private boolean isLastScheduledSegment(
+            CalculationInputSnapshot snapshot, ScheduledWorkSegment segment) {
+        return snapshot.segments().stream()
+                .map(value -> value.interval().end())
+                .max(Comparator.naturalOrder())
+                .filter(end -> end.equals(segment.interval().end()))
+                .isPresent();
+    }
+
+    private boolean canUseDayPresence(List<PunchEvent> punches) {
+        return punches.size() >= 2
+                && punches.stream().allMatch(value ->
+                        value.direction() == PunchDirection.AUTO);
+    }
+
+    private PresenceSpan coveringPresence(
+            PunchEvent morning,
+            PunchEvent afternoon,
+            List<PunchEvent> punches) {
+        if (!morning.instant().isBefore(afternoon.instant())) {
+            return null;
+        }
+        return new PresenceSpan(
+                new TimeInterval(morning.instant(), afternoon.instant()),
+                punches.stream().map(PunchEvent::eventId).toList());
+    }
+
+    private PunchEvent earliestMorningPunch(
+            CalculationInputSnapshot snapshot, List<PunchEvent> punches) {
+        Instant noon = snapshot.businessDate()
+                .atTime(LocalTime.NOON)
+                .atZone(snapshot.businessZone())
+                .toInstant();
+        return punches.stream()
+                .filter(value -> value.instant().isBefore(noon))
+                .min(Comparator.comparing(PunchEvent::instant)
+                        .thenComparing(PunchEvent::eventId))
+                .orElse(null);
+    }
+
+    private PunchEvent latestAfternoonPunch(
+            CalculationInputSnapshot snapshot, List<PunchEvent> punches) {
+        Instant noon = snapshot.businessDate()
+                .atTime(LocalTime.NOON)
+                .atZone(snapshot.businessZone())
+                .toInstant();
+        Instant overnightEnd = snapshot.businessDate()
+                .plusDays(1)
+                .atTime(6, 0)
+                .atZone(snapshot.businessZone())
+                .toInstant()
+                .plusNanos(1);
+        return punches.stream()
+                .filter(value -> !value.instant().isBefore(noon)
+                        && value.instant().isBefore(overnightEnd))
+                .max(Comparator.comparing(PunchEvent::instant)
+                        .thenComparing(PunchEvent::eventId))
+                .orElse(null);
+    }
+
+    private List<TimeInterval> subtractScheduled(
+            TimeInterval window, List<ScheduledWorkSegment> segments) {
+        List<TimeInterval> remaining = new ArrayList<>();
+        remaining.add(window);
+        for (ScheduledWorkSegment segment : segments) {
+            List<TimeInterval> next = new ArrayList<>();
+            for (TimeInterval current : remaining) {
+                TimeInterval overlap = current.intersection(segment.interval());
+                if (overlap == null) {
+                    next.add(current);
+                    continue;
+                }
+                if (current.start().isBefore(overlap.start())) {
+                    next.add(new TimeInterval(current.start(), overlap.start()));
+                }
+                if (overlap.end().isBefore(current.end())) {
+                    next.add(new TimeInterval(overlap.end(), current.end()));
+                }
+            }
+            remaining = next;
+        }
+        return remaining;
+    }
+
     private List<PresenceSpan> pairPresence(List<PunchEvent> orderedPunches) {
         if (orderedPunches.size() < 2 || orderedPunches.size() % 2 != 0) {
             return List.of();
@@ -840,17 +1078,12 @@ public final class DeterministicAttendanceCalculator {
             CalculationInputSnapshot snapshot,
             IntervalEvidence authorization,
             Instant actualEnd) {
-        Instant submitted = authorization.firstSubmittedAt() != null
-                ? authorization.firstSubmittedAt()
-                : snapshot.policy().overtimeFirstSubmittedAt();
-        if (submitted == null || !authorization.effective()) {
-            return false;
-        }
-        if (!submitted.isAfter(actualEnd)) {
-            return true;
-        }
-        return Duration.between(actualEnd, submitted).toMinutes()
-                <= snapshot.policy().overtimeSubmissionDeadlineMinutes();
+        Objects.requireNonNull(snapshot, "snapshot");
+        Objects.requireNonNull(actualEnd, "actualEnd");
+        // OA already approved and activated this form. The source workflow
+        // is the authorization; a local submission-deadline gate would zero
+        // Saturday overtime that HR approved a few days later.
+        return authorization.effective();
     }
 
     private AttendanceMetrics metrics(

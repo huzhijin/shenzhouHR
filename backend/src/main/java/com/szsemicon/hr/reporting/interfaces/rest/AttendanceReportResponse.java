@@ -28,7 +28,8 @@ record AttendanceReportResponse(
             String periodLabel,
             String periodState,
             ProjectionScope scope,
-            List<String> allowedActions) {
+            List<String> allowedActions,
+            boolean sourcesNewerThanPin) {
     }
 
     record ProjectionScope(
@@ -43,7 +44,9 @@ record AttendanceReportResponse(
             String companyId,
             String organizationId,
             String employeeId,
-            String status) {
+            String status,
+            String fromDate,
+            String toDate) {
     }
 
     record ReportColumn(String key, String label) {

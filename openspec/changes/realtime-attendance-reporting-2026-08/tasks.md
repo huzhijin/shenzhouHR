@@ -1,47 +1,62 @@
-## 1. Reusable Calculation Core
+## 1. Calculation core
 
-- [x] 1.1 Make the existing full calculation orchestrator contract explicitly side-effect-free and reuse it as the realtime and optional publication calculation core
-- [x] 1.2 Return daily facts, OA report facts, time-account facts, source versions, data cutoff, and deterministic complete-output digest without creating a report projection
-- [ ] 1.3 Keep the optional publication path on the same calculation service and prove realtime and publication calculations have identical business values for the same snapshot
-- [ ] 1.4 Preserve fail-closed behavior for ambiguous identity, attendance group, shift, calendar, policy, OA status, and unresolved leave revocation
+- [x] 1.1 Side-effect-free full-calc orchestrator reused by realtime query
+- [x] 1.2 Return daily/OA/time-account facts, source versions, cutoff, digest; no projection write
+- [x] 1.3 Prove realtime query and optional publication yield identical business values for the same snapshot
+- [x] 1.4 Fail closed on ambiguous identity, attendance group, shift, calendar, policy, or OA status
+- [x] 1.5 Approved leave with no revocation uses the original leave start/end
+- [x] 1.6 Approved leave with revocation(s) uses 销假 actual start/end (formmain_0370 field0086/87), not the original leave interval
+- [x] 1.7 Multiple approved revocations for one leave: union actual intervals and merge overlaps; do not fail the whole company-month
+- [x] 1.8 Persist leave serial (field0097) and original-leave serial (field0099) on ingest; match by serial, fall back to same employee number
+- [x] 1.9 Project the real shift template name into daily/matrix facts; stop hardcoding 「计算班次」
 
-## 2. Authorized Batch Inputs
+## 2. Authorized batch inputs
 
-- [x] 2.1 Resolve the current principal's report capability and effective COMPANY, ORGANIZATION, descendant, and SELF scope before loading calculation inputs
-- [x] 2.2 Keep bounded company-period batch queries for employee identities, assignments, attendance groups, shifts, calendars, Deli punches, punch corrections, exemption roles, and OA documents
-- [x] 2.3 Ensure every source query is constrained by company with no per-employee or per-day query loop, and filter the immutable facts by the freshly resolved employee/organization scope before aggregation
-- [ ] 2.4 Add a lightweight input-version query covering Deli/OA committed watermarks and all personnel/configuration versions used by the calculation
-- [x] 2.5 Generate a deterministic snapshot token and expose the Deli/OA cutoffs and calculation data-as-of time
+- [x] 2.1 Resolve capability and COMPANY/ORGANIZATION/SELF before loading inputs
+- [x] 2.2 Company-period batch queries (no per-employee/day loops)
+- [x] 2.3 Filter facts by freshly resolved scope before aggregation
+- [ ] 2.4 (deferred this round) Lightweight input-version catalog over all people/config versions — token remains Deli/OA watermark + calc digest, not a full catalog
+- [x] 2.5 LIVE snapshot token + Deli/OA cutoffs + dataAsOf
 
-## 3. Realtime Report Service
+## 3. Realtime report service
 
-- [x] 3.1 Implement a realtime report query service that calculates without reading or writing `attendance_report_projection`
-- [x] 3.2 Implement a bounded company-month calculation cache with a 30-second active bucket and retain exact first-page tokens for at most five minutes; never cache authorization results
-- [ ] 3.3 Preserve page, aggregate, drill-down, and expected-version consistency using the input snapshot token
-- [ ] 3.4 Return safe retryable errors for source staleness, snapshot change, unsafe documents, and ambiguous inputs instead of zero-valued reports
-- [ ] 3.5 Record cache hit/miss/eviction, input-load duration, calculation duration, row count, and safe failure metrics without sensitive evidence content
+- [x] 3.1 Query without reading/writing attendance_report_projection
+- [x] 3.2 30s company-month cache, 5-minute token retain; never cache authorization
+- [x] 3.3 Page, aggregate, drill-down, and CustomerReportCenter URL params stay on one LIVE token
+- [x] 3.4 Safe retryable errors for snapshot change, source failure, quarantine, ambiguous inputs (no fake zeros)
+- [ ] 3.5 (deferred) Complete cache/calc metrics acceptance
 
-## 4. API and Frontend Cutover
+## 4. Official report UI (CustomerReportCenter only)
 
-- [x] 4.1 Route the existing attendance report company-options and GET endpoints to the realtime service while preserving the established response shape
-- [x] 4.2 Interpret the existing `projectionVersion` response/request field as the realtime input snapshot token and document the compatibility behavior
-- [x] 4.3 Remove publication/approval/not-ready prerequisites from the report-center user flow and add an explicit refresh action
-- [x] 4.4 Display calculation time and Deli/OA source cutoffs so users can see data freshness
-- [x] 4.5 Keep legacy projection default zeroes from being presented as measured day counts or classified overtime
-- [x] 4.6 Update OpenAPI for realtime query behavior, snapshot-change errors, freshness metadata, and the absence of a publication prerequisite
+- [x] 4.1 Route report GET/company-options to realtime while preserving response shape
+- [x] 4.2 Interpret projectionVersion as the LIVE snapshot token
+- [x] 4.3 Remove publication prerequisite from report-center and add refresh
+- [x] 4.4 Display calculation time and Deli/OA source cutoffs
+- [x] 4.5 Do not present legacy projection zeroes as measured days or classified overtime
+- [x] 4.6 Update OpenAPI for realtime query, snapshot-change, freshness, no publish gate
+- [x] 4.7 Read reportType/period/companyId/expectedProjectionVersion from the URL (dashboard deep link)
+- [x] 4.8 Show 暂算/OPEN on the official report header
 
-## 5. Dependent Consumers
+## 5. Same LIVE snapshot for export and dashboard
 
-- [ ] 5.1 Bind report export creation and download to the same realtime snapshot token and authorization digest
-- [ ] 5.2 Switch dashboard summary and drill-down reads to the realtime snapshot service or mark them explicitly unavailable until the same snapshot can be used
-- [x] 5.3 Retain the old publication endpoint only as a compatibility/internal operation and ensure it is not linked from the default UI
+- [x] 5.1 Bind export create/download to the LIVE token; restore REPORT_EXPORT actions on the realtime path
+- [x] 5.2 Switch dashboard (and self today if kept) to the same realtime snapshot; no PROJECTION_NOT_READY
+- [x] 5.3 Keep publication API internal; not linked from default UI
 
-## 6. Verification and Delivery
+## 6. Sync, self-service, environment
 
-- [ ] 6.1 Add no-projection end-to-end tests using Deli punches, OA leave/overtime/outing/exemption/correction evidence, shifts, attendance groups, and organization scope
-- [ ] 6.2 Add cross-company, organization-descendant, SELF, expired-scope, and unauthorized negative tests proving calculation is never performed outside scope
-- [ ] 6.3 Add snapshot-change, source failure, quarantine, stale watermark, ambiguous input, and unresolved leave-revocation fail-closed tests
-- [ ] 6.4 Add a 5,000-employee company-month cold/warm performance test proving bounded query counts and the 5-second/1-second budgets
-- [ ] 6.5 Run backend, frontend, OpenAPI, OpenSpec strict, migration, and Baota release gates from one clean commit
-- [ ] 6.6 Perform a customer-environment single-company manual Deli/OA sync, compare sample employees against source records, and capture cold/warm report timings
-- [ ] 6.7 Build a clean immutable Baota release package with manifest and SHA only after the realtime report acceptance evidence passes
+- [x] 6.1 Diagnose and fix customer Deli job failures using Deli v3 OA integration (`doc.delicloud.com/v3/integration/oa.html`): employee/department APIs supply employee codes used to bind local employee ids
+- [x] 6.2 Incremental next_id sync of the full punch set; do not advance cursor on failed pages
+- [x] 6.3 Show last sync failure reason and offer manual retry from the operator UI
+- [x] 6.4 Deploy env defaults: Deli/OA auto-sync on after cutover (Java property default stays false)
+- [x] 6.5 Employee /me/records, /me/leave use LIVE facts; /me/feedback menu hidden (no fake page)
+- [ ] 6.6 Customer DB: backup then forward-migrate V36–V49 on shenzhou_hr (now at V35) — 由客户在宝塔执行，见 2026-08-18 部署手册
+- [ ] 6.7 Single-company Deli+OA sync and sample-employee reconciliation (Q13 acceptance) — 部署并同步后由客户对账
+- [x] 6.8 Tests: no-projection query path; scope negatives; 销假 replace+union (not company-month fail-closed)
+
+## 7. Deferred after this round
+
+- [ ] 7.1 5,000-employee cold/warm performance gate
+- [ ] 7.2 Full backend/frontend/OpenAPI/migration/Baota gates on one clean commit
+- [ ] 7.3 Immutable Baota release package after 6.7 passes
+- [ ] 7.4 business-rules 12.9–12.12 staging/production window (Q16=B)

@@ -64,7 +64,7 @@ class AttendancePolicyCalculationMapperContractTest {
         String statement = policyStatement();
 
         assertThat(statement).contains(
-                "with recursive business_dates",
+                "business_dates (business_date)",
                 "attendance_group_assignment assignment",
                 "attendance_assignment_timeline assignment_state",
                 "attendance_group_revision group_revision",
@@ -125,12 +125,13 @@ class AttendancePolicyCalculationMapperContractTest {
                 "</select>");
 
         assertThat(statement).contains(
-                "source.company_id = #{companyid}",
                 "source.status = 'active'",
                 "source.source_type in ('deli_cloud', 'oa_attendance')",
                 "watermark.committed_at &lt;= #{dataasof}",
                 "watermark.committed_page_digest",
                 "candidate.created_at &lt;= #{dataasof}");
+        assertThat(statement).doesNotContain(
+                "source.company_id = #{companyid}");
         assertThat(statement).doesNotContain("committed_cursor");
 
         Class<?> mapper = Class.forName(

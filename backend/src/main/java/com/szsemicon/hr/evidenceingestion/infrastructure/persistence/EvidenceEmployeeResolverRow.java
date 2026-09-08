@@ -2,6 +2,7 @@ package com.szsemicon.hr.evidenceingestion.infrastructure.persistence;
 
 record EvidenceEmployeeResolverRow(
         String employeeId,
+        String companyId,
         String employmentPeriodId,
         String assignmentVersionId,
         String employeeVersionId,

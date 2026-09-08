@@ -40,6 +40,8 @@ class AttendanceReportProjectionWriteMapperXmlTest {
                         NAMESPACE + "insertExceptionFact",
                         NAMESPACE + "insertOaDocumentFact",
                         NAMESPACE + "insertTimeAccountFact",
-                        NAMESPACE + "markPublished");
+                        NAMESPACE + "markPublished",
+                        NAMESPACE + "copyOaDocumentFactsExceptEmployeeWindow",
+                        NAMESPACE + "copyTimeAccountFactsExceptEmployee");
     }
 }

@@ -45,6 +45,7 @@ class AttendanceReportMapperXmlTest {
                         NAMESPACE + "listRealtimeAuthorizedScopes",
                         NAMESPACE + "listAuthorizedOrganizationIds",
                         NAMESPACE + "listLatestAuthorizedProjections",
+                        NAMESPACE + "listCommittedSourceCutoffs",
                         NAMESPACE + "listAuthorizedScopes",
                         NAMESPACE
                                 + "listAuthorizedDepartmentAttendanceRates",
@@ -53,7 +54,15 @@ class AttendanceReportMapperXmlTest {
                         NAMESPACE + "listAuthorizedDailyFacts",
                         NAMESPACE + "listAuthorizedOaFacts",
                         NAMESPACE + "listAuthorizedExceptionFacts",
-                        NAMESPACE + "listAuthorizedTimeAccountFacts");
+                        NAMESPACE + "listAuthorizedTimeAccountFacts",
+                        NAMESPACE + "countAuthorizedMatrixEmployees",
+                        NAMESPACE + "listAuthorizedMatrixEmployees",
+                        NAMESPACE + "listAuthorizedDailyFactsForEmployees",
+                        NAMESPACE + "listAuthorizedOaFactsForEmployees",
+                        NAMESPACE + "listAuthorizedExceptionFactsForEmployees",
+                        NAMESPACE + "listOrganizationSubtree",
+                        NAMESPACE + "findCurrentOrganizationGraph",
+                        NAMESPACE + "findCurrentOrganizationAncestors");
     }
 
     @Test
@@ -155,6 +164,37 @@ class AttendanceReportMapperXmlTest {
                         "projection.company_id = ?",
                         "fact.attendance_report_projection_id = ?",
                         "fact.company_id = ?");
+    }
+
+    @Test
+    void matrixEmployeeCountUsesGroupedPinFactsAndSargableOaRange()
+            throws Exception {
+        var parameters = new HashMap<String, Object>();
+        parameters.put("projectionId", "projection-1");
+        parameters.put("companyId", "company-a");
+        parameters.put("periodStart", LocalDate.of(2026, 8, 1));
+        parameters.put("periodEndExclusive", LocalDate.of(2026, 9, 1));
+        parameters.put(
+                "periodStartAt", Instant.parse("2026-07-31T16:00:00Z"));
+        parameters.put(
+                "periodEndExclusiveAt", Instant.parse("2026-08-31T16:00:00Z"));
+        parameters.put("organizationId", null);
+        parameters.put("employeeId", null);
+
+        String sql = configuration()
+                .getMappedStatement(
+                        NAMESPACE + "countAuthorizedMatrixEmployees")
+                .getBoundSql(parameters)
+                .getSql()
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+
+        assertThat(sql).contains("group by fact.employee_id");
+        assertThat(sql).contains("attendance_report_daily_fact");
+        assertThat(sql).contains("attendance_report_oa_fact");
+        assertThat(sql).doesNotContain("timestampadd");
+        assertThat(sql).doesNotContain("coalesce(");
     }
 
     @Test

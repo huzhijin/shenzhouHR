@@ -108,6 +108,10 @@ interface AttendanceReportMapper {
             @Param("capabilityCode") String capabilityCode,
             @Param("authorizationTime") Instant authorizationTime);
 
+    List<ReportRows.PrincipalHomeRow> resolvePrincipalHome(
+            @Param("principalId") String principalId,
+            @Param("businessDate") LocalDate businessDate);
+
     List<ReportRows.ScopeRow> listRealtimeAuthorizedScopes(
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,
@@ -118,6 +122,12 @@ interface AttendanceReportMapper {
             @Param("companyId") String companyId,
             @Param("scopes") List<ReportRows.ScopeRow> scopes,
             @Param("authorizationTime") Instant authorizationTime);
+
+    boolean companyHasSourceEvidence(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
 
     List<ReportRows.ProjectionRow> listLatestAuthorizedProjections(
             @Param("principalId") String principalId,
@@ -175,6 +185,54 @@ interface AttendanceReportMapper {
                     @Param("authorizationTime")
                             Instant authorizationTime);
 
+    long countAuthorizedMatrixEmployees(
+            @Param("projectionId") String projectionId,
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("periodStartAt") Instant periodStartAt,
+            @Param("periodEndExclusiveAt") Instant periodEndExclusiveAt,
+            @Param("organizationId") String organizationId,
+            @Param("employeeId") String employeeId);
+
+    List<ReportRows.MatrixEmployeeRow> listAuthorizedMatrixEmployees(
+            @Param("projectionId") String projectionId,
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("periodStartAt") Instant periodStartAt,
+            @Param("periodEndExclusiveAt") Instant periodEndExclusiveAt,
+            @Param("organizationId") String organizationId,
+            @Param("employeeId") String employeeId,
+            @Param("offset") int offset,
+            @Param("limit") int limit);
+
+    List<ReportRows.DailyRow> listAuthorizedDailyFactsForEmployees(
+            @Param("projectionId") String projectionId,
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("organizationId") String organizationId,
+            @Param("employeeIds") List<String> employeeIds);
+
+    List<ReportRows.OaDocumentRow> listAuthorizedOaFactsForEmployees(
+            @Param("projectionId") String projectionId,
+            @Param("companyId") String companyId,
+            @Param("periodStartAt") Instant periodStartAt,
+            @Param("periodEndExclusiveAt") Instant periodEndExclusiveAt,
+            @Param("organizationId") String organizationId,
+            @Param("employeeIds") List<String> employeeIds);
+
+    List<ReportRows.ExceptionRow> listAuthorizedExceptionFactsForEmployees(
+            @Param("projectionId") String projectionId,
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("organizationId") String organizationId,
+            @Param("employeeId") String employeeId,
+            @Param("status") String status,
+            @Param("employeeIds") List<String> employeeIds);
+
     List<ReportRows.DailyRow> listAuthorizedDailyFacts(
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,
@@ -197,6 +255,12 @@ interface AttendanceReportMapper {
             @Param("employeeId") String employeeId,
             @Param("authorizationTime") Instant authorizationTime);
 
+    List<ReportRows.ExceptionRow> listNegativeLeaveBalanceExceptions(
+            @Param("companyId") String companyId,
+            @Param("accountYear") int accountYear,
+            @Param("businessDate") LocalDate businessDate,
+            @Param("employeeId") String employeeId);
+
     List<ReportRows.ExceptionRow> listAuthorizedExceptionFacts(
             @Param("principalId") String principalId,
             @Param("capabilityCode") String capabilityCode,
@@ -217,4 +281,16 @@ interface AttendanceReportMapper {
             @Param("organizationId") String organizationId,
             @Param("employeeId") String employeeId,
             @Param("authorizationTime") Instant authorizationTime);
+
+    List<ReportRows.SourceCutoffRow> listCommittedSourceCutoffs(
+            @Param("asOf") Instant asOf);
+
+    List<String> listOrganizationSubtree(
+            @Param("organizationId") String organizationId);
+
+    List<ReportRows.OrganizationGraphRow> findCurrentOrganizationGraph(
+            @Param("companyId") String companyId);
+
+    List<ReportRows.OrganizationAncestorRow> findCurrentOrganizationAncestors(
+            @Param("companyId") String companyId);
 }

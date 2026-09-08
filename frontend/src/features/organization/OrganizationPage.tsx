@@ -3,6 +3,7 @@ import {
   IconEdit,
   IconPlus,
   IconRefresh,
+  IconSearch,
 } from '@tabler/icons-react';
 import {
   Button,
@@ -39,6 +40,8 @@ import {
   type OrganizationUpdateRequest,
 } from './organizationApi';
 import {
+  allOrganizationKeys,
+  filterOrganizationNodes,
   topLevelOrganizationKeys,
   toOrganizationTreeData,
   type OrganizationTreeDataNode,
@@ -65,6 +68,7 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
   const { t } = useTranslation();
   const [state, setState] = useState<OrganizationState>({ status: 'loading' });
   const [selectedId, setSelectedId] = useState<string>();
+  const [organizationQuery, setOrganizationQuery] = useState('');
   const [detail, setDetail] = useState<OrganizationDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<ApiRequestError>();
@@ -109,9 +113,15 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
     if (selectedId) loadDetail(selectedId);
   }, [loadDetail, selectedId]);
 
+  const filteredOrganizationNodes = useMemo(
+    () => state.status === 'ready'
+      ? filterOrganizationNodes(state.nodes, organizationQuery)
+      : [],
+    [organizationQuery, state],
+  );
   const treeData = useMemo(
-    () => state.status === 'ready' ? toOrganizationTreeData(state.nodes) : [],
-    [state],
+    () => toOrganizationTreeData(filteredOrganizationNodes),
+    [filteredOrganizationNodes],
   );
   const parentOptions = useMemo(
     () => state.status === 'ready' ? flattenOrganizations(state.nodes) : [],
@@ -204,21 +214,39 @@ export function OrganizationPage({ capabilities = [] }: { capabilities?: string[
               <p>{t('organization.treeDescription')}</p>
             </div>
           </div>
+          <Input
+            className="organization-directory-search"
+            allowClear
+            prefix={<IconSearch aria-hidden="true" stroke={2} />}
+            aria-label="搜索部门"
+            placeholder="输入部门名称或编码"
+            value={organizationQuery}
+            onChange={(event) => setOrganizationQuery(event.target.value)}
+          />
           {state.status === 'loading' ? <StatePanel state="loading" /> : null}
           {state.status === 'error' ? <ApiErrorState error={state.error} onRetry={load} /> : null}
           {state.status === 'ready' && state.nodes.length === 0 ? (
             <StatePanel state="empty" description={t('organization.empty')} />
           ) : null}
           {state.status === 'ready' && state.nodes.length > 0 ? (
-            <Tree<OrganizationTreeDataNode>
-              className="organization-tree"
-              treeData={treeData}
-              defaultExpandedKeys={topLevelOrganizationKeys(state.nodes)}
-              blockNode
-              selectedKeys={selectedId ? [selectedId] : []}
-              onSelect={(keys) => setSelectedId(keys[0] ? String(keys[0]) : undefined)}
-              titleRender={(treeNode) => <OrganizationTreeTitle node={treeNode} />}
-            />
+            treeData.length > 0 ? (
+              <Tree<OrganizationTreeDataNode>
+                key={organizationQuery.trim() || 'all-organizations'}
+                className="organization-tree"
+                treeData={treeData}
+                defaultExpandedKeys={organizationQuery.trim()
+                  ? allOrganizationKeys(filteredOrganizationNodes)
+                  : topLevelOrganizationKeys(state.nodes)}
+                blockNode
+                selectedKeys={selectedId ? [selectedId] : []}
+                onSelect={(keys) => setSelectedId(keys[0] ? String(keys[0]) : undefined)}
+                titleRender={(treeNode) => <OrganizationTreeTitle node={treeNode} />}
+              />
+            ) : (
+              <p className="organization-directory-empty" role="status">
+                未找到匹配的部门，请调整名称或编码。
+              </p>
+            )
           ) : null}
         </section>
         <section className="content-surface organization-workbench__detail" aria-labelledby="organization-detail-title">
@@ -295,7 +323,7 @@ function OrganizationFormDialog({
   open: boolean;
   mode: 'create' | 'edit';
   form: ReturnType<typeof Form.useForm<OrganizationFormValue>>[0];
-  parentOptions: Array<{ label: string; value: string }>;
+  parentOptions: Array<{ label: string; value: string; searchText: string }>;
   processing: boolean;
   error?: ApiRequestError;
   onCancel: () => void;
@@ -321,7 +349,13 @@ function OrganizationFormDialog({
           </Form.Item>
         ) : null}
         <Form.Item name="parentOrganizationId" label={t('organization.parent')}>
-          <Select allowClear showSearch optionFilterProp="label" options={parentOptions} />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="searchText"
+            placeholder="输入部门名称或编码搜索"
+            options={parentOptions}
+          />
         </Form.Item>
         <div className="form-grid">
           <Form.Item name="code" label={t('organization.code')} rules={[{ required: true }, { max: 64 }]}>
@@ -357,11 +391,15 @@ function OrganizationFormDialog({
 
 function flattenOrganizations(
   nodes: OrganizationNode[],
-  depth = 0,
-): Array<{ label: string; value: string }> {
+  parentNames: string[] = [],
+): Array<{ label: string; value: string; searchText: string }> {
   return nodes.flatMap((node) => [
-    { label: `${'—'.repeat(depth)} ${node.name}`, value: node.organizationId },
-    ...flattenOrganizations(node.children, depth + 1),
+    {
+      label: `${[...parentNames, node.name].join(' / ')}（${node.code}）`,
+      value: node.organizationId,
+      searchText: `${[...parentNames, node.name].join(' ')} ${node.code}`,
+    },
+    ...flattenOrganizations(node.children, [...parentNames, node.name]),
   ]);
 }
 

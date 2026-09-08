@@ -44,7 +44,7 @@ public class AuthenticationController {
             SecurityTokenService tokenService,
             AuditService auditService,
             @Value("${shenzhouhr.security.session.cookie-secure:true}") boolean secureCookie,
-            @Value("${shenzhouhr.security.session.absolute-timeout:PT8H}") Duration absoluteTimeout) {
+            @Value("${shenzhouhr.security.session.absolute-timeout:PT12H}") Duration absoluteTimeout) {
         this.authenticationService = authenticationService;
         this.tokenService = tokenService;
         this.auditService = auditService;
@@ -227,18 +227,110 @@ public class AuthenticationController {
                     "my-leave", "我的假期", "/me/leave"));
         }
         if (capabilities.contains(
-                CapabilityCodes.ATTENDANCE_FEEDBACK_READ)) {
-            menu.add(new MenuItem(
-                    "attendance-feedback",
-                    "考勤反馈",
-                    "/me/feedback"));
-        }
-        if (capabilities.contains(
                 CapabilityCodes.ATTENDANCE_REPORT_READ)) {
             menu.add(new MenuItem(
                     "attendance-reports",
                     "考勤报表",
                     "/attendance/reports"));
+        }
+        if (capabilities.contains(
+                CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ)) {
+            menu.add(new MenuItem(
+                    "attendance-query-exceptions",
+                    "异常总览",
+                    "/attendance/queries/exceptions"));
+            menu.add(new MenuItem(
+                    "attendance-query-leave",
+                    "请假统计",
+                    "/attendance/queries/leave"));
+            menu.add(new MenuItem(
+                    "attendance-query-leave-summary",
+                    "请假汇总",
+                    "/attendance/queries/leave-summary"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime",
+                    "加班统计",
+                    "/attendance/queries/overtime"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime-daily",
+                    "加班日报",
+                    "/attendance/queries/overtime-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-finance-overtime",
+                    "每日加班查询",
+                    "/attendance/queries/finance-overtime"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime-fee-daily",
+                    "每日加班费查询",
+                    "/attendance/queries/overtime-fee-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime-voluntary-daily",
+                    "每日义务加班查询",
+                    "/attendance/queries/overtime-voluntary-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime-comp-daily",
+                    "每日调休查询",
+                    "/attendance/queries/overtime-comp-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-absence-stat",
+                    "旷工统计表",
+                    "/attendance/queries/absence-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-leave-stat",
+                    "请假统计表",
+                    "/attendance/queries/leave-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-daily-journal",
+                    "考勤日报",
+                    "/attendance/queries/daily-journal"));
+            menu.add(new MenuItem(
+                    "attendance-query-makeup",
+                    "补签",
+                    "/attendance/queries/makeup"));
+            menu.add(new MenuItem(
+                    "attendance-query-work-hours",
+                    "月度工时统计表",
+                    "/attendance/queries/work-hours"));
+            menu.add(new MenuItem(
+                    "attendance-query-late",
+                    "迟到统计",
+                    "/attendance/queries/late"));
+            menu.add(new MenuItem(
+                    "attendance-query-missed-punch",
+                    "忘打卡",
+                    "/attendance/queries/missed-punch"));
+            menu.add(new MenuItem(
+                    "attendance-query-missed-punch-stat",
+                    "忘打卡统计表",
+                    "/attendance/queries/missed-punch-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-attendance-rate",
+                    "出勤率",
+                    "/attendance/queries/attendance-rate"));
+            menu.add(new MenuItem(
+                    "attendance-query-annual-leave",
+                    "年休假",
+                    "/attendance/queries/annual-leave"));
+            menu.add(new MenuItem(
+                    "attendance-query-annual-leave-stat",
+                    "年假统计表",
+                    "/attendance/queries/annual-leave-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-time-off",
+                    "调休额度",
+                    "/attendance/queries/time-off"));
+            menu.add(new MenuItem(
+                    "attendance-query-time-off-stat",
+                    "调休统计表",
+                    "/attendance/queries/time-off-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-time-off-daily",
+                    "调休日报",
+                    "/attendance/queries/time-off-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-matrix",
+                    "考勤明细",
+                    "/attendance/queries/matrix"));
         }
         if (capabilities.contains("POLICY:READ")) {
             menu.add(new MenuItem("rules", "规则设置", "/rules"));

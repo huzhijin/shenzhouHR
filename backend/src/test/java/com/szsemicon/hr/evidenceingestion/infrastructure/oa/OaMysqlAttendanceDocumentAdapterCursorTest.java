@@ -3,7 +3,10 @@ package com.szsemicon.hr.evidenceingestion.infrastructure.oa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort.OaPage;
@@ -12,10 +15,64 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 
 class OaMysqlAttendanceDocumentAdapterCursorTest {
+
+    private static final Instant SYNC_NOT_BEFORE =
+            LocalDate.of(2026, 1, 1)
+                    .atStartOfDay(ZoneId.of("Asia/Shanghai"))
+                    .toInstant();
+
+    @Test
+    void firstFetchStartsAtJanuary2026InsteadOfEpoch() throws Exception {
+        Connection connection = mock(Connection.class);
+        PreparedStatement emptyStatement = emptyStatement();
+        when(connection.prepareStatement(anyString()))
+                .thenReturn(emptyStatement);
+        OaMysqlAttendanceDocumentAdapter adapter =
+                new OaMysqlAttendanceDocumentAdapter(
+                        () -> connection, new OaMysqlProperties());
+
+        adapter.fetchPage("oa-source", null);
+
+        ArgumentCaptor<Timestamp> bound = ArgumentCaptor.forClass(
+                Timestamp.class);
+        verify(emptyStatement, atLeastOnce())
+                .setTimestamp(eq(1), bound.capture());
+        assertThat(bound.getAllValues())
+                .extracting(Timestamp::toInstant)
+                .containsOnly(SYNC_NOT_BEFORE);
+    }
+
+    @Test
+    void laterCommittedCursorIsNotPulledBackToTheFloor() throws Exception {
+        Instant later = Instant.parse("2026-08-01T00:00:00Z");
+        var committed = OaMysqlAttendanceDocumentAdapter.MultiCursor.parse(null)
+                .withLeave(new OaMysqlAttendanceDocumentAdapter.Cursor(
+                        later.getEpochSecond(), later.getNano(), 99L));
+        Connection connection = mock(Connection.class);
+        PreparedStatement emptyStatement = emptyStatement();
+        when(connection.prepareStatement(anyString()))
+                .thenReturn(emptyStatement);
+        OaMysqlAttendanceDocumentAdapter adapter =
+                new OaMysqlAttendanceDocumentAdapter(
+                        () -> connection, new OaMysqlProperties());
+
+        adapter.fetchPage("oa-source", committed.encode());
+
+        ArgumentCaptor<Timestamp> bound = ArgumentCaptor.forClass(
+                Timestamp.class);
+        verify(emptyStatement, atLeastOnce())
+                .setTimestamp(eq(1), bound.capture());
+        assertThat(bound.getAllValues())
+                .extracting(Timestamp::toInstant)
+                .contains(later);
+    }
 
     @Test
     void compositeCursorKeepsIndependentFormPositionsAndUsesRealDigest()
@@ -56,8 +113,10 @@ class OaMysqlAttendanceDocumentAdapterCursorTest {
         assertThat(cursor.exemptPunch().lastModifiedMillis())
                 .isEqualTo(exemptionModified.toEpochMilli());
         assertThat(cursor.exemptPunch().lastId()).isEqualTo(202L);
-        assertThat(cursor.leave().lastModifiedMillis()).isZero();
-        assertThat(cursor.overtime().lastModifiedMillis()).isZero();
+        assertThat(cursor.leave().lastModifiedMillis())
+                .isEqualTo(SYNC_NOT_BEFORE.toEpochMilli());
+        assertThat(cursor.overtime().lastModifiedMillis())
+                .isEqualTo(SYNC_NOT_BEFORE.toEpochMilli());
 
         OaPage terminal = adapter.fetchPage("oa-source", page.nextCursor());
         assertThat(terminal.records()).isEmpty();
@@ -97,6 +156,22 @@ class OaMysqlAttendanceDocumentAdapterCursorTest {
         assertThat(replayed).isEqualTo(advanced);
         assertThat(replayed.outing().asTimestamp())
                 .isEqualTo(sourceTimestamp);
+    }
+
+    @Test
+    void seeyonNegativeFormIdsAreKeptInTheCursor() {
+        Timestamp modified = Timestamp.from(
+                Instant.parse("2026-08-15T01:00:00Z"));
+        var initial = OaMysqlAttendanceDocumentAdapter.MultiCursor.parse(null);
+        long seeyonId = -6_539_634_143_789_166_714L;
+
+        var advanced = initial.withLeave(
+                initial.leave().advance(modified, seeyonId));
+        var replayed = OaMysqlAttendanceDocumentAdapter.MultiCursor.parse(
+                advanced.encode());
+
+        assertThat(advanced.leave().lastId()).isEqualTo(seeyonId);
+        assertThat(replayed.leave().lastId()).isEqualTo(seeyonId);
     }
 
     @Test

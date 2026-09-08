@@ -1,0 +1,52 @@
+# 传到 /root/shenzhouhr-release-20260821-leave-opening.tar.gz 后整段粘贴。
+# 不要覆盖 /opt/shenzhouhr/start-prod.sh，不要 mysqldump。
+
+set -euo pipefail
+export COPYFILE_DISABLE=1
+cd /root
+test -f /root/shenzhouhr-release-20260821-leave-opening.tar.gz
+tar --no-same-owner -xzf /root/shenzhouhr-release-20260821-leave-opening.tar.gz
+test -f /root/shenzhouhr-release-20260821-leave-opening/backend/shenzhou-hr.jar
+test -f /root/shenzhouhr-release-20260821-leave-opening/web/index.html
+test -f /root/shenzhouhr-release-20260821-leave-opening/db/migration/V57__allow_negative_time_account_balance.sql
+test -f /root/shenzhouhr-release-20260821-leave-opening/deploy/baota/mysql/import-2026-08-01-leave-opening.sql
+
+MYSQL_BIN="${MYSQL_BIN:-/www/server/mysql/bin/mysql}"
+test -x "$MYSQL_BIN" || MYSQL_BIN="$(command -v mysql)"
+MYSQL() { "$MYSQL_BIN" -h127.0.0.1 -P3306 -uroot --password='e0e17f3df673a9f8' "$@"; }
+
+pkill -15 -f 'shenzhou-hr.jar' || true
+sleep 3
+pkill -9 -f 'shenzhou-hr.jar' || true
+sleep 1
+cp -f /root/shenzhouhr-release-20260821-leave-opening/backend/shenzhou-hr.jar \
+  /opt/shenzhouhr/app/shenzhou-hr.jar
+rsync -a --delete /root/shenzhouhr-release-20260821-leave-opening/web/ \
+  /www/wwwroot/192.168.160.226/
+/opt/shenzhouhr/start-prod.sh
+sleep 8
+
+# start-prod 若已开 Flyway，重启会写入 V57。未写入时再手工删 CHECK。
+HAS_CHECK="$(MYSQL --batch --raw --skip-column-names shenzhou_hr \
+  -e "SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema=DATABASE() AND table_name='time_account' AND constraint_name='ck_time_account_balance';")"
+if [[ "${HAS_CHECK//$'\r'/}" == "1" ]]; then
+  MYSQL shenzhou_hr \
+    < /root/shenzhouhr-release-20260821-leave-opening/db/migration/V57__allow_negative_time_account_balance.sql
+fi
+
+MYSQL --default-character-set=utf8mb4 --table shenzhou_hr \
+  < /root/shenzhouhr-release-20260821-leave-opening/deploy/baota/mysql/import-2026-08-01-leave-opening.sql
+
+echo "导入后抽查负数账户："
+MYSQL --table shenzhou_hr -e "
+SELECT employee.employee_number,
+       account.account_type,
+       account.balance_hours,
+       ROUND(account.balance_hours/8, 2) AS days
+FROM time_account account
+JOIN employee employee ON employee.employee_id = account.employee_id
+WHERE account.account_year = 2026
+  AND account.account_type IN ('ANNUAL_LEAVE','TIME_OFF')
+  AND account.balance_hours < 0
+ORDER BY account.account_type, employee.employee_number;
+"

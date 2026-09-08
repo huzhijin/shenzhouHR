@@ -17,6 +17,7 @@
   "dependencies": {
     "@tabler/icons-react": "3.45.0",
     "antd": "6.5.1",
+    "exceljs": "^4.4.0",
     "i18next": "26.3.6",
     "react": "19.2.7",
     "react-dom": "19.2.7",

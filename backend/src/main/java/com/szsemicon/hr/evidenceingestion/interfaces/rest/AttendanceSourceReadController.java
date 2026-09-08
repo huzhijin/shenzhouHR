@@ -45,8 +45,9 @@ public class AttendanceSourceReadController {
             listDocuments(
                     @PathVariable String sourceId,
                     @RequestParam(defaultValue = "0") int page,
-                    @RequestParam(defaultValue = "20") int size) {
-        return noStore(service.listOaDocuments(sourceId, page, size));
+                    @RequestParam(defaultValue = "20") int size,
+                    @RequestParam(required = false) String documentType) {
+        return noStore(service.listOaDocuments(sourceId, page, size, documentType));
     }
 
     private static <T> ResponseEntity<T> noStore(T body) {

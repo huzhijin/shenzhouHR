@@ -231,6 +231,24 @@ public class MyBatisAttendanceSourceSyncRepository
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
+    public void advanceKqWatermark(
+            String sourceId,
+            long expectedVersion,
+            String committedCursor,
+            String pageDigest,
+            Instant committedAt) {
+        requireOne(
+                mapper.advanceKqWatermark(
+                        sourceId,
+                        expectedVersion,
+                        committedCursor,
+                        pageDigest,
+                        committedAt),
+                "attendance kq watermark changed concurrently");
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void incrementJobCounters(
             String jobId, int acceptedCount, int quarantinedCount) {
         requireOne(
@@ -244,6 +262,35 @@ public class MyBatisAttendanceSourceSyncRepository
     public AttendanceSourceSyncModels.PageState lockSystemPageForCommit(
             String jobId, String sourceId) {
         return mapper.lockSystemPageForCommit(jobId, sourceId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public String findKqCommittedCursor(String sourceId) {
+        return mapper.findKqCommittedCursor(sourceId);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AttendanceSourceSyncModels.PageState lockKqPageForCommit(
+            String jobId,
+            String sourceId,
+            String principalId,
+            String capability,
+            Instant authorizationTime) {
+        return mapper.lockKqPageForCommit(
+                jobId,
+                sourceId,
+                principalId,
+                capability,
+                authorizationTime);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AttendanceSourceSyncModels.PageState lockSystemKqPageForCommit(
+            String jobId, String sourceId) {
+        return mapper.lockSystemKqPageForCommit(jobId, sourceId);
     }
 
     @Override

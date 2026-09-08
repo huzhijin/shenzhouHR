@@ -1,10 +1,10 @@
+import { triggerBrowserDownload } from '../../shared/api/apiClient';
 import {
-  attendanceLegend,
   formatMonth,
   type CustomerReportDemo,
   type CustomerReportKey,
 } from './customerReportDemo';
-import { isWithinCustomerReportScope } from './customerReportAccess';
+import { assertCustomerReportExportable } from './customerReportAccess';
 
 type CsvCell = string | number;
 
@@ -70,17 +70,9 @@ export function downloadCustomerReportCsv({
     return;
   }
 
-  const objectUrl = URL.createObjectURL(new Blob([csv], {
+  triggerBrowserDownload(new Blob([csv], {
     type: 'text/csv;charset=utf-8',
-  }));
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  link.hidden = true;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
+  }), fileName);
 }
 
 function visibleRowsForReport(
@@ -116,6 +108,7 @@ function visibleRowsForReport(
           '事假+病假+其他假期',
           '年假',
           '加班换调休',
+          '实际调休',
           '个人实际出勤工时',
           '备注',
         ],
@@ -127,6 +120,7 @@ function visibleRowsForReport(
           row.leaveHours.toFixed(1),
           row.annualLeaveHours !== undefined ? row.annualLeaveHours.toFixed(1) : '—',
           row.exchangedHours !== undefined ? row.exchangedHours.toFixed(1) : '—',
+          row.usedTimeOffHours !== undefined ? row.usedTimeOffHours.toFixed(1) : '—',
           row.actualHours.toFixed(1),
           row.note ?? '',
         ]),
@@ -135,35 +129,21 @@ function visibleRowsForReport(
       return {
         headers: [
           '考勤日期',
-          '级别',
           '异常类型',
           '工号',
           '姓名',
           '部门',
-          '班次',
-          '应出勤',
-          '打卡摘要',
-          '异常分钟',
-          '证据摘要',
+          '详情',
           '处理状态',
-          '负责人',
-          '处理时限',
         ],
         rows: report.attendanceExceptionRows.map((row) => [
           row.businessDate,
-          row.severity,
           row.exceptionType,
           row.employeeNo,
           row.employee,
           row.department,
-          row.shiftLabel ?? '—',
-          row.scheduledWindow ?? '—',
-          row.punchSummary ?? '—',
-          row.exceptionMinutes ?? '',
-          row.evidenceSummary,
+          row.details,
           row.state,
-          row.owner ?? '—',
-          row.dueAt ?? '—',
         ]),
       };
     case 'late':
@@ -186,27 +166,75 @@ function visibleRowsForReport(
       };
     case 'annual-leave':
       return annualLeaveReportRows(report);
+    case 'overtime-daily':
+      return {
+        headers: ['工号', '部门', '姓名', '日期', '工作日加班', '周末加班', '节假日加班', '加班费', '转调休'],
+        rows: report.overtimeDailyRows.map((row) => [
+          row.employeeNo, row.department, row.employee, row.businessDate,
+          row.weekdayOvertimeHours, row.weekendOvertimeHours, row.holidayOvertimeHours,
+          row.paidOvertimeHours ?? 0, row.compensatoryOvertimeHours ?? 0,
+        ]),
+      };
+    case 'finance-overtime': {
+      const dates = uniqueFinanceDates(report);
+      return {
+        headers: [
+          '部门', '工号', '加班人', '平时加班', '周末加班', '节假日加班', '加班费', '转调休',
+          ...dates.map((date) => `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`),
+        ],
+        rows: report.financeOvertimeRows.map((row) => {
+          const byDate = new Map(row.days.map((day) => [day.date.slice(0, 10), day.hours]));
+          return [
+            row.department, row.employeeNo, row.employee,
+            row.weekdayOvertimeHours, row.weekendOvertimeHours, row.holidayOvertimeHours,
+            row.paidOvertimeHours ?? 0, row.compensatoryOvertimeHours ?? 0,
+            ...dates.map((date) => byDate.get(date) ?? ''),
+          ];
+        }),
+      };
+    }
+    case 'daily-journal':
+      return {
+        headers: ['序号', '部门', '工号', '姓名', '日期', '班次', '上班', '下班', '迟到', '早退', '旷工', '请假', '加班', '备注'],
+        rows: report.dailyJournalRows.map((row) => [
+          row.sequence, row.department, row.employeeNo, row.employee, row.businessDate,
+          row.shiftLabel, row.onDuty, row.offDuty, row.lateHours, row.earlyHours,
+          row.absenceHours, row.leaveType, row.overtimeHours, row.remark,
+        ]),
+      };
   }
 }
 
+function uniqueFinanceDates(report: CustomerReportDemo): string[] {
+  const dates = new Set<string>();
+  report.financeOvertimeRows.forEach((row) => {
+    row.days.forEach((day) => {
+      const key = day.date.slice(0, 10);
+      if (key) dates.add(key);
+    });
+  });
+  return [...dates].sort();
+}
+
 function assertReportRowsWithinScope(report: CustomerReportDemo): void {
-  const rows = [
-    ...report.attendanceRows,
-    ...report.leaveRows,
-    ...report.overtimeRows,
-    ...report.workHoursRows,
-    ...report.attendanceExceptionRows,
-    ...report.lateRows,
-    ...report.missedPunchRows,
-    ...report.attendanceRateRows,
-    ...report.annualLeaveRows,
-  ];
-  if (rows.some((row) => !isWithinCustomerReportScope(
-    row,
+  assertCustomerReportExportable(
+    [
+      ...report.attendanceRows,
+      ...report.leaveRows,
+      ...report.overtimeRows,
+      ...report.workHoursRows,
+      ...report.attendanceExceptionRows,
+      ...report.lateRows,
+      ...report.missedPunchRows,
+      ...report.attendanceRateRows,
+      ...report.annualLeaveRows,
+      ...report.dailyJournalRows,
+      ...report.overtimeDailyRows,
+      ...report.financeOvertimeRows,
+    ],
     report.metadata.dataScope,
-  ))) {
-    throw new TypeError('报表包含超出当前数据权限范围的记录');
-  }
+    report.metadata.isDemo,
+  );
 }
 
 function attendanceDetailRows(
@@ -227,15 +255,10 @@ function attendanceDetailRows(
       row.department,
       row.position ?? '—',
       ...row.days.map((day) => {
-        const status = day.status
-          ? attendanceLegend.find((item) => item.key === day.status)?.label
-          : '';
-        return [
-          day.primary,
-          day.secondary,
-          status,
-          day.note,
-        ].filter(Boolean).join(' / ');
+        if (day.merged) {
+          return day.mergedLabel || day.primary;
+        }
+        return [day.primary, day.secondary].filter(Boolean).join('\n');
       }),
     ]),
   };
@@ -244,34 +267,26 @@ function attendanceDetailRows(
 function overtimeReportRows(
   report: CustomerReportDemo,
 ): { headers: CsvCell[]; rows: CsvCell[][] } {
-  const showDailyBreakdown = report.overtimeRows.some(
-    (row) => row.dailyHours !== undefined,
-  );
-  const dayCount = showDailyBreakdown
-    ? report.overtimeRows[0]?.dailyHours?.length ?? daysInMonth(report.metadata.month)
-    : 0;
   return {
     headers: [
+      '工号',
       '部门',
-      '员工',
-      '计薪加班',
-      '转调休加班',
-      '义务加班',
-      '汇总加班',
-      '分类数据状态',
-      ...Array.from({ length: dayCount }, (_, index) => `${index + 1}日`),
+      '姓名',
+      '加班类型',
+      '加班时段',
+      '认定小时',
+      '审批状态',
+      '来源',
     ],
     rows: report.overtimeRows.map((row) => [
+      row.employeeNo ?? '',
       row.department,
       row.employee,
-      optionalHours(row.paidHours),
-      optionalHours(row.compensatoryHours),
-      optionalHours(row.voluntaryHours),
-      optionalHours(row.totalHours),
-      row.classificationAvailable ? '已按业务类型分类' : '旧接口，仅汇总可用',
-      ...(showDailyBreakdown
-        ? Array.from({ length: dayCount }, (_, index) => row.dailyHours?.[index] || '')
-        : []),
+      row.overtimeType,
+      row.period,
+      row.hours.toFixed(1),
+      row.approvalState,
+      row.source,
     ]),
   };
 }
@@ -299,8 +314,7 @@ function annualLeaveReportRows(
   return {
     headers: [
       '序号',
-      '一级部门',
-      '二级部门',
+      '部门',
       '姓名',
       '入职日期',
       '公司工龄',
@@ -316,8 +330,7 @@ function annualLeaveReportRows(
     ],
     rows: report.annualLeaveRows.map((row) => [
       row.id,
-      row.departmentLevelOne ?? '—',
-      row.departmentLevelTwo ?? '—',
+      row.department,
       row.employee,
       row.joinedOn ?? '—',
       optionalHours(row.companySeniority),
@@ -351,7 +364,4 @@ function safeFileName(value: string): string {
   return value.replaceAll(/[\\/:*?"<>|]/g, '-').trim() || '考勤报表';
 }
 
-function daysInMonth(month: string): number {
-  const [year, monthNumber] = month.split('-').map(Number);
-  return new Date(year!, monthNumber!, 0).getDate();
-}
+

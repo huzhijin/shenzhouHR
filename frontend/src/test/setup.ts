@@ -29,4 +29,9 @@ class TestResizeObserver {
   disconnect() {}
 }
 
+Object.defineProperty(globalThis, 'ResizeObserver', {
+  configurable: true,
+  writable: true,
+  value: TestResizeObserver,
+});
 vi.stubGlobal('ResizeObserver', TestResizeObserver);

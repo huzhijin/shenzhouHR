@@ -37,7 +37,7 @@ class AttendanceMonthMatrixControllerTest {
         var page = new AttendanceMonthMatrixPage(
                 "projection-a",
                 "a".repeat(64),
-                "ATTENDANCE_MONTH_MATRIX_V1",
+                "ATTENDANCE_MONTH_MATRIX_V3",
                 "OPEN",
                 Instant.parse("2026-07-31T01:00:00Z"),
                 List.of("attendance:v1", "oa:v1"),
@@ -75,13 +75,16 @@ class AttendanceMonthMatrixControllerTest {
                 0,
                 20,
                 1,
-                1);
+                1,
+                false);
         when(service.queryMonthMatrix(
                 period,
                 companyId,
                 null,
                 null,
                 "projection-a",
+                null,
+                null,
                 0,
                 20))
                 .thenReturn(page);
@@ -98,6 +101,8 @@ class AttendanceMonthMatrixControllerTest {
                 companyId,
                 null,
                 null,
+                null,
+                null,
                 0,
                 20,
                 parameters);
@@ -108,6 +113,8 @@ class AttendanceMonthMatrixControllerTest {
                 null,
                 null,
                 "projection-a",
+                null,
+                null,
                 0,
                 20);
         assertThat(response.getHeaders().getCacheControl())

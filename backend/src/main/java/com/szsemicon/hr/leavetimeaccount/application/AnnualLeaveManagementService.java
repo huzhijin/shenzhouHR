@@ -65,6 +65,17 @@ public class AnnualLeaveManagementService {
             int year,
             int page,
             int size) {
+        return getAccount(employeeId, year, page, size, "ANNUAL_LEAVE");
+    }
+
+    @Transactional(readOnly = true)
+    public LeaveAccountView getAccount(
+            String employeeId,
+            int year,
+            int page,
+            int size,
+            String accountType) {
+        String type = requireBalanceAccountType(accountType);
         capabilities.require(CapabilityCodes.ANNUAL_LEAVE_READ);
         String principalId = principalProvider.currentPrincipalId();
         Instant at = clock.instant();
@@ -74,21 +85,48 @@ public class AnnualLeaveManagementService {
                 employeeId,
                 at);
         CurrentEmploymentRow employment = resolveCurrentEmployment(employeeId, at);
-        return loadAccountView(employeeId, employment.employmentPeriodId(), year, page, size);
+        return loadAccountView(
+                employeeId, employment.employmentPeriodId(), year, page, size, type);
+    }
+
+    @Transactional(readOnly = true)
+    public LeaveAccountView getOwnAccount(int year, String accountType) {
+        String type = requireBalanceAccountType(accountType);
+        capabilities.require(CapabilityCodes.LEAVE_SELF_READ);
+        String principalId = principalProvider.currentPrincipalId();
+        Instant at = clock.instant();
+        String employeeId = repository.findPrincipalEmployeeId(principalId)
+                .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        requireEmployeeAccess(
+                principalId,
+                CapabilityCodes.LEAVE_SELF_READ,
+                employeeId,
+                at);
+        CurrentEmploymentRow employment = resolveCurrentEmployment(employeeId, at);
+        return loadAccountView(
+                employeeId, employment.employmentPeriodId(), year, 0, 20, type);
     }
 
     @Transactional
     public LeaveAccountView setOpeningBalance(OpeningBalanceCommand command) {
+        return setOpeningBalance(command, "ANNUAL_LEAVE");
+    }
+
+    @Transactional
+    public LeaveAccountView setOpeningBalance(
+            OpeningBalanceCommand command,
+            String accountType) {
+        String type = requireBalanceAccountType(accountType);
         Instant at = clock.instant();
         String principalId = requireAdjustmentAccess(command.employeeId(), at);
         CurrentEmploymentRow employment = resolveCurrentEmployment(command.employeeId(), at);
         TimeAccountRow current = ensureAndLockAccount(
-                command.employeeId(), employment, command.year(), at);
+                command.employeeId(), employment, command.year(), type, at);
         assertLedgerInvariant(current);
         assertExistingAvailability(current);
 
         String requestDigest = requestDigest(
-                "ANNUAL_LEAVE_OPENING_V1",
+                type + "_OPENING_V1",
                 command.employeeId(),
                 employment.employmentPeriodId(),
                 Integer.toString(command.year()),
@@ -108,7 +146,8 @@ public class AnnualLeaveManagementService {
                     employment.employmentPeriodId(),
                     command.year(),
                     0,
-                    20);
+                    20,
+                    type);
         }
 
         OpeningImportSummary opening =
@@ -121,7 +160,8 @@ public class AnnualLeaveManagementService {
                     employment.employmentPeriodId(),
                     command.year(),
                     0,
-                    20);
+                    20,
+                    type);
         }
 
         BigDecimal resultingBalance = current.balanceHours().add(delta);
@@ -149,21 +189,30 @@ public class AnnualLeaveManagementService {
                 employment.employmentPeriodId(),
                 command.year(),
                 0,
-                20);
+                20,
+                type);
     }
 
     @Transactional
     public LeaveAccountView adjustBalance(AdjustBalanceCommand command) {
+        return adjustBalance(command, "ANNUAL_LEAVE");
+    }
+
+    @Transactional
+    public LeaveAccountView adjustBalance(
+            AdjustBalanceCommand command,
+            String accountType) {
+        String type = requireBalanceAccountType(accountType);
         Instant at = clock.instant();
         String principalId = requireAdjustmentAccess(command.employeeId(), at);
         CurrentEmploymentRow employment = resolveCurrentEmployment(command.employeeId(), at);
         TimeAccountRow current = ensureAndLockAccount(
-                command.employeeId(), employment, command.year(), at);
+                command.employeeId(), employment, command.year(), type, at);
         assertLedgerInvariant(current);
         assertExistingAvailability(current);
 
         String requestDigest = requestDigest(
-                "ANNUAL_LEAVE_ADJUSTMENT_V1",
+                type + "_ADJUSTMENT_V1",
                 command.employeeId(),
                 employment.employmentPeriodId(),
                 Integer.toString(command.year()),
@@ -182,7 +231,8 @@ public class AnnualLeaveManagementService {
                     employment.employmentPeriodId(),
                     command.year(),
                     0,
-                    20);
+                    20,
+                    type);
         }
 
         BigDecimal adjustment = command.adjustmentHours();
@@ -193,7 +243,8 @@ public class AnnualLeaveManagementService {
                     employment.employmentPeriodId(),
                     command.year(),
                     0,
-                    20);
+                    20,
+                    type);
         }
 
         BigDecimal resultingBalance = current.balanceHours().add(adjustment);
@@ -219,7 +270,15 @@ public class AnnualLeaveManagementService {
                 employment.employmentPeriodId(),
                 command.year(),
                 0,
-                20);
+                20,
+                type);
+    }
+
+    private static String requireBalanceAccountType(String accountType) {
+        if ("ANNUAL_LEAVE".equals(accountType) || "TIME_OFF".equals(accountType)) {
+            return accountType;
+        }
+        throw new IllegalArgumentException("unsupported leave account type");
     }
 
     private String requireAdjustmentAccess(String employeeId, Instant at) {
@@ -259,35 +318,39 @@ public class AnnualLeaveManagementService {
             String employeeId,
             CurrentEmploymentRow employment,
             int year,
+            String accountType,
             Instant at) {
         Optional<TimeAccountRow> locked = repository.lockTimeAccount(
-                employeeId, employment.employmentPeriodId(), year);
+                employeeId, employment.employmentPeriodId(), year, accountType);
         if (locked.isEmpty()) {
-            createAccount(employeeId, employment, year, at);
+            createAccount(employeeId, employment, year, accountType, at);
             locked = repository.lockTimeAccount(
-                    employeeId, employment.employmentPeriodId(), year);
+                    employeeId, employment.employmentPeriodId(), year, accountType);
         }
         return locked
                 .orElseThrow(() -> new IllegalStateException(
-                        "annual leave account unavailable after creation"));
+                        "leave account unavailable after creation"));
     }
 
     private void createAccount(
             String employeeId,
             CurrentEmploymentRow employment,
             int year,
+            String accountType,
             Instant at) {
         String accountId = AnnualLeaveManagementModels.accountId(
-                employeeId, employment.employmentPeriodId(), year);
-        String policyVersionId = repository
-                .findPublishedPolicyVersionId(employment.companyId())
-                .orElse("ANNUAL_LEAVE_DEFAULT_V1");
+                accountType, employeeId, employment.employmentPeriodId(), year);
+        String policyVersionId = "TIME_OFF".equals(accountType)
+                ? AnnualLeaveManagementModels.defaultPolicyVersionId(accountType)
+                : repository.findPublishedPolicyVersionId(employment.companyId())
+                        .orElse(AnnualLeaveManagementModels.defaultPolicyVersionId(accountType));
         repository.createTimeAccountIfAbsent(
                 accountId,
                 employeeId,
                 employment.employmentPeriodId(),
                 employment.companyId(),
                 year,
+                accountType,
                 policyVersionId,
                 at);
     }
@@ -297,7 +360,7 @@ public class AnnualLeaveManagementService {
         if (account.balanceHours().compareTo(ledgerBalance) != 0) {
             throw conflict(
                     "ANNUAL_LEAVE_LEDGER_MISMATCH",
-                    "年假账户余额与不可变台账不一致，已拒绝写入");
+                    "假期账户余额与不可变台账不一致，已拒绝写入");
         }
     }
 
@@ -309,7 +372,8 @@ public class AnnualLeaveManagementService {
             String accountId,
             BigDecimal resultingBalance) {
         BigDecimal reservedHours = repository.sumActiveReservations(accountId);
-        if (resultingBalance.compareTo(reservedHours) < 0) {
+        if (reservedHours.signum() > 0
+                && resultingBalance.compareTo(reservedHours) < 0) {
             throw conflict(
                     "ANNUAL_LEAVE_AVAILABLE_BALANCE_INSUFFICIENT",
                     "调整后余额不得低于 OA 已预占小时");
@@ -341,13 +405,13 @@ public class AnnualLeaveManagementService {
         BalanceIdempotencyRow existing = repository.lockBalanceIdempotency(
                         principalId, idempotencyKey)
                 .orElseThrow(() -> new IllegalStateException(
-                        "annual leave idempotency claim missing"));
+                        "leave account idempotency claim missing"));
         if (!operation.equals(existing.operation())
                 || !requestDigest.equals(existing.requestDigest())
                 || !account.accountId().equals(existing.accountId())) {
             throw conflict(
                     "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_REQUEST",
-                    "Idempotency-Key 已用于不同的年假余额请求");
+                    "Idempotency-Key 已用于不同的假期余额请求");
         }
         if (IDEMPOTENCY_COMPLETED.equals(existing.recordStatus())) {
             return new IdempotencyClaim(existing, true);
@@ -412,7 +476,7 @@ public class AnnualLeaveManagementService {
                 resultingAccount.rowVersion(),
                 clock.instant())) {
             throw new OptimisticLockingFailureException(
-                    "annual leave idempotency completion conflict");
+                    "leave account idempotency completion conflict");
         }
     }
 
@@ -435,9 +499,11 @@ public class AnnualLeaveManagementService {
             String employmentPeriodId,
             int year,
             int page,
-            int size) {
+            int size,
+            String accountType) {
         int safeSize = Math.min(size, MAX_ENTRIES_PAGE);
-        var account = repository.findTimeAccount(employeeId, employmentPeriodId, year);
+        var account = repository.findTimeAccount(
+                employeeId, employmentPeriodId, year, accountType);
         if (account.isEmpty()) {
             return new LeaveAccountView(
                     null,

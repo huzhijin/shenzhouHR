@@ -37,13 +37,15 @@ interface AttendanceSourceReadMapper {
             @Param("principalId") String principalId,
             @Param("capability") String capability,
             @Param("sourceId") String sourceId,
-            @Param("at") Instant at);
+            @Param("at") Instant at,
+            @Param("documentType") String documentType);
 
     List<AttendanceSourceReadModels.OaDocumentView> listOaDocuments(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
             @Param("sourceId") String sourceId,
             @Param("at") Instant at,
+            @Param("documentType") String documentType,
             @Param("limit") int limit,
             @Param("offset") int offset);
 }

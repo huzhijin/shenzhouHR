@@ -47,7 +47,9 @@ record SelfAttendanceDashboardResponse(
                                 point.confirmedMinutes(),
                                 point.recognizedOvertimeMinutes(),
                                 point.leaveMinutes(),
-                                point.issueCount()))
+                                point.issueCount(),
+                                point.firstPunchAt(),
+                                point.lastPunchAt()))
                         .toList(),
                 dashboard.today() == null
                         ? null
@@ -100,7 +102,9 @@ record SelfAttendanceDashboardResponse(
             long confirmedMinutes,
             long recognizedOvertimeMinutes,
             long leaveMinutes,
-            long issueCount) {
+            long issueCount,
+            Instant firstPunchAt,
+            Instant lastPunchAt) {
     }
 
     record Today(

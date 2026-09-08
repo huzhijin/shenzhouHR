@@ -22,11 +22,23 @@ final class ReportRows {
     private ReportRows() {
     }
 
+    record SourceCutoffRow(String sourceType, Instant committedAt) {
+    }
+
     record CompanyRow(String companyId, String companyName) {
 
         CompanyOption toDomain() {
             return new CompanyOption(companyId, companyName);
         }
+    }
+
+    record PrincipalHomeRow(
+            String employeeId,
+            String employeeNumber,
+            String companyId,
+            String companyName,
+            String organizationId,
+            String organizationName) {
     }
 
     record ProjectionRow(
@@ -122,6 +134,12 @@ final class ReportRows {
         }
     }
 
+    record MatrixEmployeeRow(
+            String employeeId,
+            String employeeNumber,
+            String employeeName) {
+    }
+
     record DailyRow(
             String factId,
             String companyId,
@@ -142,11 +160,11 @@ final class ReportRows {
             long voluntaryOvertimeMinutes,
             long totalOvertimeMinutes,
             long leaveOrTimeOffMinutes,
-            LeaveType leaveType,
+            String leaveType,
             long absenceMinutes,
             long actualWorkMinutes,
             int scheduledAttendanceDays,
-            int actualAttendanceDays,
+            double actualAttendanceDays,
             long lateMinutes,
             long penalizedLateMinutes,
             long earlyDepartureMinutes,
@@ -157,6 +175,30 @@ final class ReportRows {
             String resultDigest) {
 
         DailyFact toDomain() {
+            DayType parsedDay = DayType.WEEKDAY;
+            if (dayType != null && !dayType.isBlank()) {
+                try {
+                    parsedDay = DayType.valueOf(dayType.trim());
+                } catch (IllegalArgumentException ignored) {
+                    parsedDay = DayType.WEEKDAY;
+                }
+            }
+            long paid = Math.max(0, paidOvertimeMinutes);
+            long compensatory = Math.max(0, compensatoryOvertimeMinutes);
+            long voluntary = Math.max(0, voluntaryOvertimeMinutes);
+            long classified = paid + compensatory + voluntary;
+            long recognized = Math.max(recognizedOvertimeMinutes, classified);
+            long confirmed = Math.max(0, confirmedScheduledWorkMinutes);
+            long actual = confirmed + recognized;
+            long late = Math.max(0, lateMinutes);
+            long penalized = Math.min(Math.max(0, penalizedLateMinutes), late);
+            String shift = (shiftLabel == null || shiftLabel.isBlank())
+                    ? "—"
+                    : shiftLabel;
+            String orgName = (organizationName == null
+                    || organizationName.isBlank())
+                    ? "—"
+                    : organizationName;
             return new DailyFact(
                     factId,
                     companyId,
@@ -165,31 +207,47 @@ final class ReportRows {
                     employeeName,
                     organizationId,
                     organizationVersionId,
-                    organizationName,
+                    orgName,
                     businessDate,
-                    DayType.valueOf(dayType),
-                    shiftLabel,
-                    scheduledMinutes,
-                    confirmedScheduledWorkMinutes,
-                    recognizedOvertimeMinutes,
-                    paidOvertimeMinutes,
-                    compensatoryOvertimeMinutes,
-                    voluntaryOvertimeMinutes,
-                    totalOvertimeMinutes,
-                    leaveOrTimeOffMinutes,
-                    absenceMinutes,
-                    actualWorkMinutes,
-                    scheduledAttendanceDays,
-                    actualAttendanceDays,
-                    lateMinutes,
-                    penalizedLateMinutes,
-                    earlyDepartureMinutes,
-                    missingPunchCount,
+                    parsedDay,
+                    shift,
+                    Math.max(0, scheduledMinutes),
+                    confirmed,
+                    recognized,
+                    paid,
+                    compensatory,
+                    voluntary,
+                    classified,
+                    Math.max(0, leaveOrTimeOffMinutes),
+                    Math.max(0, absenceMinutes),
+                    actual,
+                    scheduledAttendanceDays == 1 ? 1 : 0,
+                    snapAttendanceDays(actualAttendanceDays),
+                    late,
+                    penalized,
+                    Math.max(0, earlyDepartureMinutes),
+                    Math.max(0, missingPunchCount),
                     firstPunchAt,
                     lastPunchAt,
                     calculationVersionId,
                     resultDigest,
-                    leaveType);
+                    LeaveType.fromLeaveCode(leaveType));
+        }
+
+        private static double snapAttendanceDays(double days) {
+            if (Math.abs(days - 1.0d) < 0.000_001d) {
+                return 1.0d;
+            }
+            if (Math.abs(days - 0.5d) < 0.000_001d) {
+                return 0.5d;
+            }
+            if (days >= 0.75d) {
+                return 1.0d;
+            }
+            if (days >= 0.25d) {
+                return 0.5d;
+            }
+            return 0.0d;
         }
     }
 
@@ -206,7 +264,8 @@ final class ReportRows {
             Instant endExclusive,
             long recognizedMinutes,
             String sourceStatus,
-            String sourceVersion) {
+            String sourceVersion,
+            String sourceOrigin) {
 
         OaDocumentFact toDomain() {
             return new OaDocumentFact(
@@ -222,7 +281,8 @@ final class ReportRows {
                     endExclusive,
                     recognizedMinutes,
                     sourceStatus,
-                    sourceVersion);
+                    sourceVersion,
+                    sourceOrigin);
         }
     }
 
@@ -251,8 +311,8 @@ final class ReportRows {
                     organizationName,
                     businessDate,
                     exceptionType,
-                    ExceptionSeverity.valueOf(severity),
-                    ExceptionState.valueOf(state),
+                    parseSeverity(severity),
+                    parseState(state),
                     minutes,
                     safeEvidenceSummary,
                     calculationVersionId);
@@ -285,7 +345,7 @@ final class ReportRows {
                     employeeName,
                     organizationId,
                     organizationName,
-                    TimeAccountType.valueOf(accountType),
+                    parseAccountType(accountType),
                     openingHours,
                     grantedHours,
                     overtimeCreditHours,
@@ -296,5 +356,62 @@ final class ReportRows {
                     manualDeductionHours,
                     ledgerVersion);
         }
+    }
+
+    private static ExceptionSeverity parseSeverity(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return ExceptionSeverity.INFO;
+        }
+        try {
+            return ExceptionSeverity.valueOf(raw.trim());
+        } catch (IllegalArgumentException ignored) {
+            return switch (raw.trim()) {
+                case "WARN", "WARNING", "警告" -> ExceptionSeverity.WARNING;
+                case "ERROR", "错误" -> ExceptionSeverity.ERROR;
+                default -> ExceptionSeverity.INFO;
+            };
+        }
+    }
+
+    private static ExceptionState parseState(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return ExceptionState.OPEN;
+        }
+        try {
+            return ExceptionState.valueOf(raw.trim());
+        } catch (IllegalArgumentException ignored) {
+            return ExceptionState.OPEN;
+        }
+    }
+
+    private static TimeAccountType parseAccountType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return TimeAccountType.ANNUAL_LEAVE;
+        }
+        try {
+            return TimeAccountType.valueOf(raw.trim());
+        } catch (IllegalArgumentException ignored) {
+            return switch (raw.trim()) {
+                case "TIME_OFF", "COMPENSATORY" -> TimeAccountType.COMP_TIME;
+                case "ANNUAL", "ANNUAL_LEAVE" -> TimeAccountType.ANNUAL_LEAVE;
+                case "WORK_HOURS", "OVERTIME", "RECOGNIZED_OVERTIME"
+                        -> TimeAccountType.RECOGNIZED_OVERTIME;
+                default -> TimeAccountType.ANNUAL_LEAVE;
+            };
+        }
+    }
+
+    record OrganizationGraphRow(
+            String organizationId,
+            String parentOrganizationId,
+            String name,
+            String orgType) {
+    }
+
+    record OrganizationAncestorRow(
+            String organizationId,
+            String ancestorName,
+            String ancestorOrgType,
+            int depth) {
     }
 }

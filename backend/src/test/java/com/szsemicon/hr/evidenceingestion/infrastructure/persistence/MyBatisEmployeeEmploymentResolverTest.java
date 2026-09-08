@@ -43,15 +43,38 @@ class MyBatisEmployeeEmploymentResolverTest {
 
         assertThat(matches).singleElement().satisfies(match -> {
             assertThat(match.employeeId()).isEqualTo("employee-1");
+            assertThat(match.companyId()).isEqualTo("company-1");
             assertThat(match.employmentPeriodId())
-                    .isEqualTo("employment-1");
+                    .isEqualTo("assignment-1");
             assertThat(match.resolverSnapshotDigest())
                     .matches("[0-9a-f]{64}");
         });
-        verify(mapper).resolveByEmployeeNumber(
-                "company-1",
-                employeeNumber,
-                LocalDate.parse("2026-07-29"));
+    }
+
+    @Test
+    void preservesExactDisplayNameAndUsesShanghaiBusinessDate() {
+        when(mapper.resolveByDisplayName(
+                        "company-1",
+                        "彭伟",
+                        LocalDate.parse("2026-07-29")))
+                .thenReturn(List.of(row(
+                        "employee-1",
+                        "employment-1",
+                        "assignment-1",
+                        "employee-version-1",
+                        "organization-1",
+                        null)));
+
+        var matches = resolver.resolveByDisplayName(
+                "company-1", "彭伟", PUNCH_AT);
+
+        assertThat(matches).singleElement().satisfies(match -> {
+            assertThat(match.employeeId()).isEqualTo("employee-1");
+            assertThat(match.employmentPeriodId())
+                    .isEqualTo("assignment-1");
+        });
+        verify(mapper).resolveByDisplayName(
+                "company-1", "彭伟", LocalDate.parse("2026-07-29"));
     }
 
     @Test
@@ -81,8 +104,8 @@ class MyBatisEmployeeEmploymentResolverTest {
                 .extracting(value ->
                         value.employeeId() + ":" + value.employmentPeriodId())
                 .containsExactly(
-                        "employee-1:employment-1",
-                        "employee-2:employment-2");
+                        "employee-1:assignment-1",
+                        "employee-2:assignment-2");
     }
 
     @Test
@@ -176,6 +199,7 @@ class MyBatisEmployeeEmploymentResolverTest {
             String bindingId) {
         return new EvidenceEmployeeResolverRow(
                 employeeId,
+                "company-1",
                 employmentPeriodId,
                 assignmentVersionId,
                 employeeVersionId,

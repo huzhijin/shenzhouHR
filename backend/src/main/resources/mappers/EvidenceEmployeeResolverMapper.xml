@@ -4,12 +4,16 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EvidenceEmployeeResolverMapper">
 
-    <sql id="resolverCoreProjection">
+    <sql id="resolverIdentityProjection">
         employee.employee_id,
+        employee.company_id,
         employment.employment_period_id,
         employment.assignment_id AS assignment_version_id,
         employee_version.employee_version_id,
-        employment.organization_id,
+        employment.organization_id
+    </sql>
+
+    <sql id="resolverVersionProjection">
         employee.row_version AS employee_aggregate_version,
         employee_version.row_version AS employee_version,
         employment.row_version AS employment_version
@@ -42,12 +46,12 @@
     <select id="resolveByEmployeeNumber"
             resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EvidenceEmployeeResolverRow">
         SELECT
-            <include refid="resolverCoreProjection"/>,
-            NULL AS binding_id
+            <include refid="resolverIdentityProjection"/>,
+            NULL AS binding_id,
+            <include refid="resolverVersionProjection"/>
         FROM employee employee
         <include refid="activeEmployeeAndEmployment"/>
-        WHERE employee.company_id = #{companyId}
-          AND employee_version.employee_number = #{employeeNumber}
+        WHERE employee_version.employee_number = #{employeeNumber}
         ORDER BY employee.employee_id, employment.employment_period_id,
                  employment.assignment_id
         LIMIT 2
@@ -56,14 +60,14 @@
     <select id="resolveByConfirmedDeliBinding"
             resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EvidenceEmployeeResolverRow">
         SELECT
-            <include refid="resolverCoreProjection"/>,
-            binding.binding_id
+            <include refid="resolverIdentityProjection"/>,
+            binding.binding_id,
+            <include refid="resolverVersionProjection"/>
         FROM employee_source_binding binding
         JOIN employee employee
           ON employee.employee_id = binding.employee_id
         <include refid="activeEmployeeAndEmployment"/>
-        WHERE employee.company_id = #{companyId}
-          AND binding.deli_attendance_source_id = #{sourceId}
+        WHERE binding.deli_attendance_source_id = #{sourceId}
           AND binding.binding_status = 'CONFIRMED'
           AND binding.confirmation_ref IS NOT NULL
           AND binding.effective_from &lt;= #{sourceLocalTime}
@@ -71,18 +75,27 @@
                 binding.effective_to IS NULL
                 OR binding.effective_to &gt; #{sourceLocalTime}
           )
+          AND #{bindingKind} IN ('DELI_EXT_ID', 'DELI_USER_ID')
           AND (
-                (
-                    #{bindingKind} = 'DELI_EXT_ID'
-                    AND binding.deli_ext_id = #{externalPersonRef}
-                )
-                OR (
-                    #{bindingKind} = 'DELI_USER_ID'
-                    AND binding.deli_user_id = #{externalPersonRef}
-                )
+                binding.deli_ext_id = #{externalPersonRef}
+                OR binding.deli_user_id = #{externalPersonRef}
           )
         ORDER BY employee.employee_id, employment.employment_period_id,
                  employment.assignment_id, binding.binding_id
+        LIMIT 2
+    </select>
+
+    <select id="resolveByDisplayName"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EvidenceEmployeeResolverRow">
+        SELECT
+            <include refid="resolverIdentityProjection"/>,
+            NULL AS binding_id,
+            <include refid="resolverVersionProjection"/>
+        FROM employee employee
+        <include refid="activeEmployeeAndEmployment"/>
+        WHERE employee_version.display_name = #{displayName}
+        ORDER BY employee.employee_id, employment.employment_period_id,
+                 employment.assignment_id
         LIMIT 2
     </select>
 </mapper>

@@ -110,7 +110,7 @@ class AnnualLeaveBalancePersistenceContractTest {
         assertThat(controller)
                 .contains("            @RequestHeader(\"Idempotency-Key\") String idempotencyKey) {");
         assertThat(controller.split("@RequestHeader\\(\"Idempotency-Key\"\\)", -1))
-                .hasSize(3);
+                .hasSize(5);
         assertThat(controller)
                 .doesNotContain(
                         "@RequestHeader(value = \"Idempotency-Key\", required = false)",

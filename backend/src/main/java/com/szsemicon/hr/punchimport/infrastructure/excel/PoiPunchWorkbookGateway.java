@@ -88,6 +88,23 @@ public class PoiPunchWorkbookGateway implements PunchWorkbookGateway {
                 throw unsafe("INVALID_XLSX_ENVELOPE", "仅支持 OOXML .xlsx");
             }
             rejectFormulaCells(workbook);
+            String kind = VendorMonthlyWorkbookAdapter.classify(workbook);
+            if (VendorMonthlyWorkbookAdapter.MONTHLY_SUMMARY.equals(kind)
+                    || VendorMonthlyWorkbookAdapter.DELI_MONTHLY_REPORT.equals(kind)) {
+                List<Map<String, String>> punchRows =
+                        VendorMonthlyWorkbookAdapter.unpivot(workbook);
+                return new ParsedWorkbook(
+                        kind,
+                        fieldContractDigest(),
+                        kind,
+                        punchRows,
+                        List.of());
+            }
+            if (VendorMonthlyWorkbookAdapter.UNRECOGNIZED.equals(kind)
+                    && workbook.getSheet("考勤打卡导入") == null) {
+                throw unsafe("UNRECOGNIZED_LAYOUT",
+                        "无法识别为官方打卡模板、月度汇总表或得力考勤月报");
+            }
             Sheet punchSheet = requiredSheet(workbook, "考勤打卡导入");
             Sheet mappingSheet = requiredSheet(workbook, "设备人员映射（可选）");
             List<Map<String, String>> punchRows = readRows(
@@ -109,6 +126,7 @@ public class PoiPunchWorkbookGateway implements PunchWorkbookGateway {
             return new ParsedWorkbook(
                     version,
                     contract,
+                    "OFFICIAL_TEMPLATE",
                     punchRows,
                     mappingRows);
         } catch (UnsafeWorkbookException exception) {

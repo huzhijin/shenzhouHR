@@ -130,7 +130,9 @@ public final class EvidenceRows {
             Instant approvedAt,
             Instant modifiedAt,
             Instant revokedAt,
-            Instant createdAt) {
+            Instant createdAt,
+            String leaveSerial,
+            String originalLeaveSerial) {
     }
 
     /**
@@ -153,6 +155,20 @@ public final class EvidenceRows {
             String authorizedContextJson,
             String contextDigest,
             Instant createdAt) {
+    }
+
+    public record ReplayStateRow(
+            String rawAttendanceFactId,
+            String normalizedAttendanceRecordId,
+            Integer normalizationRevision,
+            String validationStatus,
+            String issueCode,
+            String matchStatus,
+            String matchReason,
+            String matchEmployeeId,
+            String employmentPeriodId,
+            String effectiveAttendanceEventId,
+            String eventEmployeeId) {
     }
 
     public record EvidenceTraceRow(

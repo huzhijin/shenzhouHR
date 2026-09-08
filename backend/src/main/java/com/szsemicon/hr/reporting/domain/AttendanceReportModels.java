@@ -14,7 +14,7 @@ import java.util.Objects;
 public final class AttendanceReportModels {
 
     public static final String ATTENDANCE_RATE_FORMULA_VERSION =
-            "ATTENDANCE_RATE_ACTUAL_DAYS_OVER_SCHEDULED_DAYS_V2";
+            "ATTENDANCE_RATE_HALF_DAY_V3";
 
     private AttendanceReportModels() {
     }
@@ -82,7 +82,9 @@ public final class AttendanceReportModels {
         VOLUNTARY_OVERTIME_HOURS(
                 "voluntary-overtime-hours", "义务加班"),
         TOTAL_OVERTIME_HOURS("total-overtime-hours", "汇总加班"),
-        LEAVE_HOURS("leave-hours", "请假/调休"),
+        LEAVE_HOURS("leave-hours", "事假病假及其他假期"),
+        ANNUAL_LEAVE_HOURS("annual-leave-hours", "年假"),
+        TIME_OFF_HOURS("time-off-hours", "实际调休"),
         SICK_LEAVE_DAYS("sick-leave-days", "病假天数"),
         ABSENCE_HOURS("absence-hours", "旷工"),
         ACTUAL_WORK_HOURS("actual-work-hours", "实际工作工时"),
@@ -98,6 +100,7 @@ public final class AttendanceReportModels {
         DOCUMENT_START("document-start", "开始时间"),
         DOCUMENT_END("document-end", "结束时间"),
         APPROVAL_STATE("approval-state", "审批状态"),
+        SOURCE_ORIGIN("source-origin", "来源"),
         RECOGNIZED_HOURS("recognized-hours", "认定小时"),
         WEEKDAY_OVERTIME_HOURS(
                 "weekday-overtime-hours", "工作日加班"),
@@ -111,6 +114,7 @@ public final class AttendanceReportModels {
         EXCEPTION_SEVERITY("exception-severity", "异常级别"),
         EXCEPTION_STATE("exception-state", "处理状态"),
         EXCEPTION_MINUTES("exception-minutes", "异常分钟"),
+        EXCEPTION_DETAILS("exception-details", "详情"),
         EVIDENCE_SUMMARY("evidence-summary", "证据摘要"),
         LATE_EVENT_COUNT("late-event-count", "迟到次数"),
         ATTENDANCE_RATE("attendance-rate", "出勤率（%）"),
@@ -167,7 +171,18 @@ public final class AttendanceReportModels {
             String companyId,
             String organizationId,
             String employeeId,
-            String status) {
+            String status,
+            LocalDate fromDate,
+            LocalDate toDate) {
+
+        public ReportFilter(
+                YearMonth period,
+                String companyId,
+                String organizationId,
+                String employeeId,
+                String status) {
+            this(period, companyId, organizationId, employeeId, status, null, null);
+        }
 
         public ReportFilter {
             Objects.requireNonNull(period, "period");
@@ -187,6 +202,14 @@ public final class AttendanceReportModels {
                             .contains(status)) {
                 throw new IllegalArgumentException(
                         "status is not an allowed exception state");
+            }
+            if ((fromDate == null) != (toDate == null)) {
+                throw new IllegalArgumentException(
+                        "fromDate and toDate must both be present");
+            }
+            if (fromDate != null && toDate.isBefore(fromDate)) {
+                throw new IllegalArgumentException(
+                        "toDate is before fromDate");
             }
         }
     }
@@ -214,7 +237,7 @@ public final class AttendanceReportModels {
             long absenceMinutes,
             long actualWorkMinutes,
             int scheduledAttendanceDays,
-            int actualAttendanceDays,
+            double actualAttendanceDays,
             long lateMinutes,
             long penalizedLateMinutes,
             long earlyDepartureMinutes,
@@ -258,9 +281,11 @@ public final class AttendanceReportModels {
                 throw new IllegalArgumentException(
                         "scheduledAttendanceDays must be 0 or 1");
             }
-            if (actualAttendanceDays != 0 && actualAttendanceDays != 1) {
+            if (actualAttendanceDays != 0
+                    && actualAttendanceDays != 0.5
+                    && actualAttendanceDays != 1) {
                 throw new IllegalArgumentException(
-                        "actualAttendanceDays must be 0 or 1");
+                        "actualAttendanceDays must be 0, 0.5, or 1");
             }
             if (actualWorkMinutes
                     != confirmedScheduledWorkMinutes
@@ -316,7 +341,7 @@ public final class AttendanceReportModels {
                 long absenceMinutes,
                 long actualWorkMinutes,
                 int scheduledAttendanceDays,
-                int actualAttendanceDays,
+                double actualAttendanceDays,
                 long lateMinutes,
                 long penalizedLateMinutes,
                 long earlyDepartureMinutes,
@@ -384,7 +409,7 @@ public final class AttendanceReportModels {
                 long absenceMinutes,
                 long actualWorkMinutes,
                 int scheduledAttendanceDays,
-                int actualAttendanceDays,
+                double actualAttendanceDays,
                 long lateMinutes,
                 long penalizedLateMinutes,
                 long earlyDepartureMinutes,
@@ -427,6 +452,45 @@ public final class AttendanceReportModels {
                     resultDigest,
                     null);
         }
+
+        public DailyFact withOrganizationName(String organizationName) {
+            if (Objects.equals(this.organizationName, organizationName)) {
+                return this;
+            }
+            return new DailyFact(
+                    factId,
+                    companyId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationVersionId,
+                    organizationName,
+                    businessDate,
+                    dayType,
+                    shiftLabel,
+                    scheduledMinutes,
+                    confirmedScheduledWorkMinutes,
+                    recognizedOvertimeMinutes,
+                    paidOvertimeMinutes,
+                    compensatoryOvertimeMinutes,
+                    voluntaryOvertimeMinutes,
+                    totalOvertimeMinutes,
+                    leaveOrTimeOffMinutes,
+                    absenceMinutes,
+                    actualWorkMinutes,
+                    scheduledAttendanceDays,
+                    actualAttendanceDays,
+                    lateMinutes,
+                    penalizedLateMinutes,
+                    earlyDepartureMinutes,
+                    missingPunchCount,
+                    firstPunchAt,
+                    lastPunchAt,
+                    calculationVersionId,
+                    resultDigest,
+                    leaveType);
+        }
     }
 
     public record OaDocumentFact(
@@ -442,7 +506,39 @@ public final class AttendanceReportModels {
             Instant endExclusive,
             long recognizedMinutes,
             String sourceStatus,
-            String sourceVersion) {
+            String sourceVersion,
+            String sourceOrigin) {
+
+        public OaDocumentFact(
+                String documentId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationName,
+                String documentType,
+                String leaveType,
+                Instant start,
+                Instant endExclusive,
+                long recognizedMinutes,
+                String sourceStatus,
+                String sourceVersion) {
+            this(
+                    documentId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationName,
+                    documentType,
+                    leaveType,
+                    start,
+                    endExclusive,
+                    recognizedMinutes,
+                    sourceStatus,
+                    sourceVersion,
+                    "OA");
+        }
 
         public OaDocumentFact {
             documentId = requireText(documentId, "documentId");
@@ -463,6 +559,30 @@ public final class AttendanceReportModels {
             requireNonNegative(recognizedMinutes);
             sourceStatus = requireText(sourceStatus, "sourceStatus");
             sourceVersion = requireText(sourceVersion, "sourceVersion");
+            sourceOrigin = sourceOrigin == null || sourceOrigin.isBlank()
+                    ? "OA"
+                    : sourceOrigin;
+        }
+
+        public OaDocumentFact withOrganizationName(String organizationName) {
+            if (Objects.equals(this.organizationName, organizationName)) {
+                return this;
+            }
+            return new OaDocumentFact(
+                    documentId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationName,
+                    documentType,
+                    leaveType,
+                    start,
+                    endExclusive,
+                    recognizedMinutes,
+                    sourceStatus,
+                    sourceVersion,
+                    sourceOrigin);
         }
     }
 
@@ -499,6 +619,26 @@ public final class AttendanceReportModels {
             calculationVersionId = requireText(
                     calculationVersionId, "calculationVersionId");
         }
+
+        public ExceptionFact withOrganizationName(String organizationName) {
+            if (Objects.equals(this.organizationName, organizationName)) {
+                return this;
+            }
+            return new ExceptionFact(
+                    caseId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationName,
+                    businessDate,
+                    exceptionType,
+                    severity,
+                    state,
+                    minutes,
+                    safeEvidenceSummary,
+                    calculationVersionId);
+        }
     }
 
     public record TimeAccountFact(
@@ -528,7 +668,7 @@ public final class AttendanceReportModels {
             organizationName = requireText(
                     organizationName, "organizationName");
             Objects.requireNonNull(accountType, "accountType");
-            openingHours = nonNegative(openingHours, "openingHours");
+            openingHours = requireHours(openingHours, "openingHours");
             grantedHours = nonNegative(grantedHours, "grantedHours");
             overtimeCreditHours = nonNegative(
                     overtimeCreditHours, "overtimeCreditHours");
@@ -540,6 +680,29 @@ public final class AttendanceReportModels {
             manualDeductionHours = nonNegative(
                     manualDeductionHours, "manualDeductionHours");
             ledgerVersion = requireText(ledgerVersion, "ledgerVersion");
+        }
+
+        public TimeAccountFact withOrganizationName(String organizationName) {
+            if (Objects.equals(this.organizationName, organizationName)) {
+                return this;
+            }
+            return new TimeAccountFact(
+                    accountId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationName,
+                    accountType,
+                    openingHours,
+                    grantedHours,
+                    overtimeCreditHours,
+                    manualIncreaseHours,
+                    usedHours,
+                    expiredHours,
+                    returnedHours,
+                    manualDeductionHours,
+                    ledgerVersion);
         }
 
         public BigDecimal balanceHours() {
@@ -555,6 +718,24 @@ public final class AttendanceReportModels {
         }
     }
 
+    public record WorkWindowFact(
+            String employeeId,
+            LocalDate businessDate,
+            Instant start,
+            Instant endExclusive) {
+
+        public WorkWindowFact {
+            employeeId = requireText(employeeId, "employeeId");
+            Objects.requireNonNull(businessDate, "businessDate");
+            Objects.requireNonNull(start, "start");
+            Objects.requireNonNull(endExclusive, "endExclusive");
+            if (!start.isBefore(endExclusive)) {
+                throw new IllegalArgumentException(
+                        "work window start must be before end");
+            }
+        }
+    }
+
     public record ReportSourceSnapshot(
             AuthorizedScope scope,
             ReportFilter filter,
@@ -565,7 +746,33 @@ public final class AttendanceReportModels {
             List<DailyFact> dailyFacts,
             List<OaDocumentFact> oaDocumentFacts,
             List<ExceptionFact> exceptionFacts,
-            List<TimeAccountFact> timeAccountFacts) {
+            List<TimeAccountFact> timeAccountFacts,
+            List<WorkWindowFact> workWindows) {
+
+        public ReportSourceSnapshot(
+                AuthorizedScope scope,
+                ReportFilter filter,
+                String projectionVersion,
+                String periodState,
+                Instant dataAsOf,
+                List<String> sourceVersions,
+                List<DailyFact> dailyFacts,
+                List<OaDocumentFact> oaDocumentFacts,
+                List<ExceptionFact> exceptionFacts,
+                List<TimeAccountFact> timeAccountFacts) {
+            this(
+                    scope,
+                    filter,
+                    projectionVersion,
+                    periodState,
+                    dataAsOf,
+                    sourceVersions,
+                    dailyFacts,
+                    oaDocumentFacts,
+                    exceptionFacts,
+                    timeAccountFacts,
+                    List.of());
+        }
 
         public ReportSourceSnapshot {
             Objects.requireNonNull(scope, "scope");
@@ -583,6 +790,8 @@ public final class AttendanceReportModels {
                     exceptionFacts, "exceptionFacts"));
             timeAccountFacts = List.copyOf(Objects.requireNonNull(
                     timeAccountFacts, "timeAccountFacts"));
+            workWindows = List.copyOf(Objects.requireNonNull(
+                    workWindows, "workWindows"));
         }
     }
 
@@ -682,6 +891,11 @@ public final class AttendanceReportModels {
                     field + " is not a safe report filter");
         }
         return value;
+    }
+
+    private static BigDecimal requireHours(
+            BigDecimal value, String field) {
+        return Objects.requireNonNull(value, field);
     }
 
     private static BigDecimal nonNegative(

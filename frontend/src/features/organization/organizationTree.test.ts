@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { OrganizationNode } from './organizationApi';
 import {
   allOrganizationKeys,
+  filterOrganizationNodes,
   topLevelOrganizationKeys,
   toOrganizationTreeData,
 } from './organizationTree';
@@ -51,6 +52,19 @@ describe('allOrganizationKeys', () => {
       'grandchild',
       'root-2',
     ]);
+  });
+});
+
+describe('filterOrganizationNodes', () => {
+  it('fuzzy matches a department name or code and keeps its ancestor path', () => {
+    const team = organizationNode('FAB1-A', []);
+    const department = organizationNode('manufacturing', [team]);
+    const roots = [organizationNode('company', [department])];
+
+    expect(allOrganizationKeys(filterOrganizationNodes(roots, 'facturing')))
+      .toEqual(['company', 'manufacturing', 'FAB1-A']);
+    expect(allOrganizationKeys(filterOrganizationNodes(roots, 'fab1-a')))
+      .toEqual(['company', 'manufacturing', 'FAB1-A']);
   });
 });
 

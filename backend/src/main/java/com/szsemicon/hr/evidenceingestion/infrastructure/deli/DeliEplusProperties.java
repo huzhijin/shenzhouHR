@@ -2,6 +2,7 @@ package com.szsemicon.hr.evidenceingestion.infrastructure.deli;
 
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -16,10 +17,11 @@ public final class DeliEplusProperties {
     private String appSecret = "";
     private int pageSize = 500;
     private Duration connectTimeout = Duration.ofSeconds(5);
-    private Duration requestTimeout = Duration.ofSeconds(15);
+    private Duration requestTimeout = Duration.ofSeconds(60);
     private int maxResponseBytes = 4 * 1024 * 1024;
     private ZoneId sourceTimeZone = ZoneId.of("Asia/Shanghai");
     private String credentialReferenceName = "DELI_EPLUS_APP_CREDENTIALS";
+    private Instant kqIngestNotBefore = Instant.parse("2026-07-31T16:00:00Z");
 
     public boolean isEnabled() {
         return enabled;
@@ -101,6 +103,14 @@ public final class DeliEplusProperties {
         this.credentialReferenceName = credentialReferenceName;
     }
 
+    public Instant getKqIngestNotBefore() {
+        return kqIngestNotBefore;
+    }
+
+    public void setKqIngestNotBefore(Instant kqIngestNotBefore) {
+        this.kqIngestNotBefore = kqIngestNotBefore;
+    }
+
     void validateForEnabledClient() {
         if (!enabled) {
             throw new IllegalStateException("Deli E+ integration is disabled");
@@ -141,6 +151,7 @@ public final class DeliEplusProperties {
                 + ", maxResponseBytes=" + maxResponseBytes
                 + ", sourceTimeZone=" + sourceTimeZone
                 + ", credentialReferenceName=" + credentialReferenceName
+                + ", kqIngestNotBefore=" + kqIngestNotBefore
                 + "]";
     }
 

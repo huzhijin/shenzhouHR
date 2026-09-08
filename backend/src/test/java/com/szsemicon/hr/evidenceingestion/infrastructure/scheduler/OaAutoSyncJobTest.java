@@ -41,7 +41,7 @@ class OaAutoSyncJobTest {
 
         assertThat(scheduled.cron())
                 .isEqualTo(
-                        "${shenzhouhr.oa.auto-sync-cron:0 0/30 * * * ?}");
+                        "${shenzhouhr.oa.auto-sync-cron:0 0 * * * ?}");
         assertThat(scheduled.zone())
                 .isEqualTo(
                         "${shenzhouhr.oa.auto-sync-zone:Asia/Shanghai}");

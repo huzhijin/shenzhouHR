@@ -146,7 +146,10 @@ describe('AccountsPage role scope creation', () => {
     expect(firstDescendants).not.toBeChecked();
     expect(firstDescendants).toBeDisabled();
 
-    fireEvent.click(within(rows[0]!).getByRole('button', { name: '新增该角色范围' }));
+    fireEvent.click(within(rows[0]!).getByRole(
+      'button',
+      { name: '为第 1 条角色授权添加范围' },
+    ));
     await waitFor(() => {
       expect(roleRows(dialog)).toHaveLength(2);
       expect(within(roleRows(dialog)[1]!).getByRole(
@@ -207,7 +210,10 @@ describe('AccountsPage role scope creation', () => {
     expect(within(dialog).getAllByTestId('selected-company').map((node) => node.textContent))
       .toEqual(companies.map((company) => company.companyId));
 
-    fireEvent.click(within(roleRows(dialog)[0]!).getByRole('button', { name: '删除本条' }));
+    fireEvent.click(within(roleRows(dialog)[0]!).getByRole(
+      'button',
+      { name: '删除第 1 条角色授权' },
+    ));
     expect(roleRows(dialog)).toHaveLength(3);
     expect(within(dialog).getByText(/以后新增公司不会自动扩权/)).toBeInTheDocument();
   });

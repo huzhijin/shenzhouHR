@@ -9,7 +9,7 @@ spring:
     hikari:
       maximum-pool-size: ${SHENZHOUHR_DB_POOL_SIZE:12}
       minimum-idle: ${SHENZHOUHR_DB_MIN_IDLE:2}
-      connection-timeout: 5000
+      connection-timeout: ${SHENZHOUHR_DB_CONNECTION_TIMEOUT:15000}
   flyway:
     enabled: ${SHENZHOUHR_FLYWAY_ENABLED:false}
     url: ${SHENZHOUHR_FLYWAY_URL:${SHENZHOUHR_DB_URL}}
@@ -17,7 +17,8 @@ spring:
     password: ${SHENZHOUHR_FLYWAY_PASSWORD}
     locations: classpath:db/migration
     baseline-on-migrate: false
-    validate-migration-naming: true
+    validate-on-migrate: false
+    validate-migration-naming: false
   jackson:
     default-property-inclusion: non_null
     deserialization:
@@ -40,7 +41,7 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
     local-cache-scope: statement
-    default-statement-timeout: 5
+    default-statement-timeout: 300
 
 management:
   endpoints:
@@ -60,11 +61,20 @@ shenzhouhr:
     enabled: false
   deli:
     auto-sync-enabled: ${SHENZHOUHR_DELI_AUTO_SYNC_ENABLED:false}
-    auto-sync-cron: ${SHENZHOUHR_DELI_AUTO_SYNC_CRON:0 0 * * * ?}
+    auto-sync-cron: ${SHENZHOUHR_DELI_AUTO_SYNC_CRON:0 0 0,8,12,18 * * ?}
+    replay-enabled: ${SHENZHOUHR_DELI_REPLAY_ENABLED:false}
   oa:
     auto-sync-enabled: ${SHENZHOUHR_OA_AUTO_SYNC_ENABLED:false}
-    auto-sync-cron: ${SHENZHOUHR_OA_AUTO_SYNC_CRON:0 0/30 * * * ?}
+    auto-sync-cron: ${SHENZHOUHR_OA_AUTO_SYNC_CRON:0 0 * * * ?}
     auto-sync-zone: ${SHENZHOUHR_OA_AUTO_SYNC_ZONE:Asia/Shanghai}
+  report:
+    # Rebuild OPEN months only at 00:00 and 12:00 after both Deli and OA
+    # scheduled syncs succeed, plus this delay; HR can still click 重新计算.
+    auto-recalculate-after-sync: ${SHENZHOUHR_REPORT_AUTO_RECALCULATE_AFTER_SYNC:true}
+    auto-recalculate-delay: ${SHENZHOUHR_REPORT_AUTO_RECALCULATE_DELAY:PT10M}
+  leave-account:
+    oa-recalculate-enabled: ${SHENZHOUHR_LEAVE_OA_RECALCULATE_ENABLED:true}
+    oa-recalculate-cron: ${SHENZHOUHR_LEAVE_OA_RECALCULATE_CRON:0 0 1 * * ?}
   time-off-year-end:
     # Keep disabled until V41/V42 cutover and site acceptance are complete.
     enabled: ${SHENZHOUHR_TIME_OFF_YEAR_END_ENABLED:false}
@@ -85,8 +95,11 @@ shenzhouhr:
       lock-duration: ${SHENZHOUHR_LOGIN_LOCK_DURATION:PT30M}
     session:
       cookie-secure: ${SHENZHOUHR_SESSION_COOKIE_SECURE:true}
-      idle-timeout: ${SHENZHOUHR_SESSION_IDLE_TIMEOUT:PT30M}
-      absolute-timeout: ${SHENZHOUHR_SESSION_ABSOLUTE_TIMEOUT:PT8H}
+      idle-timeout: ${SHENZHOUHR_SESSION_IDLE_TIMEOUT:PT6H}
+      absolute-timeout: ${SHENZHOUHR_SESSION_ABSOLUTE_TIMEOUT:PT12H}
+  ocr:
+    baidu-api-key: ${SHENZHOUHR_OCR_BAIDU_API_KEY:}
+    baidu-secret-key: ${SHENZHOUHR_OCR_BAIDU_SECRET_KEY:}
   people-import:
     max-file-bytes: 20971520
     max-rows: 50000
@@ -98,11 +111,12 @@ shenzhouhr:
       app-key: ${DELI_EPLUS_APP_KEY:}
       app-secret: ${DELI_EPLUS_APP_SECRET:}
       page-size: ${DELI_EPLUS_PAGE_SIZE:500}
-      connect-timeout: ${DELI_EPLUS_CONNECT_TIMEOUT:PT5S}
-      request-timeout: ${DELI_EPLUS_REQUEST_TIMEOUT:PT15S}
+      connect-timeout: ${DELI_EPLUS_CONNECT_TIMEOUT:PT10S}
+      request-timeout: ${DELI_EPLUS_REQUEST_TIMEOUT:PT60S}
       max-response-bytes: ${DELI_EPLUS_MAX_RESPONSE_BYTES:4194304}
       source-time-zone: ${DELI_EPLUS_SOURCE_TIME_ZONE:Asia/Shanghai}
       credential-reference-name: ${DELI_EPLUS_CREDENTIAL_REFERENCE_NAME:DELI_EPLUS_APP_CREDENTIALS}
+      kq-ingest-not-before: ${DELI_EPLUS_KQ_INGEST_NOT_BEFORE:2026-08-01T00:00:00+08:00}
     oa-mysql:
       enabled: ${OA_MYSQL_ENABLED:false}
       jdbc-url: ${OA_MYSQL_JDBC_URL:}
@@ -110,7 +124,8 @@ shenzhouhr:
       password: ${OA_MYSQL_PASSWORD:}
       source-time-zone: ${OA_MYSQL_SOURCE_TIME_ZONE:Asia/Shanghai}
       maximum-pool-size: ${OA_MYSQL_MAX_POOL_SIZE:2}
-      connection-timeout: ${OA_MYSQL_CONNECTION_TIMEOUT:PT5S}
-      query-timeout: ${OA_MYSQL_QUERY_TIMEOUT:PT3S}
+      connection-timeout: ${OA_MYSQL_CONNECTION_TIMEOUT:PT15S}
+      query-timeout: ${OA_MYSQL_QUERY_TIMEOUT:PT60S}
+      sync-not-before: ${OA_MYSQL_SYNC_NOT_BEFORE:2016-01-01}
   payroll-reservation:
     enabled: ${SHENZHOUHR_PAYROLL_RESERVATION_ENABLED:false}

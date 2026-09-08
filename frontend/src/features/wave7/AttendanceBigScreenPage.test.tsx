@@ -2,15 +2,22 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
+import { AppearanceProvider } from '../../shared/appearance/AppearanceProvider';
+import '../../shared/i18n/i18n';
 import { AttendanceBigScreenPage } from './AttendanceBigScreenPage';
 
 describe('AttendanceBigScreenPage', () => {
   it('shows the full attendance operations story and switches scope', () => {
     render(
-      <MemoryRouter>
-        <AttendanceBigScreenPage />
-      </MemoryRouter>,
+      <AppearanceProvider>
+        <MemoryRouter>
+          <AttendanceBigScreenPage />
+        </MemoryRouter>
+      </AppearanceProvider>,
     );
+    expect(screen.getByRole('main', { name: '神州考勤系统独立考勤数据大屏' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '黑夜模式' })).toBeInTheDocument();
 
     expect(screen.getByRole('heading', { name: '考勤运行总览' })).toBeInTheDocument();
     expect(screen.getByText(

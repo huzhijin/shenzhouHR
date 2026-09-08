@@ -120,6 +120,349 @@ class DeliEplusClientTest {
     }
 
     @Test
+    void kqModuleSignsTheSameWayAndParsesDeviceSnPlusEmpno() throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "next_id": 12852026233,
+                    "data": [{
+                      "id": "12851355327",
+                      "user_id": "1191370861845925889",
+                      "ext_id": "",
+                      "check_time": 1785538386,
+                      "empno": "SZST0542",
+                      "check_type": "fp",
+                      "check_data": "13750C_8D32C1032484A20A|科技园1号楼1楼考勤机"
+                    }, {
+                      "id": "12851355328",
+                      "user_id": "1191370861845925890",
+                      "ext_id": "",
+                      "check_time": 1785538390,
+                      "empno": "SZST0009",
+                      "check_type": "fa",
+                      "check_data": "13750C_FB9CC2AD99B554E5|总部2号门考勤机"
+                    }]
+                  }
+                }
+                """));
+        DeliEplusClient client = client(transport);
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                50,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of(),
+                DeliPunchSourcePort.FetchSettings.MODULE_KQ);
+
+        var page = client.fetchPage("source-kq", "12848301274", settings);
+
+        DeliEplusHttpRequest request = transport.requests().getFirst();
+        assertThat(request.headers())
+                .containsEntry("Api-Module", "KQ")
+                .containsEntry("Api-Cmd", "checkin_query");
+        assertThat(request.headers().values()).doesNotContain("checkin_query_init");
+        assertThat(page.records()).hasSize(2);
+        var keji = page.records().getFirst();
+        assertThat(keji.sourceRecordId()).isEqualTo("12851355327");
+        assertThat(keji.employeeNumber()).isEqualTo("SZST0542");
+        assertThat(keji.deviceRef()).isEqualTo("13750C_8D32C1032484A20A");
+        assertThat(keji.verificationMethod()).isEqualTo("fp");
+        assertThat(keji.externalPersonRef()).isEqualTo("1191370861845925889");
+        assertThat(keji.punchInstant())
+                .isEqualTo(Instant.ofEpochSecond(1785538386L));
+        var headquarters = page.records().get(1);
+        assertThat(headquarters.deviceRef())
+                .isEqualTo("13750C_FB9CC2AD99B554E5");
+        assertThat(headquarters.employeeNumber()).isEqualTo("SZST0009");
+    }
+
+    @Test
+    void checkinPageSkipsUnreadableRowsInsteadOfFailingThePage()
+            throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "data": {
+                    "next_id": 2,
+                    "data": [
+                      {"id": 1, "user_id": "1"},
+                      {
+                        "id": 17354937,
+                        "user_id": "387",
+                        "ext_id": "",
+                        "terminal_id": "13750CS_6C0509548EBB335B",
+                        "check_type": "fp",
+                        "check_time": 1785803996,
+                        "check_data": "{\\"cmd\\":\\"checkin\\",\\"employee_num\\":\\"SZJN0002\\"}"
+                      }
+                    ]
+                  }
+                }
+                """));
+        var page = client(transport).fetchPage(
+                "source-checkin",
+                "0",
+                new DeliPunchSourcePort.FetchSettings(
+                        50,
+                        ZoneId.of("Asia/Shanghai"),
+                        Map.of(),
+                        DeliPunchSourcePort.FetchSettings.MODULE_CHECKIN,
+                        true));
+        assertThat(page.records()).hasSize(1);
+        assertThat(page.records().getFirst().employeeNumber())
+                .isEqualTo("SZJN0002");
+    }
+
+    @Test
+    void punchEmpnoWinsWhenDirectoryUserIdMapsToADifferentEmployee()
+            throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "next_id": 12852026233,
+                    "data": [{
+                      "id": "12851355327",
+                      "user_id": "487",
+                      "ext_id": "",
+                      "check_time": 1785538386,
+                      "empno": "SZST0489",
+                      "check_type": "fp",
+                      "check_data": "13750C_8D32C1032484A20A|科技园1号楼1楼考勤机"
+                    }]
+                  }
+                }
+                """));
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                50,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of("487", "SZST0494"),
+                DeliPunchSourcePort.FetchSettings.MODULE_KQ);
+
+        var page = client(transport).fetchPage("source-kq", "12848301274", settings);
+
+        assertThat(page.records()).hasSize(1);
+        assertThat(page.records().getFirst().employeeNumber())
+                .isEqualTo("SZST0489");
+    }
+
+    @Test
+    void snowflakeDirectoryIdReplacesCollidingDeviceEmpno() throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "next_id": 12852026233,
+                    "data": [{
+                      "id": "12851355327",
+                      "user_id": "932303205680513024",
+                      "ext_id": "",
+                      "check_time": 1785538386,
+                      "empno": "SZST0285",
+                      "check_type": "fp",
+                      "check_data": "13750C_8D32C1032484A20A|科技园1号楼1楼考勤机"
+                    }]
+                  }
+                }
+                """));
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                50,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of("932303205680513024", "SZST0284"),
+                DeliPunchSourcePort.FetchSettings.MODULE_KQ);
+
+        var page = client(transport).fetchPage("source-kq", "12848301274", settings);
+
+        assertThat(page.records()).hasSize(1);
+        assertThat(page.records().getFirst().employeeNumber())
+                .isEqualTo("SZST0284");
+    }
+
+    @Test
+    void checkinEmployeeNumWinsWhenDirectoryIdCollidesWithAnotherPerson()
+            throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "next_id": 17853000,
+                    "data": [{
+                      "id": 17354937,
+                      "user_id": "387",
+                      "ext_id": "",
+                      "terminal_id": "13750CS_6C0509548EBB335B",
+                      "check_type": "fp",
+                      "check_time": 1785803996,
+                      "check_data": "{\\"cmd\\":\\"checkin\\",\\"device_name\\":\\"聚能研发中心\\",\\"employee_num\\":\\"SZJN0002\\",\\"member_name\\":\\"周步新\\",\\"member_type\\":0}"
+                    }]
+                  }
+                }
+                """));
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                50,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of("387", "SZST0335"),
+                DeliPunchSourcePort.FetchSettings.MODULE_CHECKIN);
+
+        var page = client(transport).fetchPage("source-checkin", "0", settings);
+
+        assertThat(page.records()).hasSize(1);
+        var record = page.records().getFirst();
+        assertThat(record.employeeNumber()).isEqualTo("SZJN0002");
+        assertThat(record.externalPersonRef()).isEqualTo("387");
+        assertThat(record.memberName()).isEqualTo("周步新");
+        assertThat(record.deviceRef())
+                .isEqualTo("13750CS_6C0509548EBB335B");
+    }
+
+    @Test
+    void checkinKeepsWrongDeviceEmpnoButCarriesMemberNameForShortUserId()
+            throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "data": {
+                    "next_id": 2,
+                    "data": [{
+                      "id": 17280001,
+                      "user_id": "218",
+                      "ext_id": "",
+                      "terminal_id": "13750CS_MANUFACTURING",
+                      "check_type": "fp",
+                      "check_time": 1785792060,
+                      "check_data": "{\\"cmd\\":\\"checkin\\",\\"device_name\\":\\"2号楼A 三楼制造中心\\",\\"employee_num\\":\\"SZST0289\\",\\"member_name\\":\\"彭伟\\",\\"member_type\\":0}"
+                    }]
+                  }
+                }
+                """));
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                50,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of("387", "SZST0335"),
+                DeliPunchSourcePort.FetchSettings.MODULE_CHECKIN);
+
+        var record = client(transport)
+                .fetchPage("source-checkin", "0", settings)
+                .records()
+                .getFirst();
+
+        assertThat(record.externalPersonRef()).isEqualTo("218");
+        assertThat(record.employeeNumber()).isEqualTo("SZST0289");
+        assertThat(record.memberName()).isEqualTo("彭伟");
+    }
+
+    @Test
+    void collidingDirectoryIdDoesNotFillBlankPunchEmployeeNumber()
+            throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "next_id": 2,
+                    "data": [{
+                      "id": "DEMO-RECORD-387",
+                      "user_id": "387",
+                      "ext_id": "",
+                      "terminal_id": "DEMO-TERMINAL-001",
+                      "check_type": "fp",
+                      "check_time": 1785803996
+                    }]
+                  }
+                }
+                """));
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                50,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of("387", "SZST0335"),
+                DeliPunchSourcePort.FetchSettings.MODULE_CHECKIN);
+
+        var record = client(transport)
+                .fetchPage("source-checkin", "0", settings)
+                .records()
+                .getFirst();
+
+        assertThat(record.employeeNumber()).isNull();
+        assertThat(record.externalPersonRef()).isEqualTo("387");
+    }
+
+    @Test
+    void kqAcceptsStringNextIdUsedByCloudAttendance() throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "msg": "",
+                  "data": {
+                    "next_id": "12848310999",
+                    "data": [{
+                      "id": "12848302346",
+                      "user_id": "1281171325877547008",
+                      "ext_id": "",
+                      "check_time": 1785538386,
+                      "empno": "SZST0648",
+                      "check_type": "fp",
+                      "check_data": "13750C_FB9CC2AD99B554E5|总部2号门考勤机"
+                    }]
+                  }
+                }
+                """));
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                50,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of(),
+                DeliPunchSourcePort.FetchSettings.MODULE_KQ);
+
+        var page = client(transport).fetchPage("source-kq", "12848301274", settings);
+
+        assertThat(page.nextCursor()).isEqualTo("12848310999");
+        assertThat(page.records()).hasSize(1);
+        assertThat(page.records().getFirst().deviceRef())
+                .isEqualTo("13750C_FB9CC2AD99B554E5");
+    }
+
+    @Test
+    void kqOpeningWindowDropsRecordsBeforeAugust2026() throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "data": {
+                    "next_id": 12584068085,
+                    "data": [{
+                      "id": "12521699740",
+                      "user_id": "646292853127979009",
+                      "check_time": 1777590882,
+                      "empno": "SZST0001",
+                      "check_type": "fp",
+                      "check_data": "13750C_8D32C1032484A20A|科技园1号楼1楼考勤机"
+                    }]
+                  }
+                }
+                """));
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                50,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of(),
+                DeliPunchSourcePort.FetchSettings.MODULE_KQ);
+
+        var page = client(transport).fetchPage("source-kq", "0", settings);
+
+        assertThat(page.records()).isEmpty();
+        assertThat(page.nextCursor()).isEqualTo("12584068085");
+    }
+
+    @Test
     void sendsReturnedNextIdUnchangedOnTheFollowingPage() throws Exception {
         CapturingTransport transport = new CapturingTransport();
         String nextId = "922337203685477580812345";
@@ -167,6 +510,39 @@ class DeliEplusClientTest {
     }
 
     @Test
+    void departmentDirectoryUsesOfficialPathWithoutCheckinInit()
+            throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "msg": "",
+                  "data": {"rows": [
+                    {"id": "D1", "name": "总部", "parent_id": ""},
+                    {"id": "D2", "name": "制造", "parent_id": "D1"}
+                  ]}
+                }
+                """));
+
+        var departments = client(transport)
+                .fetchDepartmentDirectory("source-demo-deli");
+
+        assertThat(departments).hasSize(2);
+        assertThat(departments.getFirst().departmentId()).isEqualTo("D1");
+        assertThat(departments.getFirst().name()).isEqualTo("总部");
+        DeliEplusHttpRequest request = transport.requests().getFirst();
+        assertThat(request.uri()).isEqualTo(
+                URI.create("https://v2-api.delicloud.com/v2.0/department/query"));
+        assertThat(request.headers())
+                .doesNotContainKeys("Api-Module", "Api-Cmd");
+        assertThat(request.headers().values())
+                .doesNotContain("checkin_query_init");
+        JsonNode payload = objectMapper.readTree(request.body());
+        assertThat(payload.get("offset").asInt()).isZero();
+        assertThat(payload.get("limit").asInt()).isEqualTo(100);
+    }
+
+    @Test
     void employeeDirectoryFailureDoesNotReturnPartialResults() {
         CapturingTransport transport = new CapturingTransport();
         transport.enqueue(okResponse(employeeRowsPage(0, 100, -1)));
@@ -191,6 +567,28 @@ class DeliEplusClientTest {
                         APP_KEY,
                         APP_SECRET);
         assertThat(transport.requests()).hasSize(2);
+    }
+
+    @Test
+    void employeeDirectoryIgnoresUnusableNameAndKeepsTheRow()
+            throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "data": {"rows": [{
+                    "id": "939805188834107393",
+                    "employee_num": "SZST0289",
+                    "name": {"zh": "彭伟"}
+                  }]}
+                }
+                """));
+        var people = client(transport)
+                .fetchEmployeeDirectoryPeople("source-demo-deli");
+        assertThat(people).hasSize(1);
+        assertThat(people.getFirst().userId()).isEqualTo("939805188834107393");
+        assertThat(people.getFirst().employeeNum()).isEqualTo("SZST0289");
+        assertThat(people.getFirst().displayName()).isNull();
     }
 
     @Test
@@ -220,10 +618,10 @@ class DeliEplusClientTest {
 
         assertThat(client.queryEmployees(0, 1).records().getFirst())
                 .isEqualTo(new DeliEplusClient.EmployeeDirectoryEntry(
-                        "DEMO-USER-LEGACY-1", "DEMO-EMP-LEGACY-1"));
+                        "DEMO-USER-LEGACY-1", "DEMO-EMP-LEGACY-1", null));
         assertThat(client.queryEmployees(1, 1).records().getFirst())
                 .isEqualTo(new DeliEplusClient.EmployeeDirectoryEntry(
-                        "DEMO-USER-LEGACY-2", "DEMO-EMP-LEGACY-2"));
+                        "DEMO-USER-LEGACY-2", "DEMO-EMP-LEGACY-2", null));
     }
 
     @Test

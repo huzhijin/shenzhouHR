@@ -218,31 +218,49 @@ class AttendanceDashboardServiceTest {
     }
 
     @Test
-    void multipleCompaniesReturnExplicitSelectionWithoutReadingFacts() {
+    void multipleCompaniesPreferJiangsuShenzhouAndLoadFacts() {
         CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);
         AttendanceDashboardRepository repository =
                 mock(AttendanceDashboardRepository.class);
-        List<CompanyOption> companies = List.of(
-                new CompanyOption("company-a", "公司甲"),
-                new CompanyOption("company-b", "公司乙"));
+        CompanyOption shengzhou = new CompanyOption("company-a", "上海昇州半导体科技有限公司");
+        CompanyOption shenzhou = new CompanyOption(
+                "company-szsc", "江苏神州半导体科技股份有限公司");
+        List<CompanyOption> companies = List.of(shengzhou, shenzhou);
         when(repository.listAuthorizedCompanies(
                         PRINCIPAL,
                         YearMonth.of(2026, 7),
                         NOW))
                 .thenReturn(companies);
+        when(repository.loadAuthorizedToday(
+                        PRINCIPAL, "company-szsc", BUSINESS_DATE, NOW))
+                .thenReturn(Optional.of(new AuthorizedDashboardSnapshot(
+                        new DashboardSnapshot(
+                                "company-szsc",
+                                "projection-1",
+                                List.of("deli:20", "oa:8"),
+                                NOW,
+                                "OPEN",
+                                new AuthorizedScope(
+                                        ScopeType.COMPANY,
+                                        "authorized-scope-set:abc",
+                                        "公司授权范围",
+                                        "a".repeat(64)),
+                                new ExceptionSummary(0, 0, 0),
+                                analytics(new ExceptionSummary(0, 0, 0)),
+                                List.of()),
+                        true)));
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
 
         var result = service(capabilities, repository).query(null);
 
         assertThat(result)
-                .isEqualTo(new AttendanceDashboardService.CompanySelection(
-                        BUSINESS_DATE, companies));
-        verify(repository, never()).loadAuthorizedToday(
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
-        verify(capabilities, never()).currentCapabilities();
+                .isInstanceOfSatisfying(
+                        AttendanceDashboardService.Ready.class,
+                        ready -> assertThat(ready.selectedCompany())
+                                .isEqualTo(shenzhou));
     }
 
     @Test
@@ -272,6 +290,272 @@ class AttendanceDashboardServiceTest {
                 service(capabilities, repository).query(" company-a"))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(capabilities, repository);
+    }
+
+    @Test
+    void workbenchUsesAssemblerInsteadOfPublishedProjection() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceDashboardRepository repository =
+                mock(AttendanceDashboardRepository.class);
+        AttendanceReportSourceRepository reportSources =
+                mock(AttendanceReportSourceRepository.class);
+        AttendanceDashboardWorkbenchAssembler workbench =
+                mock(AttendanceDashboardWorkbenchAssembler.class);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        CompanyOption companyA = new CompanyOption("company-a", "神州半导体");
+        CompanyOption companyB = new CompanyOption("company-b", "神州科技");
+        DashboardSnapshot assembledSnapshot = snapshot(
+                NOW,
+                new ExceptionSummary(2, 2, 1),
+                List.of(
+                        new ExceptionItem(
+                                "case-a",
+                                "SZST0004",
+                                "丁书龙",
+                                "销售中心 · 神州半导体",
+                                BUSINESS_DATE,
+                                "MISSING_PUNCH_OVERDUE",
+                                "ERROR",
+                                "OPEN",
+                                480,
+                                "今日尚无有效打卡"),
+                        new ExceptionItem(
+                                "case-b",
+                                "SZKJ0001",
+                                "李悦",
+                                "销售中心 · 神州科技",
+                                BUSINESS_DATE,
+                                "LATE",
+                                "WARNING",
+                                "OPEN",
+                                18,
+                                "首次有效打卡 09:18")));
+        when(workbench.assemble(
+                        PRINCIPAL,
+                        YearMonth.of(2026, 7),
+                        BUSINESS_DATE,
+                        false,
+                        NOW,
+                        true))
+                .thenReturn(Optional.of(
+                        new AttendanceDashboardWorkbenchAssembler.Assembled(
+                                companyA,
+                                List.of(companyA, companyB),
+                                assembledSnapshot,
+                                List.of(),
+                                List.of())));
+
+        var service = new AttendanceDashboardService(
+                capabilities,
+                () -> PRINCIPAL,
+                repository,
+                CLOCK,
+                reportSources,
+                workbench);
+
+        var result = service.query(null);
+
+        assertThat(result)
+                .isInstanceOfSatisfying(AttendanceDashboardService.Ready.class,
+                        ready -> {
+                            assertThat(ready.companies())
+                                    .extracting(CompanyOption::companyId)
+                                    .containsExactly(
+                                            "company-a", "company-b");
+                            assertThat(ready.snapshot().exceptions())
+                                    .extracting(ExceptionItem::organizationName)
+                                    .containsExactly(
+                                            "销售中心 · 神州半导体",
+                                            "销售中心 · 神州科技");
+                        });
+        verify(repository, never()).loadAuthorizedToday(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void workbenchPublishesTheSnapshotTrendDateAsBusinessDate() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceDashboardRepository repository =
+                mock(AttendanceDashboardRepository.class);
+        AttendanceReportSourceRepository reportSources =
+                mock(AttendanceReportSourceRepository.class);
+        AttendanceDashboardWorkbenchAssembler workbench =
+                mock(AttendanceDashboardWorkbenchAssembler.class);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        CompanyOption company = new CompanyOption(COMPANY, "神州半导体");
+        LocalDate yesterday = BUSINESS_DATE.minusDays(1);
+        ExceptionSummary summary = new ExceptionSummary(2, 1, 1);
+        DashboardSnapshot assembledSnapshot = new DashboardSnapshot(
+                COMPANY,
+                "LIVE-WB-" + yesterday,
+                List.of("WORKBENCH-PUNCH:V1"),
+                NOW,
+                "OPEN",
+                new AuthorizedScope(
+                        ScopeType.COMPANY,
+                        COMPANY,
+                        "公司授权范围",
+                        "a".repeat(64)),
+                summary,
+                new DashboardAnalytics(
+                        List.of(new DailyTrendPoint(
+                                yesterday,
+                                summary.unresolvedCount(),
+                                summary.blockingCount(),
+                                summary.affectedEmployeeCount())),
+                        List.of(
+                                new SeverityDistributionItem("INFO", 0),
+                                new SeverityDistributionItem("WARNING", 1),
+                                new SeverityDistributionItem("ERROR", 1)),
+                        List.of(new TypeDistributionItem(
+                                "MISSING_ON_DUTY", 2)),
+                        List.of(new OrganizationRankingItem(
+                                "销售中心", 2, 1))),
+                List.of(new ExceptionItem(
+                        "case-yesterday",
+                        "SZST0004",
+                        "丁书龙",
+                        "销售中心",
+                        yesterday,
+                        "MISSING_ON_DUTY",
+                        "WARNING",
+                        "OPEN",
+                        240,
+                        "上班漏签")));
+        when(workbench.assemble(
+                        PRINCIPAL,
+                        YearMonth.of(2026, 7),
+                        BUSINESS_DATE,
+                        false,
+                        NOW,
+                        true))
+                .thenReturn(Optional.of(
+                        new AttendanceDashboardWorkbenchAssembler.Assembled(
+                                company,
+                                List.of(company),
+                                assembledSnapshot,
+                                List.of(),
+                                List.of())));
+
+        var result = new AttendanceDashboardService(
+                capabilities,
+                () -> PRINCIPAL,
+                repository,
+                CLOCK,
+                reportSources,
+                workbench).query(null);
+
+        assertThat(result)
+                .isInstanceOfSatisfying(
+                        AttendanceDashboardService.Ready.class,
+                        ready -> assertThat(ready.businessDate())
+                                .isEqualTo(yesterday));
+    }
+
+    @Test
+    void liveAssemblerIsPreferredOverPinnedMonthlySnapshot() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceDashboardRepository repository =
+                mock(AttendanceDashboardRepository.class);
+        AttendanceReportSourceRepository reportSources =
+                mock(AttendanceReportSourceRepository.class);
+        AttendanceDashboardWorkbenchAssembler workbench =
+                mock(AttendanceDashboardWorkbenchAssembler.class);
+        RealtimeAttendanceReportSnapshotService realtimeSnapshots =
+                mock(RealtimeAttendanceReportSnapshotService.class);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        CompanyOption company = new CompanyOption(COMPANY, "江苏神州半导体科技股份有限公司");
+        when(workbench.assemble(
+                        PRINCIPAL,
+                        YearMonth.of(2026, 7),
+                        BUSINESS_DATE,
+                        false,
+                        NOW,
+                        true))
+                .thenReturn(Optional.of(
+                        new AttendanceDashboardWorkbenchAssembler.Assembled(
+                                company,
+                                List.of(company),
+                                snapshot(
+                                        NOW,
+                                        new ExceptionSummary(0, 0, 0),
+                                        List.of()),
+                                List.of(),
+                                List.of())));
+
+        var result = new AttendanceDashboardService(
+                capabilities,
+                () -> PRINCIPAL,
+                repository,
+                CLOCK,
+                reportSources,
+                workbench,
+                realtimeSnapshots).query(null);
+
+        assertThat(result).isInstanceOf(AttendanceDashboardService.Ready.class);
+        verify(workbench).assemble(
+                PRINCIPAL,
+                YearMonth.of(2026, 7),
+                BUSINESS_DATE,
+                false,
+                NOW,
+                true);
+        verifyNoInteractions(realtimeSnapshots);
+        verify(repository, never()).loadAuthorizedToday(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void workbenchRuntimeFailureIsNotReportedAsANetworkOrZeroResult() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceDashboardRepository repository =
+                mock(AttendanceDashboardRepository.class);
+        AttendanceReportSourceRepository reportSources =
+                mock(AttendanceReportSourceRepository.class);
+        AttendanceDashboardWorkbenchAssembler workbench =
+                mock(AttendanceDashboardWorkbenchAssembler.class);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(workbench.assemble(
+                        PRINCIPAL,
+                        YearMonth.of(2026, 7),
+                        BUSINESS_DATE,
+                        false,
+                        NOW,
+                        true))
+                .thenThrow(new RuntimeException("statement timeout"));
+
+        assertThatThrownBy(() -> new AttendanceDashboardService(
+                capabilities,
+                () -> PRINCIPAL,
+                repository,
+                CLOCK,
+                reportSources,
+                workbench).query(null))
+                .isInstanceOfSatisfying(
+                        ApiProblemException.class,
+                        problem -> {
+                            assertThat(problem.code()).isEqualTo(
+                                    "ATTENDANCE_DASHBOARD_SOURCE_NOT_READY");
+                            assertThat(problem.retryable()).isTrue();
+                        });
     }
 
     private static void assertProjectionNotReady(
@@ -347,6 +631,61 @@ class AttendanceDashboardServiceTest {
                                 summary.blockingCount())),
                 types,
                 organizations);
+    }
+
+    private static com.szsemicon.hr.reporting.domain
+            .AttendanceReportModels.ReportSourceSnapshot reportSnapshot(
+            String companyId,
+            com.szsemicon.hr.reporting.domain.AttendanceReportModels
+                    .ExceptionFact fact) {
+        return new com.szsemicon.hr.reporting.domain
+                .AttendanceReportModels.ReportSourceSnapshot(
+                new com.szsemicon.hr.reporting.domain.AttendanceReportModels
+                        .AuthorizedScope(
+                        ScopeType.COMPANY,
+                        companyId,
+                        "公司授权范围",
+                        "a".repeat(64)),
+                new com.szsemicon.hr.reporting.domain.AttendanceReportModels
+                        .ReportFilter(
+                        YearMonth.of(2026, 7),
+                        companyId,
+                        null,
+                        null,
+                        null),
+                "LIVE-" + companyId,
+                "OPEN",
+                NOW,
+                List.of("deli:1"),
+                List.of(),
+                List.of(),
+                List.of(fact),
+                List.of());
+    }
+
+    private static com.szsemicon.hr.reporting.domain
+            .AttendanceReportModels.ExceptionFact exceptionFact(
+            String caseId,
+            String employeeId,
+            String employeeNumber,
+            String organizationName) {
+        return new com.szsemicon.hr.reporting.domain
+                .AttendanceReportModels.ExceptionFact(
+                caseId,
+                employeeId,
+                employeeNumber,
+                "员工" + employeeNumber,
+                "org-" + caseId,
+                organizationName,
+                BUSINESS_DATE,
+                "MISSING_PUNCH_PENDING",
+                com.szsemicon.hr.reporting.domain.AttendanceReportModels
+                        .ExceptionSeverity.ERROR,
+                com.szsemicon.hr.reporting.domain.AttendanceReportModels
+                        .ExceptionState.OPEN,
+                0,
+                "下班有效打卡缺失",
+                "calculation-v1");
     }
 
     private static ExceptionItem exception(String reference) {

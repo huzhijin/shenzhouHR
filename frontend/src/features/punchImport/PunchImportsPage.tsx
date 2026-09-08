@@ -88,7 +88,7 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
       {messageContextHolder}
       <PageHeader
         title="外部考勤电子表格导入"
-        description="导入原始打卡记录；预检通过并确认后，数据才会正式生效。"
+        description="可导入官方打卡模板，也可直接上传月度汇总表或得力考勤月报。系统只抽取打卡时间，按工号匹配；已有数据会去重。预检有问题需确认后才生效。"
         breadcrumbs={[{ label: '考勤来源' }, { label: '电子表格导入' }]}
         actions={canDownload ? (
           <AccessibleButton
@@ -104,7 +104,7 @@ export function PunchImportsPage({ capabilities }: { capabilities: string[] }) {
         showIcon
         type="info"
         title="文件要求"
-        description="仅接受 .xlsx，最大 20 兆字节、50,000 数据行；宏、公式、外部链接、嵌入对象、危险压缩包和结果列会被拒绝。"
+        description="仅接受 .xlsx，最大 20 兆字节。官方模板仍禁止结果列。月度汇总表和得力考勤月报里的迟到、漏刷、汇总列会被忽略，只导入时间。无需手工对列。"
       />
       {canUpload ? (
         <Card className="content-card" title="新建导入任务">

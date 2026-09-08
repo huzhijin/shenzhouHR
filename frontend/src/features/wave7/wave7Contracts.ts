@@ -7,7 +7,8 @@ export type Wave7AllowedAction =
   | 'FEEDBACK_CREATE'
   | 'REPORT_DRILL_DOWN'
   | 'REPORT_EXPORT_CREATE'
-  | 'REPORT_EXPORT_DOWNLOAD';
+  | 'REPORT_EXPORT_DOWNLOAD'
+  | 'REPORT_RECALCULATE';
 
 export interface Wave7Scope {
   type: Wave7ScopeType;
@@ -24,6 +25,7 @@ export interface Wave7ProjectionMetadata {
   periodState: Wave7PeriodState;
   scope: Wave7Scope;
   allowedActions: Wave7AllowedAction[];
+  sourcesNewerThanPin?: boolean;
 }
 
 export interface TodayProjection {
@@ -45,6 +47,8 @@ export interface AttendanceRecordProjection {
   statusLabel: string;
   issueLabels: string[];
   explanationReference?: string;
+  firstPunchAt?: string | null;
+  lastPunchAt?: string | null;
 }
 
 export interface AttendanceRecordsProjection {
@@ -107,6 +111,8 @@ export interface SelfAttendanceDashboardTrendPoint {
   recognizedOvertimeMinutes: number;
   leaveMinutes: number;
   issueCount: number;
+  firstPunchAt?: string | null;
+  lastPunchAt?: string | null;
 }
 
 export interface SelfAttendanceDashboardToday {
@@ -257,6 +263,15 @@ export interface DashboardProjection {
   analytics?: DashboardAnalyticsProjection;
 }
 
+export interface DashboardTodayPunchProjection {
+  employeeNumber: string;
+  employeeName: string;
+  organizationName: string;
+  firstPunchAt: string;
+  lastPunchAt: string;
+  punchCount: number;
+}
+
 export interface LiveDashboardProjection extends DashboardProjection {
   businessDate: string;
   selectedCompanyId: string;
@@ -264,6 +279,7 @@ export interface LiveDashboardProjection extends DashboardProjection {
   exceptions: DashboardAnomalyProjection[];
   companies: DashboardCompanyOption[];
   analytics: DashboardAnalyticsProjection;
+  todayPunches?: DashboardTodayPunchProjection[];
 }
 
 export interface DashboardCompanySelectionProjection {
@@ -309,6 +325,8 @@ export const reportColumnKeys = [
   'voluntary-overtime-hours',
   'total-overtime-hours',
   'leave-hours',
+  'annual-leave-hours',
+  'time-off-hours',
   'sick-leave-days',
   'absence-hours',
   'actual-work-hours',
@@ -323,6 +341,7 @@ export const reportColumnKeys = [
   'document-start',
   'document-end',
   'approval-state',
+  'source-origin',
   'recognized-hours',
   'weekday-overtime-hours',
   'saturday-overtime-hours',
@@ -332,6 +351,7 @@ export const reportColumnKeys = [
   'exception-severity',
   'exception-state',
   'exception-minutes',
+  'exception-details',
   'evidence-summary',
   'late-event-count',
   'attendance-rate',
@@ -369,6 +389,8 @@ export interface ReportFilterProjection {
   organizationId?: string | null;
   employeeId?: string | null;
   status?: string | null;
+  fromDate?: string | null;
+  toDate?: string | null;
 }
 
 export interface ReportProjection {
@@ -413,6 +435,15 @@ export const attendanceMonthMatrixBadgeCodes = [
   'PERSONAL_LEAVE',
   'SICK_LEAVE',
   'ANNUAL_LEAVE',
+  'MARRIAGE_LEAVE',
+  'MATERNITY_LEAVE',
+  'PATERNITY_LEAVE',
+  'BEREAVEMENT_LEAVE',
+  'WORK_INJURY_LEAVE',
+  'NURSING_LEAVE',
+  'BREASTFEEDING_LEAVE',
+  'PRENATAL_EXAM_LEAVE',
+  'FAMILY_PLANNING_LEAVE',
   'PUNCH_CORRECTION',
   'REST_DAY',
   'OTHER_LEAVE',
@@ -426,6 +457,12 @@ export const attendanceMonthMatrixBadgeCodes = [
 export type AttendanceMonthMatrixBadgeCode =
   typeof attendanceMonthMatrixBadgeCodes[number];
 
+export interface AttendanceMonthMatrixSlotDisplay {
+  text: string;
+  tone: string | null;
+  punchAt: string | null;
+}
+
 export interface AttendanceMonthMatrixDay {
   date: string;
   organizationName: string | null;
@@ -433,6 +470,10 @@ export interface AttendanceMonthMatrixDay {
   firstPunchAt: string | null;
   lastPunchAt: string | null;
   badges: AttendanceMonthMatrixBadgeCode[];
+  morning?: AttendanceMonthMatrixSlotDisplay;
+  afternoon?: AttendanceMonthMatrixSlotDisplay;
+  merged?: boolean;
+  hover?: string;
 }
 
 export interface AttendanceMonthMatrixEmployeeRow {
@@ -452,7 +493,7 @@ export interface AttendanceMonthMatrixProjection {
     };
   };
   queryFingerprint: string;
-  formulaVersion: 'ATTENDANCE_MONTH_MATRIX_V1';
+  formulaVersion: 'ATTENDANCE_MONTH_MATRIX_V1' | 'ATTENDANCE_MONTH_MATRIX_V2' | 'ATTENDANCE_MONTH_MATRIX_V3';
   filters: Omit<ReportFilterProjection, 'status'> & {
     companyId: string;
   };
@@ -568,6 +609,7 @@ const allowedActions: readonly Wave7AllowedAction[] = [
   'REPORT_DRILL_DOWN',
   'REPORT_EXPORT_CREATE',
   'REPORT_EXPORT_DOWNLOAD',
+  'REPORT_RECALCULATE',
 ];
 
 export function assertWave7Projection(value: unknown): asserts value is Wave7Projection {
@@ -654,7 +696,10 @@ export function parseAttendanceDashboardResponse(
     );
     assertString(candidate.title, 'dashboard selection.title');
     assertDate(candidate.businessDate, 'dashboard selection.businessDate');
-    if (candidate.selectedCompanyId !== null) {
+    if (
+      candidate.selectedCompanyId !== undefined
+      && candidate.selectedCompanyId !== null
+    ) {
       throw new TypeError(
         'dashboard selection.selectedCompanyId must be null',
       );
@@ -674,7 +719,10 @@ export function parseAttendanceDashboardResponse(
       'dashboard selection.message',
       500,
     );
-    return candidate as unknown as DashboardCompanySelectionProjection;
+    return {
+      ...(candidate as unknown as DashboardCompanySelectionProjection),
+      selectedCompanyId: null,
+    };
   }
 
   assertString(candidate.kind, 'dashboard.kind');
@@ -949,7 +997,11 @@ export function assertAttendanceMonthMatrixProjection(
   ) {
     throw new TypeError('attendance month matrix fingerprint is invalid');
   }
-  if (candidate.formulaVersion !== 'ATTENDANCE_MONTH_MATRIX_V1') {
+  if (
+    candidate.formulaVersion !== 'ATTENDANCE_MONTH_MATRIX_V1'
+    && candidate.formulaVersion !== 'ATTENDANCE_MONTH_MATRIX_V2'
+    && candidate.formulaVersion !== 'ATTENDANCE_MONTH_MATRIX_V3'
+  ) {
     throw new TypeError('attendance month matrix formula is invalid');
   }
   const filters = asRecord(
@@ -964,6 +1016,8 @@ export function assertAttendanceMonthMatrixProjection(
       'companyId',
       'organizationId',
       'employeeId',
+      'fromDate',
+      'toDate',
     ],
     'attendance month matrix.filters',
   );
@@ -990,7 +1044,11 @@ export function assertAttendanceMonthMatrixProjection(
     throw new TypeError('attendance month matrix periods are inconsistent');
   }
   assertArray(candidate.dates, 'attendance month matrix.dates');
-  const expectedDates = datesInMonth(filters.period as string);
+  const expectedDates = datesInRange(
+    typeof filters.fromDate === 'string' ? filters.fromDate : null,
+    typeof filters.toDate === 'string' ? filters.toDate : null,
+    filters.period as string,
+  );
   if (
     candidate.dates.length !== expectedDates.length
     || !candidate.dates.every((date, index) => {
@@ -1075,6 +1133,10 @@ export function assertAttendanceMonthMatrixProjection(
           'firstPunchAt',
           'lastPunchAt',
           'badges',
+          'morning',
+          'afternoon',
+          'merged',
+          'hover',
         ],
         `attendance month matrix.rows[${rowIndex}].days[${dayIndex}]`,
       );
@@ -1106,7 +1168,39 @@ export function assertAttendanceMonthMatrixProjection(
       ) {
         throw new TypeError('attendance month matrix badges are invalid');
       }
+      if (day.morning != null) {
+        assertMonthMatrixSlot(
+          day.morning,
+          `attendance month matrix.rows[${rowIndex}].days[${dayIndex}].morning`,
+        );
+      }
+      if (day.afternoon != null) {
+        assertMonthMatrixSlot(
+          day.afternoon,
+          `attendance month matrix.rows[${rowIndex}].days[${dayIndex}].afternoon`,
+        );
+      }
+      if (day.merged != null && typeof day.merged !== 'boolean') {
+        throw new TypeError('attendance month matrix merged flag is invalid');
+      }
+      if (day.hover != null && typeof day.hover !== 'string') {
+        throw new TypeError('attendance month matrix hover is invalid');
+      }
     });
+  }
+}
+
+function assertMonthMatrixSlot(value: unknown, path: string): void {
+  const slot = asRecord(value, path);
+  assertOnlyKeys(slot, ['text', 'tone', 'punchAt'], path);
+  if (typeof slot.text !== 'string') {
+    throw new TypeError(`${path} text is invalid`);
+  }
+  if (slot.tone != null && typeof slot.tone !== 'string') {
+    throw new TypeError(`${path} tone is invalid`);
+  }
+  if (slot.punchAt != null) {
+    assertInstant(slot.punchAt, `${path} punchAt`);
   }
 }
 
@@ -1316,6 +1410,8 @@ function assertReportProjection(candidate: Record<string, unknown>): void {
       'organizationId',
       'employeeId',
       'status',
+      'fromDate',
+      'toDate',
     ],
     'report.filters',
   );
@@ -1400,6 +1496,7 @@ function assertDashboardProjection(
       'exceptions',
       'companies',
       'analytics',
+      'todayPunches',
     ],
     'dashboard projection',
   );
@@ -1543,9 +1640,9 @@ function assertLiveDashboardFields(
       'dashboard.exceptions requires dashboard drill-down permission',
     );
   }
-  if (candidate.exceptions.length > 10) {
+  if (candidate.exceptions.length > 500) {
     throw new TypeError(
-      'dashboard.exceptions must contain at most 10 items',
+      'dashboard.exceptions must contain at most 500 items',
     );
   }
   if (
@@ -1608,7 +1705,13 @@ function assertLiveDashboardFields(
       exception.businessDate,
       `dashboard.exceptions[${index}].businessDate`,
     );
-    if (exception.businessDate !== candidate.businessDate) {
+    if (
+      !isDashboardExceptionDate(
+        exception.businessDate,
+        candidate.businessDate as string,
+        (candidate.businessDate as string).slice(0, 7),
+      )
+    ) {
       throw new TypeError(
         'dashboard exception date must match dashboard business date',
       );
@@ -1679,6 +1782,60 @@ function assertLiveDashboardFields(
       'dashboard.selectedCompanyId is not in dashboard.companies',
     );
   }
+  if (candidate.todayPunches !== undefined) {
+    assertDashboardTodayPunches(candidate.todayPunches);
+  }
+}
+
+function assertDashboardTodayPunches(value: unknown): void {
+  assertArray(value, 'dashboard.todayPunches');
+  if (value.length > 20) {
+    throw new TypeError('dashboard.todayPunches must contain at most 20 items');
+  }
+  for (const [index, itemValue] of value.entries()) {
+    const item = asRecord(itemValue, `dashboard.todayPunches[${index}]`);
+    assertOnlyKeys(
+      item,
+      [
+        'employeeNumber',
+        'employeeName',
+        'organizationName',
+        'firstPunchAt',
+        'lastPunchAt',
+        'punchCount',
+      ],
+      `dashboard.todayPunches[${index}]`,
+    );
+    assertBoundedString(
+      item.employeeNumber,
+      `dashboard.todayPunches[${index}].employeeNumber`,
+      128,
+    );
+    assertBoundedString(
+      item.employeeName,
+      `dashboard.todayPunches[${index}].employeeName`,
+      200,
+    );
+    assertBoundedString(
+      item.organizationName,
+      `dashboard.todayPunches[${index}].organizationName`,
+      200,
+    );
+    assertBoundedString(
+      item.firstPunchAt,
+      `dashboard.todayPunches[${index}].firstPunchAt`,
+      16,
+    );
+    assertBoundedString(
+      item.lastPunchAt,
+      `dashboard.todayPunches[${index}].lastPunchAt`,
+      16,
+    );
+    assertNonNegativeSafeInteger(
+      item.punchCount,
+      `dashboard.todayPunches[${index}].punchCount`,
+    );
+  }
 }
 
 function assertDashboardAnalytics(
@@ -1730,10 +1887,28 @@ function assertDashboardDailyTrend(
       'dashboard.analytics.dailyTrend must contain 1 to 7 items',
     );
   }
-  const businessDay = dateOrdinal(businessDate);
+  const lastTrend = asRecord(
+    value[value.length - 1],
+    'dashboard.analytics.dailyTrend current day',
+  );
+  assertDate(
+    lastTrend.businessDate,
+    'dashboard.analytics.dailyTrend current day.businessDate',
+  );
+  if (
+    !isSameOrAdjacentDate(lastTrend.businessDate as string, businessDate)
+  ) {
+    throw new TypeError(
+      'dashboard.analytics.dailyTrend current day must match summary',
+    );
+  }
+  const trendDay = dateOrdinal(lastTrend.businessDate as string);
   const periodStart = dateOrdinal(`${period}-01`);
-  const expectedStart = Math.max(periodStart, businessDay - 6);
-  if (value.length !== businessDay - expectedStart + 1) {
+  const expectedStart = (lastTrend.businessDate as string).slice(0, 7)
+    === period
+    ? Math.max(periodStart, trendDay - 6)
+    : trendDay - 6;
+  if (value.length !== trendDay - expectedStart + 1) {
     throw new TypeError(
       'dashboard.analytics.dailyTrend window is incomplete',
     );
@@ -1786,15 +1961,13 @@ function assertDashboardDailyTrend(
     }
   }
 
-  const today = asRecord(
-    value[value.length - 1],
-    'dashboard.analytics.dailyTrend current day',
-  );
   if (
-    today.businessDate !== businessDate
-    || today.exceptionCount !== summary.unresolvedCount
-    || today.blockingCount !== summary.blockingCount
-    || today.affectedEmployeeCount !== summary.affectedEmployeeCount
+    (lastTrend.exceptionCount as number)
+      > (summary.unresolvedCount as number)
+    || (lastTrend.blockingCount as number)
+      > (summary.blockingCount as number)
+    || (lastTrend.affectedEmployeeCount as number)
+      > (summary.affectedEmployeeCount as number)
   ) {
     throw new TypeError(
       'dashboard.analytics.dailyTrend current day must match summary',
@@ -2189,6 +2362,8 @@ function assertSelfAttendanceDashboardTrend(
         'recognizedOvertimeMinutes',
         'leaveMinutes',
         'issueCount',
+        'firstPunchAt',
+        'lastPunchAt',
       ],
       `self attendance dashboard.dailyTrend[${index}]`,
     );
@@ -2214,6 +2389,15 @@ function assertSelfAttendanceDashboardTrend(
       'issueCount',
     ] as const) {
       assertNonNegativeSafeInteger(
+        point[key],
+        `self attendance dashboard.dailyTrend[${index}].${key}`,
+      );
+    }
+    for (const key of ['firstPunchAt', 'lastPunchAt'] as const) {
+      if (point[key] === undefined || point[key] === null) {
+        continue;
+      }
+      assertInstant(
         point[key],
         `self attendance dashboard.dailyTrend[${index}].${key}`,
       );
@@ -2452,6 +2636,7 @@ function assertProjectionMetadata(value: unknown): asserts value is Wave7Project
       'periodState',
       'scope',
       'allowedActions',
+      'sourcesNewerThanPin',
     ],
     'projection.metadata',
   );
@@ -2479,6 +2664,12 @@ function assertProjectionMetadata(value: unknown): asserts value is Wave7Project
   assertStringArray(metadata.allowedActions, 'metadata.allowedActions');
   if (!metadata.allowedActions.every((action) => allowedActions.includes(action as Wave7AllowedAction))) {
     throw new TypeError('metadata.allowedActions contains an unsupported action');
+  }
+  if (
+    metadata.sourcesNewerThanPin !== undefined
+    && typeof metadata.sourcesNewerThanPin !== 'boolean'
+  ) {
+    throw new TypeError('metadata.sourcesNewerThanPin must be a boolean');
   }
 }
 
@@ -2612,6 +2803,24 @@ function datesInMonth(period: string): string[] {
   ));
 }
 
+function datesInRange(
+  fromDate: string | null,
+  toDate: string | null,
+  period: string,
+): string[] {
+  if (fromDate === null || toDate === null) {
+    return datesInMonth(period);
+  }
+  const dates: string[] = [];
+  const cursor = new Date(`${fromDate}T00:00:00Z`);
+  const end = new Date(`${toDate}T00:00:00Z`);
+  while (cursor.getTime() <= end.getTime()) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
 function assertDate(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string') {
     throw new TypeError(`${label} must use YYYY-MM-DD`);
@@ -2638,6 +2847,19 @@ function dateOrdinal(value: string): number {
   return Math.floor(
     Date.parse(`${value}T00:00:00Z`) / 86_400_000,
   );
+}
+
+function isSameOrAdjacentDate(left: string, right: string): boolean {
+  return Math.abs(dateOrdinal(left) - dateOrdinal(right)) <= 1;
+}
+
+function isDashboardExceptionDate(
+  exceptionDate: string,
+  businessDate: string,
+  period: string,
+): boolean {
+  return exceptionDate.slice(0, 7) === period
+    && dateOrdinal(exceptionDate) <= dateOrdinal(businessDate);
 }
 
 function assertInstant(value: unknown, label: string): asserts value is string {

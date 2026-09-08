@@ -13,6 +13,11 @@ public interface AttendanceEvidenceRepository {
             String sourceBusinessKey,
             String sourceVersion);
 
+    EvidenceRows.ReplayStateRow findReplayStateBySourceIdentity(
+            String sourceId,
+            String sourceBusinessKey,
+            String sourceVersion);
+
     EvidenceRows.RawFactRow findRawByFingerprint(
             String sourceId,
             String stableFingerprint);
@@ -42,6 +47,8 @@ public interface AttendanceEvidenceRepository {
 
     void insertEvidenceLink(EvidenceRows.EvidenceLinkRow row);
 
+    boolean hasEvidenceLink(String effectiveAttendanceEventId, String rawAttendanceFactId);
+
     void insertRecalculationIntent(EvidenceRows.RecalculationIntentRow row);
 
     List<EvidenceRows.EvidenceTraceRow> evidenceTrace(
@@ -54,6 +61,13 @@ public interface AttendanceEvidenceRepository {
             String sourceVersion);
 
     String findLatestPublishedOaRuntimeContractRevisionId(String sourceId);
+
+    String findOaAttendanceDocumentId(
+            String sourceId,
+            String sourceBusinessKey,
+            String sourceVersion);
+
+    boolean hasOaAttendanceDocumentContext(String oaAttendanceDocumentId);
 
     void insertOaAttendanceDocument(EvidenceRows.OaDocumentRow row);
 

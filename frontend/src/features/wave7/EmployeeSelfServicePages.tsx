@@ -1,6 +1,6 @@
-import { Alert, Button } from 'antd';
-import { useState } from 'react';
-import type { ReactNode } from 'react';
+import { Button } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
+import { useCallback, useState, type ReactNode } from 'react';
 
 import { DataTable } from '../../shared/components/DataTable';
 import { PageHeader } from '../../shared/components/PagePrimitives';
@@ -21,7 +21,6 @@ import {
   LockedActionReason,
   ProjectionMetadata,
   SelfServiceNavigation,
-  isSyntheticMetadata,
   Wave7AsyncBoundary,
 } from './Wave7Common';
 
@@ -34,14 +33,27 @@ export function EmployeeTodayRoute({
   capabilities = [],
   gateway = wave7ProjectionGateway,
 }: EmployeeRouteProps) {
+  const [windowKind, setWindowKind] = useState<'DAY' | 'MONTH'>('MONTH');
+  const [period, setPeriod] = useState<Dayjs>(dayjs());
+  const load = useCallback(
+    () => gateway.loadSelfDashboard(period.format('YYYY-MM'), windowKind),
+    [gateway, period, windowKind],
+  );
   return (
     <Wave7AsyncBoundary
-      loader={gateway.loadSelfDashboard}
+      key={`${windowKind}-${period.format('YYYY-MM')}`}
+      loader={load}
       isEmpty={() => false}
     >
       {(projection) => (
         <EmployeeSelfLayout capabilities={capabilities}>
-          <PersonalAttendanceDashboard projection={projection} />
+          <PersonalAttendanceDashboard
+            projection={projection}
+            windowKind={windowKind}
+            period={period}
+            onWindowKindChange={setWindowKind}
+            onPeriodChange={setPeriod}
+          />
         </EmployeeSelfLayout>
       )}
     </Wave7AsyncBoundary>
@@ -68,7 +80,7 @@ export function EmployeeLeaveRoute({
   gateway = wave7ProjectionGateway,
 }: EmployeeRouteProps) {
   return (
-    <Wave7AsyncBoundary loader={gateway.loadLeave} isEmpty={(value) => value.accounts.length === 0}>
+    <Wave7AsyncBoundary loader={gateway.loadLeave} isEmpty={() => false}>
       {(projection) => (
         <EmployeeSelfLayout capabilities={capabilities}>
           <EmployeeLeaveView projection={projection} />
@@ -80,31 +92,14 @@ export function EmployeeLeaveRoute({
 
 export function EmployeeFeedbackRoute({
   capabilities = [],
-  gateway = wave7ProjectionGateway,
 }: EmployeeRouteProps) {
-  const [demoSubmitted, setDemoSubmitted] = useState(false);
   return (
-    <Wave7AsyncBoundary loader={gateway.loadFeedback} isEmpty={(value) => value.items.length === 0}>
-      {(projection) => (
-        <EmployeeSelfLayout capabilities={capabilities}>
-          <EmployeeFeedbackView
-            projection={projection}
-            canCreate={capabilities.includes('ATTENDANCE_FEEDBACK:CREATE')}
-            onCreate={isSyntheticMetadata(projection.metadata)
-              ? () => setDemoSubmitted(true)
-              : undefined}
-          />
-          {demoSubmitted ? (
-            <Alert
-              showIcon
-              type="success"
-              title="反馈已提交"
-              description="演示反馈单已进入主管处理队列。"
-            />
-          ) : null}
-        </EmployeeSelfLayout>
-      )}
-    </Wave7AsyncBoundary>
+    <EmployeeSelfLayout capabilities={capabilities}>
+      <PageHeader
+        title="反馈中心"
+        description="本人考勤反馈接口尚未开通，菜单已隐藏，请从今日或记录查看实时结果。"
+      />
+    </EmployeeSelfLayout>
   );
 }
 
@@ -130,6 +125,16 @@ export function EmployeeRecordsView({ projection }: { projection: AttendanceReco
             { key: 'date', title: '日期', render: (row) => formatDate(row.businessDate) },
             { key: 'shift', title: '班次', render: (row) => row.shiftLabel },
             { key: 'hours', title: '确认工时', render: (row) => formatHours(row.confirmedMinutes) },
+            {
+              key: 'firstPunch',
+              title: '上班',
+              render: (row) => formatPunchClock(row.firstPunchAt),
+            },
+            {
+              key: 'lastPunch',
+              title: '下班',
+              render: (row) => formatPunchClock(row.lastPunchAt),
+            },
             { key: 'status', title: '状态', render: (row) => <StatusBadge status={row.statusLabel} /> },
             { key: 'issues', title: '说明', render: (row) => row.issueLabels.join('、') || '无' },
             {
@@ -262,4 +267,16 @@ function Metric({ label, value }: { label: string; value: string }) {
       <dd>{value}</dd>
     </div>
   );
+}
+
+function formatPunchClock(value: string | null | undefined): string {
+  if (!value) return '—';
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return '—';
+  return new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Shanghai',
+  }).format(timestamp);
 }

@@ -857,6 +857,27 @@
           AND row_version = #{expectedVersion}
     </update>
 
+    <update id="correctCurrentEmployeeVersion">
+        UPDATE employee_version
+        SET employee_number = #{employeeNumber},
+            display_name = #{displayName},
+            status = #{status},
+            effective_to = #{effectiveTo},
+            change_reason = #{changeReason}
+        WHERE employee_version_id = (
+            SELECT projection.current_version_id
+            FROM employee_current_projection projection
+            WHERE projection.employee_id = #{employeeId}
+        )
+          AND employee_id = #{employeeId}
+          AND EXISTS (
+            SELECT 1
+            FROM employee identity
+            WHERE identity.employee_id = #{employeeId}
+              AND identity.row_version = #{expectedVersion}
+          )
+    </update>
+
     <insert id="insertEmployeeVersion">
         INSERT INTO employee_version (
             employee_version_id, employee_id, employee_number, display_name,

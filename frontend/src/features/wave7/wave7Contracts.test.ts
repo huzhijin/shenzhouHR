@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   dashboardFixture,
@@ -486,12 +486,25 @@ describe('Wave 7 projection contracts', () => {
       kind: 'DASHBOARD_COMPANY_SELECTION',
       selectedCompanyId: null,
     });
+    expect(parseAttendanceDashboardResponse({
+      kind: 'DASHBOARD_COMPANY_SELECTION',
+      title: '今日异常考勤',
+      businessDate: '2026-07-30',
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
+      ],
+      message: '请选择公司后查看今日异常考勤',
+    })).toMatchObject({
+      kind: 'DASHBOARD_COMPANY_SELECTION',
+      selectedCompanyId: null,
+    });
   });
 
   it('rejects unsafe or inconsistent attendance dashboard responses', () => {
     const ready = attendanceDashboardResponse();
     const firstException = ready.exceptions[0]!;
-    const elevenExceptions = Array.from({ length: 11 }, (_, index) => ({
+    const tooManyExceptions = Array.from({ length: 501 }, (_, index) => ({
       ...firstException,
       exceptionReference: `exception-${index}`,
     }));
@@ -499,12 +512,12 @@ describe('Wave 7 projection contracts', () => {
     expect(() => parseAttendanceDashboardResponse({
       ...ready,
       summary: {
-        unresolvedCount: 11,
+        unresolvedCount: 501,
         affectedEmployeeCount: 1,
         blockingCount: 1,
       },
-      exceptions: elevenExceptions,
-    })).toThrow(/at most 10/);
+      exceptions: tooManyExceptions,
+    })).toThrow(/at most 500/);
     expect(() => parseAttendanceDashboardResponse({
       ...ready,
       summary: {
@@ -525,7 +538,7 @@ describe('Wave 7 projection contracts', () => {
       ...ready,
       exceptions: [{
         ...firstException,
-        businessDate: '2026-07-29',
+        businessDate: '2026-06-30',
       }],
     })).toThrow(/must match/);
     expect(() => parseAttendanceDashboardResponse({
@@ -662,12 +675,101 @@ describe('Wave 7 projection contracts', () => {
     expect(parsed.exceptions).toEqual([]);
   });
 
-  it('fails closed before the upstream projections are synchronized', async () => {
-    await expect(wave7ProjectionGateway.loadToday()).rejects.toMatchObject({
-      status: 503,
-      code: 'WAVE7_UPSTREAM_PENDING',
-      retryable: false,
+  it('accepts a workbench payload whose exception board is yesterday', () => {
+    const ready = attendanceDashboardResponse();
+    const firstException = ready.exceptions[0]!;
+    const parsed = parseAttendanceDashboardResponse({
+      ...ready,
+      businessDate: '2026-07-30',
+      exceptions: [{
+        ...firstException,
+        businessDate: '2026-07-29',
+      }],
+      analytics: {
+        ...ready.analytics,
+        dailyTrend: [
+          {
+            businessDate: '2026-07-23',
+            exceptionCount: 0,
+            blockingCount: 0,
+            affectedEmployeeCount: 0,
+          },
+          ...ready.analytics.dailyTrend.slice(0, 6).map((point, index) => (
+            index === 5
+              ? {
+                  businessDate: '2026-07-29',
+                  exceptionCount: 1,
+                  blockingCount: 1,
+                  affectedEmployeeCount: 1,
+                }
+              : point
+          )),
+        ],
+      },
     });
+
+    expect(parsed.kind).toBe('DASHBOARD');
+    if (parsed.kind !== 'DASHBOARD') {
+      throw new TypeError('dashboard response must be ready');
+    }
+    expect(parsed.businessDate).toBe('2026-07-30');
+    expect(parsed.exceptions[0]?.businessDate).toBe('2026-07-29');
+    expect(parsed.analytics.dailyTrend.at(-1)).toMatchObject({
+      businessDate: '2026-07-29',
+      exceptionCount: 1,
+    });
+  });
+
+  it('accepts a month workbench list whose exception dates fall earlier in the period', () => {
+    const ready = attendanceDashboardResponse();
+    const firstException = ready.exceptions[0]!;
+    const parsed = parseAttendanceDashboardResponse({
+      ...ready,
+      businessDate: '2026-07-30',
+      exceptions: [{
+        ...firstException,
+        businessDate: '2026-07-05',
+      }],
+      analytics: {
+        ...ready.analytics,
+        dailyTrend: ready.analytics.dailyTrend.map((point, index, all) => (
+          index === all.length - 1
+            ? {
+                ...point,
+                exceptionCount: 0,
+                blockingCount: 0,
+                affectedEmployeeCount: 0,
+              }
+            : point
+        )),
+      },
+    });
+
+    expect(parsed.kind).toBe('DASHBOARD');
+    if (parsed.kind !== 'DASHBOARD') {
+      throw new TypeError('dashboard response must be ready');
+    }
+    expect(parsed.exceptions[0]?.businessDate).toBe('2026-07-05');
+  });
+
+  it('fails closed before the upstream projections are synchronized', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({
+        code: 'SELF_ATTENDANCE_DASHBOARD_SOURCE_NOT_READY',
+        message: '本人当月考勤来源尚未同步或当前账号没有本人范围',
+        retryable: true,
+      }),
+      {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    )));
+    await expect(wave7ProjectionGateway.loadToday()).rejects.toMatchObject({
+      status: 409,
+      code: 'SELF_ATTENDANCE_DASHBOARD_SOURCE_NOT_READY',
+      retryable: true,
+    });
+    vi.unstubAllGlobals();
   });
 });
 

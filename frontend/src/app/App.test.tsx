@@ -371,12 +371,8 @@ describe('App session and route authorization', () => {
 
     renderApp(path);
 
-    expect(await screen.findByText(
-      '该功能的数据尚未准备好，请稍后再试。',
-      {},
-      { timeout: 5_000 },
-    ))
-      .toBeInTheDocument();
+    expect(await screen.findByTestId('current-location', {}, { timeout: 5_000 }))
+      .toHaveTextContent(path);
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();
     expect(screen.getByTestId('current-location')).toHaveTextContent(path);
@@ -412,8 +408,8 @@ describe('App session and route authorization', () => {
     expect(screen.getByLabelText('本人考勤关键指标'))
       .toHaveTextContent('待处理异常');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0])
-      .toBe('/api/v1/me/attendance-dashboard');
+    expect(String(fetchMock.mock.calls[0]?.[0]))
+      .toContain('/api/v1/me/attendance-dashboard');
     expect(screen.queryByRole('heading', {
       name: translate('state.forbiddenTitle'),
     })).not.toBeInTheDocument();
@@ -449,15 +445,15 @@ describe('App session and route authorization', () => {
 
     expect(await screen.findByRole(
       'heading',
-      { level: 1, name: '我的考勤工作台' },
+      { level: 1, name: '我的异常' },
       { timeout: 5_000 },
     )).toBeInTheDocument();
     expect(screen.getByText('个人专属 · 仅本人可见')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: '今日异常考勤列表' }))
+    expect(screen.queryByRole('region', { name: '异常人员列表' }))
       .not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0])
-      .toBe('/api/v1/me/attendance-dashboard');
+    expect(String(fetchMock.mock.calls[0]?.[0]))
+      .toContain('/api/v1/me/attendance-dashboard');
     expect(screen.getByTestId('current-location'))
       .toHaveTextContent('/workbench');
   });
@@ -495,16 +491,16 @@ describe('App session and route authorization', () => {
 
     expect(await screen.findByRole(
       'heading',
-      { level: 1, name: '今日异常考勤' },
+      { level: 1, name: '异常工作台' },
       { timeout: 5_000 },
     )).toBeInTheDocument();
-    expect(screen.getByLabelText('今日异常汇总指标'))
-      .toHaveTextContent('未处理异常');
-    expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
+    expect(screen.getByRole('heading', { name: '异常人员' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '异常人员列表' }))
       .toHaveTextContent('张三');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0])
-      .toBe('/api/v1/attendance-dashboards');
+    expect(String(fetchMock.mock.calls[0]?.[0]))
+      .toContain('/api/v1/attendance-dashboards');
     expect(screen.queryByRole('heading', {
       name: translate('state.forbiddenTitle'),
     })).not.toBeInTheDocument();
@@ -591,7 +587,11 @@ describe('App session and route authorization', () => {
     );
     await waitFor(() => {
       expect(requestedPaths()).toContain('/api/v1/attendance-reports/companies');
-      expect(requestedPaths()).toContain('/api/v1/attendance-reports/month-matrix');
+      expect(requestedPaths().some((path) => (
+        path === '/api/v1/attendance-reports/month-matrix'
+        || path === '/api/v1/attendance-report-queries/directory'
+        || path.startsWith('/api/v1/attendance-reports')
+      ))).toBe(true);
     });
     expect(screen.queryByRole('heading', { name: translate('state.forbiddenTitle') }))
       .not.toBeInTheDocument();

@@ -51,11 +51,9 @@ public final class AnnualLeaveManagementModels {
             Objects.requireNonNull(reason, "reason");
             Objects.requireNonNull(requestId, "requestId");
             balanceHours = normalizeHours(balanceHours, "opening balance");
-            if (balanceHours.compareTo(BigDecimal.ZERO) < 0) {
-                throw new IllegalArgumentException("opening balance cannot be negative");
-            }
-            if (balanceHours.compareTo(new BigDecimal("9999")) > 0) {
-                throw new IllegalArgumentException("opening balance too large");
+            if (balanceHours.compareTo(new BigDecimal("-9999")) < 0
+                    || balanceHours.compareTo(new BigDecimal("9999")) > 0) {
+                throw new IllegalArgumentException("opening balance out of range");
             }
             if (year < 2000 || year > 2100) {
                 throw new IllegalArgumentException("year out of range");
@@ -125,18 +123,33 @@ public final class AnnualLeaveManagementModels {
         };
     }
 
-    /** Generate a stable account ID for one employment period + year. */
+    /** Generate a stable annual-leave account ID for one employment period + year. */
     public static String accountId(
             String employeeId,
             String employmentPeriodId,
             int year) {
+        return accountId("ANNUAL_LEAVE", employeeId, employmentPeriodId, year);
+    }
+
+    /** Generate a stable account ID for one account type + employment period + year. */
+    public static String accountId(
+            String accountType,
+            String employeeId,
+            String employmentPeriodId,
+            int year) {
         return UUID.nameUUIDFromBytes(
-                ("ANNUAL_LEAVE:"
+                (accountType + ":"
                         + employeeId + ":"
                         + employmentPeriodId + ":"
                         + year)
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 .toString();
+    }
+
+    public static String defaultPolicyVersionId(String accountType) {
+        return "TIME_OFF".equals(accountType)
+                ? "TIME_OFF_DEFAULT_V1"
+                : "ANNUAL_LEAVE_DEFAULT_V1";
     }
 
     private static BigDecimal normalizeHours(BigDecimal value, String field) {

@@ -30,6 +30,8 @@ describe('punch import business display', () => {
       configurationRevision: 1,
       committedWatermark: null,
       lastSuccessfulSyncAt: null,
+      lastFailedSyncAt: null,
+      lastFailureReason: null,
       rowVersion: 1,
     }];
 

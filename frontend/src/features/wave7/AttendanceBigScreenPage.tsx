@@ -17,6 +17,7 @@ import {
 } from 'react';
 import { Link } from 'react-router-dom';
 
+import { AppearanceToggle } from '../../shared/appearance/AppearanceToggle';
 import { BrandLogo } from '../../shared/components/BrandLogo';
 import './attendanceBigScreen.css';
 
@@ -163,7 +164,7 @@ export function AttendanceBigScreenPage() {
       <main
         className="od15-stage"
         data-od-id="attendance-live-screen"
-        aria-label="神州 HR 独立考勤数据大屏"
+        aria-label="神州考勤系统独立考勤数据大屏"
         style={{ '--od15-scale': scale } as CSSProperties}
       >
         <div className="od15-screen">
@@ -176,6 +177,7 @@ export function AttendanceBigScreenPage() {
               <p>{data.label} · 2026 年 7 月 · 只读授权聚合</p>
             </div>
             <div className="od15-top-spacer" />
+            <AppearanceToggle />
             <div className="od15-scope-switch" role="radiogroup" aria-label="授权范围" data-od-id="scope-switcher">
               {scopeOptions.map((option) => (
                 <button

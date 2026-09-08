@@ -44,4 +44,71 @@ public interface AttendanceReportCalculationOrchestrator {
             PeriodState periodState,
             String principalId,
             Instant dataAsOf);
+
+    default PublishCommand assemble(
+            String companyId,
+            YearMonth period,
+            PeriodState periodState,
+            String principalId,
+            Instant dataAsOf,
+            java.time.LocalDate writeStartInclusive,
+            java.time.LocalDate writeEndExclusive) {
+        return assemble(
+                companyId,
+                period,
+                periodState,
+                principalId,
+                dataAsOf,
+                writeStartInclusive,
+                writeEndExclusive,
+                (String) null);
+    }
+
+    default PublishCommand assemble(
+            String companyId,
+            YearMonth period,
+            PeriodState periodState,
+            String principalId,
+            Instant dataAsOf,
+            java.time.LocalDate writeStartInclusive,
+            java.time.LocalDate writeEndExclusive,
+            String employeeId) {
+        return assemble(
+                companyId, period, periodState, principalId, dataAsOf);
+    }
+
+    default PublishCommand assemble(
+            String companyId,
+            YearMonth period,
+            PeriodState periodState,
+            String principalId,
+            Instant dataAsOf,
+            java.time.LocalDate writeStartInclusive,
+            java.time.LocalDate writeEndExclusive,
+            java.util.Collection<String> employeeIds) {
+        if (employeeIds == null || employeeIds.isEmpty()) {
+            return assemble(
+                    companyId,
+                    period,
+                    periodState,
+                    principalId,
+                    dataAsOf,
+                    writeStartInclusive,
+                    writeEndExclusive,
+                    (String) null);
+        }
+        if (employeeIds.size() == 1) {
+            return assemble(
+                    companyId,
+                    period,
+                    periodState,
+                    principalId,
+                    dataAsOf,
+                    writeStartInclusive,
+                    writeEndExclusive,
+                    employeeIds.iterator().next());
+        }
+        return assemble(
+                companyId, period, periodState, principalId, dataAsOf);
+    }
 }

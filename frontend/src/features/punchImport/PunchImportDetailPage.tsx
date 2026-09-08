@@ -336,7 +336,7 @@ function actionTitle(action?: PendingAction): string {
 
 function actionDescription(action?: PendingAction): string {
   if (action === 'partial-publish') {
-    return '仅让预检通过的记录生效，未通过的记录和问题仍会保留。';
+    return '对不上工号、无工号的行会留下；库里已有的同一锤打卡只记重复。确认后只让有效新打卡生效，问题仍可在本任务查看。';
   }
   if (action === 'void') {
     return '作废或冲正不会删除原始文件和处理记录。';
@@ -359,6 +359,11 @@ function issueFieldLabel(value: string | null): string {
 function issueReasonLabel(value: string): string {
   return ({
     EMPLOYEE_NOT_FOUND: '未找到有效员工',
+    UNMATCHED_EMPLOYEE_NUMBER: '工号无法匹配',
+    AMBIGUOUS_EMPLOYEE_NUMBER: '工号不唯一',
+    EXACT_DUPLICATE: '已有相同打卡',
+    PUNCH_TIME_INVALID: '打卡时间无效',
+    UNRECOGNIZED_LAYOUT: '无法识别的表格',
     NEAR_DUPLICATE_PENDING: '疑似重复待确认',
   } as Record<string, string>)[value] ?? '需人工处理';
 }

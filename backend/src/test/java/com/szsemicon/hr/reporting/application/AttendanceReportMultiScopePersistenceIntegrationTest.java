@@ -1500,7 +1500,7 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 period_end_exclusive DATE NOT NULL,
                 projection_version VARCHAR(128) NOT NULL,
                 formula_catalog_version VARCHAR(128) NOT NULL DEFAULT
-                    'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2',
+                    'FULL_CALCULATION_OA_FORM_HOURS_V8',
                 period_state VARCHAR(32) NOT NULL,
                 source_versions_json CLOB NOT NULL,
                 data_as_of TIMESTAMP NOT NULL,

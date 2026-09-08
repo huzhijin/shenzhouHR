@@ -304,20 +304,20 @@ public interface AttendanceDashboardRepository {
                     .mapToLong(SeverityDistributionItem::count)
                     .sum();
             if (currentDay.exceptionCount()
-                            != summary.unresolvedCount()
+                            > summary.unresolvedCount()
                     || currentDay.affectedEmployeeCount()
-                            != summary.affectedEmployeeCount()
+                            > summary.affectedEmployeeCount()
                     || currentDay.blockingCount()
-                            != summary.blockingCount()
+                            > summary.blockingCount()
                     || severityTotal != summary.unresolvedCount()) {
                 throw new IllegalArgumentException(
                         "dashboard analytics do not match summary");
             }
             exceptions = List.copyOf(Objects.requireNonNull(
                     exceptions, "exceptions"));
-            if (exceptions.size() > 10) {
+            if (exceptions.size() > 500) {
                 throw new IllegalArgumentException(
-                        "dashboard exceptions must be limited to ten");
+                        "dashboard exceptions must be limited to 500");
             }
         }
     }

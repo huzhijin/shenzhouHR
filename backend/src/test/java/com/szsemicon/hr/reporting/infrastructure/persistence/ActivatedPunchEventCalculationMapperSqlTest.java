@@ -33,6 +33,13 @@ class ActivatedPunchEventCalculationMapperSqlTest {
                 "jdbc:h2:mem:activated-punch-" + UUID.randomUUID()
                         + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE");
         execute("""
+                CREATE TABLE employee (
+                    employee_id VARCHAR(36) PRIMARY KEY,
+                    company_id VARCHAR(36) NOT NULL,
+                    employee_number VARCHAR(64) NOT NULL
+                )
+                """);
+        execute("""
                 CREATE TABLE effective_attendance_event (
                     effective_attendance_event_id VARCHAR(36) PRIMARY KEY,
                     company_id VARCHAR(36) NOT NULL,
@@ -147,11 +154,25 @@ class ActivatedPunchEventCalculationMapperSqlTest {
             String employeeId,
             String pointInstant,
             String createdAt) throws Exception {
+        try (PreparedStatement upsertEmployee = connection.prepareStatement("""
+                INSERT INTO employee (
+                    employee_id, company_id, employee_number
+                ) SELECT ?, 'company-1', ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM employee existing
+                    WHERE existing.employee_id = ?
+                )
+                """)) {
+            upsertEmployee.setString(1, employeeId);
+            upsertEmployee.setString(2, employeeId);
+            upsertEmployee.setString(3, employeeId);
+            upsertEmployee.executeUpdate();
+        }
         try (PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO effective_attendance_event (
                     effective_attendance_event_id, company_id, employee_id,
                     event_kind, point_instant, created_at
-                ) VALUES (?, 'company-1', ?, 'PUNCH_POINT', ?, ?)
+                ) VALUES (?, 'other-company', ?, 'PUNCH_POINT', ?, ?)
                 """)) {
             statement.setString(1, eventId);
             statement.setString(2, employeeId);

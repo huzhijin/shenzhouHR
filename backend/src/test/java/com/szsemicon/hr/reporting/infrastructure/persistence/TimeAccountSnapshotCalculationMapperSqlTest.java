@@ -147,6 +147,27 @@ class TimeAccountSnapshotCalculationMapperSqlTest {
     }
 
     @Test
+    void openingHoursMayBeNegative() throws Exception {
+        insertEntry(1, "opening", "OPENING", "-16.00", null, "2026-01-01 00:00:00");
+        Timestamp dataAsOf = Timestamp.valueOf("2026-08-17 10:00:00");
+        try (PreparedStatement statement = connection.prepareStatement(
+                snapshotSql())) {
+            statement.setTimestamp(1, dataAsOf);
+            statement.setTimestamp(2, dataAsOf);
+            statement.setTimestamp(3, Timestamp.valueOf("2026-09-01 00:00:00"));
+            statement.setTimestamp(4, Timestamp.valueOf("2026-08-01 00:00:00"));
+            statement.setString(5, "company-1");
+            statement.setDate(6, Date.valueOf("2026-08-01"));
+            statement.setTimestamp(7, dataAsOf);
+            try (ResultSet result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertHours(result, "openingHours", "-16.00");
+                assertThat(result.next()).isFalse();
+            }
+        }
+    }
+
+    @Test
     void snapshotSqlDoesNotDependOnCurrentAccountRowVersion() throws Exception {
         String sql = snapshotSql();
 

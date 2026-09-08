@@ -40,6 +40,111 @@ public interface AttendanceReportProjectionWriter {
 
     void markPublished(String projectionId, Instant publishedAt);
 
+    default void copyFactsOutsideRange(
+            String sourceProjectionId,
+            String targetProjectionId,
+            LocalDate windowStart,
+            LocalDate windowEndExclusive,
+            Instant createdAt) {
+        copyFactsOutsideRange(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                null);
+    }
+
+    default void copyFactsOutsideRange(
+            String sourceProjectionId,
+            String targetProjectionId,
+            LocalDate windowStart,
+            LocalDate windowEndExclusive,
+            Instant createdAt,
+            String employeeId) {
+    }
+
+    default void copyFactsOutsideRange(
+            String sourceProjectionId,
+            String targetProjectionId,
+            LocalDate windowStart,
+            LocalDate windowEndExclusive,
+            Instant createdAt,
+            String employeeId,
+            java.util.Collection<String> employeeIds) {
+        String single = employeeId;
+        if ((single == null || single.isBlank())
+                && employeeIds != null
+                && employeeIds.size() == 1) {
+            single = employeeIds.iterator().next();
+        }
+        copyFactsOutsideRange(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                single);
+    }
+
+    default void copyOaDocumentFactsExceptEmployeeWindow(
+            String sourceProjectionId,
+            String targetProjectionId,
+            Instant windowStart,
+            Instant windowEndExclusive,
+            Instant createdAt,
+            String employeeId) {
+    }
+
+    default void copyOaDocumentFactsExceptEmployeeWindow(
+            String sourceProjectionId,
+            String targetProjectionId,
+            Instant windowStart,
+            Instant windowEndExclusive,
+            Instant createdAt,
+            String employeeId,
+            java.util.Collection<String> employeeIds) {
+        String single = employeeId;
+        if ((single == null || single.isBlank())
+                && employeeIds != null
+                && employeeIds.size() == 1) {
+            single = employeeIds.iterator().next();
+        }
+        copyOaDocumentFactsExceptEmployeeWindow(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                single);
+    }
+
+    default void copyTimeAccountFactsExceptEmployee(
+            String sourceProjectionId,
+            String targetProjectionId,
+            Instant createdAt,
+            String employeeId) {
+    }
+
+    default void copyTimeAccountFactsExceptEmployee(
+            String sourceProjectionId,
+            String targetProjectionId,
+            Instant createdAt,
+            String employeeId,
+            java.util.Collection<String> employeeIds) {
+        String single = employeeId;
+        if ((single == null || single.isBlank())
+                && employeeIds != null
+                && employeeIds.size() == 1) {
+            single = employeeIds.iterator().next();
+        }
+        copyTimeAccountFactsExceptEmployee(
+                sourceProjectionId,
+                targetProjectionId,
+                createdAt,
+                single);
+    }
+
     record StoredProjection(
             String projectionId,
             String companyId,

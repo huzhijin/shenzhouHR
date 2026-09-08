@@ -60,6 +60,35 @@ public interface DeliPunchSourcePort {
         return Map.of();
     }
 
+    /**
+     * Directory rows with snowflake user id, empno and display name.
+     * Default derives from {@link #fetchEmployeeDirectory} without names.
+     */
+    default List<EmployeeDirectoryPerson> fetchEmployeeDirectoryPeople(
+            String sourceId) {
+        return fetchEmployeeDirectory(sourceId).entrySet().stream()
+                .map(entry -> new EmployeeDirectoryPerson(
+                        entry.getKey(), entry.getValue(), null))
+                .toList();
+    }
+
+    record EmployeeDirectoryPerson(
+            String userId, String employeeNum, String displayName) {
+    }
+
+    /**
+     * Returns the Deli department directory used to confirm the live org
+     * tree. Empty is valid only when the vendor returned no usable rows.
+     * Failures must be classified {@link FetchException}s.
+     */
+    default List<DeliEplusDepartment> fetchDepartmentDirectory(String sourceId) {
+        return List.of();
+    }
+
+    record DeliEplusDepartment(
+            String departmentId, String name, String parentId) {
+    }
+
     DeliPage fetchPage(String sourceId, String committedCursor);
 
     default DeliPage fetchPage(
@@ -72,7 +101,12 @@ public interface DeliPunchSourcePort {
     record FetchSettings(
             int pageSize,
             ZoneId sourceTimeZone,
-            Map<String, String> employeeDirectory) {
+            Map<String, String> employeeDirectory,
+            String apiModule,
+            boolean skipUnreadableRecords) {
+
+        public static final String MODULE_CHECKIN = "CHECKIN";
+        public static final String MODULE_KQ = "KQ";
 
         public FetchSettings {
             if (pageSize < 1 || pageSize > 500) {
@@ -86,11 +120,35 @@ public interface DeliPunchSourcePort {
             employeeDirectory = (employeeDirectory != null)
                     ? Map.copyOf(employeeDirectory)
                     : Map.of();
+            if (apiModule == null || apiModule.isBlank()) {
+                apiModule = MODULE_CHECKIN;
+            }
+            apiModule = apiModule.trim();
+            if (!MODULE_CHECKIN.equals(apiModule)
+                    && !MODULE_KQ.equals(apiModule)) {
+                throw new IllegalArgumentException(
+                        "Deli api module must be CHECKIN or KQ");
+            }
         }
 
         /** Convenience constructor for callers that carry no directory. */
         public FetchSettings(int pageSize, ZoneId sourceTimeZone) {
-            this(pageSize, sourceTimeZone, Map.of());
+            this(pageSize, sourceTimeZone, Map.of(), MODULE_CHECKIN, false);
+        }
+
+        public FetchSettings(
+                int pageSize,
+                ZoneId sourceTimeZone,
+                Map<String, String> employeeDirectory) {
+            this(pageSize, sourceTimeZone, employeeDirectory, MODULE_CHECKIN, false);
+        }
+
+        public FetchSettings(
+                int pageSize,
+                ZoneId sourceTimeZone,
+                Map<String, String> employeeDirectory,
+                String apiModule) {
+            this(pageSize, sourceTimeZone, employeeDirectory, apiModule, false);
         }
     }
 
@@ -112,6 +170,7 @@ public interface DeliPunchSourcePort {
             EmployeeEmploymentResolverPort.ConfirmedBindingKind
                     externalPersonRefKind,
             String employeeNumber,
+            String memberName,
             Instant punchInstant,
             String originalTimeText,
             String sourceTimeZone,

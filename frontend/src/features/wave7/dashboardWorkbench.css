@@ -139,18 +139,23 @@
   gap: 5px;
 }
 
-.attendance-dashboard__company-field span {
+.attendance-dashboard__company-field > span {
   color: #b9c9e5;
   font-size: 12px;
 }
 
-.attendance-dashboard__company-field select {
+.attendance-dashboard__company-field .ant-select {
   width: 100%;
-  min-height: 40px;
-  padding: 7px 34px 7px 11px;
-  border: 1px solid rgb(255 255 255 / 38%);
-  border-radius: 6px;
-  background: #fff;
+}
+
+.attendance-dashboard__company-field .ant-select-selector {
+  border-color: rgb(255 255 255 / 38%) !important;
+  background: #fff !important;
+}
+
+.attendance-dashboard__company-field .ant-select-selection-item,
+.attendance-dashboard__company-field .ant-select-placeholder,
+.attendance-dashboard__company-field .ant-select-selection-placeholder {
   color: var(--dashboard-deep);
   font-weight: 600;
 }
@@ -341,6 +346,61 @@
   font: 700 12px/1 var(--font-mono);
 }
 
+.attendance-dashboard__graphics {
+  overflow: hidden;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 8px;
+  background: var(--dashboard-surface);
+  box-shadow: var(--dashboard-shadow);
+}
+
+.attendance-dashboard__categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.attendance-dashboard__category {
+  min-height: 72px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 8px;
+  background: #f8fbff;
+  color: var(--dashboard-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.attendance-dashboard__category span {
+  color: var(--dashboard-muted);
+  font-size: 12px;
+}
+
+.attendance-dashboard__category strong {
+  color: var(--dashboard-deep);
+  font: 700 24px/1.1 var(--font-mono);
+}
+
+.attendance-dashboard__category:hover,
+.attendance-dashboard__category.is-active {
+  border-color: var(--dashboard-accent);
+  background: #eaf1fb;
+}
+
+.attendance-dashboard__graphics .attendance-dashboard__structure-grid {
+  padding: 0 16px 16px;
+}
+
+.attendance-dashboard__pager {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 0 4px;
+}
+
 .attendance-dashboard__list {
   overflow: hidden;
   border: 1px solid var(--dashboard-border);
@@ -359,10 +419,12 @@
   border-bottom: 1px solid var(--dashboard-divider);
 }
 
+.attendance-dashboard__list-head h1,
 .attendance-dashboard__list-head h2 {
   margin: 0;
   color: var(--dashboard-deep);
   font-size: 18px;
+  font-weight: 700;
 }
 
 .attendance-dashboard__list-head p {

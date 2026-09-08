@@ -40,6 +40,8 @@ class AttendanceDashboardContractTest {
                 .getDeclaredMethod(
                         "dashboard",
                         String.class,
+                        java.time.YearMonth.class,
+                        String.class,
                         org.springframework.util.MultiValueMap.class);
 
         assertThat(method.getAnnotation(PreAuthorize.class).value())
@@ -59,9 +61,9 @@ class AttendanceDashboardContractTest {
         retired.add("legalEntityId", "company-a");
 
         assertValidationError(() ->
-                controller.dashboard("company-a", duplicate));
+                controller.dashboard("company-a", null, null, duplicate));
         assertValidationError(() ->
-                controller.dashboard(null, retired));
+                controller.dashboard(null, null, null, retired));
         verifyNoInteractions(service);
     }
 
@@ -131,6 +133,8 @@ class AttendanceDashboardContractTest {
                 company,
                 List.of(company),
                 snapshot,
+                List.of(),
+                List.of(),
                 List.of());
 
         var response = AttendanceDashboardResponse.from(result);
@@ -195,6 +199,8 @@ class AttendanceDashboardContractTest {
                 company,
                 List.of(company),
                 snapshot,
+                List.of(),
+                List.of(),
                 List.of());
 
         var response = AttendanceDashboardResponse.from(result);

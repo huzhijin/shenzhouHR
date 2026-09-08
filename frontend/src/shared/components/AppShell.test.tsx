@@ -17,6 +17,7 @@ import {
 
 import '../../shared/i18n/i18n';
 import { changePassword } from '../../features/auth/authApi';
+import { AppearanceProvider } from '../appearance/AppearanceProvider';
 import { AppShell, ResponsiveNavigation } from './AppShell';
 
 vi.mock('../../features/auth/authApi', () => ({
@@ -110,7 +111,7 @@ describe('AppShell navigation icons', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('工作台与报表')).toBeInTheDocument();
+    expect(screen.getByText('报表中心')).toBeInTheDocument();
     expect(screen.getByText('组织与人员')).toBeInTheDocument();
     expect(screen.getByText('考勤设置')).toBeInTheDocument();
     expect(screen.getByText('数据接入')).toBeInTheDocument();
@@ -119,6 +120,37 @@ describe('AppShell navigation icons', () => {
     fireEvent.click(screen.getByText('员工'));
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ key: 'people-employees' }));
   });
+
+  it('puts query reports second, directly under the report center group', () => {
+    render(
+      <MemoryRouter>
+        <ResponsiveNavigation
+          menu={[
+            { key: 'workbench', label: '考勤工作台', path: '/workbench' },
+            { key: 'attendance-reports', label: '考勤报表', path: '/attendance/reports' },
+            { key: 'attendance-query-late', label: '迟到统计', path: '/attendance/queries/late' },
+            { key: 'attendance-query-work-hours', label: '月度工时统计表', path: '/attendance/queries/work-hours' },
+            { key: 'people-employees', label: '员工', path: '/people/employees' },
+            { key: 'accounts', label: '账号管理', path: '/access/accounts' },
+          ]}
+          onOpen={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    const reportCenter = screen.getByText('报表中心');
+    const queries = screen.getByText('查询报表');
+    const people = screen.getByText('组织与人员');
+    const admin = screen.getByText('系统管理');
+    expect(reportCenter.compareDocumentPosition(queries) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(queries.compareDocumentPosition(people) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(queries.compareDocumentPosition(admin) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(screen.getByText('考勤报表')).toBeInTheDocument();
+    expect(screen.getByText('月度工时统计表')).toBeInTheDocument();
+    expect(screen.queryByText('月度工时', { exact: true })).not.toBeInTheDocument();
+  });
 });
 
 describe('AppShell topbar', () => {
@@ -126,14 +158,16 @@ describe('AppShell topbar', () => {
 
   it('keeps company and system copy out of the topbar while retaining action alignment', () => {
     const view = render(
-      <MemoryRouter>
-        <AppShell
-          menu={[{ key: 'accounts', label: '账号管理', path: '/access/accounts' }]}
-          onSessionChanged={vi.fn()}
-        >
-          <div>页面内容</div>
-        </AppShell>
-      </MemoryRouter>,
+      <AppearanceProvider>
+        <MemoryRouter>
+          <AppShell
+            menu={[{ key: 'accounts', label: '账号管理', path: '/access/accounts' }]}
+            onSessionChanged={vi.fn()}
+          >
+            <div>页面内容</div>
+          </AppShell>
+        </MemoryRouter>
+      </AppearanceProvider>,
     );
 
     const topbar = view.container.querySelector('.app-topbar');
@@ -142,6 +176,8 @@ describe('AppShell topbar', () => {
     expect(topbar?.querySelector('.app-topbar__spacer')).not.toBeNull();
     expect(within(topbar as HTMLElement).queryByText(/可管理|当前公司|神州 HR 管理系统/))
       .not.toBeInTheDocument();
+    expect(within(topbar as HTMLElement).getByRole('button', { name: '黑夜模式' }))
+      .toBeInTheDocument();
     expect(within(topbar as HTMLElement).getByRole('button', { name: '修改密码' }))
       .toBeInTheDocument();
     expect(within(topbar as HTMLElement).getByRole('button', { name: '退出' }))

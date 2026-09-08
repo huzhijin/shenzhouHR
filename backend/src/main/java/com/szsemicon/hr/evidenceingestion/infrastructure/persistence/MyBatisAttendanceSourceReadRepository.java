@@ -51,8 +51,10 @@ public class MyBatisAttendanceSourceReadRepository
             String principalId,
             String capability,
             String sourceId,
-            Instant at) {
-        return mapper.countOaDocuments(principalId, capability, sourceId, at);
+            Instant at,
+            String documentType) {
+        return mapper.countOaDocuments(
+                principalId, capability, sourceId, at, documentType);
     }
 
     @Override
@@ -61,9 +63,10 @@ public class MyBatisAttendanceSourceReadRepository
             String capability,
             String sourceId,
             Instant at,
+            String documentType,
             int limit,
             int offset) {
         return mapper.listOaDocuments(
-                principalId, capability, sourceId, at, limit, offset);
+                principalId, capability, sourceId, at, documentType, limit, offset);
     }
 }

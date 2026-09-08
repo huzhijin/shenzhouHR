@@ -51,6 +51,24 @@ describe('PersonalAttendanceDashboard', () => {
     expect(screen.queryByText('案件编号')).not.toBeInTheDocument();
   });
 
+  it('workbench lists only the current employee exceptions', () => {
+    render(
+      <PersonalAttendanceDashboard
+        projection={createDemoSelfAttendanceDashboardProjection()}
+        mode="workbench"
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '我的异常' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '昨日异常' }))
+      .toBeInTheDocument();
+    expect(screen.getByText('只显示本人昨天的异常', { exact: false }))
+      .toBeInTheDocument();
+    expect(screen.queryByText('组织异常排行')).not.toBeInTheDocument();
+    expect(screen.queryByText('公司范围')).not.toBeInTheDocument();
+  });
+
   it('fails closed when the runtime projection scope is not SELF', () => {
     const projection = createDemoSelfAttendanceDashboardProjection();
     const unsafeProjection = {

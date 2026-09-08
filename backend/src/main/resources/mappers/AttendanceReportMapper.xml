@@ -4,6 +4,53 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportMapper">
 
+    <!--
+      Report department filters follow the current org tree, not only an
+      exact organization_id. Closure can lag after a roster remount; the
+      recursive parent walk uses current versions so 财务中心 includes
+      会计核算部 and other descendants.
+    -->
+    <sql id="factInSelectedOrganizationOrDescendant">
+        <choose>
+            <when test="organizationId == null or organizationId == ''">
+                1 = 1
+            </when>
+            <otherwise>
+                fact.organization_id = #{organizationId}
+                OR EXISTS (
+                    SELECT 1
+                    FROM organization_current_closure closure
+                    WHERE closure.ancestor_organization_id = #{organizationId}
+                      AND closure.descendant_organization_id = fact.organization_id
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM (
+                        WITH RECURSIVE organization_subtree (
+                            organization_id
+                        ) AS (
+                            SELECT #{organizationId} AS organization_id
+                            UNION ALL
+                            SELECT child.organization_id
+                            FROM organization_subtree subtree
+                            JOIN organization_current_projection child_projection
+                              ON TRUE
+                            JOIN organization_version child
+                              ON child.organization_version_id =
+                                 child_projection.current_version_id
+                             AND child.parent_organization_id =
+                                 subtree.organization_id
+                             AND child.status = 'ACTIVE'
+                        )
+                        SELECT organization_subtree.organization_id
+                        FROM organization_subtree
+                    ) subtree
+                    WHERE subtree.organization_id = fact.organization_id
+                )
+            </otherwise>
+        </choose>
+    </sql>
+
     <sql id="reportProjectionVisibility">
         EXISTS (
             SELECT 1
@@ -745,7 +792,7 @@
           AND projection.period_end_exclusive = #{periodEndExclusive}
           AND projection.status = 'PUBLISHED'
           AND projection.formula_catalog_version =
-              'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
+              'FULL_CALCULATION_OA_FORM_HOURS_V8'
           AND projection.published_at &lt;= #{authorizationTime}
           AND <include refid="dashboardProjectionVisibility"/>
         ORDER BY company.name, projection.company_id
@@ -765,7 +812,7 @@
           AND projection.company_id = #{companyId}
           AND projection.status = 'PUBLISHED'
           AND projection.formula_catalog_version =
-              'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
+              'FULL_CALCULATION_OA_FORM_HOURS_V8'
           AND projection.published_at &lt;= #{authorizationTime}
           AND <include refid="dashboardProjectionVisibility"/>
           AND NOT EXISTS (
@@ -778,7 +825,7 @@
                     #{periodEndExclusive}
                   AND newer_projection.status = 'PUBLISHED'
                   AND newer_projection.formula_catalog_version =
-                      'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
+                      'FULL_CALCULATION_OA_FORM_HOURS_V8'
                   AND newer_projection.published_at &lt;=
                     #{authorizationTime}
                   AND (
@@ -1009,6 +1056,7 @@
     </select>
 
     <select id="listAuthorizedEmployeeIdsInScopeIntersection"
+            timeout="3"
             resultType="string">
         SELECT DISTINCT candidate_employee.employee_id
         FROM employee candidate_employee
@@ -1111,6 +1159,7 @@
     </select>
 
     <select id="listAuthorizedCompanies"
+            timeout="3"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$CompanyRow">
         SELECT DISTINCT company.company_id,
                company.name AS company_name
@@ -1126,7 +1175,15 @@
                 JOIN auth_capability capability
                   ON capability.capability_id = role_capability.capability_id
                  AND capability.capability_code = #{capabilityCode}
-                 AND capability.capability_code = 'ATTENDANCE_REPORT:READ'
+                 AND capability.capability_code IN (
+                        'ATTENDANCE_REPORT:READ',
+                        'ATTENDANCE_REPORT_QUERY:READ',
+                        'ATTENDANCE_DASHBOARD:READ',
+                        'ATTENDANCE_REPORT:EXPORT_CREATE',
+                        'ATTENDANCE_REPORT:EXPORT_DOWNLOAD',
+                        'ATTENDANCE_SELF:READ',
+                        'ATTENDANCE_REPORT:REFRESH'
+                 )
                 JOIN auth_data_scope data_scope
                   ON data_scope.scope_id = role_assignment.data_scope_id
                 WHERE principal.principal_id = #{principalId}
@@ -1193,7 +1250,71 @@
         ORDER BY company.name, company.company_id
     </select>
 
+    <select id="resolvePrincipalHome"
+            timeout="3"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$PrincipalHomeRow">
+        SELECT employee.employee_id,
+               employee_version.employee_number,
+               employee.company_id,
+               company.name AS company_name,
+               employment.organization_id,
+               organization_version.name AS organization_name
+        FROM auth_principal principal
+        JOIN employee employee
+          ON employee.employee_id = principal.employee_id
+        JOIN company company
+          ON company.company_id = employee.company_id
+         AND company.status = 'ACTIVE'
+        JOIN employee_current_projection employee_projection
+          ON employee_projection.employee_id = employee.employee_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id =
+             employee_projection.current_version_id
+         AND employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND DATE(employment.effective_from) &lt;= #{businessDate}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{businessDate}
+         )
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.identity_status = 'ACTIVE'
+        JOIN organization_current_projection organization_projection
+          ON organization_projection.organization_id =
+             organization.organization_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             organization_projection.current_version_id
+         AND organization_version.organization_id =
+             organization.organization_id
+         AND organization_version.status = 'ACTIVE'
+         AND DATE(organization_version.effective_from)
+             &lt;= #{businessDate}
+         AND (
+                organization_version.effective_to IS NULL
+                OR DATE(organization_version.effective_to)
+                    &gt; #{businessDate}
+         )
+        WHERE principal.principal_id = #{principalId}
+          AND principal.status = 'ACTIVE'
+          AND principal.employee_id IS NOT NULL
+        ORDER BY employee.employee_id, employment.assignment_id,
+                 organization.organization_id
+        LIMIT 2
+    </select>
+
     <select id="listRealtimeAuthorizedScopes"
+            timeout="3"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$ScopeRow">
         SELECT DISTINCT data_scope.scope_id,
                data_scope.scope_type,
@@ -1214,8 +1335,12 @@
          AND capability.capability_code = #{capabilityCode}
          AND capability.capability_code IN (
                 'ATTENDANCE_REPORT:READ',
+                'ATTENDANCE_REPORT_QUERY:READ',
                 'ATTENDANCE_REPORT:EXPORT_CREATE',
-                'ATTENDANCE_REPORT:EXPORT_DOWNLOAD'
+                'ATTENDANCE_REPORT:EXPORT_DOWNLOAD',
+                'ATTENDANCE_DASHBOARD:READ',
+                'ATTENDANCE_SELF:READ',
+                'ATTENDANCE_REPORT:REFRESH'
          )
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
@@ -1284,7 +1409,9 @@
         ORDER BY data_scope.scope_type, data_scope.scope_id
     </select>
 
-    <select id="listAuthorizedOrganizationIds" resultType="string">
+    <select id="listAuthorizedOrganizationIds"
+            timeout="3"
+            resultType="string">
         SELECT DISTINCT candidate_organization.organization_id
         FROM company target_company
         JOIN organization_identity candidate_organization
@@ -1394,6 +1521,29 @@
         ORDER BY candidate_organization.organization_id
     </select>
 
+    <select id="companyHasSourceEvidence" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM effective_attendance_event event
+            JOIN employee roster_employee
+              ON roster_employee.employee_id = event.employee_id
+             AND roster_employee.company_id = #{companyId}
+            WHERE event.created_at &lt;= #{dataAsOf}
+              AND (
+                    (
+                        event.event_kind = 'PUNCH_POINT'
+                        AND event.point_instant &gt;= #{periodStart}
+                        AND event.point_instant &lt; #{periodEndExclusive}
+                    )
+                    OR (
+                        event.event_kind = 'OA_INTERVAL'
+                        AND event.interval_end &gt; #{periodStart}
+                        AND event.interval_start &lt; #{periodEndExclusive}
+                    )
+                  )
+        ) THEN 1 ELSE 0 END AS hasEvidence
+    </select>
+
     <select id="listLatestAuthorizedProjections"
             resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$ProjectionRow">
         SELECT projection.attendance_report_projection_id AS projection_id,
@@ -1411,7 +1561,7 @@
           )
           AND projection.status = 'PUBLISHED'
           AND projection.formula_catalog_version =
-              'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
+              'FULL_CALCULATION_OA_FORM_HOURS_V8'
           AND projection.published_at &lt;= #{authorizationTime}
           AND <include refid="reportProjectionVisibility"/>
           AND NOT EXISTS (
@@ -1424,7 +1574,7 @@
                     #{periodEndExclusive}
                   AND newer_projection.status = 'PUBLISHED'
                   AND newer_projection.formula_catalog_version =
-                      'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'
+                      'FULL_CALCULATION_OA_FORM_HOURS_V8'
                   AND newer_projection.published_at &lt;=
                     #{authorizationTime}
                   AND (
@@ -1444,6 +1594,20 @@
                  projection.published_at DESC,
                  projection.attendance_report_projection_id DESC
         LIMIT 2
+    </select>
+
+    <select id="listCommittedSourceCutoffs"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$SourceCutoffRow">
+        SELECT source.source_type AS sourceType,
+               MAX(watermark.committed_at) AS committedAt
+        FROM attendance_source source
+        JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE source.status = 'ACTIVE'
+          AND source.source_type IN ('DELI_CLOUD', 'OA_ATTENDANCE')
+          AND watermark.committed_at IS NOT NULL
+          AND watermark.committed_at &lt;= #{asOf}
+        GROUP BY source.source_type
     </select>
 
     <select id="listAuthorizedScopes"
@@ -1591,8 +1755,7 @@
               AND fact.business_date &gt;= #{periodStart}
               AND fact.business_date &lt; #{periodEndExclusive}
               AND (
-                    #{organizationId} IS NULL
-                    OR fact.organization_id = #{organizationId}
+                    <include refid="factInSelectedOrganizationOrDescendant"/>
               )
             GROUP BY fact.company_id,
                      fact.organization_id,
@@ -1623,8 +1786,9 @@
           AND <include refid="reportFactVisibility"/>
           AND fact.business_date &gt;= #{periodStart}
           AND fact.business_date &lt; #{periodEndExclusive}
-          AND (#{organizationId} IS NULL
-               OR fact.organization_id = #{organizationId})
+          AND (
+                <include refid="factInSelectedOrganizationOrDescendant"/>
+          )
           AND (#{employeeId} IS NULL
                OR fact.employee_id = #{employeeId})
         GROUP BY fact.company_id, fact.employee_id, fact.organization_id
@@ -1695,8 +1859,7 @@
           AND fact.business_date &gt;= #{periodStart}
           AND fact.business_date &lt; #{periodEndExclusive}
           AND (
-                #{organizationId} IS NULL
-                OR fact.organization_id = #{organizationId}
+                <include refid="factInSelectedOrganizationOrDescendant"/>
           )
           AND (
                 #{employeeId} IS NULL
@@ -1763,8 +1926,7 @@
           AND fact.business_date &gt;= #{periodStart}
           AND fact.business_date &lt; #{periodEndExclusive}
           AND (
-                #{organizationId} IS NULL
-                OR fact.organization_id = #{organizationId}
+                <include refid="factInSelectedOrganizationOrDescendant"/>
           )
           AND (
                 #{employeeId} IS NULL
@@ -1784,7 +1946,7 @@
                fact.organization_id,
                organization_version.name AS organization_name,
                fact.document_type,
-               fact.leave_type_code AS leave_type,
+               COALESCE(document.overtime_type, fact.leave_type_code) AS leave_type,
                COALESCE(fact.interval_start, fact.point_instant) AS start_at,
                CASE
                    WHEN fact.interval_end IS NOT NULL
@@ -1793,7 +1955,12 @@
                END AS end_exclusive,
                fact.recognized_minutes,
                fact.source_status,
-               fact.source_version
+               fact.source_version,
+               CASE
+                   WHEN document.source_business_key LIKE 'PAPER:%'
+                   THEN 'PAPER'
+                   ELSE 'OA'
+               END AS sourceOrigin
         FROM attendance_report_oa_fact fact
         JOIN attendance_report_projection projection
           ON projection.attendance_report_projection_id =
@@ -1806,6 +1973,8 @@
           ON organization_version.organization_version_id =
              fact.organization_version_id
          AND organization_version.organization_id = fact.organization_id
+        LEFT JOIN oa_attendance_document document
+          ON document.oa_attendance_document_id = fact.oa_attendance_document_id
         WHERE fact.attendance_report_projection_id = #{projectionId}
           AND fact.company_id = #{companyId}
           AND <include refid="reportFactVisibility"/>
@@ -1816,8 +1985,7 @@
                   TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
               ) &gt; #{periodStartAt}
           AND (
-                #{organizationId} IS NULL
-                OR fact.organization_id = #{organizationId}
+                <include refid="factInSelectedOrganizationOrDescendant"/>
           )
           AND (
                 #{employeeId} IS NULL
@@ -1826,6 +1994,75 @@
         ORDER BY start_at,
                  employee_version.employee_number,
                  fact.attendance_report_oa_fact_id
+    </select>
+
+    <select id="listNegativeLeaveBalanceExceptions"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$ExceptionRow">
+        SELECT CONCAT(
+                    'NEG-LEAVE:',
+                    account.account_type,
+                    ':',
+                    employee.employee_id,
+                    ':',
+                    account.account_year
+               ) AS case_id,
+               employee.employee_id,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               employment.organization_id,
+               organization_version.name AS organization_name,
+               #{businessDate} AS business_date,
+               CASE account.account_type
+                   WHEN 'TIME_OFF' THEN 'NEGATIVE_TIME_OFF_BALANCE'
+                   ELSE 'NEGATIVE_ANNUAL_LEAVE_BALANCE'
+               END AS exception_type,
+               'ERROR' AS severity,
+               'OPEN' AS state,
+               CAST(ABS(account.balance_hours) * 60 AS SIGNED) AS minutes,
+               CONCAT(
+                    CASE account.account_type
+                        WHEN 'TIME_OFF' THEN '调休'
+                        ELSE '年假'
+                    END,
+                    '余额 ',
+                    FORMAT(account.balance_hours / 8, 2),
+                    ' 天（',
+                    FORMAT(account.balance_hours, 2),
+                    ' 小时）'
+               ) AS safe_evidence_summary,
+               'LEAVE-OPENING-CUTOVER:V1' AS calculation_version_id
+        FROM time_account account
+        JOIN employee employee
+          ON employee.employee_id = account.employee_id
+         AND employee.company_id = account.company_id
+        JOIN employee_current_projection employee_projection
+          ON employee_projection.employee_id = employee.employee_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id =
+             employee_projection.current_version_id
+         AND employee_version.employee_id = employee.employee_id
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.employment_period_id = account.employment_period_id
+         AND employment.current_version_marker = 1
+         AND employment.record_status = 'ACTIVE'
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.identity_status = 'ACTIVE'
+        JOIN organization_current_projection organization_projection
+          ON organization_projection.organization_id =
+             organization.organization_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             organization_projection.current_version_id
+         AND organization_version.organization_id =
+             organization.organization_id
+        WHERE account.company_id = #{companyId}
+          AND account.account_year = #{accountYear}
+          AND account.account_type IN ('ANNUAL_LEAVE', 'TIME_OFF')
+          AND account.balance_hours &lt; 0
+          AND (#{employeeId} IS NULL OR employee.employee_id = #{employeeId})
+        ORDER BY employee_version.employee_number, account.account_type
     </select>
 
     <select id="listAuthorizedExceptionFacts"
@@ -1861,8 +2098,7 @@
           AND fact.business_date &gt;= #{periodStart}
           AND fact.business_date &lt; #{periodEndExclusive}
           AND (
-                #{organizationId} IS NULL
-                OR fact.organization_id = #{organizationId}
+                <include refid="factInSelectedOrganizationOrDescendant"/>
           )
           AND (
                 #{employeeId} IS NULL
@@ -1908,8 +2144,7 @@
           AND fact.company_id = #{companyId}
           AND <include refid="reportFactVisibility"/>
           AND (
-                #{organizationId} IS NULL
-                OR fact.organization_id = #{organizationId}
+                <include refid="factInSelectedOrganizationOrDescendant"/>
           )
           AND (
                 #{employeeId} IS NULL
@@ -1918,5 +2153,308 @@
         ORDER BY employee_version.employee_number,
                  fact.account_type,
                  fact.account_id
+    </select>
+
+    <select id="listOrganizationSubtree" resultType="string">
+        WITH RECURSIVE organization_subtree (
+            organization_id
+        ) AS (
+            SELECT #{organizationId} AS organization_id
+            UNION ALL
+            SELECT child.organization_id
+            FROM organization_subtree subtree
+            JOIN organization_current_projection child_projection
+              ON TRUE
+            JOIN organization_version child
+              ON child.organization_version_id =
+                 child_projection.current_version_id
+             AND child.parent_organization_id = subtree.organization_id
+             AND child.status = 'ACTIVE'
+        )
+        SELECT organization_id
+        FROM organization_subtree
+    </select>
+
+    <select id="findCurrentOrganizationGraph"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$OrganizationGraphRow">
+        SELECT
+            identity.organization_id AS organizationId,
+            version.parent_organization_id AS parentOrganizationId,
+            version.name AS name,
+            version.org_type AS orgType
+        FROM organization_identity identity
+        JOIN organization_current_projection projection
+          ON projection.organization_id = identity.organization_id
+        JOIN organization_version version
+          ON version.organization_version_id = projection.current_version_id
+         AND version.organization_id = identity.organization_id
+         AND version.status = 'ACTIVE'
+        WHERE identity.company_id = #{companyId}
+          AND identity.identity_status = 'ACTIVE'
+    </select>
+
+    <select id="findCurrentOrganizationAncestors"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$OrganizationAncestorRow">
+        SELECT
+            closure.descendant_organization_id AS organizationId,
+            version.name AS ancestorName,
+            version.org_type AS ancestorOrgType,
+            closure.depth AS depth
+        FROM organization_current_closure closure
+        JOIN organization_identity descendant
+          ON descendant.organization_id = closure.descendant_organization_id
+         AND descendant.company_id = #{companyId}
+         AND descendant.identity_status = 'ACTIVE'
+        JOIN organization_identity ancestor
+          ON ancestor.organization_id = closure.ancestor_organization_id
+         AND ancestor.company_id = #{companyId}
+        JOIN organization_current_projection projection
+          ON projection.organization_id = ancestor.organization_id
+        JOIN organization_version version
+          ON version.organization_version_id = projection.current_version_id
+         AND version.organization_id = ancestor.organization_id
+         AND version.status = 'ACTIVE'
+        ORDER BY closure.descendant_organization_id ASC, closure.depth DESC
+    </select>
+
+    <sql id="oaFactOverlapsPeriod">
+        (
+            (
+                fact.interval_start IS NOT NULL
+                AND fact.interval_start &lt; #{periodEndExclusiveAt}
+                AND COALESCE(
+                        fact.interval_end,
+                        TIMESTAMPADD(MICROSECOND, 1, fact.interval_start))
+                    &gt; #{periodStartAt}
+            )
+            OR (
+                fact.interval_start IS NULL
+                AND fact.point_instant IS NOT NULL
+                AND fact.point_instant &lt; #{periodEndExclusiveAt}
+                AND TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
+                    &gt; #{periodStartAt}
+            )
+        )
+    </sql>
+
+    <sql id="matrixEmployeeUniverse">
+        SELECT fact.employee_id AS employee_id
+        FROM attendance_report_daily_fact fact
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt; #{periodEndExclusive}
+          AND (
+                #{employeeId} IS NULL
+                OR fact.employee_id = #{employeeId}
+          )
+          AND (
+                <include refid="factInSelectedOrganizationOrDescendant"/>
+          )
+        GROUP BY fact.employee_id
+        UNION
+        SELECT fact.employee_id AS employee_id
+        FROM attendance_report_oa_fact fact
+        JOIN employee roster_employee
+          ON roster_employee.employee_id = fact.employee_id
+         AND roster_employee.company_id = #{companyId}
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND (
+                #{employeeId} IS NULL
+                OR fact.employee_id = #{employeeId}
+          )
+          AND (
+                <include refid="factInSelectedOrganizationOrDescendant"/>
+          )
+        GROUP BY fact.employee_id
+    </sql>
+
+    <select id="countAuthorizedMatrixEmployees" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            <include refid="matrixEmployeeUniverse"/>
+        ) matrix_employees
+    </select>
+
+    <select id="listAuthorizedMatrixEmployees"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$MatrixEmployeeRow">
+        SELECT universe.employee_id AS employeeId,
+               MAX(employee_version.employee_number) AS employeeNumber,
+               MAX(employee_version.display_name) AS employeeName
+        FROM (
+            <include refid="matrixEmployeeUniverse"/>
+        ) universe
+        JOIN employee_current_projection employee_projection
+          ON employee_projection.employee_id = universe.employee_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id =
+             employee_projection.current_version_id
+         AND employee_version.employee_id = universe.employee_id
+        GROUP BY universe.employee_id
+        ORDER BY MAX(employee_version.employee_number),
+                 universe.employee_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <sql id="matrixEmployeeIds">
+        <if test="employeeIds != null and employeeIds.size() &gt; 0">
+            AND fact.employee_id IN
+            <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        </if>
+        <if test="employeeIds == null or employeeIds.size() == 0">
+            AND 1 = 0
+        </if>
+    </sql>
+
+    <select id="listAuthorizedDailyFactsForEmployees"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$DailyRow">
+        SELECT fact.attendance_report_daily_fact_id AS fact_id,
+               fact.company_id,
+               fact.employee_id,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               fact.organization_id,
+               fact.organization_version_id,
+               organization_version.name AS organization_name,
+               fact.business_date,
+               fact.day_type,
+               fact.shift_label,
+               fact.scheduled_minutes,
+               fact.confirmed_scheduled_work_minutes,
+               fact.recognized_overtime_minutes,
+               fact.paid_overtime_minutes,
+               fact.compensatory_overtime_minutes,
+               fact.voluntary_overtime_minutes,
+               fact.total_overtime_minutes,
+               fact.leave_or_time_off_minutes,
+               fact.leave_type,
+               fact.absence_minutes,
+               fact.actual_work_minutes,
+               fact.scheduled_attendance_days,
+               fact.actual_attendance_days,
+               fact.late_minutes,
+               fact.penalized_late_minutes,
+               fact.early_departure_minutes,
+               fact.missing_punch_count,
+               fact.first_punch_at,
+               fact.last_punch_at,
+               fact.calculation_version_id,
+               fact.result_digest
+        FROM attendance_report_daily_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+         AND employee_version.employee_id = fact.employee_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+         AND organization_version.organization_id = fact.organization_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          <include refid="matrixEmployeeIds"/>
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt; #{periodEndExclusive}
+          AND (
+                <include refid="factInSelectedOrganizationOrDescendant"/>
+          )
+        ORDER BY fact.business_date,
+                 employee_version.employee_number,
+                 fact.attendance_report_daily_fact_id
+    </select>
+
+    <select id="listAuthorizedOaFactsForEmployees"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$OaDocumentRow">
+        SELECT fact.oa_attendance_document_id AS document_id,
+               fact.employee_id,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               fact.organization_id,
+               organization_version.name AS organization_name,
+               fact.document_type,
+               COALESCE(document.overtime_type, fact.leave_type_code) AS leave_type,
+               COALESCE(fact.interval_start, fact.point_instant) AS start_at,
+               CASE
+                   WHEN fact.interval_end IS NOT NULL
+                   THEN fact.interval_end
+                   ELSE TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
+               END AS end_exclusive,
+               fact.recognized_minutes,
+               fact.source_status,
+               fact.source_version,
+               CASE
+                   WHEN document.source_business_key LIKE 'PAPER:%'
+                   THEN 'PAPER'
+                   ELSE 'OA'
+               END AS sourceOrigin
+        FROM attendance_report_oa_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+         AND employee_version.employee_id = fact.employee_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+         AND organization_version.organization_id = fact.organization_id
+        LEFT JOIN oa_attendance_document document
+          ON document.oa_attendance_document_id = fact.oa_attendance_document_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          <include refid="matrixEmployeeIds"/>
+          AND (
+                <include refid="oaFactOverlapsPeriod"/>
+          )
+          AND (
+                <include refid="factInSelectedOrganizationOrDescendant"/>
+          )
+    </select>
+
+    <select id="listAuthorizedExceptionFactsForEmployees"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.ReportRows$ExceptionRow">
+        SELECT fact.exception_case_id AS case_id,
+               fact.employee_id,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               fact.organization_id,
+               organization_version.name AS organization_name,
+               fact.business_date,
+               fact.exception_type,
+               fact.severity,
+               fact.state,
+               fact.exception_minutes AS minutes,
+               fact.safe_evidence_summary,
+               fact.calculation_version_id
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+         AND employee_version.employee_id = fact.employee_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+         AND organization_version.organization_id = fact.organization_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          <include refid="matrixEmployeeIds"/>
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt; #{periodEndExclusive}
+          AND (
+                #{status} IS NULL
+                OR fact.state = #{status}
+          )
+          AND (
+                <include refid="factInSelectedOrganizationOrDescendant"/>
+          )
     </select>
 </mapper>

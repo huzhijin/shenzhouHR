@@ -84,7 +84,9 @@ class SelfAttendanceDashboardServiceTest {
                                         0,
                                         0,
                                         0,
-                                        0));
+                                        0,
+                                        null,
+                                        null));
         assertThat(dashboard.dailyTrend().getLast().issueCount())
                 .isEqualTo(2);
         assertThat(dashboard.today().statusLabel())
@@ -154,11 +156,69 @@ class SelfAttendanceDashboardServiceTest {
                         NOW))
                 .thenReturn(Optional.of(snapshot(
                         Instant.parse("2026-07-28T15:59:59Z"))));
-        assertProblem(
-                () -> service(capabilities, repository, clock).query(),
-                409,
-                "SELF_ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY",
-                true);
+        var dashboard = service(capabilities, repository, clock).query();
+        assertThat(dashboard.recentExceptions())
+                .extracting(RecentException::type)
+                .contains("LATE");
+    }
+
+    @Test
+    void publishedSelfSnapshotIsPreferredOverRealtimeReportPipeline() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        SelfAttendanceDashboardRepository repository =
+                mock(SelfAttendanceDashboardRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime =
+                mock(RealtimeAttendanceReportSnapshotService.class);
+        when(repository.resolveAuthorizedSelf(
+                        PRINCIPAL, BUSINESS_DATE, NOW))
+                .thenReturn(Optional.of(AUTHORIZED));
+        when(repository.loadLatestPublished(
+                        PRINCIPAL,
+                        AUTHORIZED,
+                        BUSINESS_DATE,
+                        NOW))
+                .thenReturn(Optional.of(snapshot(NOW)));
+
+        var dashboard = new SelfAttendanceDashboardService(
+                capabilities,
+                () -> PRINCIPAL,
+                repository,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                realtime)
+                .query();
+
+        assertThat(dashboard.summary().unresolvedExceptionCount())
+                .isEqualTo(3);
+        org.mockito.Mockito.verifyNoInteractions(realtime);
+    }
+
+    @Test
+    void workbenchKeepsYesterdayExceptionsFirst() {
+        Instant afternoon = Instant.parse("2026-07-29T05:00:00Z");
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        SelfAttendanceDashboardRepository repository =
+                mock(SelfAttendanceDashboardRepository.class);
+        when(repository.resolveAuthorizedSelf(
+                        PRINCIPAL, BUSINESS_DATE, afternoon))
+                .thenReturn(Optional.of(AUTHORIZED));
+        when(repository.loadLatestPublished(
+                        PRINCIPAL,
+                        AUTHORIZED,
+                        BUSINESS_DATE,
+                        afternoon))
+                .thenReturn(Optional.of(snapshot(afternoon)));
+
+        var dashboard = service(
+                capabilities,
+                repository,
+                Clock.fixed(afternoon, ZoneOffset.UTC))
+                .query();
+
+        assertThat(dashboard.recentExceptions())
+                .extracting(RecentException::type)
+                .containsExactly("MISSING_PUNCH");
     }
 
     @Test

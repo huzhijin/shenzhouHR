@@ -276,6 +276,7 @@ const capabilityDomainLabels: Readonly<Record<string, string>> = {
 
 const capabilityActionLabels: Readonly<Record<string, string>> = {
   READ: '查看',
+  QUERY_READ: '查询报表',
   CREATE: '新建',
   EDIT: '编辑',
   LOCK: '锁定',

@@ -1,6 +1,6 @@
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, theme as antdTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { LoginPage } from '../features/auth/LoginPage';
@@ -9,6 +9,7 @@ import { useSession } from '../features/session/useSession';
 import { AppErrorBoundary } from '../shared/components/AppErrorBoundary';
 import { AppShell } from '../shared/components/AppShell';
 import { StatePanel } from '../shared/components/StatePanel';
+import { AppearanceProvider, useAppearance } from '../shared/appearance/AppearanceProvider';
 import { isDemoMode } from '../shared/config/runtimeMode';
 import { translate } from '../shared/i18n/messages';
 import { readCspNonce } from '../shared/security/cspNonce';
@@ -33,6 +34,7 @@ const CalendarsPage = lazy(() => import('../features/attendanceSetup/CalendarsPa
 const AttendancePolicyPage = lazy(() => import('../features/attendanceSetup/AttendancePolicyPage'));
 const SourceOverviewPage = lazy(() => import('../features/attendanceSources/SourceOverviewPage'));
 const OaSourcesPage = lazy(() => import('../features/attendanceSources/OaSourcesPage'));
+const PaperOvertimePage = lazy(() => import('../features/paperOvertime/PaperOvertimePage'));
 const SourceJobsPage = lazy(() => import('../features/attendanceSources/SourceJobsPage'));
 const PunchImportsPage = lazy(() => import('../features/punchImport/PunchImportsPage'));
 const PunchImportDetailPage = lazy(() => import('../features/punchImport/PunchImportDetailPage'));
@@ -42,6 +44,7 @@ const PersonalAttendanceDashboardRoute = lazy(
     .then((module) => ({ default: module.PersonalAttendanceDashboardRoute })),
 );
 const CustomerReportsRoute = lazy(() => import('../features/reports/CustomerReportCenterPage'));
+const QueryReportsRoute = lazy(() => import('../features/reports/QueryReportsPage'));
 const AttendanceScreenRoute = lazy(() => import('../features/wave7/AttendanceBigScreenPage'));
 const EmployeeTodayRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
   .then((module) => ({ default: module.EmployeeTodayRoute })));
@@ -85,11 +88,48 @@ export function App() {
 
   return (
     <AppErrorBoundary>
+      <AppearanceProvider>
+        <ThemedConfig cspNonce={cspNonce}>
+          <AppBody state={state} reload={reload} />
+        </ThemedConfig>
+      </AppearanceProvider>
+    </AppErrorBoundary>
+  );
+}
+
+function ThemedConfig({
+  cspNonce,
+  children,
+}: {
+  cspNonce: string | undefined;
+  children: ReactNode;
+}) {
+  const { appearance } = useAppearance();
+  return (
       <ConfigProvider
         csp={cspNonce ? { nonce: cspNonce } : undefined}
         locale={zhCN}
-        theme={theme}
+        theme={{
+          ...theme,
+          algorithm: appearance === 'night'
+            ? antdTheme.darkAlgorithm
+            : antdTheme.defaultAlgorithm,
+        }}
       >
+        {children}
+      </ConfigProvider>
+  );
+}
+
+function AppBody({
+  state,
+  reload,
+}: {
+  state: ReturnType<typeof useSession>['state'];
+  reload: () => void;
+}) {
+  return (
+    <>
         {state.status === 'loading' ? <StatePanel state="loading" /> : null}
         {state.status === 'error' ? (
           isUnauthenticatedSessionError(state.error.status) ? (
@@ -116,8 +156,7 @@ export function App() {
             <AuthorizedApplication session={state.session} reloadSession={reload} />
           )
         ) : null}
-      </ConfigProvider>
-    </AppErrorBoundary>
+    </>
   );
 }
 
@@ -214,6 +253,11 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
               <Route path="/sources/jobs" element={<AccessDenied />} />
             </>
           )}
+          {session.capabilities.includes('PAPER_OVERTIME:MANAGE') ? (
+            <Route path="/attendance/paper-overtime" element={<PaperOvertimePage />} />
+          ) : (
+            <Route path="/attendance/paper-overtime" element={<AccessDenied />} />
+          )}
           {session.capabilities.includes('ATTENDANCE_PUNCH_IMPORT:READ') ? (
             <>
               <Route path="/sources/attendance-excel" element={<PunchImportsPage capabilities={session.capabilities} />} />
@@ -272,6 +316,14 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
               />
             )
             : <Route path="/attendance/reports" element={<AccessDenied />} />}
+          {session.capabilities.includes('ATTENDANCE_REPORT_QUERY:READ')
+            ? (
+              <Route
+                path="/attendance/queries/:sheet"
+                element={<QueryReportsRoute capabilities={session.capabilities} />}
+              />
+            )
+            : <Route path="/attendance/queries/:sheet" element={<AccessDenied />} />}
           {session.capabilities.includes('ATTENDANCE_SELF:READ') ? (
             <>
               <Route path="/me/today" element={<EmployeeTodayRoute capabilities={session.capabilities} />} />

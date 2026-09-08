@@ -47,6 +47,8 @@ class AttendanceSourceSyncSqlContractTest {
         assertThat(sql)
                 .contains("<insert id=\"insertCommittedPage\">")
                 .contains("<update id=\"advanceWatermark\">")
+                .contains("<update id=\"advanceKqWatermark\">")
+                .contains("kq_committed_cursor = #{committedCursor}")
                 .contains("committed_page_digest = #{pageDigest}")
                 .contains("page_count = page_count + 1")
                 .contains(

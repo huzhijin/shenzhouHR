@@ -82,7 +82,7 @@ class ExemptionOutingCalculationTest {
     }
 
     @Test
-    void approvedOutingWithoutPunchIsAbsentAndCountsBothMissingSides() {
+    void approvedOutingWithoutPunchGrantsAttendanceAndHidesMissedPunches() {
         DailyFact fact = calculate(
                 List.of(),
                 List.of(evidence(
@@ -93,9 +93,9 @@ class ExemptionOutingCalculationTest {
                 SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF);
 
         assertThat(fact.scheduledAttendanceDays()).isEqualTo(1);
-        assertThat(fact.actualAttendanceDays()).isZero();
-        assertThat(fact.absenceMinutes()).isEqualTo(480);
-        assertThat(fact.missingPunchCount()).isEqualTo(2);
+        assertThat(fact.actualAttendanceDays()).isEqualTo(1);
+        assertThat(fact.absenceMinutes()).isZero();
+        assertThat(fact.missingPunchCount()).isZero();
     }
 
     @Test
@@ -134,7 +134,7 @@ class ExemptionOutingCalculationTest {
     }
 
     @Test
-    void tripEvidenceNeverGrantsAttendance() {
+    void tripEvidenceCoversMissedPunchesLikeOuting() {
         DailyFact fact = calculate(
                 List.of(),
                 List.of(evidence(
@@ -144,9 +144,9 @@ class ExemptionOutingCalculationTest {
                         END)),
                 Instant.parse("2026-07-24T00:00:00Z"));
 
-        assertThat(fact.actualAttendanceDays()).isZero();
-        assertThat(fact.absenceMinutes()).isEqualTo(480);
-        assertThat(fact.missingPunchCount()).isEqualTo(2);
+        assertThat(fact.actualAttendanceDays()).isEqualTo(1);
+        assertThat(fact.absenceMinutes()).isZero();
+        assertThat(fact.missingPunchCount()).isZero();
     }
 
     private DailyFact calculate(

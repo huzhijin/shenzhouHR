@@ -50,7 +50,9 @@ public class AttendanceReportExportController {
                         request.filters().companyId(),
                         request.filters().organizationId(),
                         request.filters().employeeId(),
-                        request.filters().status()),
+                        request.filters().status(),
+                        request.filters().fromDate(),
+                        request.filters().toDate()),
                 new RequestedExportBinding(
                         request.projectionVersion(),
                         request.queryFingerprint(),
@@ -131,6 +133,26 @@ public class AttendanceReportExportController {
             @NotBlank @Size(max = 36) String companyId,
             @Size(max = 36) String organizationId,
             @Size(max = 36) String employeeId,
-            @Size(max = 32) String status) {
+            @Size(max = 32) String status,
+            java.time.LocalDate fromDate,
+            java.time.LocalDate toDate) {
+
+        ExportFilters(
+                YearMonth period,
+                String scopeReference,
+                String companyId,
+                String organizationId,
+                String employeeId,
+                String status) {
+            this(
+                    period,
+                    scopeReference,
+                    companyId,
+                    organizationId,
+                    employeeId,
+                    status,
+                    null,
+                    null);
+        }
     }
 }

@@ -9,6 +9,15 @@ public interface OaAttendanceDocumentSourcePort {
 
     OaPage fetchPage(String sourceId, String committedCursor);
 
+    /**
+     * Occurrence-window read for rematch. Must not be used to advance the
+     * durable OA watermark.
+     */
+    default List<OaDocumentRecord> fetchOverlapping(
+            String sourceId, Instant fromInclusive, Instant toExclusive) {
+        return List.of();
+    }
+
     enum DocumentType {
         LEAVE,
         LEAVE_REVOCATION,
@@ -58,7 +67,9 @@ public interface OaAttendanceDocumentSourcePort {
             String sourceBatch,
             boolean effectiveCandidate,
             OvertimeType overtimeType,
-            LeaveType leaveType) {
+            LeaveType leaveType,
+            String leaveSerial,
+            String originalLeaveSerial) {
 
         /**
          * Compatibility constructor for OA document types that have no
@@ -96,6 +107,8 @@ public interface OaAttendanceDocumentSourcePort {
                     revokedAt,
                     sourceBatch,
                     effectiveCandidate,
+                    null,
+                    null,
                     null,
                     null);
         }
@@ -135,6 +148,51 @@ public interface OaAttendanceDocumentSourcePort {
                     sourceBatch,
                     effectiveCandidate,
                     overtimeType,
+                    null,
+                    null,
+                    null);
+        }
+
+        /**
+         * Compatibility constructor for classified leave without serials.
+         */
+        public OaDocumentRecord(
+                String sourceBusinessKey,
+                String sourceVersion,
+                String externalPersonRef,
+                String employeeNumber,
+                DocumentType documentType,
+                SourceStatus sourceStatus,
+                Instant start,
+                Instant end,
+                String sourceTimeZone,
+                Instant firstSubmittedAt,
+                Instant approvedAt,
+                Instant modifiedAt,
+                Instant revokedAt,
+                String sourceBatch,
+                boolean effectiveCandidate,
+                OvertimeType overtimeType,
+                LeaveType leaveType) {
+            this(
+                    sourceBusinessKey,
+                    sourceVersion,
+                    externalPersonRef,
+                    employeeNumber,
+                    documentType,
+                    sourceStatus,
+                    start,
+                    end,
+                    sourceTimeZone,
+                    firstSubmittedAt,
+                    approvedAt,
+                    modifiedAt,
+                    revokedAt,
+                    sourceBatch,
+                    effectiveCandidate,
+                    overtimeType,
+                    leaveType,
+                    null,
                     null);
         }
 

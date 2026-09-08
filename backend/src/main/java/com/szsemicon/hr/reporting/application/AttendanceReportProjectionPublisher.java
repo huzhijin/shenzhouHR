@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -47,7 +48,7 @@ public class AttendanceReportProjectionPublisher
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
     private static final Pattern SAFE_EVIDENCE_SUMMARY = Pattern.compile(
-            "原因码=[A-Z0-9_:-]{1,64}；证据数量=(0|[1-9][0-9]{0,6})");
+            "(?:[^；]+；)?原因码=[A-Z0-9_:-]{1,64}；证据数量=(0|[1-9][0-9]{0,6})");
     private static final Pattern CODE = Pattern.compile("[A-Z0-9_:-]{1,64}");
     private static final String DIGEST_FORMAT =
             "ATTENDANCE_REPORT_PROJECTION_CANONICAL_V1";
@@ -64,6 +65,56 @@ public class AttendanceReportProjectionPublisher
     @Transactional
     @Override
     public PublicationResult publish(PublishCommand command) {
+        return publish(command, null, null);
+    }
+
+    @Transactional
+    @Override
+    public PublicationResult publish(
+            PublishCommand command,
+            LocalDate copyBefore,
+            LocalDate copyFromExclusive) {
+        return publish(command, copyBefore, copyFromExclusive, (String) null);
+    }
+
+    @Transactional
+    @Override
+    public PublicationResult publish(
+            PublishCommand command,
+            LocalDate copyBefore,
+            LocalDate copyFromExclusive,
+            java.util.Collection<String> employeeIds) {
+        if (employeeIds == null || employeeIds.size() <= 1) {
+            String employeeId = employeeIds == null || employeeIds.isEmpty()
+                    ? null
+                    : employeeIds.iterator().next();
+            return publish(command, copyBefore, copyFromExclusive, employeeId);
+        }
+        return publishScoped(
+                command, copyBefore, copyFromExclusive, employeeIds);
+    }
+
+    @Transactional
+    @Override
+    public PublicationResult publish(
+            PublishCommand command,
+            LocalDate copyBefore,
+            LocalDate copyFromExclusive,
+            String employeeId) {
+        return publishScoped(
+                command,
+                copyBefore,
+                copyFromExclusive,
+                employeeId == null || employeeId.isBlank()
+                        ? List.of()
+                        : List.of(employeeId));
+    }
+
+    private PublicationResult publishScoped(
+            PublishCommand command,
+            LocalDate copyBefore,
+            LocalDate copyFromExclusive,
+            java.util.Collection<String> employeeIds) {
         CanonicalPublication publication = canonicalize(command);
         VerifiedProjectionMetadata metadata = publication.metadata();
         Instant observedNow = clock.instant();
@@ -105,6 +156,47 @@ public class AttendanceReportProjectionPublisher
                 metadata.dataAsOf(),
                 metadata.createdByPrincipalId(),
                 now));
+
+        if (copyBefore != null
+                && copyFromExclusive != null
+                && latest.isPresent()) {
+            List<String> scopedEmployees = employeeIds == null
+                    ? List.of()
+                    : List.copyOf(employeeIds);
+            String employeeId = scopedEmployees.size() == 1
+                    ? scopedEmployees.getFirst()
+                    : null;
+            writer.copyFactsOutsideRange(
+                    latest.orElseThrow().projectionId(),
+                    projectionId,
+                    copyBefore,
+                    copyFromExclusive,
+                    now,
+                    employeeId,
+                    scopedEmployees);
+            if (!scopedEmployees.isEmpty()) {
+                Instant windowStart = copyBefore
+                        .atStartOfDay(BUSINESS_ZONE)
+                        .toInstant();
+                Instant windowEnd = copyFromExclusive
+                        .atStartOfDay(BUSINESS_ZONE)
+                        .toInstant();
+                writer.copyOaDocumentFactsExceptEmployeeWindow(
+                        latest.orElseThrow().projectionId(),
+                        projectionId,
+                        windowStart,
+                        windowEnd,
+                        now,
+                        employeeId,
+                        scopedEmployees);
+                writer.copyTimeAccountFactsExceptEmployee(
+                        latest.orElseThrow().projectionId(),
+                        projectionId,
+                        now,
+                        employeeId,
+                        scopedEmployees);
+            }
+        }
 
         for (VerifiedCalculatedFacts calculated :
                 publication.calculatedFacts()) {
@@ -486,7 +578,8 @@ public class AttendanceReportProjectionPublisher
                     "exception fact is not bound to its daily result");
         }
         if ("LATE".equals(exception.exceptionType())
-                && daily.penalizedLateMinutes() == 0) {
+                && daily.penalizedLateMinutes() == 0
+                && exception.minutes() > 0) {
             throw new IllegalArgumentException(
                     "grace-exempt late cannot be published as an exception");
         }
@@ -618,6 +711,7 @@ public class AttendanceReportProjectionPublisher
         add(digest, fact.recognizedMinutes());
         digest.add(fact.sourceStatus());
         digest.add(fact.sourceVersion());
+        digest.add(fact.sourceOrigin());
     }
 
     private static void appendCurrentException(

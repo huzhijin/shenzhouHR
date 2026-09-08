@@ -74,6 +74,38 @@ class AttendanceReportProjectionPublisherTest {
     }
 
     @Test
+    void employeeDayPublishCopiesOtherEmployeesOaAndAccounts() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        publisher.publish(command(
+                PeriodState.OPEN, daily(10), safeException()));
+        writer.calls.clear();
+
+        var result = publisher.publish(
+                command(PeriodState.OPEN, daily(11), safeException()),
+                LocalDate.of(2026, 7, 14),
+                LocalDate.of(2026, 7, 17),
+                "employee-a");
+
+        assertThat(result.created()).isTrue();
+        assertThat(writer.calls)
+                .contains(
+                        "LOCK",
+                        "FIND",
+                        "LATEST",
+                        "DRAFT",
+                        "COPY",
+                        "COPY_OA",
+                        "COPY_ACCOUNT",
+                        "DAILY",
+                        "EXCEPTION",
+                        "OA",
+                        "ACCOUNT",
+                        "PUBLISH");
+        assertThat(writer.copyEmployeeIds).containsExactly("employee-a");
+    }
+
+    @Test
     void identicalCanonicalInputIsIdempotentAndDoesNotRewriteFacts() {
         RecordingWriter writer = new RecordingWriter();
         var publisher = publisher(writer);
@@ -215,6 +247,35 @@ class AttendanceReportProjectionPublisherTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("grace-exempt late");
         assertThat(writer.calls).isEmpty();
+    }
+
+    @Test
+    void publishesExactStartLateWhenPenalizedMinutesAreZero() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        ExceptionFact exactStart = new ExceptionFact(
+                "case-a",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "制造中心",
+                LocalDate.of(2026, 7, 15),
+                "LATE",
+                ExceptionSeverity.WARNING,
+                ExceptionState.OPEN,
+                0,
+                "原因码=LATE_AT_SHIFT_START；证据数量=1",
+                "calculation-v1");
+
+        var result = publisher.publish(command(
+                PeriodState.OPEN, daily(0, 0), exactStart));
+
+        assertThat(result.created()).isTrue();
+        assertThat(writer.exceptions).singleElement().satisfies(value -> {
+            assertThat(value.fact().exceptionType()).isEqualTo("LATE");
+            assertThat(value.fact().minutes()).isZero();
+        });
     }
 
     @Test
@@ -433,6 +494,7 @@ class AttendanceReportProjectionPublisherTest {
         private final List<TimeAccountFactWrite> accounts = new ArrayList<>();
         private final List<String> publishedIds = new ArrayList<>();
         private final List<StoredProjection> stored = new ArrayList<>();
+        private final List<String> copyEmployeeIds = new ArrayList<>();
         private boolean failOa;
 
         @Override
@@ -501,6 +563,38 @@ class AttendanceReportProjectionPublisherTest {
         public void appendTimeAccountFact(TimeAccountFactWrite fact) {
             calls.add("ACCOUNT");
             accounts.add(fact);
+        }
+
+        @Override
+        public void copyFactsOutsideRange(
+                String sourceProjectionId,
+                String targetProjectionId,
+                LocalDate windowStart,
+                LocalDate windowEndExclusive,
+                Instant createdAt,
+                String employeeId) {
+            calls.add("COPY");
+            copyEmployeeIds.add(employeeId);
+        }
+
+        @Override
+        public void copyOaDocumentFactsExceptEmployeeWindow(
+                String sourceProjectionId,
+                String targetProjectionId,
+                Instant windowStart,
+                Instant windowEndExclusive,
+                Instant createdAt,
+                String employeeId) {
+            calls.add("COPY_OA");
+        }
+
+        @Override
+        public void copyTimeAccountFactsExceptEmployee(
+                String sourceProjectionId,
+                String targetProjectionId,
+                Instant createdAt,
+                String employeeId) {
+            calls.add("COPY_ACCOUNT");
         }
 
         @Override

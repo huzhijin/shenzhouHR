@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EmployeeDeliBindingMapper">
+
+    <select id="findEmployeeIdByNumber" resultType="string">
+        SELECT employee.employee_id
+        FROM employee employee
+        JOIN employee_current_projection projection
+          ON projection.employee_id = employee.employee_id
+        JOIN employee_version version
+          ON version.employee_version_id = projection.current_version_id
+        WHERE version.employee_number = #{employeeNumber}
+        LIMIT 1
+    </select>
+
+    <select id="listCurrentRoster"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EmployeeRosterRow">
+        SELECT employee.employee_id AS employeeId,
+               version.employee_number AS employeeNumber,
+               version.display_name AS displayName
+        FROM employee employee
+        JOIN employee_current_projection projection
+          ON projection.employee_id = employee.employee_id
+        JOIN employee_version version
+          ON version.employee_version_id = projection.current_version_id
+    </select>
+
+    <select id="findCurrentBindingId" resultType="string">
+        SELECT binding.binding_id
+        FROM employee_source_binding binding
+        WHERE binding.employee_id = #{employeeId}
+          AND binding.effective_to IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="findEmployeeIdByDeliPersonId" resultType="string">
+        SELECT binding.employee_id
+        FROM employee_source_binding binding
+        WHERE binding.deli_attendance_source_id = #{sourceId}
+          AND binding.effective_to IS NULL
+          AND (
+                binding.deli_user_id = #{deliPersonId}
+                OR binding.deli_ext_id = #{deliPersonId}
+          )
+        ORDER BY binding.employee_id
+        LIMIT 1
+    </select>
+
+    <select id="findActiveDeliSourceId" resultType="string">
+        SELECT source.attendance_source_id
+        FROM attendance_source source
+        WHERE source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+        ORDER BY source.created_at, source.attendance_source_id
+        LIMIT 1
+    </select>
+
+    <select id="findActiveDeliCompanyId" resultType="string">
+        SELECT source.company_id
+        FROM attendance_source source
+        WHERE source.attendance_source_id = #{sourceId}
+    </select>
+
+    <select id="findActiveDeliTimeZone" resultType="string">
+        SELECT COALESCE(configuration.source_time_zone, 'Asia/Shanghai')
+        FROM attendance_source_config_revision configuration
+        WHERE configuration.attendance_source_id = #{sourceId}
+        ORDER BY configuration.revision_number DESC
+        LIMIT 1
+    </select>
+
+    <select id="findActiveDeliPageSize" resultType="int">
+        SELECT COALESCE(configuration.page_size, 500)
+        FROM attendance_source_config_revision configuration
+        WHERE configuration.attendance_source_id = #{sourceId}
+        ORDER BY configuration.revision_number DESC
+        LIMIT 1
+    </select>
+
+    <select id="findActiveDeliDisplayName" resultType="string">
+        SELECT source.display_name
+        FROM attendance_source source
+        WHERE source.attendance_source_id = #{sourceId}
+    </select>
+
+    <select id="findActiveDeliSecretName" resultType="string">
+        SELECT configuration.secret_reference_name
+        FROM attendance_source_config_revision configuration
+        WHERE configuration.attendance_source_id = #{sourceId}
+        ORDER BY configuration.revision_number DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertBinding">
+        INSERT INTO employee_source_binding (
+            binding_id, employee_id, deli_user_id, deli_ext_id, deli_employee_num,
+            deli_attendance_source_id, binding_status, effective_from,
+            effective_to, source, confirmation_ref, deli_row_version,
+            deli_confirmed_by, deli_confirmed_at, deli_change_reason
+        ) VALUES (
+            #{bindingId}, #{employeeId}, #{deliUserId}, #{deliUserId},
+            #{targetEmployeeNumber}, #{sourceId}, 'CONFIRMED', #{effectiveFrom},
+            NULL, 'DELI', #{confirmationRef}, 1, #{actorId}, #{at}, #{reason}
+        )
+    </insert>
+
+    <update id="updateCurrentBinding">
+        UPDATE employee_source_binding
+        SET deli_user_id = #{deliUserId},
+            deli_ext_id = #{deliUserId},
+            deli_attendance_source_id = #{sourceId},
+            binding_status = 'CONFIRMED',
+            confirmation_ref = #{confirmationRef},
+            deli_confirmed_by = #{actorId},
+            deli_confirmed_at = #{at},
+            deli_change_reason = #{reason},
+            effective_from = IF(
+                effective_from IS NULL OR effective_from &gt; #{effectiveFrom},
+                #{effectiveFrom},
+                effective_from),
+            deli_row_version = deli_row_version + 1
+        WHERE binding_id = #{bindingId}
+    </update>
+
+    <insert id="insertRevision">
+        INSERT INTO deli_employee_binding_revision (
+            deli_employee_binding_revision_id, binding_id, attendance_source_id,
+            employee_id, deli_ext_id, deli_user_id, revision_action,
+            binding_row_version, confirmation_ref, changed_by, changed_at,
+            change_reason
+        ) VALUES (
+            #{revisionId}, #{bindingId}, #{sourceId}, #{employeeId},
+            #{deliUserId}, #{deliUserId}, 'CONFIRMED', 1, #{confirmationRef},
+            #{actorId}, #{at}, #{reason}
+        )
+    </insert>
+</mapper>

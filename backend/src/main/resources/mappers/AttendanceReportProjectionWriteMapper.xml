@@ -288,6 +288,8 @@
         OA_TEMPORAL_IDENTITY_ANCHOR_NOT_SIGNED:
         This statement verifies exact document, normalized record, match
         decision, employee, assignment, and organization/version identities.
+        Report hours persist the half-hour grid on interval_start/end; those
+        clocks must not be required to equal the raw normalized interval.
         It deliberately does not claim employee/assignment/organization-version
         validity at an occurrence instant. POINT versus interval/date-range
         anchoring and cross-version interval splitting require an approved
@@ -327,9 +329,9 @@
                document.document_type,
                #{leaveTypeCode},
                #{temporalShape},
-               normalized.point_instant,
-               normalized.interval_start,
-               normalized.interval_end,
+               #{pointInstant},
+               #{intervalStart},
+               #{intervalEndExclusive},
                #{recognizedMinutes},
                document.source_status,
                document.source_version,
@@ -346,9 +348,6 @@
              document.normalized_attendance_record_id
          AND normalized.validation_status = 'VALID'
          AND normalized.record_kind = 'OA_INTERVAL'
-         AND normalized.point_instant &lt;=> #{pointInstant}
-         AND normalized.interval_start &lt;=> #{intervalStart}
-         AND normalized.interval_end &lt;=> #{intervalEndExclusive}
         JOIN raw_attendance_fact raw_fact
           ON raw_fact.raw_attendance_fact_id =
              normalized.raw_attendance_fact_id
@@ -359,8 +358,6 @@
              normalized.normalized_attendance_record_id
          AND match_decision.match_status = 'MATCHED'
          AND match_decision.employee_id = #{employeeId}
-         AND match_decision.employment_period_id =
-             #{employmentAssignmentId}
         JOIN employee employee
           ON employee.employee_id = match_decision.employee_id
          AND employee.company_id = projection.company_id
@@ -368,8 +365,7 @@
           ON employee_version.employee_version_id = #{employeeVersionId}
          AND employee_version.employee_id = employee.employee_id
         JOIN employment_assignment employment
-          ON employment.assignment_id =
-             match_decision.employment_period_id
+          ON employment.assignment_id = #{employmentAssignmentId}
          AND employment.employee_id = employee.employee_id
          AND employment.organization_id = #{organizationId}
         JOIN organization_identity organization
@@ -452,6 +448,274 @@
           AND projection.company_id = #{companyId}
           AND projection.status = 'DRAFT'
     </insert>
+
+    <insert id="copyDailyFactsOutsideRange">
+        INSERT INTO attendance_report_daily_fact (
+            attendance_report_daily_fact_id,
+            attendance_report_projection_id,
+            company_id,
+            employee_id,
+            employee_version_id,
+            employment_period_id,
+            organization_id,
+            organization_version_id,
+            business_date,
+            day_type,
+            shift_label,
+            scheduled_minutes,
+            confirmed_scheduled_work_minutes,
+            recognized_overtime_minutes,
+            paid_overtime_minutes,
+            compensatory_overtime_minutes,
+            voluntary_overtime_minutes,
+            total_overtime_minutes,
+            leave_or_time_off_minutes,
+            leave_type,
+            absence_minutes,
+            actual_work_minutes,
+            scheduled_attendance_days,
+            actual_attendance_days,
+            late_minutes,
+            penalized_late_minutes,
+            early_departure_minutes,
+            missing_punch_count,
+            first_punch_at,
+            last_punch_at,
+            calculation_version_id,
+            result_digest,
+            created_at
+        )
+        SELECT UUID(),
+               #{targetProjectionId},
+               company_id,
+               employee_id,
+               employee_version_id,
+               employment_period_id,
+               organization_id,
+               organization_version_id,
+               business_date,
+               day_type,
+               shift_label,
+               scheduled_minutes,
+               confirmed_scheduled_work_minutes,
+               recognized_overtime_minutes,
+               paid_overtime_minutes,
+               compensatory_overtime_minutes,
+               voluntary_overtime_minutes,
+               total_overtime_minutes,
+               leave_or_time_off_minutes,
+               leave_type,
+               absence_minutes,
+               actual_work_minutes,
+               scheduled_attendance_days,
+               actual_attendance_days,
+               late_minutes,
+               penalized_late_minutes,
+               early_departure_minutes,
+               missing_punch_count,
+               first_punch_at,
+               last_punch_at,
+               calculation_version_id,
+               result_digest,
+               #{createdAt}
+        FROM attendance_report_daily_fact
+        WHERE attendance_report_projection_id = #{sourceProjectionId}
+          <include refid="copyFactsScope"/>
+    </insert>
+
+    <insert id="copyExceptionFactsOutsideRange">
+        INSERT INTO attendance_report_exception_fact (
+            attendance_report_exception_fact_id,
+            attendance_report_projection_id,
+            company_id,
+            exception_case_id,
+            employee_id,
+            employee_version_id,
+            organization_id,
+            organization_version_id,
+            business_date,
+            exception_type,
+            severity,
+            state,
+            exception_minutes,
+            safe_evidence_summary,
+            calculation_version_id,
+            created_at
+        )
+        SELECT UUID(),
+               #{targetProjectionId},
+               company_id,
+               exception_case_id,
+               employee_id,
+               employee_version_id,
+               organization_id,
+               organization_version_id,
+               business_date,
+               exception_type,
+               severity,
+               state,
+               exception_minutes,
+               safe_evidence_summary,
+               calculation_version_id,
+               #{createdAt}
+        FROM attendance_report_exception_fact
+        WHERE attendance_report_projection_id = #{sourceProjectionId}
+          <include refid="copyFactsScope"/>
+    </insert>
+
+    <insert id="copyOaDocumentFactsExceptEmployeeWindow">
+        INSERT INTO attendance_report_oa_fact (
+            attendance_report_oa_fact_id,
+            attendance_report_projection_id,
+            company_id,
+            oa_attendance_document_id,
+            employee_id,
+            employee_version_id,
+            employment_period_id,
+            organization_id,
+            organization_version_id,
+            document_type,
+            leave_type_code,
+            temporal_shape,
+            point_instant,
+            interval_start,
+            interval_end,
+            recognized_minutes,
+            source_status,
+            source_version,
+            created_at
+        )
+        SELECT UUID(),
+               #{targetProjectionId},
+               company_id,
+               oa_attendance_document_id,
+               employee_id,
+               employee_version_id,
+               employment_period_id,
+               organization_id,
+               organization_version_id,
+               document_type,
+               leave_type_code,
+               temporal_shape,
+               point_instant,
+               interval_start,
+               interval_end,
+               recognized_minutes,
+               source_status,
+               source_version,
+               #{createdAt}
+        FROM attendance_report_oa_fact
+        WHERE attendance_report_projection_id = #{sourceProjectionId}
+          AND NOT (
+                <choose>
+                    <when test="employeeIds != null and employeeIds.size() &gt; 0">
+                        employee_id IN
+                        <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                            #{id}
+                        </foreach>
+                    </when>
+                    <otherwise>
+                        employee_id = #{employeeId}
+                    </otherwise>
+                </choose>
+                AND (
+                    (
+                        interval_start IS NOT NULL
+                        AND interval_start &lt; #{windowEndExclusive}
+                        AND interval_end &gt; #{windowStart}
+                    )
+                    OR (
+                        point_instant IS NOT NULL
+                        AND point_instant &gt;= #{windowStart}
+                        AND point_instant &lt; #{windowEndExclusive}
+                    )
+                )
+          )
+    </insert>
+
+    <insert id="copyTimeAccountFactsExceptEmployee">
+        INSERT INTO attendance_report_time_account_fact (
+            attendance_report_time_account_fact_id,
+            attendance_report_projection_id,
+            company_id,
+            account_id,
+            employee_id,
+            employee_version_id,
+            organization_id,
+            organization_version_id,
+            account_type,
+            opening_hours,
+            granted_hours,
+            overtime_credit_hours,
+            manual_increase_hours,
+            used_hours,
+            expired_hours,
+            returned_hours,
+            manual_deduction_hours,
+            ledger_version,
+            created_at
+        )
+        SELECT UUID(),
+               #{targetProjectionId},
+               company_id,
+               account_id,
+               employee_id,
+               employee_version_id,
+               organization_id,
+               organization_version_id,
+               account_type,
+               opening_hours,
+               granted_hours,
+               overtime_credit_hours,
+               manual_increase_hours,
+               used_hours,
+               expired_hours,
+               returned_hours,
+               manual_deduction_hours,
+               ledger_version,
+               #{createdAt}
+        FROM attendance_report_time_account_fact
+        WHERE attendance_report_projection_id = #{sourceProjectionId}
+          <choose>
+              <when test="employeeIds != null and employeeIds.size() &gt; 0">
+                  AND employee_id NOT IN
+                  <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </when>
+              <otherwise>
+                  AND employee_id &lt;&gt; #{employeeId}
+              </otherwise>
+          </choose>
+    </insert>
+
+    <sql id="copyFactsScope">
+        <choose>
+            <when test="employeeIds != null and employeeIds.size() &gt; 0">
+                AND NOT (
+                    employee_id IN
+                    <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                        #{id}
+                    </foreach>
+                    AND business_date &gt;= #{windowStart}
+                    AND business_date &lt; #{windowEndExclusive}
+                )
+            </when>
+            <when test="employeeId != null and employeeId != ''">
+                AND NOT (
+                    employee_id = #{employeeId}
+                    AND business_date &gt;= #{windowStart}
+                    AND business_date &lt; #{windowEndExclusive}
+                )
+            </when>
+            <otherwise>
+                AND (
+                    business_date &lt; #{windowStart}
+                    OR business_date &gt;= #{windowEndExclusive}
+                )
+            </otherwise>
+        </choose>
+    </sql>
 
     <update id="markPublished">
         UPDATE attendance_report_projection

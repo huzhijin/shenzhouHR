@@ -44,7 +44,74 @@ class AttendanceReportCalculatorTest {
                             .map(AttendanceReportModels.ReportColumn::field)
                             .toList());
             assertThat(report.rows()).isNotEmpty();
+            assertThat(report.calculationFormulaVersion())
+                    .isEqualTo(AttendanceReportCalculator.formulaVersion(type));
         }
+    }
+
+    @Test
+    void lateReportCountsExactStartLateFromException() {
+        var base = snapshot(null, "employee-a");
+        DailyFact original = base.dailyFacts().getFirst();
+        DailyFact zeroLate = new DailyFact(
+                original.factId(),
+                original.companyId(),
+                original.employeeId(),
+                original.employeeNumber(),
+                original.employeeName(),
+                original.organizationId(),
+                original.organizationVersionId(),
+                original.organizationName(),
+                original.businessDate(),
+                original.dayType(),
+                original.shiftLabel(),
+                original.scheduledMinutes(),
+                original.confirmedScheduledWorkMinutes(),
+                original.recognizedOvertimeMinutes(),
+                original.leaveOrTimeOffMinutes(),
+                original.absenceMinutes(),
+                original.actualWorkMinutes(),
+                original.scheduledAttendanceDays(),
+                original.actualAttendanceDays(),
+                0,
+                0,
+                original.earlyDepartureMinutes(),
+                original.missingPunchCount(),
+                original.firstPunchAt(),
+                original.lastPunchAt(),
+                original.calculationVersionId(),
+                original.resultDigest());
+        var snapshot = new ReportSourceSnapshot(
+                base.scope(),
+                base.filter(),
+                base.projectionVersion(),
+                base.periodState(),
+                base.dataAsOf(),
+                base.sourceVersions(),
+                List.of(zeroLate),
+                base.oaDocumentFacts(),
+                List.of(new ExceptionFact(
+                        "late-exact-start",
+                        original.employeeId(),
+                        original.employeeNumber(),
+                        original.employeeName(),
+                        original.organizationId(),
+                        original.organizationName(),
+                        original.businessDate(),
+                        "LATE",
+                        ExceptionSeverity.WARNING,
+                        ExceptionState.OPEN,
+                        0,
+                        "到达时刻等于班次开始",
+                        original.calculationVersionId())),
+                base.timeAccountFacts());
+
+        var report = calculator.calculate(ReportType.LATE, snapshot);
+
+        assertThat(report.rows()).hasSize(1);
+        assertThat(report.rows().getFirst().values())
+                .containsEntry(ReportField.LATE_EVENT_COUNT, "1")
+                .containsEntry(ReportField.LATE_MINUTES, "0");
     }
 
     @Test
@@ -54,30 +121,241 @@ class AttendanceReportCalculatorTest {
         var row = report.rows().getFirst();
 
         assertThat(row.values())
-                .containsEntry(ReportField.CONFIRMED_HOURS, "7.00")
-                .containsEntry(
-                        ReportField.RECOGNIZED_OVERTIME_HOURS, "3.50")
-                .containsEntry(ReportField.ACTUAL_WORK_HOURS, "10.50");
+                .containsEntry(ReportField.SCHEDULED_HOURS, "8.00")
+                .containsEntry(ReportField.PAID_OVERTIME_HOURS, "0.00")
+                .containsEntry(ReportField.ANNUAL_LEAVE_HOURS, "1.00")
+                .containsEntry(ReportField.LEAVE_HOURS, "0.00")
+                .containsEntry(ReportField.COMPENSATORY_OVERTIME_HOURS, "0.00")
+                .containsEntry(ReportField.TIME_OFF_HOURS, "0.00")
+                .containsEntry(ReportField.ACTUAL_WORK_HOURS, "7.00");
     }
 
     @Test
-    void overtimeSeparatesWeekdaySaturdaySundayAndHoliday() {
+    void monthlyWorkHoursUsesPaidOvertimeAndTimeOffFormula() {
+        DailyFact day = new DailyFact(
+                "day-formula",
+                "legal-a",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "organization-version-a",
+                "制造中心",
+                LocalDate.of(2026, 7, 1),
+                DayType.WEEKDAY,
+                "总部夏令班",
+                176 * 60,
+                176 * 60,
+                12 * 60,
+                8 * 60,
+                4 * 60,
+                0,
+                12 * 60,
+                0,
+                0,
+                188 * 60,
+                1,
+                1,
+                0,
+                0,
+                0,
+                0,
+                Instant.parse("2026-07-01T00:30:00Z"),
+                Instant.parse("2026-07-01T10:00:00Z"),
+                "calculation-formula",
+                "digest-formula",
+                null);
+        OaDocumentFact otherLeave = new OaDocumentFact(
+                "oa-other",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "制造中心",
+                "LEAVE",
+                "SICK",
+                Instant.parse("2026-07-06T00:30:00Z"),
+                Instant.parse("2026-07-06T08:30:00Z"),
+                8 * 60,
+                "APPROVED",
+                "oa-v");
+        OaDocumentFact annual = new OaDocumentFact(
+                "oa-annual",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "制造中心",
+                "LEAVE",
+                "ANNUAL",
+                Instant.parse("2026-07-07T00:30:00Z"),
+                Instant.parse("2026-07-07T08:30:00Z"),
+                8 * 60,
+                "APPROVED",
+                "oa-v");
+        OaDocumentFact usedTimeOff = new OaDocumentFact(
+                "oa-off",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "制造中心",
+                "TIME_OFF",
+                "COMPENSATORY",
+                Instant.parse("2026-07-08T00:30:00Z"),
+                Instant.parse("2026-07-08T08:30:00Z"),
+                8 * 60,
+                "APPROVED",
+                "oa-v");
+        ReportSourceSnapshot snapshot = snapshot(null, "employee-a");
+        snapshot = new ReportSourceSnapshot(
+                snapshot.scope(),
+                snapshot.filter(),
+                snapshot.projectionVersion(),
+                snapshot.periodState(),
+                snapshot.dataAsOf(),
+                snapshot.sourceVersions(),
+                List.of(day),
+                List.of(otherLeave, annual, usedTimeOff),
+                snapshot.exceptionFacts(),
+                snapshot.timeAccountFacts());
+        var row = calculator.calculate(ReportType.WORK_HOURS, snapshot)
+                .rows()
+                .getFirst();
+        assertThat(row.values())
+                .containsEntry(ReportField.SCHEDULED_HOURS, "176.00")
+                .containsEntry(ReportField.PAID_OVERTIME_HOURS, "8.00")
+                .containsEntry(ReportField.LEAVE_HOURS, "8.00")
+                .containsEntry(ReportField.ANNUAL_LEAVE_HOURS, "8.00")
+                .containsEntry(ReportField.COMPENSATORY_OVERTIME_HOURS, "4.00")
+                .containsEntry(ReportField.TIME_OFF_HOURS, "8.00")
+                .containsEntry(ReportField.ACTUAL_WORK_HOURS, "164.00");
+    }
+
+    @Test
+    void exceptionOverviewSplitsOffDutyMissingPunchAndWritesDetails() {
         var report = calculator.calculate(
-                ReportType.OVERTIME, snapshot(null, "employee-a"));
+                ReportType.EXCEPTIONS, snapshot(null, null));
         var row = report.rows().getFirst();
 
         assertThat(row.values())
+                .containsEntry(ReportField.EXCEPTION_TYPE, "MISSING_OFF_DUTY")
                 .containsEntry(
-                        ReportField.WEEKDAY_OVERTIME_HOURS, "1.50")
-                .containsEntry(
-                        ReportField.SATURDAY_OVERTIME_HOURS, "2.00")
-                .containsEntry(
-                        ReportField.SUNDAY_OVERTIME_HOURS, "0.00")
-                .containsEntry(
-                        ReportField.HOLIDAY_OVERTIME_HOURS, "0.00")
-                .containsEntry(
-                        ReportField.RECOGNIZED_OVERTIME_HOURS, "3.50");
+                        ReportField.EXCEPTION_DETAILS, "上班 08:30，无下班卡")
+                .containsEntry(ReportField.BUSINESS_DATE, "2026-07-01");
+        assertThat(report.columns().stream()
+                .map(AttendanceReportModels.ReportColumn::field))
+                .contains(ReportField.EXCEPTION_DETAILS);
     }
+
+    @Test
+    void exceptionOverviewWritesLateDetailsWithoutRelabelingAbsence() {
+        ReportSourceSnapshot snapshot = snapshot(null, "employee-a");
+        var lateSnapshot = new ReportSourceSnapshot(
+                snapshot.scope(),
+                snapshot.filter(),
+                snapshot.projectionVersion(),
+                snapshot.periodState(),
+                snapshot.dataAsOf(),
+                snapshot.sourceVersions(),
+                snapshot.dailyFacts(),
+                snapshot.oaDocumentFacts(),
+                List.of(
+                        new ExceptionFact(
+                                "late-a-1",
+                                "employee-a",
+                                "0007",
+                                "陈思远",
+                                "organization-a",
+                                "制造中心",
+                                LocalDate.of(2026, 7, 1),
+                                "LATE",
+                                ExceptionSeverity.WARNING,
+                                ExceptionState.OPEN,
+                                29,
+                                "首次有效打卡晚于班次开始",
+                                "calculation-a-1"),
+                        new ExceptionFact(
+                                "absence-a-2",
+                                "employee-a",
+                                "0007",
+                                "陈思远",
+                                "organization-a",
+                                "制造中心",
+                                LocalDate.of(2026, 7, 2),
+                                "ABSENCE",
+                                ExceptionSeverity.ERROR,
+                                ExceptionState.OPEN,
+                                480,
+                                "无打卡",
+                                "calculation-a-2")),
+                snapshot.timeAccountFacts());
+
+        var report = calculator.calculate(ReportType.EXCEPTIONS, lateSnapshot);
+        assertThat(report.rows()).anySatisfy(row -> assertThat(row.values())
+                .containsEntry(ReportField.EXCEPTION_TYPE, "LATE")
+                .containsEntry(
+                        ReportField.EXCEPTION_DETAILS,
+                        "上班 08:35，计罚 29 分钟"));
+        assertThat(report.rows()).anySatisfy(row -> assertThat(row.values())
+                .containsEntry(ReportField.EXCEPTION_TYPE, "ABSENCE")
+                .containsEntry(
+                        ReportField.EXCEPTION_DETAILS, "应出勤，无打卡无单据")
+                .doesNotContainEntry(
+                        ReportField.EXCEPTION_TYPE, "MISSING_PUNCH_OVERDUE"));
+    }
+
+    @Test
+    void displayRangeExcludesDaysOutsideTheWindowFromTotals() {
+        ReportSourceSnapshot full = snapshot(null, "employee-a");
+        ReportFilter ranged = new ReportFilter(
+                YearMonth.of(2026, 7),
+                "legal-a",
+                null,
+                "employee-a",
+                null,
+                LocalDate.of(2026, 7, 1),
+                LocalDate.of(2026, 7, 2));
+        ReportSourceSnapshot sliced = new ReportSourceSnapshot(
+                full.scope(),
+                ranged,
+                full.projectionVersion(),
+                full.periodState(),
+                full.dataAsOf(),
+                full.sourceVersions(),
+                full.dailyFacts(),
+                full.oaDocumentFacts(),
+                full.exceptionFacts(),
+                full.timeAccountFacts());
+        var rangedDetail = calculator.calculate(
+                ReportType.ATTENDANCE_DETAIL, sliced);
+        var allMonth = calculator.calculate(
+                ReportType.ATTENDANCE_DETAIL, full);
+        assertThat(rangedDetail.rows().size())
+                .isLessThan(allMonth.rows().size());
+    }
+
+    @Test
+    void overtimeListsOneDocumentPerRowIncludingPaper() {
+        var report = calculator.calculate(
+                ReportType.OVERTIME, overtimeDocuments());
+        assertThat(report.rows()).hasSize(4);
+        assertThat(report.rows())
+                .extracting(row -> row.values().get(ReportField.SOURCE_ORIGIN))
+                .containsExactly("OA", "OA", "OA", "PAPER");
+        assertThat(report.rows())
+                .extracting(row -> row.values().get(ReportField.DOCUMENT_TYPE))
+                .containsExactly("PAID", "COMPENSATORY", "VOLUNTARY", "PAID");
+        assertThat(report.columns())
+                .extracting(AttendanceReportModels.ReportColumn::field)
+                .contains(
+                        ReportField.DOCUMENT_START,
+                        ReportField.RECOGNIZED_HOURS,
+                        ReportField.SOURCE_ORIGIN)
+                .doesNotContain(ReportField.WEEKDAY_OVERTIME_HOURS);
+    }
+
+
 
     @Test
     void attendanceRateUsesDayFieldsAndRoundsTwentyOfTwentyTwoDays() {
@@ -151,6 +429,72 @@ class AttendanceReportCalculatorTest {
         assertThat(report.rows())
                 .extracting(AttendanceReportModels.ReportRow::rowReference)
                 .containsExactly("leave:oa-approved");
+    }
+
+    @Test
+    void leaveReportDropsCoveringUnknownHeaderThatUnionsTypedIntervals() {
+        var base = snapshot(null, null);
+        var oaFacts = new java.util.ArrayList<>(base.oaDocumentFacts());
+        oaFacts.add(new OaDocumentFact(
+                "oa-time-off",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "制造中心",
+                "LEAVE",
+                "TIME_OFF",
+                Instant.parse("2026-07-10T00:30:00Z"),
+                Instant.parse("2026-07-10T03:00:00Z"),
+                150,
+                "APPROVED",
+                "oa-version-time-off"));
+        oaFacts.add(new OaDocumentFact(
+                "oa-personal",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "制造中心",
+                "LEAVE",
+                "PERSONAL",
+                Instant.parse("2026-07-10T03:00:00Z"),
+                Instant.parse("2026-07-10T04:00:00Z"),
+                60,
+                "APPROVED",
+                "oa-version-personal"));
+        oaFacts.add(new OaDocumentFact(
+                "oa-covering",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "制造中心",
+                "LEAVE",
+                "PERSONAL",
+                Instant.parse("2026-07-10T00:30:00Z"),
+                Instant.parse("2026-07-10T04:00:00Z"),
+                210,
+                "UNKNOWN",
+                "oa-version-covering"));
+        var snapshot = new ReportSourceSnapshot(
+                base.scope(),
+                base.filter(),
+                base.projectionVersion(),
+                base.periodState(),
+                base.dataAsOf(),
+                base.sourceVersions(),
+                base.dailyFacts(),
+                oaFacts,
+                base.exceptionFacts(),
+                base.timeAccountFacts());
+
+        var report = calculator.calculate(ReportType.LEAVE, snapshot);
+
+        assertThat(report.rows())
+                .extracting(AttendanceReportModels.ReportRow::rowReference)
+                .contains("leave:oa-time-off", "leave:oa-personal")
+                .doesNotContain("leave:oa-covering");
         assertThat(report.columns())
                 .extracting(AttendanceReportModels.ReportColumn::field)
                 .doesNotContain(ReportField.DOCUMENT_REFERENCE);
@@ -371,6 +715,52 @@ class AttendanceReportCalculatorTest {
                 leaveType);
     }
 
+    private ReportSourceSnapshot overtimeDocuments() {
+        var base = snapshot(null, "employee-a");
+        return new ReportSourceSnapshot(
+                base.scope(),
+                base.filter(),
+                base.projectionVersion(),
+                base.periodState(),
+                base.dataAsOf(),
+                base.sourceVersions(),
+                base.dailyFacts(),
+                List.of(
+                        overtimeFact("ot-1", "2026-07-18T09:40:00Z", "2026-07-18T14:00:00Z",
+                                "PAID", "OA"),
+                        overtimeFact("ot-2", "2026-07-20T09:40:00Z", "2026-07-20T14:00:00Z",
+                                "COMPENSATORY", "OA"),
+                        overtimeFact("ot-3", "2026-07-23T09:40:00Z", "2026-07-23T14:00:00Z",
+                                "VOLUNTARY", "OA"),
+                        overtimeFact("ot-4", "2026-07-25T09:40:00Z", "2026-07-25T14:00:00Z",
+                                "PAID", "PAPER")),
+                base.exceptionFacts(),
+                base.timeAccountFacts());
+    }
+
+    private OaDocumentFact overtimeFact(
+            String id,
+            String start,
+            String end,
+            String type,
+            String origin) {
+        return new OaDocumentFact(
+                id,
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "制造中心",
+                "OVERTIME",
+                type,
+                Instant.parse(start),
+                Instant.parse(end),
+                150,
+                "APPROVED",
+                "oa-v",
+                origin);
+    }
+
     private ReportSourceSnapshot snapshotWithDailyFacts(List<DailyFact> facts) {
         var base = snapshot(null, "employee-a");
         return new ReportSourceSnapshot(
@@ -517,7 +907,21 @@ class AttendanceReportCalculatorTest {
                                 Instant.parse("2026-07-02T02:00:00Z"),
                                 0,
                                 "DRAFT",
-                                "oa-version-2")),
+                                "oa-version-2"),
+                        new OaDocumentFact(
+                                "oa-overtime",
+                                "employee-a",
+                                "0007",
+                                "陈思远",
+                                "organization-a",
+                                "制造中心",
+                                "OVERTIME",
+                                "PAID",
+                                Instant.parse("2026-07-01T09:40:00Z"),
+                                Instant.parse("2026-07-01T14:00:00Z"),
+                                150,
+                                "APPROVED",
+                                "oa-version-3")),
                 List.of(new ExceptionFact(
                         "exception-b-1",
                         "employee-b",
@@ -549,5 +953,111 @@ class AttendanceReportCalculatorTest {
                         new BigDecimal("4"),
                         new BigDecimal("1"),
                         "ledger-v9")));
+    }
+
+    @Test
+    void undeclaredOvertimeAndLongPunchSpanAreNotActionable() {
+        assertThat(AttendanceReportCalculator.actionableException(
+                exception(
+                        "undeclared",
+                        LocalDate.of(2026, 7, 15),
+                        "制造中心",
+                        "OVERTIME_DOCUMENT_MISSING_OR_LATE")))
+                .isFalse();
+        assertThat(AttendanceReportCalculator.actionableException(
+                exception(
+                        "span",
+                        LocalDate.of(2026, 7, 15),
+                        "制造中心",
+                        "LONG_PUNCH_SPAN_REVIEW")))
+                .isFalse();
+        assertThat(AttendanceReportCalculator.actionableException(
+                exception(
+                        "fake",
+                        LocalDate.of(2026, 7, 15),
+                        "制造中心",
+                        "FAKE_OVERTIME")))
+                .isTrue();
+    }
+
+    @Test
+    void wuhanDalianAugustExceptionsAreMutedOnlyInAugust2026() {
+        ExceptionFact wuhanAugust = exception(
+                "wh-aug",
+                LocalDate.of(2026, 8, 12),
+                "技术支持中心-现场服务部-武汉产品服务组",
+                "LATE");
+        ExceptionFact dalianAugust = exception(
+                "dl-aug",
+                LocalDate.of(2026, 8, 5),
+                "客户现场服务部-大连办事处",
+                "ABSENCE");
+        ExceptionFact wuhanJuly = exception(
+                "wh-jul",
+                LocalDate.of(2026, 7, 15),
+                "技术支持中心-现场服务部-武汉产品服务组",
+                "LATE");
+        assertThat(AttendanceReportCalculator.mutedWuhanDalianAugust(wuhanAugust))
+                .isTrue();
+        assertThat(AttendanceReportCalculator.mutedWuhanDalianAugust(dalianAugust))
+                .isTrue();
+        assertThat(AttendanceReportCalculator.mutedWuhanDalianAugust(wuhanJuly))
+                .isFalse();
+    }
+
+    @Test
+    void exceptionOverviewOmitsUndeclaredOvertimeAndWuhanAugust() {
+        ReportSourceSnapshot base = snapshot(null, "employee-a");
+        ReportSourceSnapshot withNoise = new ReportSourceSnapshot(
+                base.scope(),
+                base.filter(),
+                base.projectionVersion(),
+                base.periodState(),
+                base.dataAsOf(),
+                base.sourceVersions(),
+                base.dailyFacts(),
+                base.oaDocumentFacts(),
+                List.of(
+                        exception(
+                                "fake-1",
+                                LocalDate.of(2026, 7, 1),
+                                "制造中心",
+                                "FAKE_OVERTIME"),
+                        exception(
+                                "undeclared-1",
+                                LocalDate.of(2026, 7, 1),
+                                "制造中心",
+                                "OVERTIME_DOCUMENT_MISSING_OR_LATE"),
+                        exception(
+                                "wuhan-aug",
+                                LocalDate.of(2026, 8, 12),
+                                "武汉产品服务组",
+                                "LATE")),
+                base.timeAccountFacts());
+        var report = calculator.calculate(ReportType.EXCEPTIONS, withNoise);
+        assertThat(report.rows())
+                .extracting(row -> row.values().get(ReportField.EXCEPTION_TYPE))
+                .containsExactly("FAKE_OVERTIME");
+    }
+
+    private static ExceptionFact exception(
+            String caseId,
+            LocalDate date,
+            String organizationName,
+            String type) {
+        return new ExceptionFact(
+                caseId,
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                organizationName,
+                date,
+                type,
+                ExceptionSeverity.WARNING,
+                ExceptionState.OPEN,
+                30,
+                "reason",
+                "calculation-a-1");
     }
 }

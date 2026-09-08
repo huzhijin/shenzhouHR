@@ -106,7 +106,6 @@ class ScheduledWorkSegmentCalculationMapperContractTest {
                 "group_state.recorded_at &lt;= #{dataasof}",
                 "calendar_publication.recorded_at &lt;= #{dataasof}",
                 "shift_publication.recorded_at &lt;= #{dataasof}",
-                "having count(*) = 1",
                 "having count(distinct schedule_authority_key) = 1");
         assertThat(statement).contains(
                 "latest_group_template.resource_type = 'shift_template'",
@@ -119,7 +118,10 @@ class ScheduledWorkSegmentCalculationMapperContractTest {
                 "from attendance_assignment_timeline newer_assignment",
                 "from attendance_group_timeline newer_group",
                 "from calendar_publication_timeline newer_calendar",
-                "from shift_publication_timeline newer_shift");
+                "from shift_publication_timeline newer_shift",
+                "from shift_version newer_shift_version",
+                "newer_shift_version.version_number",
+                "newer_shift_pub.state = 'published'");
     }
 
     @Test
@@ -142,7 +144,10 @@ class ScheduledWorkSegmentCalculationMapperContractTest {
                 "'+08:00', '+00:00') as segment_start_utc",
                 "'+08:00', '+00:00') as segment_end_utc",
                 "schedule.segment_start_utc as segmentstart",
-                "schedule.segment_end_utc as segmentend");
+                "schedule.segment_end_utc as segmentend",
+                "schedule.shift_template_name as shifttemplatename",
+                "shift_template_name_captured",
+                "effective_shift_template.template_code");
         assertThat(statement).contains(
                 "calendar_day.shift_version_override_id is null",
                 "effective_shift.shift_version_id = calendar_day.shift_version_override_id");
@@ -151,7 +156,11 @@ class ScheduledWorkSegmentCalculationMapperContractTest {
     @Test
     void punchWindowsRequireOnePublishedCompanyPolicyAndAreNotInvented()
             throws Exception {
-        String statement = scheduledStatement();
+        String mapperXml = normalized(Files.readString(CALCULATION_MAPPER));
+        String statement = section(
+                mapperXml,
+                "<select id=\"finduniquepunchwindows\"",
+                "</select>");
         String v35 = normalized(Files.readString(V35));
 
         assertThat(statement).contains(
@@ -162,10 +171,24 @@ class ScheduledWorkSegmentCalculationMapperContractTest {
                 "later.action in ( 'deactivate_scheduled', 'rolled_back')",
                 "unique_punch_window_policy",
                 "having count(*) = 1",
-                "interval punch_window.arrival_before_minutes minute",
-                "interval punch_window.arrival_after_minutes minute",
-                "interval punch_window.departure_before_minutes minute",
-                "interval punch_window.departure_after_minutes minute");
+                "arrival_before_minutes as arrivalbeforeminutes",
+                "arrival_after_minutes as arrivalafterminutes",
+                "departure_before_minutes as departurebeforeminutes",
+                "departure_after_minutes as departureafterminutes");
+        String orchestrator = normalized(Files.readString(Path.of(
+                "src/main/java/com/szsemicon/hr/reporting/infrastructure/"
+                        + "orchestrator/FullCalculationEngineOrchestrator.java")));
+        assertThat(orchestrator).contains(
+                "applypunchwindows(",
+                "segment.withpunchwindow(window)");
+        String rowType = normalized(Files.readString(Path.of(
+                "src/main/java/com/szsemicon/hr/reporting/infrastructure/"
+                        + "orchestrator/AttendanceReportCalculationRows.java")));
+        assertThat(rowType).contains(
+                "duration.ofminutes( window.arrivalbeforeminutes())",
+                "duration.ofminutes( window.arrivalafterminutes())",
+                "duration.ofminutes( window.departurebeforeminutes())",
+                "duration.ofminutes( window.departureafterminutes())");
         assertThat(v35).contains(
                 "'punch_window'",
                 "'arrivalbeforeminutes'",

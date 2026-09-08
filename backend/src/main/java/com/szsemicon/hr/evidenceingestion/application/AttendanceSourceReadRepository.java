@@ -27,13 +27,15 @@ public interface AttendanceSourceReadRepository {
             String principalId,
             String capability,
             String sourceId,
-            Instant at);
+            Instant at,
+            String documentType);
 
     List<AttendanceSourceReadModels.OaDocumentView> listOaDocuments(
             String principalId,
             String capability,
             String sourceId,
             Instant at,
+            String documentType,
             int limit,
             int offset);
 }

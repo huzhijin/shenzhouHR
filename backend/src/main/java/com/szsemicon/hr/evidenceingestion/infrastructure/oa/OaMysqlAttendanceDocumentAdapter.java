@@ -3,6 +3,7 @@ package com.szsemicon.hr.evidenceingestion.infrastructure.oa;
 import com.szsemicon.hr.attendance.domain.LeaveType;
 import com.szsemicon.hr.attendance.domain.OvertimeType;
 import com.szsemicon.hr.evidenceingestion.domain.oa.OaLeaveTypeShowValueCatalog;
+import com.szsemicon.hr.evidenceingestion.domain.oa.OaSourceDateTimes;
 import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort;
 import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort.DocumentType;
 import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort.OaDocumentRecord;
@@ -17,10 +18,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -39,6 +38,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>Approval-state filtering uses {@code col_summary.state}:
  * 3 = approved/ended; NULL = draft; 0 = pending; 2 = revoked.
+ * Live {@code col_summary} has no {@code lastmodifydate}; the page cursor
+ * uses {@code COALESCE(finish_date, start_date, create_date)}.
  * Only state=3 (approved) records are marked effectiveCandidate=true. State
  * transitions 0/2 are still versioned into the immutable evidence chain so a
  * later cancellation supersedes an earlier approval during latest-version
@@ -64,11 +65,6 @@ public final class OaMysqlAttendanceDocumentAdapter
     /** OA time zone — all DATETIME columns are interpreted in this zone. */
     private final String sourceTimeZone;
     private final ZoneId sourceZone;
-    private static final DateTimeFormatter SOURCE_VERSION_TIME_FORMAT =
-            new DateTimeFormatterBuilder()
-                    .appendPattern("uuuu-MM-dd'T'HH:mm:ss")
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
-                    .toFormatter();
 
     /** Fixed page size for all OA form queries. */
     static final int PAGE_SIZE = 200;
@@ -86,14 +82,14 @@ public final class OaMysqlAttendanceDocumentAdapter
                 m.field0087         AS end_dt,
                 e.showvalue         AS leave_type_label,
                 cs.state            AS approval_state,
-                cs.lastmodifydate   AS last_modified
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
             FROM formmain_0170 m
             LEFT JOIN ctp_enum_item e
                 ON e.id = m.field0089
             LEFT JOIN col_summary cs
                 ON cs.form_recordid = m.id
-            WHERE (cs.lastmodifydate > ? OR (cs.lastmodifydate = ? AND m.id > ?))
-            ORDER BY cs.lastmodifydate, m.id
+            WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND m.id > ?))
+            ORDER BY COALESCE(cs.finish_date, cs.start_date, cs.create_date), m.id
             LIMIT ?
             """;
 
@@ -110,12 +106,12 @@ public final class OaMysqlAttendanceDocumentAdapter
                 m.field0086         AS actual_start_dt,
                 m.field0087         AS actual_end_dt,
                 cs.state            AS approval_state,
-                cs.lastmodifydate   AS last_modified
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
             FROM formmain_0370 m
             LEFT JOIN col_summary cs
                 ON cs.form_recordid = m.id
-            WHERE (cs.lastmodifydate > ? OR (cs.lastmodifydate = ? AND m.id > ?))
-            ORDER BY cs.lastmodifydate, m.id
+            WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND m.id > ?))
+            ORDER BY COALESCE(cs.finish_date, cs.start_date, cs.create_date), m.id
             LIMIT ?
             """;
 
@@ -131,14 +127,14 @@ public final class OaMysqlAttendanceDocumentAdapter
                 s.field0099         AS end_dt,
                 s.field0096         AS overtime_type_id,
                 cs.state            AS approval_state,
-                cs.lastmodifydate   AS last_modified
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
             FROM formson_0172 s
             JOIN formmain_0171 m
                 ON m.id = s.formmain_id
             LEFT JOIN col_summary cs
                 ON cs.form_recordid = m.id
-            WHERE (cs.lastmodifydate > ? OR (cs.lastmodifydate = ? AND s.id > ?))
-            ORDER BY cs.lastmodifydate, s.id
+            WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND s.id > ?))
+            ORDER BY COALESCE(cs.finish_date, cs.start_date, cs.create_date), s.id
             LIMIT ?
             """;
 
@@ -153,15 +149,15 @@ public final class OaMysqlAttendanceDocumentAdapter
                 s.field0132         AS start_dt,
                 s.field0135         AS end_dt,
                 cs.state            AS approval_state,
-                cs.lastmodifydate   AS last_modified
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
             FROM formson_0252 s
             JOIN formmain_0251 m
                 ON m.id = s.formmain_id
             JOIN col_summary cs
                 ON cs.form_recordid = m.id
-            WHERE (cs.lastmodifydate > ? OR (cs.lastmodifydate = ? AND s.id > ?))
+            WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND s.id > ?))
               AND cs.state IN (0, 2, 3)
-            ORDER BY cs.lastmodifydate, s.id
+            ORDER BY COALESCE(cs.finish_date, cs.start_date, cs.create_date), s.id
             LIMIT ?
             """;
 
@@ -176,18 +172,18 @@ public final class OaMysqlAttendanceDocumentAdapter
                 s.field0132         AS start_date,
                 s.field0134         AS end_date,
                 cs.state            AS approval_state,
-                cs.lastmodifydate   AS last_modified
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
             FROM formson_0202 s
             JOIN formmain_0201 m
                 ON m.id = s.formmain_id
             JOIN col_summary cs
                 ON cs.form_recordid = m.id
-            WHERE (cs.lastmodifydate > ? OR (cs.lastmodifydate = ? AND s.id > ?))
+            WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND s.id > ?))
               AND cs.state IN (0, 2, 3)
               AND s.field0132 IS NOT NULL
               AND s.field0134 IS NOT NULL
               AND DATE(s.field0132) <= DATE(s.field0134)
-            ORDER BY cs.lastmodifydate, s.id
+            ORDER BY COALESCE(cs.finish_date, cs.start_date, cs.create_date), s.id
             LIMIT ?
             """;
 
@@ -201,19 +197,79 @@ public final class OaMysqlAttendanceDocumentAdapter
                 s.field0131         AS employee_code,
                 s.field0132         AS punch_dt,
                 cs.state            AS approval_state,
-                cs.lastmodifydate   AS last_modified
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
             FROM formson_0204 s
             JOIN formmain_0203 m
                 ON m.id = s.formmain_id
             LEFT JOIN col_summary cs
                 ON cs.form_recordid = m.id
-            WHERE (cs.lastmodifydate > ? OR (cs.lastmodifydate = ? AND s.id > ?))
-            ORDER BY cs.lastmodifydate, s.id
+            WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND s.id > ?))
+            ORDER BY COALESCE(cs.finish_date, cs.start_date, cs.create_date), s.id
             LIMIT ?
+            """;
+
+    private static final String LEAVE_WINDOW_SQL = """
+            SELECT
+                m.id                AS form_id,
+                m.field0083         AS member_id,
+                m.field0084         AS employee_code,
+                m.field0097         AS leave_serial,
+                m.field0086         AS start_dt,
+                m.field0087         AS end_dt,
+                e.showvalue         AS leave_type_label,
+                cs.state            AS approval_state,
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
+            FROM formmain_0170 m
+            LEFT JOIN ctp_enum_item e
+                ON e.id = m.field0089
+            LEFT JOIN col_summary cs
+                ON cs.form_recordid = m.id
+            WHERE m.field0086 >= ? AND m.field0086 < ?
+            ORDER BY m.id
+            """;
+
+    private static final String OVERTIME_WINDOW_SQL = """
+            SELECT
+                s.id                AS form_id,
+                s.field0093         AS member_id,
+                s.field0094         AS employee_code,
+                s.field0100         AS start_dt,
+                s.field0099         AS end_dt,
+                s.field0096         AS overtime_type_id,
+                cs.state            AS approval_state,
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
+            FROM formson_0172 s
+            JOIN formmain_0171 m
+                ON m.id = s.formmain_id
+            LEFT JOIN col_summary cs
+                ON cs.form_recordid = m.id
+            WHERE s.field0100 >= ? AND s.field0100 < ?
+            ORDER BY s.id
+            """;
+
+    private static final String OUTING_WINDOW_SQL = """
+            SELECT
+                s.id                AS form_id,
+                s.field0127         AS member_id,
+                s.field0131         AS employee_code,
+                s.field0132         AS start_dt,
+                s.field0135         AS end_dt,
+                cs.state            AS approval_state,
+                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
+            FROM formson_0252 s
+            JOIN formmain_0251 m
+                ON m.id = s.formmain_id
+            JOIN col_summary cs
+                ON cs.form_recordid = m.id
+            WHERE s.field0132 >= ? AND s.field0132 < ?
+              AND cs.state IN (0, 2, 3)
+            ORDER BY s.id
             """;
 
     private final OaReadOnlyConnectionProvider connections;
     private final int queryTimeoutSeconds;
+    private final Instant syncNotBefore;
+    private final Cursor syncNotBeforeCursor;
 
     OaMysqlAttendanceDocumentAdapter(
             OaReadOnlyConnectionProvider connections,
@@ -222,6 +278,12 @@ public final class OaMysqlAttendanceDocumentAdapter
         this.queryTimeoutSeconds = properties.queryTimeoutSeconds();
         this.sourceZone = properties.getSourceTimeZone();
         this.sourceTimeZone = sourceZone.getId();
+        this.syncNotBefore = properties.syncNotBeforeInstant();
+        Instant floor = this.syncNotBefore;
+        this.syncNotBeforeCursor = new Cursor(
+                floor.getEpochSecond(),
+                floor.getNano(),
+                Long.MIN_VALUE);
     }
 
     /**
@@ -234,7 +296,8 @@ public final class OaMysqlAttendanceDocumentAdapter
     public OaPage fetchPage(String sourceId, String committedCursor) {
         MultiCursor inputCursor;
         try {
-            inputCursor = MultiCursor.parse(committedCursor);
+            inputCursor = raiseToNotBefore(
+                    MultiCursor.parse(committedCursor));
         } catch (IllegalArgumentException exception) {
             throw new OaReadOnlyQueryException(
                     "OA_CURSOR_INVALID", "OA sync cursor is invalid");
@@ -288,6 +351,9 @@ public final class OaMysqlAttendanceDocumentAdapter
                     "OA document fetch failed: " + e.getMessage());
         }
 
+        records.removeIf(record ->
+                record.end() != null && record.end().isBefore(syncNotBefore));
+
         String encodedNext = nextCursor.equals(inputCursor)
                 ? committedCursor
                 : nextCursor.encode();
@@ -296,6 +362,42 @@ public final class OaMysqlAttendanceDocumentAdapter
                 committedCursor,
                 encodedNext,
                 pageDigest(sourceId, committedCursor, encodedNext, records));
+    }
+
+    @Override
+    public List<OaDocumentRecord> fetchOverlapping(
+            String sourceId, Instant fromInclusive, Instant toExclusive) {
+        if (fromInclusive == null
+                || toExclusive == null
+                || !fromInclusive.isBefore(toExclusive)) {
+            throw new OaReadOnlyQueryException(
+                    "OA_WINDOW_INVALID", "OA rematch window is invalid");
+        }
+        Timestamp fromTs = Timestamp.valueOf(
+                LocalDateTime.ofInstant(fromInclusive, sourceZone));
+        Timestamp toTs = Timestamp.valueOf(
+                LocalDateTime.ofInstant(toExclusive, sourceZone));
+        List<OaDocumentRecord> records = new ArrayList<>();
+        try (Connection conn = connections.openConnection()) {
+            records.addAll(fetchLeaveWindow(conn, fromTs, toTs));
+            records.addAll(fetchOvertimeWindow(conn, fromTs, toTs));
+            records.addAll(fetchOutingWindow(conn, fromTs, toTs));
+        } catch (OaReadOnlyQueryException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            log.error("OA window rematch fetch failed for source {}",
+                    sourceId, exception);
+            throw new OaReadOnlyQueryException(
+                    "OA_DOCUMENT_FETCH_FAILED",
+                    "OA document fetch failed: " + exception.getMessage());
+        }
+        records.removeIf(record ->
+                record.end() != null && record.end().isBefore(syncNotBefore));
+        records.removeIf(record ->
+                record.start() == null
+                        || record.start().isBefore(fromInclusive)
+                        || !record.start().isBefore(toExclusive));
+        return List.copyOf(records);
     }
 
     /* ------------------------------------------------------------------ */
@@ -318,8 +420,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                 while (rs.next()) {
                     String memberIdStr = rs.getString("member_id");
                     String employeeCode = rs.getString("employee_code");
-                    Timestamp startTs = rs.getTimestamp("start_dt");
-                    Timestamp endTs = rs.getTimestamp("end_dt");
+                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
+                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
                     Integer state = nullableInt(rs, "approval_state");
                     Timestamp modified = rs.getTimestamp("last_modified");
                     long formId = rs.getLong("form_id");
@@ -328,8 +430,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                     String sourceVersion = sourceVersion(modified, state);
 
                     if (memberIdStr == null
-                            || startTs == null
-                            || endTs == null
+                            || start == null
+                            || end == null
                             || sourceVersion == null) {
                         continue;
                     }
@@ -353,8 +455,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.LEAVE,
                             status,
-                            startTs.toInstant(),
-                            endTs.toInstant(),
+                            start,
+                            end,
                             sourceTimeZone,
                             modified != null ? modified.toInstant() : null,
                             status == SourceStatus.APPROVED ? modified != null ? modified.toInstant() : null : null,
@@ -363,7 +465,9 @@ public final class OaMysqlAttendanceDocumentAdapter
                             "OA_LEAVE_BATCH",
                             effective,
                             null,
-                            leaveType));
+                            leaveType,
+                            trimToNull(rs.getString("leave_serial")),
+                            null));
                 }
             }
         }
@@ -386,8 +490,10 @@ public final class OaMysqlAttendanceDocumentAdapter
                 while (rs.next()) {
                     String memberIdStr = rs.getString("member_id");
                     String employeeCode = rs.getString("employee_code");
-                    Timestamp startTs = rs.getTimestamp("actual_start_dt");
-                    Timestamp endTs = rs.getTimestamp("actual_end_dt");
+                    Instant start = OaSourceDateTimes.wallClock(
+                            rs, "actual_start_dt");
+                    Instant end = OaSourceDateTimes.wallClock(
+                            rs, "actual_end_dt");
                     Integer state = nullableInt(rs, "approval_state");
                     Timestamp modified = rs.getTimestamp("last_modified");
                     long formId = rs.getLong("form_id");
@@ -396,8 +502,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                     String sourceVersion = sourceVersion(modified, state);
 
                     if (memberIdStr == null
-                            || startTs == null
-                            || endTs == null
+                            || start == null
+                            || end == null
                             || sourceVersion == null) {
                         continue;
                     }
@@ -412,15 +518,19 @@ public final class OaMysqlAttendanceDocumentAdapter
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.LEAVE_REVOCATION,
                             status,
-                            startTs.toInstant(),
-                            endTs.toInstant(),
+                            start,
+                            end,
                             sourceTimeZone,
                             modified != null ? modified.toInstant() : null,
                             status == SourceStatus.APPROVED ? modified != null ? modified.toInstant() : null : null,
                             null,
                             null,
                             "OA_LEAVE_REVOCATION_BATCH",
-                            effective));
+                            effective,
+                            null,
+                            null,
+                            trimToNull(rs.getString("revocation_serial")),
+                            trimToNull(rs.getString("original_leave_serial"))));
                 }
             }
         }
@@ -443,8 +553,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                 while (rs.next()) {
                     String memberIdStr = rs.getString("member_id");
                     String employeeCode = rs.getString("employee_code");
-                    Timestamp startTs = rs.getTimestamp("start_dt");
-                    Timestamp endTs = rs.getTimestamp("end_dt");
+                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
+                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
                     Integer state = nullableInt(rs, "approval_state");
                     Timestamp modified = rs.getTimestamp("last_modified");
                     long formId = rs.getLong("form_id");
@@ -468,8 +578,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                     }
 
                     if (memberIdStr == null
-                            || startTs == null
-                            || endTs == null
+                            || start == null
+                            || end == null
                             || sourceVersion == null) {
                         continue;
                     }
@@ -485,8 +595,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.OVERTIME,
                             status,
-                            startTs.toInstant(),
-                            endTs.toInstant(),
+                            start,
+                            end,
                             sourceTimeZone,
                             modified != null ? modified.toInstant() : null,
                             status == SourceStatus.APPROVED ? modified != null ? modified.toInstant() : null : null,
@@ -517,8 +627,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                 while (rs.next()) {
                     String memberIdStr = rs.getString("member_id");
                     String employeeCode = rs.getString("employee_code");
-                    Timestamp startTs = rs.getTimestamp("start_dt");
-                    Timestamp endTs = rs.getTimestamp("end_dt");
+                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
+                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
                     Integer state = nullableInt(rs, "approval_state");
                     Timestamp modified = rs.getTimestamp("last_modified");
                     long formId = rs.getLong("form_id");
@@ -528,8 +638,8 @@ public final class OaMysqlAttendanceDocumentAdapter
 
                     if (state == null
                             || memberIdStr == null
-                            || startTs == null
-                            || endTs == null
+                            || start == null
+                            || end == null
                             || sourceVersion == null) {
                         continue;
                     }
@@ -544,8 +654,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.OUTING,
                             status,
-                            startTs.toInstant(),
-                            endTs.toInstant(),
+                            start,
+                            end,
                             sourceTimeZone,
                             modified != null ? modified.toInstant() : null,
                             effective && modified != null
@@ -579,8 +689,10 @@ public final class OaMysqlAttendanceDocumentAdapter
                 while (rs.next()) {
                     String memberIdStr = rs.getString("member_id");
                     String employeeCode = rs.getString("employee_code");
-                    Timestamp startTs = rs.getTimestamp("start_date");
-                    Timestamp endTs = rs.getTimestamp("end_date");
+                    Instant start = OaSourceDateTimes.inclusiveDateStart(
+                            rs, "start_date");
+                    Instant end = OaSourceDateTimes.inclusiveDateEndExclusive(
+                            rs, "end_date");
                     Integer state = nullableInt(rs, "approval_state");
                     Timestamp modified = rs.getTimestamp("last_modified");
                     long formId = rs.getLong("form_id");
@@ -590,8 +702,8 @@ public final class OaMysqlAttendanceDocumentAdapter
 
                     if (state == null
                             || memberIdStr == null
-                            || startTs == null
-                            || endTs == null
+                            || start == null
+                            || end == null
                             || sourceVersion == null) {
                         continue;
                     }
@@ -606,8 +718,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.EXEMPT_PUNCH,
                             status,
-                            inclusiveDateStart(startTs),
-                            inclusiveDateEndExclusive(endTs),
+                            start,
+                            end,
                             sourceTimeZone,
                             modified != null ? modified.toInstant() : null,
                             effective && modified != null
@@ -641,7 +753,7 @@ public final class OaMysqlAttendanceDocumentAdapter
                 while (rs.next()) {
                     String memberIdStr = rs.getString("member_id");
                     String employeeCode = rs.getString("employee_code");
-                    Timestamp punchTs = rs.getTimestamp("punch_dt");
+                    Instant punch = OaSourceDateTimes.wallClock(rs, "punch_dt");
                     Integer state = nullableInt(rs, "approval_state");
                     Timestamp modified = rs.getTimestamp("last_modified");
                     long formId = rs.getLong("form_id");
@@ -650,7 +762,7 @@ public final class OaMysqlAttendanceDocumentAdapter
                     String sourceVersion = sourceVersion(modified, state);
 
                     if (memberIdStr == null
-                            || punchTs == null
+                            || punch == null
                             || sourceVersion == null) {
                         continue;
                     }
@@ -665,8 +777,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.PUNCH_CORRECTION,
                             status,
-                            punchTs.toInstant(),
-                            punchTs.toInstant(),
+                            punch,
+                            punch,
                             sourceTimeZone,
                             modified != null ? modified.toInstant() : null,
                             status == SourceStatus.APPROVED ? modified != null ? modified.toInstant() : null : null,
@@ -678,6 +790,176 @@ public final class OaMysqlAttendanceDocumentAdapter
             }
         }
         return new FetchBatch(result, nextCursor, scannedCount);
+    }
+
+    private List<OaDocumentRecord> fetchLeaveWindow(
+            Connection conn, Timestamp fromTs, Timestamp toTs)
+            throws Exception {
+        List<OaDocumentRecord> result = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(LEAVE_WINDOW_SQL)) {
+            ps.setQueryTimeout(queryTimeoutSeconds);
+            ps.setTimestamp(1, fromTs);
+            ps.setTimestamp(2, toTs);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String memberIdStr = rs.getString("member_id");
+                    String employeeCode = rs.getString("employee_code");
+                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
+                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
+                    Integer state = nullableInt(rs, "approval_state");
+                    Timestamp modified = rs.getTimestamp("last_modified");
+                    long formId = rs.getLong("form_id");
+                    String sourceVersion = sourceVersion(modified, state);
+                    if (memberIdStr == null
+                            || start == null
+                            || end == null
+                            || sourceVersion == null) {
+                        continue;
+                    }
+                    SourceStatus status = oaStateToStatus(state);
+                    String leaveTypeLabel = rs.getString("leave_type_label");
+                    LeaveType leaveType = LeaveType.fromLeaveCode(
+                            OaLeaveTypeShowValueCatalog.resolveLeaveCode(
+                                    leaveTypeLabel));
+                    boolean effective = leaveType != null
+                            && (status == SourceStatus.APPROVED
+                                    || status == SourceStatus.MODIFIED
+                                    || status == SourceStatus.SUPPLEMENTED);
+                    result.add(new OaDocumentRecord(
+                            "LEAVE:" + formId,
+                            sourceVersion,
+                            memberIdStr.trim(),
+                            employeeCode != null ? employeeCode.trim() : null,
+                            DocumentType.LEAVE,
+                            status,
+                            start,
+                            end,
+                            sourceTimeZone,
+                            modified != null ? modified.toInstant() : null,
+                            status == SourceStatus.APPROVED
+                                    ? modified != null
+                                            ? modified.toInstant() : null
+                                    : null,
+                            null,
+                            status == SourceStatus.REVOKED && modified != null
+                                    ? modified.toInstant() : null,
+                            "OA_LEAVE_BATCH",
+                            effective,
+                            null,
+                            leaveType,
+                            trimToNull(rs.getString("leave_serial")),
+                            null));
+                }
+            }
+        }
+        return result;
+    }
+
+    private List<OaDocumentRecord> fetchOvertimeWindow(
+            Connection conn, Timestamp fromTs, Timestamp toTs)
+            throws Exception {
+        List<OaDocumentRecord> result = new ArrayList<>();
+        try (PreparedStatement ps =
+                conn.prepareStatement(OVERTIME_WINDOW_SQL)) {
+            ps.setQueryTimeout(queryTimeoutSeconds);
+            ps.setTimestamp(1, fromTs);
+            ps.setTimestamp(2, toTs);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String memberIdStr = rs.getString("member_id");
+                    String employeeCode = rs.getString("employee_code");
+                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
+                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
+                    Integer state = nullableInt(rs, "approval_state");
+                    Timestamp modified = rs.getTimestamp("last_modified");
+                    long formId = rs.getLong("form_id");
+                    String sourceVersion = sourceVersion(modified, state);
+                    Long overtimeTypeId = nullableLong(
+                            rs, "overtime_type_id");
+                    OvertimeType overtimeType =
+                            OvertimeType.fromOaEnumId(overtimeTypeId);
+                    if (memberIdStr == null
+                            || start == null
+                            || end == null
+                            || sourceVersion == null) {
+                        continue;
+                    }
+                    SourceStatus status = oaStateToStatus(state);
+                    result.add(new OaDocumentRecord(
+                            "OVERTIME:" + formId,
+                            sourceVersion,
+                            memberIdStr.trim(),
+                            employeeCode != null ? employeeCode.trim() : null,
+                            DocumentType.OVERTIME,
+                            status,
+                            start,
+                            end,
+                            sourceTimeZone,
+                            modified != null ? modified.toInstant() : null,
+                            status == SourceStatus.APPROVED
+                                    ? modified != null
+                                            ? modified.toInstant() : null
+                                    : null,
+                            null,
+                            null,
+                            "OA_OVERTIME_BATCH",
+                            status == SourceStatus.APPROVED
+                                    && overtimeType != null,
+                            overtimeType));
+                }
+            }
+        }
+        return result;
+    }
+
+    private List<OaDocumentRecord> fetchOutingWindow(
+            Connection conn, Timestamp fromTs, Timestamp toTs)
+            throws Exception {
+        List<OaDocumentRecord> result = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(OUTING_WINDOW_SQL)) {
+            ps.setQueryTimeout(queryTimeoutSeconds);
+            ps.setTimestamp(1, fromTs);
+            ps.setTimestamp(2, toTs);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String memberIdStr = rs.getString("member_id");
+                    String employeeCode = rs.getString("employee_code");
+                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
+                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
+                    Integer state = nullableInt(rs, "approval_state");
+                    Timestamp modified = rs.getTimestamp("last_modified");
+                    long formId = rs.getLong("form_id");
+                    String sourceVersion = sourceVersion(modified, state);
+                    if (state == null
+                            || memberIdStr == null
+                            || start == null
+                            || end == null
+                            || sourceVersion == null) {
+                        continue;
+                    }
+                    SourceStatus status = oaStateToStatus(state);
+                    result.add(new OaDocumentRecord(
+                            "OUTING:" + formId,
+                            sourceVersion,
+                            memberIdStr.trim(),
+                            employeeCode != null ? employeeCode.trim() : null,
+                            DocumentType.OUTING,
+                            status,
+                            start,
+                            end,
+                            sourceTimeZone,
+                            modified != null ? modified.toInstant() : null,
+                            status == SourceStatus.APPROVED && modified != null
+                                    ? modified.toInstant() : null,
+                            null,
+                            status == SourceStatus.REVOKED && modified != null
+                                    ? modified.toInstant() : null,
+                            "OA_OUTING_BATCH",
+                            status == SourceStatus.APPROVED));
+                }
+            }
+        }
+        return result;
     }
 
     /* ------------------------------------------------------------------ */
@@ -713,27 +995,8 @@ public final class OaMysqlAttendanceDocumentAdapter
         return rs.wasNull() ? null : val;
     }
 
-    private Instant inclusiveDateStart(Timestamp value) {
-        return value.toLocalDateTime()
-                .toLocalDate()
-                .atStartOfDay(sourceZone)
-                .toInstant();
-    }
-
-    private Instant inclusiveDateEndExclusive(Timestamp value) {
-        return value.toLocalDateTime()
-                .toLocalDate()
-                .plusDays(1)
-                .atStartOfDay(sourceZone)
-                .toInstant();
-    }
-
     static String sourceVersion(Timestamp lastModified, Integer state) {
-        if (lastModified == null || state == null) {
-            return null;
-        }
-        return SOURCE_VERSION_TIME_FORMAT.format(lastModified.toLocalDateTime())
-                + ":state=" + state;
+        return OaSourceDateTimes.sourceVersion(lastModified, state);
     }
 
     private static int fairLimit(int remaining, int streamsRemaining) {
@@ -764,6 +1027,8 @@ public final class OaMysqlAttendanceDocumentAdapter
                 updateDigest(digest, instant(record.end()));
                 updateDigest(digest, name(record.overtimeType()));
                 updateDigest(digest, name(record.leaveType()));
+                updateDigest(digest, record.leaveSerial());
+                updateDigest(digest, record.originalLeaveSerial());
             }
             return HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException exception) {
@@ -789,6 +1054,38 @@ public final class OaMysqlAttendanceDocumentAdapter
         return value == null ? null : value.name();
     }
 
+    private MultiCursor raiseToNotBefore(MultiCursor cursor) {
+        return new MultiCursor(
+                atLeast(cursor.leave()),
+                atLeast(cursor.leaveRevocation()),
+                atLeast(cursor.overtime()),
+                atLeast(cursor.outing()),
+                atLeast(cursor.exemptPunch()),
+                atLeast(cursor.punchCorrection()));
+    }
+
+    private Cursor atLeast(Cursor cursor) {
+        long cursorMillis = cursor.lastModifiedMillis();
+        long floorMillis = syncNotBeforeCursor.lastModifiedMillis();
+        if (cursorMillis > floorMillis) {
+            return cursor;
+        }
+        if (cursorMillis < floorMillis) {
+            return syncNotBeforeCursor;
+        }
+        return cursor.lastId() >= syncNotBeforeCursor.lastId()
+                ? cursor
+                : syncNotBeforeCursor;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     private record FetchBatch(
             List<OaDocumentRecord> records,
             Cursor nextCursor,
@@ -810,11 +1107,11 @@ public final class OaMysqlAttendanceDocumentAdapter
         Cursor {
             if (epochSecond < 0
                     || nano < 0
-                    || nano > 999_999_999
-                    || lastId < 0) {
+                    || nano > 999_999_999) {
                 throw new IllegalArgumentException(
-                        "OA cursor values cannot be negative");
+                        "OA cursor timestamp cannot be negative");
             }
+            // Seeyon form IDs are signed 64-bit values and are often negative.
         }
 
         static Cursor parseLegacy(String raw) {

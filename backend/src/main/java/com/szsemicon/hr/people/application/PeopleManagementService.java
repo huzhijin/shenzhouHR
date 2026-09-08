@@ -314,15 +314,28 @@ public class PeopleManagementService {
         current = repository.findCurrentEmployee(employeeId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         requireExpected(current.rowVersion(), expectedVersion);
-        requireNextVersionDate(
-                current.effectiveFrom(), current.effectiveTo(), command.effectiveFrom());
         if (repository.employeeNumberExists(
                 current.companyId(), command.employeeNumber().trim(), employeeId)) {
             throw conflict("EMPLOYEE_NUMBER_CONFLICT", "员工编号已经存在");
         }
         Instant now = clock.instant();
-        repository.closeCurrentEmployeeVersion(
-                employeeId, command.effectiveFrom(), expectedVersion);
+        boolean sameDayCorrection = command.effectiveFrom().equals(current.effectiveFrom());
+        if (sameDayCorrection) {
+            validatePeriod(command.effectiveFrom(), command.effectiveTo());
+            repository.correctCurrentEmployeeVersion(
+                    employeeId,
+                    command.employeeNumber().trim(),
+                    command.displayName().trim(),
+                    command.status(),
+                    command.effectiveTo(),
+                    command.reason().trim(),
+                    expectedVersion);
+        } else {
+            requireNextVersionDate(
+                    current.effectiveFrom(), current.effectiveTo(), command.effectiveFrom());
+            repository.closeCurrentEmployeeVersion(
+                    employeeId, command.effectiveFrom(), expectedVersion);
+        }
         repository.updateEmployeeIdentity(
                 employeeId,
                 command.employeeNumber().trim(),
@@ -330,29 +343,41 @@ public class PeopleManagementService {
                 command.status(),
                 expectedVersion,
                 now);
-        EmployeeVersion version = new EmployeeVersion(
-                UUID.randomUUID().toString(),
-                employeeId,
-                current.companyId(),
-                command.employeeNumber().trim(),
-                command.displayName().trim(),
-                command.status(),
-                current.externalEmployeeId(),
-                command.effectiveFrom(),
-                command.effectiveTo(),
-                "LOCAL",
-                null,
-                expectedVersion + 1,
-                command.reason().trim(),
-                actor,
-                now);
-        repository.saveEmployeeVersion(version);
+        EmployeeVersion version;
+        if (sameDayCorrection) {
+            version = repository.findCurrentEmployee(employeeId)
+                    .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        } else {
+            version = new EmployeeVersion(
+                    UUID.randomUUID().toString(),
+                    employeeId,
+                    current.companyId(),
+                    command.employeeNumber().trim(),
+                    command.displayName().trim(),
+                    command.status(),
+                    current.externalEmployeeId(),
+                    command.effectiveFrom(),
+                    command.effectiveTo(),
+                    "LOCAL",
+                    null,
+                    expectedVersion + 1,
+                    command.reason().trim(),
+                    actor,
+                    now);
+            repository.saveEmployeeVersion(version);
+        }
         saveIdempotency(
                 actor, "EMPLOYEE_EDIT", idempotencyKey,
                 requestDigest, employeeId, now);
         auditService.record(
-                actor, "EMPLOYEE_VERSION_CREATED", "EMPLOYEE", employeeId,
-                "SUCCESS", command.reason(), digest(current), digest(version));
+                actor,
+                sameDayCorrection ? "EMPLOYEE_IDENTITY_CORRECTED" : "EMPLOYEE_VERSION_CREATED",
+                "EMPLOYEE",
+                employeeId,
+                "SUCCESS",
+                command.reason(),
+                digest(current),
+                digest(version));
         return employeeDetail(version, null, CapabilityCodes.EMPLOYEE_EDIT);
     }
 
@@ -837,7 +862,7 @@ public class PeopleManagementService {
         if (!nextFrom.isAfter(currentFrom)
                 || currentTo != null && nextFrom.isBefore(currentTo)) {
             throw conflict(
-                    "STALE_VERSION",
+                    "EMPLOYEE_VERSION_DATE_INVALID",
                     "新版本生效日期必须晚于当前版本且不得消除既有版本空档");
         }
     }

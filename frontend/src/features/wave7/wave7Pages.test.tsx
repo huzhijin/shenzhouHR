@@ -13,7 +13,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
 import {
-  dashboardFixture,
   feedbackFixture,
   leaveFixture,
   queuedExportFixture,
@@ -54,7 +53,6 @@ import type {
   AttendanceMonthMatrixProjection,
   AttendanceReportType,
   AttendanceReportExportView,
-  DashboardLoadResult,
   LiveDashboardProjection,
   LiveReportProjection,
 } from './wave7Contracts';
@@ -85,7 +83,7 @@ describe('Wave 7 fixture-driven pages', () => {
       .toBeInTheDocument();
     expect(screen.getByLabelText('本人考勤关键指标'))
       .toHaveTextContent('待处理异常');
-    expect(screen.getByRole('navigation', { name: '员工自助' })).toHaveTextContent('今日记录假期反馈');
+    expect(screen.getByRole('navigation', { name: '员工自助' })).toHaveTextContent('今日记录假期');
     const todayLink = screen.getByRole('link', { name: '今日' });
     expect(todayLink).toHaveClass('is-active');
     todayLink.focus();
@@ -128,21 +126,7 @@ describe('Wave 7 fixture-driven pages', () => {
       .not.toBeInTheDocument();
   });
 
-  it('binds dashboard drill-down to the opaque reference and projection version', () => {
-    const onDrillDown = vi.fn();
-    renderWithRouter(
-      <DashboardView projection={dashboardFixture} onDrillDown={onDrillDown} />,
-    );
-
-    expect(screen.getByText('样本量不足，已隐藏')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '下钻查看出勤率' }));
-    expect(onDrillDown).toHaveBeenCalledWith(
-      'report:attendance-rate:v3',
-      dashboardFixture.metadata.projectionVersion,
-    );
-  });
-
-  it('renders real daily anomaly totals and the authorized top-ten list', () => {
+  it('keeps the workbench on the exception people list only', () => {
     const onOpenReports = vi.fn();
     renderWithRouter(
       <DashboardView
@@ -154,31 +138,28 @@ describe('Wave 7 fixture-driven pages', () => {
 
     expect(screen.getByRole('heading', {
       level: 1,
-      name: '今日异常考勤',
+      name: '异常工作台',
     }))
       .toBeInTheDocument();
-    const summary = within(screen.getByLabelText('今日异常汇总指标'));
-    expect(summary.getByText('未处理异常').nextElementSibling)
-      .toHaveTextContent('1');
-    expect(summary.getByText('影响员工').nextElementSibling)
-      .toHaveTextContent('1');
-    expect(summary.getByText('阻断异常').nextElementSibling)
-      .toHaveTextContent('1');
-    expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
+    expect(screen.getByRole('heading', { name: '异常人员' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '异常图形汇总' }))
+      .toHaveTextContent('漏刷');
+    expect(screen.getByRole('region', { name: '异常人员列表' }))
       .toHaveTextContent('张三');
-    expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
+    expect(screen.getByRole('region', { name: '异常人员列表' }))
       .toHaveTextContent('缺卡逾期');
-    expect(screen.getByRole('region', { name: '今日异常考勤列表' }))
+    expect(screen.getByRole('region', { name: '异常人员列表' }))
       .toHaveTextContent('待复核');
-    fireEvent.click(screen.getByRole('button', { name: '查看异常报表' }));
+    expect(screen.queryByText('今日打卡')).not.toBeInTheDocument();
+    expect(screen.queryByText('授权汇总')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '异常总览' }));
     expect(onOpenReports).toHaveBeenCalledWith({
       reportType: 'EXCEPTIONS',
       period: '2026-07',
       companyId: 'company-a',
       projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
     });
-    expect(screen.queryByRole('button', { name: '打开考勤大屏' }))
-      .not.toBeInTheDocument();
   });
 
   it('shows a verified zero-anomaly result instead of a generic placeholder', () => {
@@ -196,22 +177,46 @@ describe('Wave 7 fixture-driven pages', () => {
       '/workbench',
     );
 
-    const summary = within(screen.getByLabelText('今日异常汇总指标'));
-    expect(summary.getByText('未处理异常').nextElementSibling)
-      .toHaveTextContent('0');
-    expect(summary.getByText('影响员工').nextElementSibling)
-      .toHaveTextContent('0');
-    expect(summary.getByText('阻断异常').nextElementSibling)
-      .toHaveTextContent('0');
-    expect(screen.getByText('今日没有未处理的异常考勤'))
+    expect(screen.getByRole('heading', { name: '异常人员' }))
+      .toBeInTheDocument();
+    expect(screen.getByText('本月没有未处理的异常考勤'))
       .toBeInTheDocument();
     expect(screen.queryByText('当前授权范围内暂无可显示数据。'))
       .not.toBeInTheDocument();
   });
 
-  it('requires and reloads an explicit company on the dashboard', async () => {
-    const selection: DashboardLoadResult = {
-      kind: 'DASHBOARD_COMPANY_SELECTION',
+  it('loads the dashboard without a company picker and keeps org labels distinct', async () => {
+    const loadDashboard = vi.fn(async () => liveDashboard({
+      metadata: {
+        ...liveDashboard().metadata,
+        scope: {
+          type: 'ORGANIZATION',
+          reference: 'organization-sales',
+          label: '工号SZST0004 · 销售中心',
+        },
+      },
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
+      ],
+    }));
+    renderWithRouter(
+      <DashboardRoute gateway={gateway({ loadDashboard })} />,
+      '/workbench',
+    );
+
+    expect(await screen.findByRole('region', {
+      name: '异常人员列表',
+    })).toHaveTextContent('张三');
+    expect(loadDashboard).toHaveBeenCalled();
+    expect(screen.queryByLabelText('控制台公司')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '异常工作台' }))
+      .toBeInTheDocument();
+  });
+
+  it('explains org-based display when the server still asks for a company', async () => {
+    const loadDashboard = vi.fn(async () => ({
+      kind: 'DASHBOARD_COMPANY_SELECTION' as const,
       title: '今日异常考勤',
       businessDate: '2026-07-30',
       selectedCompanyId: null,
@@ -220,40 +225,16 @@ describe('Wave 7 fixture-driven pages', () => {
         { companyId: 'company-b', companyName: '神州科技' },
       ],
       message: '请选择公司后查看今日异常考勤',
-    };
-    const loadDashboard = vi.fn(
-      async (companyId?: string): Promise<DashboardLoadResult> => (
-        companyId === undefined
-          ? selection
-          : liveDashboard({
-              selectedCompanyId: companyId,
-              metadata: {
-                ...liveDashboard().metadata,
-                scope: {
-                  type: 'COMPANY',
-                  reference: companyId,
-                  label: '神州科技',
-                },
-              },
-            })
-      ),
-    );
+    }));
     renderWithRouter(
       <DashboardRoute gateway={gateway({ loadDashboard })} />,
       '/workbench',
     );
 
-    expect(await screen.findByText(/请选择公司后查看今日异常考勤/))
+    expect(await screen.findByText('按授权范围展示'))
       .toBeInTheDocument();
-    expect(loadDashboard).toHaveBeenCalledWith(undefined);
-    fireEvent.change(screen.getByLabelText('控制台公司'), {
-      target: { value: 'company-b' },
-    });
-
-    expect(await screen.findByRole('region', {
-      name: '今日异常考勤列表',
-    })).toHaveTextContent('张三');
-    expect(loadDashboard).toHaveBeenLastCalledWith('company-b');
+    expect(screen.getByText(/组织调整后按最新部门取数/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('控制台公司')).not.toBeInTheDocument();
   });
 
   it('carries the dashboard projection version into formal reports', async () => {
@@ -270,14 +251,11 @@ describe('Wave 7 fixture-driven pages', () => {
     );
 
     fireEvent.click(await screen.findByRole('button', {
-      name: '查看异常报表',
+      name: '异常总览',
     }));
 
     expect(await screen.findByTestId('location')).toHaveTextContent(
-      '/attendance/reports?reportType=EXCEPTIONS'
-      + '&period=2026-07&companyId=company-a'
-      + '&expectedProjectionVersion='
-      + 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+      '/attendance/queries/exceptions?period=2026-07&companyId=company-a',
     );
   });
 
@@ -492,14 +470,11 @@ describe('Wave 7 async states', () => {
 
     renderWithRouter(
       <EmployeeFeedbackRoute
-        gateway={gateway({
-          loadFeedback: async () => ({ ...feedbackFixture, items: [] }),
-        })}
         capabilities={['ATTENDANCE_FEEDBACK:READ']}
       />,
       '/me/feedback',
     );
-    expect(await screen.findByText('当前授权范围内暂无可显示数据。')).toBeInTheDocument();
+    expect(await screen.findByText(/反馈接口尚未开通/)).toBeInTheDocument();
     cleanup();
 
     renderWithRouter(
@@ -537,12 +512,37 @@ describe('Wave 7 async states', () => {
     );
 
     expect(await screen.findByRole('heading', {
-      name: '今日异常考勤尚未生成',
+      name: '今日考勤看板暂不可用',
     })).toBeInTheDocument();
-    expect(screen.getByText(/完成数据同步后，还需完成考勤计算并发布正式投影/))
+    expect(screen.getByText(/按当前授权范围内的花名册和今日打卡汇总/))
       .toBeInTheDocument();
     expect(screen.queryByText('服务端内部投影说明'))
       .not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /重\s*试/ }))
+      .toBeInTheDocument();
+  });
+
+  it('does not misreport a dashboard timeout as a network outage', async () => {
+    renderWithRouter(
+      <DashboardRoute
+        gateway={gateway({
+          loadDashboard: async () => Promise.reject(
+            new ApiRequestError(408, {
+              code: 'REQUEST_TIMEOUT',
+              message: '加载超时，请刷新后重试。服务仍在处理，这不是网络断开。',
+              retryable: true,
+            }),
+          ),
+        })}
+      />,
+      '/workbench',
+    );
+
+    expect(await screen.findByRole('heading', {
+      name: '工作台加载超时',
+    })).toBeInTheDocument();
+    expect(screen.getByText(/这不是网络断开/)).toBeInTheDocument();
+    expect(screen.queryByText('网络连接不可用')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /重\s*试/ }))
       .toBeInTheDocument();
   });
@@ -578,12 +578,16 @@ describe('Wave 7 formal report route', () => {
     cleanup();
   });
 
-  it('explains that an empty company directory requires calculation and publication', async () => {
+  it('explains how to refresh when the current scope has no calculable data', async () => {
     const loadReport = vi.fn(async (query?: ReportQuery) => formalReport(query));
+    const loadReportCompanies = vi.fn(async (period: string) => ({
+      period,
+      companies: [],
+    }));
     renderWithRouter(
       <ReportsRoute
         gateway={gateway({
-          loadReportCompanies: async (period) => ({ period, companies: [] }),
+          loadReportCompanies,
           loadReport,
         })}
         initialPeriod="2026-07"
@@ -592,14 +596,16 @@ describe('Wave 7 formal report route', () => {
     );
 
     expect(await screen.findByRole('heading', {
-      name: '所选月份暂无可查看报表',
+      name: '当前范围暂无可计算数据',
     })).toBeInTheDocument();
     expect(screen.getByText(
-      '所选月份无已发布正式投影。'
-      + '连接数据库或已有原始数据不会自动生成报表，'
-      + '需完成考勤计算与正式投影发布。',
+      '请先完成得力/OA 数据同步并确认班次、考勤组等基础数据，'
+      + '然后点击“刷新数据”重试。',
     )).toBeInTheDocument();
     expect(loadReport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新数据' }));
+    await waitFor(() => expect(loadReportCompanies).toHaveBeenCalledTimes(2));
   });
 
   it('initializes an authorized exception report from URL query parameters', async () => {
@@ -629,6 +635,9 @@ describe('Wave 7 formal report route', () => {
     expect(await screen.findByRole('heading', {
       name: 'EXCEPTIONS · 2026-06',
     })).toBeInTheDocument();
+    const freshness = screen.getByText(/本次实时计算于/);
+    expect(freshness).toHaveTextContent(/得力截止.*2026.*6.*28.*09:30/);
+    expect(freshness).toHaveTextContent('OA截止 未同步');
     expect(screen.getByLabelText('报表类型')).toHaveValue('EXCEPTIONS');
     expect(screen.getByLabelText('月份')).toHaveValue('2026-06');
     expect(screen.getByLabelText('异常状态')).toHaveValue('PENDING_REVIEW');
@@ -771,7 +780,7 @@ describe('Wave 7 formal report route', () => {
     });
   });
 
-  it('clears combined results and reloads page one after a projection change', async () => {
+  it('clears combined results and reloads page one after a snapshot change', async () => {
     const newestProjection = deferred<LiveReportProjection>();
     const loadReport = vi.fn((query?: ReportQuery) => {
       const call = loadReport.mock.calls.length;
@@ -787,9 +796,9 @@ describe('Wave 7 formal report route', () => {
       }
       if (call === 2) {
         return Promise.reject(new ApiRequestError(409, {
-          code: 'ATTENDANCE_REPORT_PROJECTION_CHANGED',
-          message: '报表数据版本已更新',
-          retryable: false,
+          code: 'ATTENDANCE_REPORT_SNAPSHOT_CHANGED',
+          message: '报表输入快照已更新',
+          retryable: true,
         }));
       }
       return newestProjection.promise;
@@ -992,12 +1001,8 @@ describe('Wave 7 formal report route', () => {
       '/attendance/reports',
     );
 
-    expect(await screen.findByText('请选择公司后查询正式报表。'))
-      .toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('公司'), {
-      target: { value: 'company-a' },
-    });
     await screen.findByRole('heading', { name: 'LEAVE · 2026-07' });
+    expect(screen.getByLabelText('公司')).toHaveValue('company-a');
     fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
       'button',
       { name: '下一页' },
@@ -1077,12 +1082,9 @@ describe('Wave 7 formal report route', () => {
       '/attendance/reports',
     );
 
-    await screen.findByText('请选择公司后查询正式报表。');
-    fireEvent.change(screen.getByLabelText('公司'), {
-      target: { value: 'company-a' },
-    });
     expect((await screen.findAllByText('公司 A 当前结果')).length)
       .toBeGreaterThan(0);
+    expect(screen.getByLabelText('公司')).toHaveValue('company-a');
     fireEvent.click(within(screen.getByLabelText('报表分页')).getByRole(
       'button',
       { name: '下一页' },
@@ -1150,13 +1152,17 @@ describe('Wave 7 formal report route', () => {
         + '&companyId=%20company-b&status=UNKNOWN',
     );
 
-    expect(await screen.findByText('请选择公司后查询正式报表。'))
-      .toBeInTheDocument();
     expect(screen.getByLabelText('报表类型'))
       .toHaveValue('ATTENDANCE_DETAIL');
     expect(screen.getByLabelText('月份')).toHaveValue('2026-07');
-    expect(screen.getByLabelText('公司')).toHaveValue('');
-    expect(loadReport).not.toHaveBeenCalled();
+    expect(await screen.findByLabelText('公司')).toHaveValue('company-a');
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenCalledWith(expect.objectContaining({
+        reportType: 'ATTENDANCE_DETAIL',
+        period: '2026-07',
+        companyId: 'company-a',
+      }));
+    });
   });
 
   it('switches across all nine server report types', async () => {
@@ -1452,7 +1458,7 @@ describe('Wave 7 formal report route', () => {
     });
   });
 
-  it('requires an explicit company choice when multiple companies are authorized', async () => {
+  it('defaults to 神州半导体 when multiple companies are authorized', async () => {
     const loadReport = vi.fn(async (query?: ReportQuery) =>
       formalReport(query));
     renderWithRouter(
@@ -1461,8 +1467,8 @@ describe('Wave 7 formal report route', () => {
           loadReportCompanies: async (period) => ({
             period,
             companies: [
-              { companyId: 'company-a', companyName: '神州半导体' },
               { companyId: 'company-b', companyName: '神州科技' },
+              { companyId: 'company-a', companyName: '神州半导体' },
             ],
           }),
           loadReport,
@@ -1472,23 +1478,30 @@ describe('Wave 7 formal report route', () => {
       '/attendance/reports',
     );
 
-    expect(await screen.findByText('请选择公司后查询正式报表。'))
-      .toBeInTheDocument();
-    expect(loadReport).not.toHaveBeenCalled();
+    expect(await screen.findByRole('heading', {
+      name: 'ATTENDANCE_DETAIL · 2026-07',
+    })).toBeInTheDocument();
+    expect(screen.getByLabelText('公司')).toHaveValue('company-a');
+    expect(loadReport).toHaveBeenCalledWith({
+      reportType: 'ATTENDANCE_DETAIL',
+      period: '2026-07',
+      companyId: 'company-a',
+      page: 0,
+      size: 50,
+    });
 
     fireEvent.change(screen.getByLabelText('公司'), {
       target: { value: 'company-b' },
     });
 
-    expect(await screen.findByRole('heading', {
-      name: 'ATTENDANCE_DETAIL · 2026-07',
-    })).toBeInTheDocument();
-    expect(loadReport).toHaveBeenCalledWith({
-      reportType: 'ATTENDANCE_DETAIL',
-      period: '2026-07',
-      companyId: 'company-b',
-      page: 0,
-      size: 50,
+    await waitFor(() => {
+      expect(loadReport).toHaveBeenLastCalledWith({
+        reportType: 'ATTENDANCE_DETAIL',
+        period: '2026-07',
+        companyId: 'company-b',
+        page: 0,
+        size: 50,
+      });
     });
   });
 
@@ -1793,9 +1806,11 @@ describe('Wave 7 formal report route', () => {
       });
       expect(createObjectUrl).toHaveBeenCalledWith(file.blob);
       expect(anchorClick).toHaveBeenCalledOnce();
-      expect(revokeObjectUrl).toHaveBeenCalledWith(
-        'blob:formal-report',
-      );
+      await waitFor(() => {
+        expect(revokeObjectUrl).toHaveBeenCalledWith(
+          'blob:formal-report',
+        );
+      }, { timeout: 3000 });
     } finally {
       anchorClick.mockRestore();
       restoreUrlMethod('createObjectURL', originalCreateObjectUrl);
@@ -2000,6 +2015,8 @@ function formalReport(
     metadata: {
       ...reportFixture.metadata,
       projectionVersion: `FORMAL-${query.reportType}-${query.period}-V1`,
+      sourceVersions: realtimeReportSourceVersions(query.period),
+      dataAsOf: `${query.period}-28T01:30:00Z`,
       periodLabel: query.period,
       scope: {
         type: 'ORGANIZATION',
@@ -2037,6 +2054,8 @@ function formalMonthMatrix(
       ...reportFixture.metadata,
       projectionVersion:
         `FORMAL-ATTENDANCE_DETAIL-${query.period}-V1`,
+      sourceVersions: realtimeReportSourceVersions(query.period),
+      dataAsOf: `${query.period}-28T01:30:00Z`,
       periodLabel: query.period,
       scope: {
         type: 'ORGANIZATION',
@@ -2077,4 +2096,12 @@ function formalMonthMatrix(
     size: query.size ?? 20,
     totalPages: 2,
   };
+}
+
+function realtimeReportSourceVersions(period: string): string[] {
+  return [
+    'MODEL:ATTENDANCE-RULES-V1',
+    `SOURCE.DELI_CLOUD:${period}-28T01:30:00Z:${'a'.repeat(64)}`,
+    `SOURCE.OA_ATTENDANCE:UNSYNCED:${'b'.repeat(64)}`,
+  ];
 }

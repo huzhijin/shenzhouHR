@@ -53,6 +53,7 @@ public class AttendanceReportExportService {
     private final AuditService auditService;
     private final Clock clock;
     private final Duration retention;
+    private final RealtimeAttendanceReportSnapshotService realtimeSnapshots;
 
     @Autowired
     public AttendanceReportExportService(
@@ -65,7 +66,9 @@ public class AttendanceReportExportService {
             AuditService auditService,
             Clock clock,
             @Value("${shenzhouhr.reporting.export-retention:PT24H}")
-                    Duration retention) {
+                    Duration retention,
+            @Autowired(required = false)
+                    RealtimeAttendanceReportSnapshotService realtimeSnapshots) {
         this(
                 capabilities,
                 principalProvider,
@@ -76,7 +79,8 @@ public class AttendanceReportExportService {
                 transactions,
                 auditService,
                 clock,
-                retention);
+                retention,
+                realtimeSnapshots);
     }
 
     AttendanceReportExportService(
@@ -90,6 +94,32 @@ public class AttendanceReportExportService {
             AuditService auditService,
             Clock clock,
             Duration retention) {
+        this(
+                capabilities,
+                principalProvider,
+                sourceRepository,
+                exportStore,
+                encoder,
+                calculator,
+                transactions,
+                auditService,
+                clock,
+                retention,
+                null);
+    }
+
+    AttendanceReportExportService(
+            CurrentCapabilityService capabilities,
+            CurrentPrincipalProvider principalProvider,
+            AttendanceReportSourceRepository sourceRepository,
+            AttendanceReportExportStore exportStore,
+            AttendanceReportExportEncoder encoder,
+            AttendanceReportCalculator calculator,
+            AttendanceReportExportTransactions transactions,
+            AuditService auditService,
+            Clock clock,
+            Duration retention,
+            RealtimeAttendanceReportSnapshotService realtimeSnapshots) {
         this.capabilities = capabilities;
         this.principalProvider = principalProvider;
         this.sourceRepository = sourceRepository;
@@ -99,6 +129,7 @@ public class AttendanceReportExportService {
         this.transactions = transactions;
         this.auditService = auditService;
         this.clock = clock;
+        this.realtimeSnapshots = realtimeSnapshots;
         if (retention == null
                 || retention.isZero()
                 || retention.isNegative()
@@ -140,14 +171,10 @@ public class AttendanceReportExportService {
             String normalizedPurpose) {
         capabilities.require(
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE);
-        capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_READ);
+        requireReportOrQueryRead();
         String principalId = principalProvider.currentPrincipalId();
         Instant now = clock.instant();
-        var snapshot = sourceRepository.loadAuthorizedSnapshot(
-                        principalId,
-                        CapabilityCodes.ATTENDANCE_REPORT_READ,
-                        filter,
-                        now)
+        var snapshot = loadSnapshot(principalId, filter, now)
                 .orElseThrow(AttendanceReportExportService::notReady);
         var dataSet = calculator.calculate(reportType, snapshot);
         String queryFingerprint = AttendanceReportQueryService.fingerprint(
@@ -181,8 +208,10 @@ public class AttendanceReportExportService {
                         ? DeliveryMode.SYNC
                         : DeliveryMode.ASYNC;
         String exportId = UUID.randomUUID().toString();
-        EncodedExport encoded = deliveryMode == DeliveryMode.SYNC
-                ? encoder.encode(
+        EncodedExport encoded = null;
+        if (deliveryMode == DeliveryMode.SYNC) {
+            try {
+                encoded = encoder.encode(
                         exportDataSet,
                         new ExportContext(
                                 exportId,
@@ -199,8 +228,16 @@ public class AttendanceReportExportService {
                                 visibleContentDigest,
                                 now,
                                 now,
-                                selectedFields))
-                : null;
+                                selectedFields,
+                                monthMatrixFor(reportType, snapshot)));
+            } catch (RuntimeException exception) {
+                throw new ApiProblemException(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "ATTENDANCE_REPORT_EXPORT_BUILD_FAILED",
+                        "报表导出生成失败，请稍后重试",
+                        true);
+            }
+        }
         ExportJob job = new ExportJob(
                 exportId,
                 principalId,
@@ -246,7 +283,7 @@ public class AttendanceReportExportService {
     public ExportView status(String exportId) {
         capabilities.require(
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE);
-        capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_READ);
+        requireReportOrQueryRead();
         String principalId = principalProvider.currentPrincipalId();
         ExportJob job = exportStore
                 .findOwnedJob(exportId, principalId)
@@ -269,7 +306,7 @@ public class AttendanceReportExportService {
     private DownloadedExport downloadAuthorized(String exportId) {
         capabilities.require(
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD);
-        capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_READ);
+        requireReportOrQueryRead();
         String principalId = principalProvider.currentPrincipalId();
         Instant now = clock.instant();
         ExportJob job = exportStore
@@ -365,16 +402,19 @@ public class AttendanceReportExportService {
                 job.principalId(), now);
         if (!activeCapabilities.contains(
                         CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE)
-                || !activeCapabilities.contains(
-                        CapabilityCodes.ATTENDANCE_REPORT_READ)) {
+                || (!activeCapabilities.contains(
+                        CapabilityCodes.ATTENDANCE_REPORT_READ)
+                        && !activeCapabilities.contains(
+                                CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ))) {
             failBuild(job, "AUTHORIZATION_OR_SOURCE_CHANGED");
             return true;
         }
-        var snapshot = sourceRepository.loadAuthorizedSnapshot(
+        var snapshot = loadSnapshot(
                 job.principalId(),
-                CapabilityCodes.ATTENDANCE_REPORT_READ,
                 job.filter(),
-                now);
+                job.projectionVersion(),
+                now,
+                snapshotReadCapability(activeCapabilities));
         if (snapshot.isEmpty()) {
             failBuild(job, "AUTHORIZATION_OR_SOURCE_CHANGED");
             return true;
@@ -450,7 +490,8 @@ public class AttendanceReportExportService {
                             job.visibleContentDigest(),
                             job.createdAt(),
                             clock.instant(),
-                            job.exportFields()));
+                            job.exportFields(),
+                            monthMatrixFor(job.reportType(), authorizedSnapshot)));
         } catch (RuntimeException exception) {
             failBuild(job, "EXPORT_BUILD_FAILED");
             return true;
@@ -496,12 +537,11 @@ public class AttendanceReportExportService {
             Instant now,
             String requiredCapabilityCode,
             String deniedAuditAction) {
-        var currentSnapshotResult =
-                sourceRepository.loadAuthorizedSnapshot(
-                        principalId,
-                        CapabilityCodes.ATTENDANCE_REPORT_READ,
-                        job.filter(),
-                        now);
+        var currentSnapshotResult = loadSnapshot(
+                principalId,
+                job.filter(),
+                job.projectionVersion(),
+                now);
         if (currentSnapshotResult.isEmpty()) {
             auditService.recordFailure(
                     principalId,
@@ -567,6 +607,40 @@ public class AttendanceReportExportService {
             ReportSourceSnapshot readSnapshot,
             ReportDataSet readExportDataSet,
             Instant authorizationTime) {
+        if (realtimeSnapshots != null) {
+            String readCapability = snapshotReadCapability(
+                    capabilities.activeCapabilities(
+                            principalId, authorizationTime));
+            return realtimeSnapshots.loadAuthorizedSnapshot(
+                            principalId,
+                            readCapability,
+                            readSnapshot.filter(),
+                            readSnapshot.projectionVersion(),
+                            authorizationTime)
+                    .map(candidate -> {
+                        ReportDataSet candidateDataSet = calculator.calculate(
+                                reportType, candidate);
+                        if (!exportFieldsAreCurrentlyAllowed(
+                                readExportDataSet.exportAllowlist(),
+                                candidateDataSet.exportAllowlist())) {
+                            return false;
+                        }
+                        return AttendanceReportVisibilityDigest
+                                .calculateScopeIndependent(
+                                        reportType,
+                                        readSnapshot,
+                                        readExportDataSet)
+                                .equals(AttendanceReportVisibilityDigest
+                                        .calculateScopeIndependent(
+                                                reportType,
+                                                candidate,
+                                                withExportFields(
+                                                        candidateDataSet,
+                                                        readExportDataSet
+                                                                .exportAllowlist())));
+                    })
+                    .orElse(false);
+        }
         return sourceRepository.loadAuthorizedSnapshotIntersection(
                         principalId,
                         capabilityCode,
@@ -597,6 +671,35 @@ public class AttendanceReportExportService {
                     return constantTimeEquals(expected, actual);
                 })
                 .orElse(false);
+    }
+
+    private static AttendanceMonthMatrixPage monthMatrixFor(
+            ReportType reportType, ReportSourceSnapshot snapshot) {
+        if (reportType != ReportType.ATTENDANCE_DETAIL || snapshot == null) {
+            return null;
+        }
+        try {
+            var matrix = AttendanceMonthMatrixAssembler.assemble(snapshot);
+            return new AttendanceMonthMatrixPage(
+                    snapshot.projectionVersion(),
+                    snapshot.scope().authorizationDigest(),
+                    AttendanceMonthMatrixAssembler.FORMULA_VERSION,
+                    snapshot.periodState(),
+                    snapshot.dataAsOf(),
+                    snapshot.sourceVersions(),
+                    snapshot.scope(),
+                    snapshot.filter(),
+                    List.of(),
+                    matrix.dates(),
+                    matrix.rows(),
+                    0,
+                    Math.max(1, matrix.rows().size()),
+                    matrix.rows().size(),
+                    matrix.rows().isEmpty() ? 0 : 1,
+                    false);
+        } catch (RuntimeException exception) {
+            return null;
+        }
     }
 
     private List<ReportField> requireCurrentBinding(
@@ -688,11 +791,78 @@ public class AttendanceReportExportService {
                 actual.getBytes(StandardCharsets.US_ASCII));
     }
 
+    private void requireReportOrQueryRead() {
+        java.util.Set<String> active = capabilities.currentCapabilities();
+        if (!active.contains(CapabilityCodes.ATTENDANCE_REPORT_READ)
+                && !active.contains(
+                        CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "required capability is not granted");
+        }
+    }
+
+    private String snapshotReadCapability() {
+        return snapshotReadCapability(capabilities.currentCapabilities());
+    }
+
+    private static String snapshotReadCapability(java.util.Set<String> active) {
+        if (active.contains(CapabilityCodes.ATTENDANCE_REPORT_READ)) {
+            return CapabilityCodes.ATTENDANCE_REPORT_READ;
+        }
+        return CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ;
+    }
+
+    private java.util.Optional<ReportSourceSnapshot> loadSnapshot(
+            String principalId,
+            ReportFilter filter,
+            Instant authorizationTime) {
+        return loadSnapshot(
+                principalId,
+                filter,
+                null,
+                authorizationTime,
+                snapshotReadCapability());
+    }
+
+    private java.util.Optional<ReportSourceSnapshot> loadSnapshot(
+            String principalId,
+            ReportFilter filter,
+            String expectedSnapshotVersion,
+            Instant authorizationTime) {
+        return loadSnapshot(
+                principalId,
+                filter,
+                expectedSnapshotVersion,
+                authorizationTime,
+                snapshotReadCapability());
+    }
+
+    private java.util.Optional<ReportSourceSnapshot> loadSnapshot(
+            String principalId,
+            ReportFilter filter,
+            String expectedSnapshotVersion,
+            Instant authorizationTime,
+            String capability) {
+        if (realtimeSnapshots != null) {
+            return realtimeSnapshots.loadAuthorizedSnapshot(
+                    principalId,
+                    capability,
+                    filter,
+                    expectedSnapshotVersion,
+                    authorizationTime);
+        }
+        return sourceRepository.loadAuthorizedSnapshot(
+                principalId,
+                capability,
+                filter,
+                authorizationTime);
+    }
+
     private static ApiProblemException notReady() {
         return new ApiProblemException(
                 HttpStatus.CONFLICT,
-                "ATTENDANCE_REPORT_PROJECTION_NOT_READY",
-                "当前期间尚无已发布的报表投影",
+                "ATTENDANCE_REPORT_SNAPSHOT_NOT_READY",
+                "当前期间尚不能安全导出实时报表",
                 true);
     }
 

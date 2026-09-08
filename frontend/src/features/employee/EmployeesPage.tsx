@@ -3,6 +3,7 @@ import {
   IconBuildingCommunity,
   IconPlus,
   IconRefresh,
+  IconSearch,
   IconUsersGroup,
 } from '@tabler/icons-react';
 import {
@@ -35,7 +36,10 @@ import {
   getCurrentOrganizationTree,
   type OrganizationNode,
 } from '../organization/organizationApi';
-import { allOrganizationKeys } from '../organization/organizationTree';
+import {
+  allOrganizationKeys,
+  filterOrganizationNodes,
+} from '../organization/organizationTree';
 import {
   createLocalEmployee,
   getEmployees,
@@ -80,6 +84,7 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<EmployeeStatus>();
   const [selectedOrganizationId, setSelectedOrganizationId] = useState<string>();
+  const [organizationQuery, setOrganizationQuery] = useState('');
   const [state, setState] = useState<EmployeeState>({ status: 'loading' });
   const [directoryState, setDirectoryState] = useState<EmployeeDirectoryState>({
     status: 'loading',
@@ -195,11 +200,15 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
   const selectedOrganization = selectedOrganizationId
     ? findOrganization(directoryNodes, selectedOrganizationId)
     : undefined;
+  const filteredDirectoryNodes = useMemo(
+    () => filterOrganizationNodes(directoryNodes, organizationQuery),
+    [directoryNodes, organizationQuery],
+  );
   const treeData = useMemo<EmployeeDirectoryTreeNode[]>(() => [{
     key: allEmployeesKey,
     title: t('employee.directoryAll'),
-    children: toEmployeeDirectoryTreeData(directoryNodes),
-  }], [directoryNodes, t]);
+    children: toEmployeeDirectoryTreeData(filteredDirectoryNodes),
+  }], [filteredDirectoryNodes, t]);
 
   return (
     <section>
@@ -232,18 +241,28 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
               <p>{t('employee.directoryDescription')}</p>
             </div>
           </div>
+          <Input
+            className="organization-directory-search"
+            allowClear
+            prefix={<IconSearch aria-hidden="true" stroke={2} />}
+            aria-label="搜索部门"
+            placeholder="输入部门名称或编码"
+            value={organizationQuery}
+            onChange={(event) => setOrganizationQuery(event.target.value)}
+          />
           {directoryState.status === 'loading' ? <StatePanel state="loading" /> : null}
           {directoryState.error ? (
             <ApiErrorState error={directoryState.error} onRetry={loadDirectory} />
           ) : null}
           {directoryState.status === 'ready' ? (
             <Tree<EmployeeDirectoryTreeNode>
+              key={organizationQuery.trim() || 'all-employee-organizations'}
               aria-label={t('employee.directoryTitle')}
               className="organization-tree employee-directory-tree"
               treeData={treeData}
               defaultExpandedKeys={[
                 allEmployeesKey,
-                ...allOrganizationKeys(directoryNodes),
+                ...allOrganizationKeys(filteredDirectoryNodes),
               ]}
               blockNode
               selectedKeys={[selectedOrganizationId ?? allEmployeesKey]}
@@ -257,6 +276,13 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
               )}
             />
           ) : null}
+          {directoryState.status === 'ready'
+            && organizationQuery.trim()
+            && filteredDirectoryNodes.length === 0 ? (
+              <p className="organization-directory-empty" role="status">
+                未找到匹配的部门，请调整名称或编码。
+              </p>
+            ) : null}
         </aside>
         <section className="content-surface employee-directory-workbench__list">
           <div className="section-heading employee-list-heading">

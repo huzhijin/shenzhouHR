@@ -19,6 +19,7 @@ import com.szsemicon.hr.attendance.domain.LeaveType;
 import com.szsemicon.hr.reporting.application.AttendanceReportFactProjector.CurrentExceptionProjectionContext;
 import com.szsemicon.hr.reporting.application.AttendanceReportFactProjector.ProjectionContext;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionFact;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -106,12 +107,53 @@ class AttendanceReportFactProjectorTest {
         assertThat(projected.dailyFact().missingPunchCount()).isEqualTo(1);
         assertThat(projected.exceptionFacts())
                 .extracting(value -> value.exceptionType())
-                .containsExactlyInAnyOrder(
-                        "EARLY_DEPARTURE",
-                        "MISSING_PUNCH_PENDING");
+                .containsExactly("EARLY_DEPARTURE");
         assertThat(projected.exceptionFacts())
                 .extracting(value -> value.exceptionType())
                 .doesNotContain("LATE");
+        assertThat(projected.exceptionFacts())
+                .allSatisfy(value -> assertThat(value.safeEvidenceSummary())
+                        .doesNotContain("secret-punch-id"));
+    }
+
+    @Test
+    void exactStartLatePublishesZeroMinuteLateException() {
+        var result = new DailyAttendanceResult(
+                "calculation-v1",
+                "input-digest",
+                "result-digest",
+                "algorithm-v1",
+                new AttendanceMetrics(480, 480, 0, 0, 0, 0, 480),
+                List.of(item(
+                        "late",
+                        "00:30:00Z",
+                        "00:31:00Z",
+                        ResultCategory.LATE,
+                        0,
+                        "LATE_AT_SHIFT_START",
+                        null)),
+                List.of(new RuleHit(
+                        "late-rule",
+                        "policy-v1",
+                        "segment-am",
+                        "LATE_AT_SHIFT_START",
+                        0,
+                        0,
+                        List.of("secret-punch-id"))),
+                List.of(),
+                new ExplanationGraph(List.of(), List.of()),
+                Set.of("secret-punch-id"),
+                List.of());
+
+        var projected =
+                new AttendanceReportFactProjector().project(result, context());
+
+        assertThat(projected.dailyFact().lateMinutes()).isZero();
+        assertThat(projected.dailyFact().penalizedLateMinutes()).isZero();
+        assertThat(projected.exceptionFacts())
+                .extracting(value -> value.exceptionType())
+                .containsExactly("LATE");
+        assertThat(projected.exceptionFacts().getFirst().minutes()).isZero();
         assertThat(projected.exceptionFacts())
                 .allSatisfy(value -> assertThat(value.safeEvidenceSummary())
                         .doesNotContain("secret-punch-id"));
@@ -222,6 +264,44 @@ class AttendanceReportFactProjectorTest {
     }
 
     @Test
+    void restDayOvertimeWithoutOffDutyPunchIsMissingOffDuty() {
+        var result = result(new AttendanceMetrics(
+                0,
+                0,
+                150,
+                150,
+                150,
+                0,
+                0,
+                150,
+                0,
+                0,
+                150));
+        var saturday = new ProjectionContext(
+                "daily-fact-v1",
+                "legal-a",
+                "employee-a",
+                "0007",
+                "陈思远",
+                "organization-a",
+                "organization-version-a",
+                "制造中心",
+                LocalDate.of(2026, 7, 4),
+                DayType.SATURDAY,
+                "休息",
+                Instant.parse("2026-07-04T00:30:00Z"),
+                Instant.parse("2026-07-04T00:30:00Z"));
+
+        var projected = new AttendanceReportFactProjector()
+                .project(result, saturday);
+
+        assertThat(projected.dailyFact().missingPunchCount()).isGreaterThanOrEqualTo(1);
+        assertThat(projected.exceptionFacts())
+                .extracting(ExceptionFact::exceptionType)
+                .contains("MISSING_OFF_DUTY");
+    }
+
+    @Test
     void explicitPaidAndUnpaidLeaveTypesControlAttendanceCredit() {
         var result = result(new AttendanceMetrics(
                 480, 0, 0, 0, 480, 0, 0));
@@ -236,6 +316,17 @@ class AttendanceReportFactProjectorTest {
         assertThat(annual.leaveType()).isEqualTo(LeaveType.ANNUAL);
         assertThat(personal.actualAttendanceDays()).isZero();
         assertThat(personal.leaveType()).isEqualTo(LeaveType.PERSONAL);
+    }
+
+    @Test
+    void morningWorkAndAfternoonPersonalLeaveCountsHalfDay() {
+        var result = result(new AttendanceMetrics(
+                480, 210, 0, 0, 270, 0, 210));
+        var daily = new AttendanceReportFactProjector()
+                .project(result, context(LeaveType.PERSONAL))
+                .dailyFact();
+        assertThat(daily.actualAttendanceDays()).isEqualTo(0.5);
+        assertThat(daily.scheduledAttendanceDays()).isEqualTo(1);
     }
 
     @Test
@@ -283,6 +374,187 @@ class AttendanceReportFactProjectorTest {
                     .isEqualTo("原因码=" + type.name() + "；证据数量=2")
                     .doesNotContain("secret-evidence");
         }
+    }
+
+    @Test
+    void fullDayPersonalLeaveSuppressesPunchExceptions() {
+        var result = new DailyAttendanceResult(
+                "calculation-v1",
+                "input-digest",
+                "result-digest",
+                "algorithm-v1",
+                new AttendanceMetrics(480, 0, 0, 0, 480, 480, 0),
+                List.of(
+                        item(
+                                "leave-am",
+                                "01:00:00Z",
+                                "04:00:00Z",
+                                ResultCategory.LEAVE,
+                                180,
+                                "LEAVE",
+                                null),
+                        item(
+                                "leave-pm",
+                                "05:00:00Z",
+                                "09:30:00Z",
+                                ResultCategory.LEAVE,
+                                270,
+                                "LEAVE",
+                                null),
+                        item(
+                                "missing",
+                                "00:30:00Z",
+                                "09:30:00Z",
+                                ResultCategory.MISSING_PUNCH_PENDING,
+                                0,
+                                "MISSING_PUNCH_PENDING",
+                                "missing-fingerprint"),
+                        item(
+                                "late",
+                                "00:40:00Z",
+                                "00:50:00Z",
+                                ResultCategory.LATE,
+                                10,
+                                "LATE_CHARGEABLE",
+                                null),
+                        item(
+                                "absence",
+                                "00:30:00Z",
+                                "09:30:00Z",
+                                ResultCategory.ABSENCE,
+                                480,
+                                "ABSENCE",
+                                "absence-fingerprint")),
+                List.of(new RuleHit(
+                        "late-rule",
+                        "policy-v1",
+                        "segment-am",
+                        "LATE_CHARGEABLE",
+                        10,
+                        10,
+                        List.of("secret-punch-id"))),
+                List.of(),
+                new ExplanationGraph(List.of(), List.of()),
+                Set.of(),
+                List.of("missing-fingerprint", "absence-fingerprint"));
+
+        var projected = new AttendanceReportFactProjector().project(
+                result,
+                new ProjectionContext(
+                        "daily-fact-v1",
+                        "legal-a",
+                        "employee-a",
+                        "0007",
+                        "陈思远",
+                        "organization-a",
+                        "organization-version-a",
+                        "制造中心",
+                        LocalDate.of(2026, 7, 15),
+                        DayType.WEEKDAY,
+                        "总部夏令班",
+                        null,
+                        null,
+                        LeaveType.PERSONAL));
+
+        assertThat(projected.exceptionFacts()).isEmpty();
+        assertThat(projected.dailyFact().missingPunchCount()).isZero();
+    }
+
+    @Test
+    void leaveMinutesWithoutCoveringItemsSuppressMissingPunch() {
+        var result = new DailyAttendanceResult(
+                "calculation-v1",
+                "input-digest",
+                "result-digest",
+                "algorithm-v1",
+                new AttendanceMetrics(480, 0, 0, 0, 480, 0, 0),
+                List.of(item(
+                        "missing",
+                        "00:30:00Z",
+                        "09:30:00Z",
+                        ResultCategory.MISSING_PUNCH_PENDING,
+                        0,
+                        "MISSING_PUNCH_PENDING",
+                        "missing-fingerprint")),
+                List.of(),
+                List.of(),
+                new ExplanationGraph(List.of(), List.of()),
+                Set.of(),
+                List.of("missing-fingerprint"));
+
+        var projected = new AttendanceReportFactProjector().project(
+                result,
+                new ProjectionContext(
+                        "daily-fact-v1",
+                        "legal-a",
+                        "employee-a",
+                        "0007",
+                        "陈思远",
+                        "organization-a",
+                        "organization-version-a",
+                        "制造中心",
+                        LocalDate.of(2026, 7, 15),
+                        DayType.WEEKDAY,
+                        "总部夏令班",
+                        null,
+                        null,
+                        LeaveType.PERSONAL));
+
+        assertThat(projected.dailyFact().missingPunchCount()).isZero();
+        assertThat(projected.exceptionFacts()).isEmpty();
+    }
+
+    @Test
+    void duplicateMissingPunchItemsCollapseToOneSide() {
+        var result = new DailyAttendanceResult(
+                "calculation-v1",
+                "input-digest",
+                "result-digest",
+                "algorithm-v1",
+                new AttendanceMetrics(480, 240, 0, 0, 0, 0, 240),
+                List.of(
+                        item(
+                                "missing-pending",
+                                "05:00:00Z",
+                                "09:30:00Z",
+                                ResultCategory.MISSING_PUNCH_PENDING,
+                                0,
+                                "MISSING_PUNCH_PENDING",
+                                "fp-1"),
+                        item(
+                                "missing-overdue",
+                                "05:00:00Z",
+                                "09:30:00Z",
+                                ResultCategory.ABSENCE,
+                                0,
+                                "MISSING_PUNCH_OVERDUE",
+                                "fp-2")),
+                List.of(),
+                List.of(),
+                new ExplanationGraph(List.of(), List.of()),
+                Set.of(),
+                List.of("fp-1", "fp-2"));
+
+        var projected = new AttendanceReportFactProjector().project(
+                result,
+                new ProjectionContext(
+                        "daily-fact-v1",
+                        "legal-a",
+                        "employee-a",
+                        "0007",
+                        "陈思远",
+                        "organization-a",
+                        "organization-version-a",
+                        "制造中心",
+                        LocalDate.of(2026, 7, 15),
+                        DayType.WEEKDAY,
+                        "总部夏令班",
+                        Instant.parse("2026-07-15T00:40:00Z"),
+                        Instant.parse("2026-07-15T00:40:00Z")));
+
+        assertThat(projected.exceptionFacts())
+                .extracting(value -> value.exceptionType())
+                .containsExactly("MISSING_OFF_DUTY");
     }
 
     private ResultItem item(

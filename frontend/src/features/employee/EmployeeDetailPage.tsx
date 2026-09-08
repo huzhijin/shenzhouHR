@@ -15,6 +15,7 @@ import {
   Modal,
   Select,
   Space,
+  Switch,
   Table,
   Tag,
   Timeline,
@@ -43,19 +44,22 @@ import {
   type OrganizationNode,
 } from '../organization/organizationApi';
 import {
-  adjustAnnualLeaveBalance,
+  adjustLeaveBalance,
   createEmploymentPeriod,
   createPriorServiceAdjustment,
   getAnnualLeaveAccount,
   getEmployee,
+  getPunchExemption,
+  getTimeOffAccount,
   listEmploymentPeriods,
   listPriorServiceRecords,
   recalculatePriorService,
-  setAnnualLeaveOpeningBalance,
+  setLeaveOpeningBalance,
   updateEmploymentPeriod,
   updateLocalEmployee,
   type AnnualLeaveAccount,
   type AnnualLeaveLedgerEntry,
+  type LeaveAccountKind,
   type EmployeeDetail,
   type EmployeeStatus,
   type EmployeeUpdateRequest,
@@ -64,6 +68,8 @@ import {
   type PriorServiceAdjustmentRequest,
   type PriorServiceRecordView,
   type PriorServiceRecordPage,
+  type PunchExemptionStatus,
+  setPunchExemption,
 } from './employeeApi';
 
 type DetailState =
@@ -75,6 +81,8 @@ type DetailState =
       periods?: EmploymentPeriodView[];
       priorService?: PriorServiceRecordPage;
       annualLeave?: AnnualLeaveAccount;
+      timeOff?: AnnualLeaveAccount;
+      punchExemption?: PunchExemptionStatus;
     }
   | { status: 'error'; error: ApiRequestError };
 
@@ -106,6 +114,7 @@ type PriorServiceFormValues = {
 export type EmployeeOrganizationOption = {
   label: string;
   value: string;
+  searchText: string;
   disabled?: boolean;
 };
 
@@ -129,6 +138,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
   const canAdjustLeave = capabilities.includes('ANNUAL_LEAVE:ADJUST');
   const currentYear = new Date().getFullYear();
   const [leaveForm] = Form.useForm<{ balanceHours: number; adjustmentHours: number; reason: string }>();
+  const [leaveKind, setLeaveKind] = useState<LeaveAccountKind>('ANNUAL_LEAVE');
 
   const load = useCallback(() => {
     setState((previous) => previous.status === 'ready'
@@ -140,14 +150,18 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
       canReadPriorService ? listPriorServiceRecords(employeeId) : Promise.resolve(undefined),
       getCurrentOrganizationTree(true),
       canReadLeave ? getAnnualLeaveAccount(employeeId, currentYear) : Promise.resolve(undefined),
+      canReadLeave ? getTimeOffAccount(employeeId, currentYear) : Promise.resolve(undefined),
+      getPunchExemption(employeeId).catch(() => undefined),
     ])
-      .then(([detail, periodPage, priorService, organizations, annualLeave]) => setState({
+      .then(([detail, periodPage, priorService, organizations, annualLeave, timeOff, punchExemption]) => setState({
         status: 'ready',
         detail,
         organizations,
         periods: periodPage?.items,
         priorService,
         annualLeave,
+        timeOff,
+        punchExemption,
       }))
       .catch((error: unknown) => setState({
         status: 'error',
@@ -162,7 +176,21 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
   if (state.status === 'error') return <ApiErrorState error={state.error} onRetry={load} />;
   if (state.status !== 'ready') return <StatePanel state={state.status} />;
 
-  const { detail, organizations, periods, priorService, annualLeave } = state;
+  const { detail, organizations, periods, priorService, annualLeave, timeOff, punchExemption } = state;
+  const leaveKindLabel = leaveKind === 'TIME_OFF' ? '调休' : '年假';
+  const saveStandingExempt = (standingExempt: boolean) => {
+    setProcessing(true);
+    setWriteError(undefined);
+    void setPunchExemption(employeeId, standingExempt)
+      .then((next) => {
+        setState((previous) => previous.status === 'ready'
+          ? { ...previous, punchExemption: next }
+          : previous);
+        setFeedback(t('employee.punchExemptSaved'));
+      })
+      .catch((error: unknown) => setWriteError(asApiError(error, 'EMPLOYEE_PUNCH_EXEMPT_UNAVAILABLE')))
+      .finally(() => setProcessing(false));
+  };
   const organizationOptions = employeeOrganizationOptions(
     organizations,
     periods?.map((period) => period.organizationId) ?? [],
@@ -384,6 +412,23 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
               { key: 'name', label: t('employee.name'), children: detail.displayName },
               { key: 'number', label: t('employee.number'), children: <code>{detail.employeeNumber}</code> },
               { key: 'effective', label: t('people.effectivePeriod'), children: `${formatDate(detail.effectiveFrom)} — ${detail.effectiveTo ? formatDate(detail.effectiveTo) : t('people.longTerm')}` },
+              {
+                key: 'punchExempt',
+                label: t('employee.punchExempt'),
+                children: (
+                  <Space direction="vertical" size={4}>
+                    <Switch
+                      checked={punchExemption?.standingExempt ?? false}
+                      disabled={!capabilities.includes('EMPLOYEE:EDIT') || processing}
+                      onChange={saveStandingExempt}
+                    />
+                    <span>{t('employee.punchExemptDescription')}</span>
+                    {punchExemption?.executiveExempt ? (
+                      <Tag color="blue">{t('employee.executiveExempt')}</Tag>
+                    ) : null}
+                  </Space>
+                ),
+              },
             ]}
           />
         </section>
@@ -494,98 +539,56 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
         )}
       </section>
 
-      {/* ── 年假账户 ──────────────────────────────────────── */}
       {canReadLeave && (
-        <section className="content-surface section-spaced" aria-labelledby="annual-leave-title">
+        <section className="content-surface section-spaced" aria-labelledby="leave-quota-title">
           <div className="section-heading">
             <div>
-              <h2 id="annual-leave-title">年休假账户（{currentYear} 年）</h2>
-              <p>查看本年年假余额、发放和使用记录；HR 可设置期初余额或手动调整。</p>
+              <h2 id="leave-quota-title">假期额度（{currentYear} 年）</h2>
+              <p>年假和调休余额放在一起查看；HR 可分别设置期初或手动调整。</p>
             </div>
-            {canAdjustLeave && (
-              <Space wrap>
-                <AccessibleButton
-                  label="设置期初余额"
-                  icon={<IconPlus aria-hidden="true" stroke={2} />}
-                  onClick={() => {
-                    leaveForm.resetFields();
-                    leaveForm.setFieldsValue({
-                      balanceHours: annualLeave?.balanceHours ?? 0,
-                      reason: '期初年假余额录入',
-                    });
-                    openDialog('leave-opening');
-                  }}
-                >
-                  设置期初
-                </AccessibleButton>
-                <AccessibleButton
-                  label="手动调整余额"
-                  icon={<IconCalculator aria-hidden="true" stroke={2} />}
-                  onClick={() => {
-                    leaveForm.resetFields();
-                    leaveForm.setFieldsValue({ reason: '手动调整' });
-                    openDialog('leave-adjust');
-                  }}
-                >
-                  手动调整
-                </AccessibleButton>
-              </Space>
-            )}
           </div>
-          {!annualLeave ? (
-            <StatePanel state="empty" description="暂无年假账户记录" />
-          ) : (
-            <>
-              <div style={{ display: 'flex', gap: 32, marginBottom: 16, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>当前余额</div>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--color-brand-primary)' }}>
-                    {annualLeave.balanceHours.toFixed(1)} 小时
-                  </div>
-                  <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
-                    ≈ {annualLeave.equivalentDays.toFixed(1)} 天（8 小时制）
-                  </div>
-                </div>
-              </div>
-              {annualLeave.entries.length > 0 && (
-                <Table<AnnualLeaveLedgerEntry>
-                  size="small"
-                  dataSource={annualLeave.entries}
-                  rowKey="entryId"
-                  pagination={false}
-                  columns={[
-                    {
-                      title: '类型',
-                      dataIndex: 'entryTypeLabel',
-                      width: 100,
-                      render: (label: string, row) => (
-                        <Tag color={row.amountHours >= 0 ? 'green' : 'red'}>{label}</Tag>
-                      ),
-                    },
-                    {
-                      title: '小时数',
-                      dataIndex: 'amountHours',
-                      width: 90,
-                      render: (h: number) => (
-                        <strong style={{ color: h >= 0 ? '#389e0d' : '#cf1322' }}>
-                          {h >= 0 ? `+${h.toFixed(2)}` : h.toFixed(2)}
-                        </strong>
-                      ),
-                    },
-                    { title: '业务日期', dataIndex: 'businessDate', width: 110 },
-                    { title: '到期日', dataIndex: 'expiresOn', width: 110,
-                      render: (d: string | null) => d ?? '不过期' },
-                    { title: '来源', dataIndex: 'sourceType', width: 160 },
-                    {
-                      title: '记录时间',
-                      dataIndex: 'occurredAt',
-                      render: (ts: string) => formatDateTime(ts),
-                    },
-                  ]}
-                />
-              )}
-            </>
-          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
+            <LeaveQuotaCard
+              title="年假"
+              account={annualLeave}
+              canAdjust={canAdjustLeave}
+              onOpening={() => {
+                setLeaveKind('ANNUAL_LEAVE');
+                leaveForm.resetFields();
+                leaveForm.setFieldsValue({
+                  balanceHours: annualLeave?.balanceHours ?? 0,
+                  reason: '期初年假余额录入',
+                });
+                openDialog('leave-opening');
+              }}
+              onAdjust={() => {
+                setLeaveKind('ANNUAL_LEAVE');
+                leaveForm.resetFields();
+                leaveForm.setFieldsValue({ reason: '手动调整年假' });
+                openDialog('leave-adjust');
+              }}
+            />
+            <LeaveQuotaCard
+              title="调休"
+              account={timeOff}
+              canAdjust={canAdjustLeave}
+              onOpening={() => {
+                setLeaveKind('TIME_OFF');
+                leaveForm.resetFields();
+                leaveForm.setFieldsValue({
+                  balanceHours: timeOff?.balanceHours ?? 0,
+                  reason: '期初调休额度录入',
+                });
+                openDialog('leave-opening');
+              }}
+              onAdjust={() => {
+                setLeaveKind('TIME_OFF');
+                leaveForm.resetFields();
+                leaveForm.setFieldsValue({ reason: '手动调整调休' });
+                openDialog('leave-adjust');
+              }}
+            />
+          </div>
         </section>
       )}
 
@@ -596,6 +599,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
         priorForm={priorForm}
         reasonForm={reasonForm}
         leaveForm={leaveForm}
+        leaveKindLabel={leaveKindLabel}
         processing={processing}
         error={writeError}
         organizationOptions={organizationOptions}
@@ -607,27 +611,29 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
         onSaveLeaveOpening={async () => {
           const values = await leaveForm.validateFields();
           await execute(async () => {
-            await setAnnualLeaveOpeningBalance(
+            await setLeaveOpeningBalance(
               employeeId,
               values.balanceHours,
               currentYear,
               values.reason.trim(),
-              createIdempotencyKey('leave-opening-' + employeeId),
+              createIdempotencyKey(`leave-opening-${leaveKind}-${employeeId}`),
+              leaveKind,
             );
-            setFeedback('期初年假余额已设置');
+            setFeedback(`期初${leaveKindLabel}余额已设置`);
           });
         }}
         onSaveLeaveAdjust={async () => {
           const values = await leaveForm.validateFields();
           await execute(async () => {
-            await adjustAnnualLeaveBalance(
+            await adjustLeaveBalance(
               employeeId,
               values.adjustmentHours,
               currentYear,
               values.reason.trim(),
-              createIdempotencyKey('leave-adjust-' + employeeId),
+              createIdempotencyKey(`leave-adjust-${leaveKind}-${employeeId}`),
+              leaveKind,
             );
-            setFeedback('年假余额已调整');
+            setFeedback(`${leaveKindLabel}余额已调整`);
           });
         }}
       />
@@ -644,6 +650,7 @@ function EmployeeDialogs({
   priorForm,
   reasonForm,
   leaveForm,
+  leaveKindLabel,
   processing,
   error,
   organizationOptions,
@@ -661,6 +668,7 @@ function EmployeeDialogs({
   priorForm: ReturnType<typeof Form.useForm<PriorServiceFormValues>>[0];
   reasonForm: ReturnType<typeof Form.useForm<{ reason: string }>>[0];
   leaveForm: ReturnType<typeof Form.useForm<{ balanceHours: number; adjustmentHours: number; reason: string }>>[0];
+  leaveKindLabel: string;
   processing: boolean;
   error?: ApiRequestError;
   organizationOptions: EmployeeOrganizationOption[];
@@ -690,7 +698,9 @@ function EmployeeDialogs({
   return (
     <Modal
       open={Boolean(dialog)}
-      title={t(dialogTitle(dialog))}
+      title={dialog === 'leave-opening' || dialog === 'leave-adjust'
+        ? dialogTitle(dialog, leaveKindLabel)
+        : t(dialogTitle(dialog))}
       okText={t('common.confirm')}
       cancelText={t('common.cancel')}
       confirmLoading={processing}
@@ -722,7 +732,12 @@ function EmployeeDialogs({
                 ))}
               </Space.Compact>
             </Form.Item>
-            <Form.Item name="effectiveFrom" label={t('people.effectiveFrom')} rules={[{ required: true }]}>
+            <Form.Item
+              name="effectiveFrom"
+              label={t('people.effectiveFrom')}
+              extra={t('people.identityCorrectionHint')}
+              rules={[{ required: true }]}
+            >
               <DatePicker />
             </Form.Item>
             <Form.Item name="effectiveTo" label={t('people.effectiveTo')}>
@@ -737,7 +752,7 @@ function EmployeeDialogs({
           <Form.Item name="organizationId" label={t('employee.organizationId')} rules={[{ required: true }]}>
             <Select
               showSearch
-              optionFilterProp="label"
+              optionFilterProp="searchText"
               options={organizationOptions}
               placeholder={t('employee.organizationPlaceholder')}
             />
@@ -787,15 +802,15 @@ function EmployeeDialogs({
           <Alert
             showIcon
             type="info"
-            title="设置期初余额"
-            description="此操作将把该员工本年年假余额重置为指定小时数（40小时=5天，80小时=10天）。如已有期初记录，系统将自动补差。"
+            title={`设置${leaveKindLabel}期初余额`}
+            description={`此操作将把该员工本年${leaveKindLabel}余额重置为指定小时数（8小时=1天）。超用可录入负数，页面按天展示。如已有期初记录，系统将自动补差。`}
           />
           <Form.Item
             name="balanceHours"
             label="期初余额（小时）"
-            rules={[{ required: true }, { type: 'number', min: 0, max: 9999 }]}
+            rules={[{ required: true }, { type: 'number', min: -9999, max: 9999 }]}
           >
-            <InputNumber precision={2} min={0} max={9999} step={8} addonAfter="h" />
+            <InputNumber precision={2} min={-9999} max={9999} step={8} addonAfter="h" />
           </Form.Item>
           <Form.Item name="reason" label="原因" rules={[{ required: true, min: 2 }, { max: 500 }]}>
             <Input.TextArea rows={2} />
@@ -807,8 +822,8 @@ function EmployeeDialogs({
           <Alert
             showIcon
             type="info"
-            title="手动调整余额"
-            description="正数增加余额，负数扣减余额（如已使用但未及时录入）。调整后余额不低于0。"
+            title={`手动调整${leaveKindLabel}余额`}
+            description="正数增加余额，负数扣减余额。有 OA 预占时不得低于预占小时；无预占时允许负数。"
           />
           <Form.Item
             name="adjustmentHours"
@@ -835,14 +850,104 @@ function ReasonField() {
   );
 }
 
-function dialogTitle(dialog?: DialogMode) {
+function dialogTitle(dialog?: DialogMode, leaveKindLabel = '年假') {
   if (dialog === 'edit') return 'employee.editTitle';
   if (dialog === 'period-create') return 'employee.rehireTitle';
   if (dialog === 'period-edit') return 'employee.editPeriodTitle';
   if (dialog === 'prior-adjust') return 'employee.adjustPriorTitle';
-  if (dialog === 'leave-opening') return '年假期初余额';
-  if (dialog === 'leave-adjust') return '手动调整年假余额';
+  if (dialog === 'leave-opening') return `${leaveKindLabel}期初余额`;
+  if (dialog === 'leave-adjust') return `手动调整${leaveKindLabel}余额`;
   return 'employee.recalculateTitle';
+}
+
+function LeaveQuotaCard({
+  title,
+  account,
+  canAdjust,
+  onOpening,
+  onAdjust,
+}: {
+  title: string;
+  account?: AnnualLeaveAccount;
+  canAdjust: boolean;
+  onOpening: () => void;
+  onAdjust: () => void;
+}) {
+  return (
+    <article>
+      <div className="section-heading" style={{ marginBottom: 12 }}>
+        <h3 style={{ margin: 0 }}>{title}</h3>
+        {canAdjust ? (
+          <Space wrap>
+            <AccessibleButton
+              label={`设置${title}期初余额`}
+              icon={<IconPlus aria-hidden="true" stroke={2} />}
+              onClick={onOpening}
+            >
+              设置期初
+            </AccessibleButton>
+            <AccessibleButton
+              label={`手动调整${title}余额`}
+              icon={<IconCalculator aria-hidden="true" stroke={2} />}
+              onClick={onAdjust}
+            >
+              手动调整
+            </AccessibleButton>
+          </Space>
+        ) : null}
+      </div>
+      {!account ? (
+        <StatePanel state="empty" description={`暂无${title}账户记录`} />
+      ) : (
+        <>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>当前余额</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--color-brand-primary)' }}>
+              {account.balanceHours.toFixed(1)} 小时
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+              ≈ {account.equivalentDays.toFixed(1)} 天（8 小时制）
+            </div>
+          </div>
+          {account.entries.length > 0 ? (
+            <Table<AnnualLeaveLedgerEntry>
+              size="small"
+              dataSource={account.entries}
+              rowKey="entryId"
+              pagination={false}
+              columns={[
+                {
+                  title: '类型',
+                  dataIndex: 'entryTypeLabel',
+                  width: 100,
+                  render: (label: string, row) => (
+                    <Tag color={row.amountHours >= 0 ? 'green' : 'red'}>{label}</Tag>
+                  ),
+                },
+                {
+                  title: '小时数',
+                  dataIndex: 'amountHours',
+                  width: 90,
+                  render: (h: number) => (
+                    <strong style={{ color: h >= 0 ? '#389e0d' : '#cf1322' }}>
+                      {h >= 0 ? `+${h.toFixed(2)}` : h.toFixed(2)}
+                    </strong>
+                  ),
+                },
+                { title: '业务日期', dataIndex: 'businessDate', width: 110 },
+                {
+                  title: '到期日',
+                  dataIndex: 'expiresOn',
+                  width: 110,
+                  render: (d: string | null) => d ?? '不过期',
+                },
+              ]}
+            />
+          ) : null}
+        </>
+      )}
+    </article>
+  );
 }
 
 function toEmployeeRequest(values: EmployeeFormValues): EmployeeUpdateRequest {
@@ -882,15 +987,21 @@ export function employeeOrganizationOptions(
   const selected = new Set(selectedOrganizationIds);
   const options = flattenEmployeeOrganizations(nodes)
     .filter(({ node }) => node.organizationType !== 'COMPANY' || selected.has(node.organizationId))
-    .map(({ node, depth }) => ({
-      label: `${'—'.repeat(depth)} ${node.name}`,
+    .map(({ node, path }) => ({
+      label: `${path.join(' / ')}（${node.code}）`,
       value: node.organizationId,
+      searchText: `${path.join(' ')} ${node.code}`,
       disabled: node.status !== 'ACTIVE' || node.organizationType === 'COMPANY',
     }));
   const knownIds = new Set(options.map((option) => option.value));
   for (const organizationId of selected) {
     if (!knownIds.has(organizationId)) {
-      options.push({ label: unavailableLabel, value: organizationId, disabled: true });
+      options.push({
+        label: unavailableLabel,
+        value: organizationId,
+        searchText: unavailableLabel,
+        disabled: true,
+      });
     }
   }
   return options;
@@ -907,11 +1018,11 @@ export function employeeOrganizationName(
 
 function flattenEmployeeOrganizations(
   nodes: OrganizationNode[],
-  depth = 0,
-): Array<{ node: OrganizationNode; depth: number }> {
+  parentNames: string[] = [],
+): Array<{ node: OrganizationNode; path: string[] }> {
   return nodes.flatMap((node) => [
-    { node, depth },
-    ...flattenEmployeeOrganizations(node.children, depth + 1),
+    { node, path: [...parentNames, node.name] },
+    ...flattenEmployeeOrganizations(node.children, [...parentNames, node.name]),
   ]);
 }
 

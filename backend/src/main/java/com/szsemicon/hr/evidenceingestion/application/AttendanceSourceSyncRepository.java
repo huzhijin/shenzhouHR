@@ -48,6 +48,19 @@ public interface AttendanceSourceSyncRepository {
             String jobId,
             String sourceId);
 
+    String findKqCommittedCursor(String sourceId);
+
+    AttendanceSourceSyncModels.PageState lockKqPageForCommit(
+            String jobId,
+            String sourceId,
+            String principalId,
+            String capability,
+            Instant authorizationTime);
+
+    AttendanceSourceSyncModels.PageState lockSystemKqPageForCommit(
+            String jobId,
+            String sourceId);
+
     /** Return IDs of every active DELI_CLOUD source (for scheduled jobs). */
     java.util.List<String> findAllActiveDeliSourceIds();
 
@@ -105,6 +118,13 @@ public interface AttendanceSourceSyncRepository {
     void insertCommittedPage(AttendanceSourceSyncModels.CommittedPage page);
 
     void advanceWatermark(
+            String sourceId,
+            long expectedVersion,
+            String committedCursor,
+            String pageDigest,
+            Instant committedAt);
+
+    void advanceKqWatermark(
             String sourceId,
             long expectedVersion,
             String committedCursor,

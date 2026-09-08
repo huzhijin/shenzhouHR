@@ -6,6 +6,7 @@ import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.security.ResourceNotAvailableAccessDeniedException;
 import java.time.Clock;
+import java.time.LocalDate;
 import org.springframework.stereotype.Service;
 
 /** Routes the authenticated sync command to the adapter for its source type. */
@@ -39,6 +40,11 @@ public class AttendanceSourceSyncDispatchService {
 
     public AttendanceSourceSyncModels.JobStatus run(
             String sourceId, String correlationId) {
+        return run(sourceId, correlationId, null);
+    }
+
+    public AttendanceSourceSyncModels.JobStatus run(
+            String sourceId, String correlationId, LocalDate throughDate) {
         requireReference(sourceId, 36);
         requireReference(correlationId, 64);
         capabilities.require(CapabilityCodes.ATTENDANCE_SOURCE_RUN);
@@ -51,7 +57,8 @@ public class AttendanceSourceSyncDispatchService {
                 .orElseThrow(() -> unavailable(principalId, sourceId));
 
         return switch (sourceType) {
-            case "DELI_CLOUD" -> deliSyncService.run(sourceId, correlationId);
+            case "DELI_CLOUD" -> deliSyncService.run(
+                    sourceId, correlationId, throughDate);
             case "OA_ATTENDANCE" -> oaSyncService.run(sourceId, correlationId);
             default -> throw unavailable(principalId, sourceId);
         };

@@ -5,6 +5,8 @@ import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Locale;
 import java.util.Set;
@@ -23,7 +25,7 @@ public final class OaMysqlProperties {
     private static final Duration MIN_QUERY_TIMEOUT =
             Duration.ofSeconds(1);
     private static final Duration MAX_QUERY_TIMEOUT =
-            Duration.ofSeconds(30);
+            Duration.ofSeconds(180);
     private static final Set<String> FORBIDDEN_JDBC_URL_PROPERTIES =
             Set.of(
                     "user",
@@ -44,7 +46,8 @@ public final class OaMysqlProperties {
     private ZoneId sourceTimeZone = REQUIRED_SOURCE_TIME_ZONE;
     private int maximumPoolSize = 2;
     private Duration connectionTimeout = Duration.ofSeconds(5);
-    private Duration queryTimeout = Duration.ofSeconds(3);
+    private Duration queryTimeout = Duration.ofSeconds(60);
+    private LocalDate syncNotBefore = LocalDate.of(2016, 1, 1);
 
     public boolean isEnabled() {
         return enabled;
@@ -110,6 +113,21 @@ public final class OaMysqlProperties {
         this.queryTimeout = queryTimeout;
     }
 
+    public LocalDate getSyncNotBefore() {
+        return syncNotBefore;
+    }
+
+    public void setSyncNotBefore(LocalDate syncNotBefore) {
+        this.syncNotBefore = syncNotBefore;
+    }
+
+    Instant syncNotBeforeInstant() {
+        LocalDate date = syncNotBefore == null
+                ? LocalDate.of(2016, 1, 1)
+                : syncNotBefore;
+        return date.atStartOfDay(REQUIRED_SOURCE_TIME_ZONE).toInstant();
+    }
+
     void validateEnabled() {
         if (!enabled) {
             throw new IllegalStateException(
@@ -141,6 +159,12 @@ public final class OaMysqlProperties {
                         MAX_QUERY_TIMEOUT)) {
             throw new IllegalStateException(
                     "OA MySQL timeouts are invalid");
+        }
+        if (syncNotBefore == null
+                || syncNotBefore.getYear() < 2016
+                || syncNotBefore.getYear() > 2100) {
+            throw new IllegalStateException(
+                    "OA MySQL sync-not-before date is invalid");
         }
     }
 

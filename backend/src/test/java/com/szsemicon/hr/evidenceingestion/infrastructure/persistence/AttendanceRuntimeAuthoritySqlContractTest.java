@@ -40,7 +40,12 @@ class AttendanceRuntimeAuthoritySqlContractTest {
                         + "&gt; group_timeline.event_sequence")
                 .contains("newer_location.event_sequence "
                         + "&gt; location_timeline.event_sequence")
-                .contains("LIMIT 2 FOR SHARE");
+                .contains("LIMIT 2 FOR SHARE")
+                .contains("timeout=\"120\"")
+                .contains("newer_shift_version.version_number")
+                .contains("newer_shift_pub.state = 'PUBLISHED'")
+                .contains("current_shift_pub.state = 'PUBLISHED'")
+                .doesNotContain("FROM audit_event");
         assertThat(sql.toUpperCase(Locale.ROOT))
                 .doesNotContain("${")
                 .doesNotContain("LOWER(")

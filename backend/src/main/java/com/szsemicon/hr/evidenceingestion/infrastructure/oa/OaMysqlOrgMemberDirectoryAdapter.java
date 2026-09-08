@@ -11,7 +11,7 @@ public final class OaMysqlOrgMemberDirectoryAdapter
         implements OaOrgMemberDirectoryPort {
 
     static final String FIND_MEMBER_SQL =
-            "SELECT id, code FROM org_member WHERE id = ?";
+            "SELECT id, code, name FROM org_member WHERE id = ?";
 
     private final OaReadOnlyConnectionProvider connections;
     private final int queryTimeoutSeconds;
@@ -21,7 +21,7 @@ public final class OaMysqlOrgMemberDirectoryAdapter
             int queryTimeoutSeconds) {
         if (connections == null
                 || queryTimeoutSeconds < 1
-                || queryTimeoutSeconds > 30) {
+                || queryTimeoutSeconds > 180) {
             throw new IllegalArgumentException(
                     "OA member directory configuration is invalid");
         }
@@ -52,8 +52,9 @@ public final class OaMysqlOrgMemberDirectoryAdapter
                     while (resultSet.next()) {
                         String rawId = resultSet.getString("id");
                         String code = resultSet.getString("code");
+                        String name = resultSet.getString("name");
                         matches.add(new OrgMemberRecord(
-                                parseMemberId(rawId), code));
+                                parseMemberId(rawId), code, name));
                     }
                     return List.copyOf(matches);
                 }

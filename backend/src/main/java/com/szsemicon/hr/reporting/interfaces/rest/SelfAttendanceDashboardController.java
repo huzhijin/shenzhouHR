@@ -26,18 +26,24 @@ public class SelfAttendanceDashboardController {
     @GetMapping
     @PreAuthorize("hasAuthority('ATTENDANCE_SELF:READ')")
     ResponseEntity<SelfAttendanceDashboardResponse> dashboard(
+            @RequestParam(required = false) java.time.YearMonth period,
+            @RequestParam(required = false) String window,
             @RequestParam MultiValueMap<String, String>
                     requestParameters) {
-        if (requestParameters != null
-                && !requestParameters.isEmpty()) {
-            throw new ApiProblemException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "本人考勤工作台不支持查询参数");
+        if (requestParameters != null) {
+            java.util.Set<String> allowed = java.util.Set.of("period", "window");
+            boolean supported = requestParameters.isEmpty()
+                    || requestParameters.keySet().stream().allMatch(allowed::contains);
+            if (!supported) {
+                throw new ApiProblemException(
+                        HttpStatus.BAD_REQUEST,
+                        "VALIDATION_ERROR",
+                        "本人考勤工作台仅支持 period 与 window 查询参数");
+            }
         }
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(SelfAttendanceDashboardResponse.from(
-                        dashboardService.query()));
+                        dashboardService.query(period, window)));
     }
 }

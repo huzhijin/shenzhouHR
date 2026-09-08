@@ -96,6 +96,26 @@ describe('Wave 7 production gateway', () => {
       .resolves.toEqual(selection);
   });
 
+  it('accepts a company-selection payload that omits selectedCompanyId', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      kind: 'DASHBOARD_COMPANY_SELECTION',
+      title: '今日异常考勤',
+      businessDate: '2026-07-30',
+      companies: [
+        { companyId: 'company-a', companyName: '神州半导体' },
+        { companyId: 'company-b', companyName: '神州科技' },
+      ],
+      message: '请选择公司后查看今日异常考勤',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadDashboard())
+      .resolves.toMatchObject({
+        kind: 'DASHBOARD_COMPANY_SELECTION',
+        selectedCompanyId: null,
+      });
+  });
+
   it('rejects malformed or cross-company dashboard responses', async () => {
     const malformed = {
       ...attendanceDashboardResponse(),
@@ -139,6 +159,19 @@ describe('Wave 7 production gateway', () => {
         status: 502,
         code: 'INVALID_DASHBOARD_RESPONSE',
       });
+  });
+
+  it('does not retry a dashboard timeout and keeps the timeout error', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(
+      new DOMException('The operation was aborted.', 'TimeoutError'),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(wave7ProjectionGateway.loadDashboard()).rejects.toMatchObject({
+      status: 408,
+      code: 'REQUEST_TIMEOUT',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects invalid dashboard company input before issuing a request', async () => {
@@ -585,6 +618,25 @@ describe('Wave 7 production gateway', () => {
       code: 'INVALID_REPORT_EXPORT_RESPONSE',
       message: '导出状态暂时无法读取，请刷新后重试。',
     });
+  });
+
+  it('accepts an XLSX download whose Content-Type includes charset', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Uint8Array([0x50, 0x4b, 0x03, 0x04]), {
+        status: 200,
+        headers: {
+          'Content-Type':
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8',
+          'Content-Disposition':
+            'attachment; filename="attendance-detail-2026-07.xlsx"',
+        },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await wave7ProjectionGateway.downloadReportExport?.(exportId);
+    expect(result?.fileName).toBe('attendance-detail-2026-07.xlsx');
+    expect(result?.blob.size).toBe(4);
   });
 
   it('downloads XLSX without a password in the POST body', async () => {

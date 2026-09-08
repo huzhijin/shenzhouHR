@@ -107,6 +107,37 @@ class AttendanceReportOpenApiContractTest {
     }
 
     @Test
+    void recalculateIsARefreshCapabilityWriteAndNotTheDefaultGet()
+            throws Exception {
+        String contract = Files.readString(OPEN_API);
+        String route = between(
+                contract,
+                "  /attendance-reports/recalculate:",
+                "  /attendance-reports/publications:");
+        String request = between(
+                contract,
+                "    AttendanceReportRecalculateRequest:",
+                "    AttendanceReportRecalculateView:");
+        String view = between(
+                contract,
+                "    AttendanceReportRecalculateView:",
+                "    AttendanceReportFilters:");
+
+        assertThat(route)
+                .contains("operationId: recalculateAttendanceReport")
+                .contains("x-capability: ATTENDANCE_REPORT:REFRESH")
+                .contains("$ref: '#/components/parameters/CsrfToken'")
+                .contains("HR 管理员或系统管理员")
+                .contains("普通 GET、页面刷新和高管/部门经理/员工不得调用")
+                .contains("'403'");
+        assertThat(request)
+                .contains("required: [companyId, period]");
+        assertThat(view)
+                .contains("projectionVersion")
+                .contains("sourcesNewerThanPin");
+    }
+
+    @Test
     void monthMatrixDefinesSemanticBadgesWithoutServerColors()
             throws Exception {
         String contract = Files.readString(OPEN_API);
@@ -185,14 +216,14 @@ class AttendanceReportOpenApiContractTest {
                 "    StaleVersion:");
 
         assertThat(reportRoutes)
-                .contains("形成一致输入快照并实时计算")
-                .contains("查询不要求已发布")
-                .contains("不依赖已发布报表投影")
-                .contains("最新已提交的得力打卡")
+                .contains("已钉住的完整核算快照")
+                .contains("查询不要求人工发布")
+                .contains("不要求人工发布")
+                .contains("普通 GET 不重算")
                 .doesNotContain("且存在已发布正式投影的公司安全名称");
         assertThat(metadata)
-                .contains("实时报表输入快照元数据")
-                .contains("并非发布版本")
+                .contains("钉住报表快照元数据")
+                .contains("并非人工发布版本")
                 .contains("SOURCE.DELI_CLOUD:<ISO date-time|UNSYNCED>:<64hex>")
                 .contains("SOURCE.OA_ATTENDANCE:<ISO date-time|UNSYNCED>:<64hex>")
                 .contains("同类来源可以有零项或多项")

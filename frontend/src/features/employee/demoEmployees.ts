@@ -90,6 +90,7 @@ const demoEmployees: EmployeeSummary[] = employeeSeeds.map((employee, index) => 
   rowVersion: 1,
 }));
 
+const demoStandingExempt = new Set<string>();
 const demoPeriods = new Map<string, EmploymentPeriodView[]>();
 const demoPriorRecords = new Map<string, PriorServiceRecordView[]>();
 let syntheticSequence = 100;
@@ -99,13 +100,18 @@ export function getDemoEmployeePage(
   size: number,
   filters: EmployeeFilters = {},
 ): EmployeePage {
+  const normalizedQuery = filters.query?.trim().toLocaleLowerCase('zh-CN');
   const visibleOrganizationIds = filters.organizationId
     ? demoOrganizationScope(filters.organizationId, filters.includeDescendants)
     : undefined;
   const filtered = demoEmployees.filter((employee) => (
-    (!filters.query
-      || employee.employeeNumber.includes(filters.query)
-      || employee.displayName.includes(filters.query))
+    (!normalizedQuery
+      || [
+        employee.employeeNumber,
+        employee.displayName,
+        employee.organizationName,
+        employee.organizationCode,
+      ].some((value) => value?.toLocaleLowerCase('zh-CN').includes(normalizedQuery)))
     && (!visibleOrganizationIds || (
       employee.organizationId !== null
       && visibleOrganizationIds.has(employee.organizationId)
@@ -147,6 +153,25 @@ function flattenDemoOrganizationIds(node: OrganizationNode): string[] {
     node.organizationId,
     ...node.children.flatMap(flattenDemoOrganizationIds),
   ];
+}
+
+export function getDemoPunchExemption(employeeId: string): {
+  standingExempt: boolean;
+  executiveExempt: boolean;
+} {
+  return {
+    standingExempt: demoStandingExempt.has(employeeId),
+    executiveExempt: false,
+  };
+}
+
+export function setDemoPunchExemption(
+  employeeId: string,
+  standingExempt: boolean,
+): { standingExempt: boolean; executiveExempt: boolean } {
+  if (standingExempt) demoStandingExempt.add(employeeId);
+  else demoStandingExempt.delete(employeeId);
+  return getDemoPunchExemption(employeeId);
 }
 
 export function getDemoEmployeeDetail(employeeId: string): EmployeeDetail {

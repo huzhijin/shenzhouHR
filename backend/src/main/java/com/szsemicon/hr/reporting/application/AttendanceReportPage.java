@@ -27,7 +27,8 @@ public record AttendanceReportPage(
         int page,
         int size,
         long totalRows,
-        int totalPages) {
+        int totalPages,
+        boolean sourcesNewerThanPin) {
 
     public AttendanceReportPage {
         sourceVersions = List.copyOf(sourceVersions);

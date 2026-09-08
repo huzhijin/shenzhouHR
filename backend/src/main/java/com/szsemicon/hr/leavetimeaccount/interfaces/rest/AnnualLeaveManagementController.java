@@ -31,8 +31,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/employees/{employeeId}/annual-leave")
+@RequestMapping("/api/v1/employees/{employeeId}")
 public class AnnualLeaveManagementController {
+
+    private static final String ANNUAL_LEAVE = "ANNUAL_LEAVE";
+    private static final String TIME_OFF = "TIME_OFF";
 
     private final AnnualLeaveManagementService service;
 
@@ -40,51 +43,100 @@ public class AnnualLeaveManagementController {
         this.service = service;
     }
 
-    @GetMapping
+    @GetMapping("/annual-leave")
     @PreAuthorize("hasAuthority('ANNUAL_LEAVE:READ')")
     ResponseEntity<LeaveAccountResponse> getAccount(
             @PathVariable String employeeId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Integer year) {
-        int resolvedYear = year != null ? year
-                : java.time.Year.now().getValue();
-        LeaveAccountView view = service.getAccount(
-                employeeId, resolvedYear, page, Math.min(size, 100));
-        return ResponseEntity.ok()
-                .cacheControl(CacheControl.noStore())
-                .body(LeaveAccountResponse.from(view));
+        return read(employeeId, page, size, year, ANNUAL_LEAVE);
     }
 
-    @PostMapping("/opening")
+    @GetMapping("/time-off")
+    @PreAuthorize("hasAuthority('ANNUAL_LEAVE:READ')")
+    ResponseEntity<LeaveAccountResponse> getTimeOffAccount(
+            @PathVariable String employeeId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) Integer year) {
+        return read(employeeId, page, size, year, TIME_OFF);
+    }
+
+    @PostMapping("/annual-leave/opening")
     @PreAuthorize("hasAuthority('ANNUAL_LEAVE:ADJUST')")
     ResponseEntity<LeaveAccountResponse> setOpeningBalance(
             @PathVariable String employeeId,
             @Valid @RequestBody OpeningBalanceRequest request,
             @RequestHeader("Idempotency-Key") String idempotencyKey) {
-        int year = request.year() != null ? request.year()
-                : java.time.Year.now().getValue();
-        var command = new OpeningBalanceCommand(
-                employeeId, request.balanceHours(), year,
-                request.openingDate(), request.reason(), idempotencyKey);
-        LeaveAccountView view = service.setOpeningBalance(command);
-        return ResponseEntity.status(HttpStatus.OK)
-                .cacheControl(CacheControl.noStore())
-                .body(LeaveAccountResponse.from(view));
+        return open(employeeId, request, idempotencyKey, ANNUAL_LEAVE);
     }
 
-    @PostMapping("/adjust")
+    @PostMapping("/time-off/opening")
+    @PreAuthorize("hasAuthority('ANNUAL_LEAVE:ADJUST')")
+    ResponseEntity<LeaveAccountResponse> setTimeOffOpeningBalance(
+            @PathVariable String employeeId,
+            @Valid @RequestBody OpeningBalanceRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        return open(employeeId, request, idempotencyKey, TIME_OFF);
+    }
+
+    @PostMapping("/annual-leave/adjust")
     @PreAuthorize("hasAuthority('ANNUAL_LEAVE:ADJUST')")
     ResponseEntity<LeaveAccountResponse> adjustBalance(
             @PathVariable String employeeId,
             @Valid @RequestBody AdjustBalanceRequest request,
             @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        return adjust(employeeId, request, idempotencyKey, ANNUAL_LEAVE);
+    }
+
+    @PostMapping("/time-off/adjust")
+    @PreAuthorize("hasAuthority('ANNUAL_LEAVE:ADJUST')")
+    ResponseEntity<LeaveAccountResponse> adjustTimeOffBalance(
+            @PathVariable String employeeId,
+            @Valid @RequestBody AdjustBalanceRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        return adjust(employeeId, request, idempotencyKey, TIME_OFF);
+    }
+
+    private ResponseEntity<LeaveAccountResponse> read(
+            String employeeId, int page, int size, Integer year, String accountType) {
+        int resolvedYear = year != null ? year
+                : java.time.Year.now().getValue();
+        LeaveAccountView view = service.getAccount(
+                employeeId, resolvedYear, page, Math.min(size, 100), accountType);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(LeaveAccountResponse.from(view));
+    }
+
+    private ResponseEntity<LeaveAccountResponse> open(
+            String employeeId,
+            OpeningBalanceRequest request,
+            String idempotencyKey,
+            String accountType) {
+        int year = request.year() != null ? request.year()
+                : java.time.Year.now().getValue();
+        var command = new OpeningBalanceCommand(
+                employeeId, request.balanceHours(), year,
+                request.openingDate(), request.reason(), idempotencyKey);
+        LeaveAccountView view = service.setOpeningBalance(command, accountType);
+        return ResponseEntity.status(HttpStatus.OK)
+                .cacheControl(CacheControl.noStore())
+                .body(LeaveAccountResponse.from(view));
+    }
+
+    private ResponseEntity<LeaveAccountResponse> adjust(
+            String employeeId,
+            AdjustBalanceRequest request,
+            String idempotencyKey,
+            String accountType) {
         int year = request.year() != null ? request.year()
                 : java.time.Year.now().getValue();
         var command = new AdjustBalanceCommand(
                 employeeId, request.adjustmentHours(), year,
                 request.reason(), idempotencyKey);
-        LeaveAccountView view = service.adjustBalance(command);
+        LeaveAccountView view = service.adjustBalance(command, accountType);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(LeaveAccountResponse.from(view));
@@ -93,7 +145,7 @@ public class AnnualLeaveManagementController {
     // ── DTOs ──────────────────────────────────────────────────────────────────
 
     record OpeningBalanceRequest(
-            @NotNull @DecimalMin("0.00") @DecimalMax("9999.00") BigDecimal balanceHours,
+            @NotNull @DecimalMin("-9999.00") @DecimalMax("9999.00") BigDecimal balanceHours,
             Integer year,
             /** Optional; defaults to 1 August of the account year. */
             LocalDate openingDate,

@@ -21,21 +21,23 @@ public interface AnnualLeaveManagementRepository {
     Optional<String> findPublishedPolicyVersionId(String companyId);
 
     /**
-     * Find an existing annual leave time account for the employee in the given year.
+     * Find an existing time account for the employee, employment period, year and type.
      */
     Optional<TimeAccountRow> findTimeAccount(
             String employeeId,
             String employmentPeriodId,
-            int year);
+            int year,
+            String accountType);
 
     /** Lock the account row before inspecting or appending its ledger. */
     Optional<TimeAccountRow> lockTimeAccount(
             String employeeId,
             String employmentPeriodId,
-            int year);
+            int year,
+            String accountType);
 
     /**
-     * Create a new annual leave time account if none exists (idempotent via INSERT IGNORE).
+     * Create a time account if none exists (idempotent via INSERT IGNORE).
      */
     void createTimeAccountIfAbsent(
             String accountId,
@@ -43,6 +45,7 @@ public interface AnnualLeaveManagementRepository {
             String employmentPeriodId,
             String companyId,
             int year,
+            String accountType,
             String policyVersionId,
             Instant now);
 
@@ -104,6 +107,8 @@ public interface AnnualLeaveManagementRepository {
      */
     boolean canAccessEmployee(
             String principalId, String capability, String employeeId, Instant at);
+
+    Optional<String> findPrincipalEmployeeId(String principalId);
 
     record CurrentEmploymentRow(
             String employeeId,

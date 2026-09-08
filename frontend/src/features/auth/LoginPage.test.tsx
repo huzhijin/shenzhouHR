@@ -15,6 +15,7 @@ import {
 } from 'vitest';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
+import { AppearanceProvider } from '../../shared/appearance/AppearanceProvider';
 import '../../shared/i18n/i18n';
 import type { SessionView } from '../session/sessionApi';
 import {
@@ -129,12 +130,37 @@ describe('LoginPage first-password-change flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '完成修改并登录' }));
 
     expect(
-      await screen.findByText(
-        '新密码须为 12 至 256 位，且至少包含 1 个大写字母、1 个小写字母、1 个数字和 1 个符号',
-      ),
+      await screen.findByText(/当前 9 位，至少需要 12 位/),
     ).toBeInTheDocument();
     expect(completeFirstPasswordChangeMock).not.toHaveBeenCalled();
     expect(loginMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the operator that Admin@123 was not submitted because it is too short', async () => {
+    loginMock.mockResolvedValueOnce(sessionView({
+      firstPasswordChangeRequired: true,
+      capabilities: [],
+      menu: [],
+    }));
+
+    renderLoginPage(vi.fn());
+    submitCredentials('synthetic.local.admin', 'Temporary-Password-2026!');
+
+    expect(
+      await screen.findByRole('heading', { name: '首次登录修改密码' }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('新密码'), {
+      target: { value: 'Admin@123' },
+    });
+    fireEvent.change(screen.getByLabelText('确认新密码'), {
+      target: { value: 'Admin@123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '完成修改并登录' }));
+
+    expect(await screen.findByText(/新密码还不符合规则，没有提交/)).toBeInTheDocument();
+    expect(screen.getAllByText(/12 位/).length).toBeGreaterThan(0);
+    expect(completeFirstPasswordChangeMock).not.toHaveBeenCalled();
   });
 
   it('does not expose request correlation metadata after a failed login', async () => {
@@ -226,9 +252,11 @@ describe('LoginPage first-password-change flow', () => {
 
 function renderLoginPage(onAuthenticated: () => void) {
   return render(
-    <MemoryRouter initialEntries={['/login']}>
-      <LoginPage onAuthenticated={onAuthenticated} />
-    </MemoryRouter>,
+    <AppearanceProvider>
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage onAuthenticated={onAuthenticated} />
+      </MemoryRouter>
+    </AppearanceProvider>,
   );
 }
 

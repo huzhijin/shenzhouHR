@@ -7,10 +7,12 @@ import static com.szsemicon.hr.reporting.domain.AttendanceReportModels.hours;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionFact;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionState;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.OaDocumentFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportColumn;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportDataSet;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportField;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportRow;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
@@ -18,9 +20,14 @@ import com.szsemicon.hr.reporting.domain.AttendanceReportModels.TimeAccountFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.TimeAccountType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -31,8 +38,10 @@ import java.util.Set;
 public final class AttendanceReportCalculator {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter CLOCK =
+            DateTimeFormatter.ofPattern("HH:mm").withZone(BUSINESS_ZONE);
     private static final Set<String> EFFECTIVE_OA_STATUSES = Set.of(
-            "APPROVED", "MODIFIED", "SUPPLEMENTED");
+            "APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN");
 
     public ReportDataSet calculate(
             ReportType type, ReportSourceSnapshot snapshot) {
@@ -48,6 +57,24 @@ public final class AttendanceReportCalculator {
             case MISSED_PUNCH -> missedPunch(snapshot);
             case ATTENDANCE_RATE -> attendanceRate(snapshot);
             case ANNUAL_LEAVE -> annualLeave(snapshot);
+        };
+    }
+
+    public static String formulaVersion(ReportType type) {
+        Objects.requireNonNull(type, "type");
+        return switch (type) {
+            case ATTENDANCE_DETAIL -> "PRD_V1_9_DAILY_SEGMENT_METRICS_V2";
+            case LEAVE ->
+                    "OA_EFFECTIVE_INTERVAL_INTERSECT_SCHEDULE_OR_STANDARD_WINDOWS_V2";
+            case OVERTIME ->
+                    "OVERTIME_DOCUMENT_DETAIL_OA_PAPER_V1";
+            case WORK_HOURS -> "MONTHLY_WORK_HOURS_PAID_OT_FORMULA_V1";
+            case EXCEPTIONS -> "PRD_V1_9_EXCEPTION_CASE_CURRENT_STATE_V2";
+            case LATE -> "PRD_V1_9_MONTHLY_LATE_GRACE_PRESERVE_RAW_V1";
+            case MISSED_PUNCH -> "PRD_V1_9_SINGLE_SIDED_MISSING_PUNCH_V1";
+            case ATTENDANCE_RATE -> ATTENDANCE_RATE_FORMULA_VERSION;
+            case ANNUAL_LEAVE ->
+                    "PRD_V1_9_IMMUTABLE_TIME_ACCOUNT_LEDGER_BALANCE_V1";
         };
     }
 
@@ -129,7 +156,7 @@ public final class AttendanceReportCalculator {
                 "月度考勤明细",
                 fields,
                 rows,
-                "PRD_V1_9_DAILY_SEGMENT_METRICS_V2");
+                formulaVersion(ReportType.ATTENDANCE_DETAIL));
     }
 
     private ReportDataSet leave(ReportSourceSnapshot snapshot) {
@@ -143,9 +170,11 @@ public final class AttendanceReportCalculator {
                 ReportField.RECOGNIZED_HOURS,
                 ReportField.APPROVAL_STATE);
         List<ReportRow> rows = visibleOa(snapshot).stream()
-                .filter(value -> Set.of("LEAVE", "TIME_OFF")
+                .filter(value -> value.documentType() != null
+                        && Set.of("LEAVE", "TIME_OFF")
                         .contains(value.documentType().toUpperCase(Locale.ROOT)))
-                .filter(value -> EFFECTIVE_OA_STATUSES.contains(
+                .filter(value -> value.sourceStatus() != null
+                        && EFFECTIVE_OA_STATUSES.contains(
                         value.sourceStatus().toUpperCase(Locale.ROOT)))
                 .map(fact -> row(
                         "leave:" + fact.documentId(),
@@ -175,7 +204,7 @@ public final class AttendanceReportCalculator {
                 "请假与调休统计",
                 fields,
                 rows,
-                "OA_EFFECTIVE_INTERVAL_INTERSECT_SCHEDULE_V1");
+                formulaVersion(ReportType.LEAVE));
     }
 
     private ReportDataSet overtime(ReportSourceSnapshot snapshot) {
@@ -183,52 +212,48 @@ public final class AttendanceReportCalculator {
                 ReportField.EMPLOYEE_NUMBER,
                 ReportField.EMPLOYEE_NAME,
                 ReportField.ORGANIZATION,
-                ReportField.WEEKDAY_OVERTIME_HOURS,
-                ReportField.SATURDAY_OVERTIME_HOURS,
-                ReportField.SUNDAY_OVERTIME_HOURS,
-                ReportField.HOLIDAY_OVERTIME_HOURS,
-                ReportField.PAID_OVERTIME_HOURS,
-                ReportField.COMPENSATORY_OVERTIME_HOURS,
-                ReportField.VOLUNTARY_OVERTIME_HOURS,
-                ReportField.TOTAL_OVERTIME_HOURS,
-                ReportField.RECOGNIZED_OVERTIME_HOURS);
-        List<ReportRow> rows = aggregateDaily(visibleDaily(snapshot)).values()
-                .stream()
-                .map(value -> row(
-                        "overtime:" + value.reference(),
+                ReportField.DOCUMENT_TYPE,
+                ReportField.DOCUMENT_START,
+                ReportField.DOCUMENT_END,
+                ReportField.RECOGNIZED_HOURS,
+                ReportField.APPROVAL_STATE,
+                ReportField.SOURCE_ORIGIN);
+        List<ReportRow> rows = visibleOa(snapshot).stream()
+                .filter(value -> "OVERTIME".equalsIgnoreCase(
+                        value.documentType()))
+                .filter(value -> EFFECTIVE_OA_STATUSES.contains(
+                        value.sourceStatus().toUpperCase(Locale.ROOT)))
+                .map(fact -> row(
+                        "overtime:" + fact.documentId(),
                         Map.ofEntries(
                                 entry(ReportField.EMPLOYEE_NUMBER,
-                                        value.employeeNumber),
+                                        fact.employeeNumber()),
                                 entry(ReportField.EMPLOYEE_NAME,
-                                        value.employeeName),
+                                        fact.employeeName()),
                                 entry(ReportField.ORGANIZATION,
-                                        value.organizationName),
-                                entry(ReportField.WEEKDAY_OVERTIME_HOURS,
-                                        hours(value.weekdayOvertime)),
-                                entry(ReportField.SATURDAY_OVERTIME_HOURS,
-                                        hours(value.saturdayOvertime)),
-                                entry(ReportField.SUNDAY_OVERTIME_HOURS,
-                                        hours(value.sundayOvertime)),
-                                entry(ReportField.HOLIDAY_OVERTIME_HOURS,
-                                        hours(value.holidayOvertime)),
-                                entry(ReportField.PAID_OVERTIME_HOURS,
-                                        hours(value.paidOvertime)),
-                                entry(ReportField.COMPENSATORY_OVERTIME_HOURS,
-                                        hours(value.compensatoryOvertime)),
-                                entry(ReportField.VOLUNTARY_OVERTIME_HOURS,
-                                        hours(value.voluntaryOvertime)),
-                                entry(ReportField.TOTAL_OVERTIME_HOURS,
-                                        hours(value.totalOvertime)),
-                                entry(ReportField.RECOGNIZED_OVERTIME_HOURS,
-                                        hours(value.recognizedOvertime))),
-                        "employee:" + value.reference()))
+                                        fact.organizationName()),
+                                entry(ReportField.DOCUMENT_TYPE,
+                                        fact.leaveType() == null
+                                                ? fact.documentType()
+                                                : fact.leaveType()),
+                                entry(ReportField.DOCUMENT_START,
+                                        fact.start().toString()),
+                                entry(ReportField.DOCUMENT_END,
+                                        fact.endExclusive().toString()),
+                                entry(ReportField.RECOGNIZED_HOURS,
+                                        hours(fact.recognizedMinutes())),
+                                entry(ReportField.APPROVAL_STATE,
+                                        fact.sourceStatus()),
+                                entry(ReportField.SOURCE_ORIGIN,
+                                        sourceOrigin(fact.sourceOrigin()))),
+                        "oa-document:" + fact.documentId()))
                 .toList();
         return dataSet(
                 ReportType.OVERTIME,
-                "认可加班汇总",
+                "加班单据明细",
                 fields,
                 rows,
-                "OVERTIME_CLASSIFICATION_PAID_COMPENSATORY_VOLUNTARY_V2");
+                formulaVersion(ReportType.OVERTIME));
     }
 
     private ReportDataSet workHours(ReportSourceSnapshot snapshot) {
@@ -237,12 +262,16 @@ public final class AttendanceReportCalculator {
                 ReportField.EMPLOYEE_NAME,
                 ReportField.ORGANIZATION,
                 ReportField.SCHEDULED_HOURS,
-                ReportField.CONFIRMED_HOURS,
-                ReportField.RECOGNIZED_OVERTIME_HOURS,
+                ReportField.PAID_OVERTIME_HOURS,
                 ReportField.LEAVE_HOURS,
-                ReportField.ABSENCE_HOURS,
+                ReportField.ANNUAL_LEAVE_HOURS,
+                ReportField.COMPENSATORY_OVERTIME_HOURS,
+                ReportField.TIME_OFF_HOURS,
                 ReportField.ACTUAL_WORK_HOURS);
-        List<ReportRow> rows = aggregateDaily(visibleDaily(snapshot)).values()
+        Map<String, EmployeeAggregate> aggregates =
+                aggregateDaily(visibleDaily(snapshot));
+        applyLeaveBreakdown(aggregates, visibleOa(snapshot));
+        List<ReportRow> rows = aggregates.values()
                 .stream()
                 .map(value -> row(
                         "work-hours:" + value.reference(),
@@ -255,16 +284,18 @@ public final class AttendanceReportCalculator {
                                         value.organizationName),
                                 entry(ReportField.SCHEDULED_HOURS,
                                         hours(value.scheduled)),
-                                entry(ReportField.CONFIRMED_HOURS,
-                                        hours(value.confirmed)),
-                                entry(ReportField.RECOGNIZED_OVERTIME_HOURS,
-                                        hours(value.recognizedOvertime)),
+                                entry(ReportField.PAID_OVERTIME_HOURS,
+                                        hours(value.paidOvertime)),
                                 entry(ReportField.LEAVE_HOURS,
-                                        hours(value.leave)),
-                                entry(ReportField.ABSENCE_HOURS,
-                                        hours(value.absence)),
+                                        hours(value.otherLeaveHours())),
+                                entry(ReportField.ANNUAL_LEAVE_HOURS,
+                                        hours(value.annualLeave)),
+                                entry(ReportField.COMPENSATORY_OVERTIME_HOURS,
+                                        hours(value.compensatoryOvertime)),
+                                entry(ReportField.TIME_OFF_HOURS,
+                                        hours(value.timeOff)),
                                 entry(ReportField.ACTUAL_WORK_HOURS,
-                                        hours(value.actualWork))),
+                                        hours(value.personalActualMinutes()))),
                         "employee:" + value.reference()))
                 .toList();
         return dataSet(
@@ -272,10 +303,15 @@ public final class AttendanceReportCalculator {
                 "个人月度工时",
                 fields,
                 rows,
-                "PRD_V1_9_ACTUAL_WORK_EQUALS_CONFIRMED_PLUS_OVERTIME_V1");
+                formulaVersion(ReportType.WORK_HOURS));
     }
 
     private ReportDataSet exceptions(ReportSourceSnapshot snapshot) {
+        Map<String, DailyFact> dailyByEmployeeDate = new LinkedHashMap<>();
+        for (DailyFact daily : visibleDaily(snapshot)) {
+            dailyByEmployeeDate.put(
+                    daily.employeeId() + ":" + daily.businessDate(), daily);
+        }
         List<ReportField> fields = List.of(
                 ReportField.BUSINESS_DATE,
                 ReportField.EMPLOYEE_NUMBER,
@@ -285,37 +321,48 @@ public final class AttendanceReportCalculator {
                 ReportField.EXCEPTION_SEVERITY,
                 ReportField.EXCEPTION_STATE,
                 ReportField.EXCEPTION_MINUTES,
+                ReportField.EXCEPTION_DETAILS,
                 ReportField.EVIDENCE_SUMMARY);
         List<ReportRow> rows = visibleExceptions(snapshot).stream()
-                .map(fact -> row(
-                        "exception:" + fact.caseId(),
-                        Map.ofEntries(
-                                entry(ReportField.BUSINESS_DATE,
-                                        fact.businessDate().toString()),
-                                entry(ReportField.EMPLOYEE_NUMBER,
-                                        fact.employeeNumber()),
-                                entry(ReportField.EMPLOYEE_NAME,
-                                        fact.employeeName()),
-                                entry(ReportField.ORGANIZATION,
-                                        fact.organizationName()),
-                                entry(ReportField.EXCEPTION_TYPE,
-                                        fact.exceptionType()),
-                                entry(ReportField.EXCEPTION_SEVERITY,
-                                        fact.severity().name()),
-                                entry(ReportField.EXCEPTION_STATE,
-                                        fact.state().name()),
-                                entry(ReportField.EXCEPTION_MINUTES,
-                                        Long.toString(fact.minutes())),
-                                entry(ReportField.EVIDENCE_SUMMARY,
-                                        fact.safeEvidenceSummary())),
-                        "calculation:" + fact.calculationVersionId()))
+                .filter(AttendanceReportCalculator::actionableException)
+                .filter(fact -> !mutedWuhanDalianAugust(fact))
+                .map(fact -> {
+                    DailyFact daily = dailyByEmployeeDate.get(
+                            fact.employeeId() + ":" + fact.businessDate());
+                    String reportType = reportExceptionType(fact, daily);
+                    return row(
+                            "exception:" + fact.caseId(),
+                            Map.ofEntries(
+                                    entry(ReportField.BUSINESS_DATE,
+                                            fact.businessDate().toString()),
+                                    entry(ReportField.EMPLOYEE_NUMBER,
+                                            fact.employeeNumber()),
+                                    entry(ReportField.EMPLOYEE_NAME,
+                                            fact.employeeName()),
+                                    entry(ReportField.ORGANIZATION,
+                                            fact.organizationName()),
+                                    entry(ReportField.EXCEPTION_TYPE,
+                                            reportType),
+                                    entry(ReportField.EXCEPTION_SEVERITY,
+                                            fact.severity().name()),
+                                    entry(ReportField.EXCEPTION_STATE,
+                                            fact.state().name()),
+                                    entry(ReportField.EXCEPTION_MINUTES,
+                                            Long.toString(fact.minutes())),
+                                    entry(ReportField.EXCEPTION_DETAILS,
+                                            exceptionDetails(
+                                                    reportType, fact, daily)),
+                                    entry(ReportField.EVIDENCE_SUMMARY,
+                                            fact.safeEvidenceSummary())),
+                            "calculation:" + fact.calculationVersionId());
+                })
                 .toList();
         return dataSet(
                 ReportType.EXCEPTIONS,
                 "考勤异常总览",
                 fields,
                 rows,
-                "PRD_V1_9_EXCEPTION_CASE_CURRENT_STATE_V1");
+                formulaVersion(ReportType.EXCEPTIONS));
     }
 
     private ReportDataSet late(ReportSourceSnapshot snapshot) {
@@ -326,9 +373,12 @@ public final class AttendanceReportCalculator {
                 ReportField.LATE_EVENT_COUNT,
                 ReportField.LATE_MINUTES,
                 ReportField.PENALIZED_LATE_MINUTES);
-        List<ReportRow> rows = aggregateDaily(visibleDaily(snapshot)).values()
+        Map<String, EmployeeAggregate> lateAggregates =
+                aggregateDaily(visibleDaily(snapshot));
+        addLateEventsFromExceptions(lateAggregates, snapshot);
+        List<ReportRow> rows = lateAggregates.values()
                 .stream()
-                .filter(value -> value.lateMinutes > 0)
+                .filter(value -> value.lateEvents > 0)
                 .map(value -> row(
                         "late:" + value.reference(),
                         Map.ofEntries(
@@ -352,7 +402,7 @@ public final class AttendanceReportCalculator {
                 "迟到统计",
                 fields,
                 rows,
-                "PRD_V1_9_MONTHLY_LATE_GRACE_PRESERVE_RAW_V1");
+                formulaVersion(ReportType.LATE));
     }
 
     private ReportDataSet missedPunch(ReportSourceSnapshot snapshot) {
@@ -383,7 +433,7 @@ public final class AttendanceReportCalculator {
                 "缺卡统计",
                 fields,
                 rows,
-                "PRD_V1_9_SINGLE_SIDED_MISSING_PUNCH_V1");
+                formulaVersion(ReportType.MISSED_PUNCH));
     }
 
     private ReportDataSet attendanceRate(ReportSourceSnapshot snapshot) {
@@ -409,7 +459,7 @@ public final class AttendanceReportCalculator {
                                 entry(ReportField.SCHEDULED_ATTENDANCE_DAYS,
                                         Integer.toString(value.scheduledAttendanceDays)),
                                 entry(ReportField.ACTUAL_ATTENDANCE_DAYS,
-                                        Integer.toString(value.actualAttendanceDays)),
+                                        formatDays(value.actualAttendanceDays)),
                                 entry(ReportField.SICK_LEAVE_DAYS,
                                         Integer.toString(value.sickLeaveDays)),
                                 entry(ReportField.ATTENDANCE_RATE,
@@ -421,7 +471,7 @@ public final class AttendanceReportCalculator {
                 "出勤率统计",
                 fields,
                 rows,
-                ATTENDANCE_RATE_FORMULA_VERSION);
+                formulaVersion(ReportType.ATTENDANCE_RATE));
     }
 
     private ReportDataSet annualLeave(ReportSourceSnapshot snapshot) {
@@ -487,14 +537,13 @@ public final class AttendanceReportCalculator {
                 "年休假余额汇总",
                 fields,
                 rows,
-                "PRD_V1_9_IMMUTABLE_TIME_ACCOUNT_LEDGER_BALANCE_V1");
+                formulaVersion(ReportType.ANNUAL_LEAVE));
     }
 
     private List<DailyFact> visibleDaily(ReportSourceSnapshot snapshot) {
         return snapshot.dailyFacts().stream()
-                .filter(value -> snapshot.filter().period()
-                        .equals(java.time.YearMonth.from(
-                                value.businessDate())))
+                .filter(value -> inDisplayWindow(
+                        value.businessDate(), snapshot.filter()))
                 .filter(value -> matches(
                         value.organizationId(),
                         value.employeeId(),
@@ -503,33 +552,185 @@ public final class AttendanceReportCalculator {
     }
 
     private List<OaDocumentFact> visibleOa(ReportSourceSnapshot snapshot) {
-        var periodStart = snapshot.filter()
-                .period()
-                .atDay(1)
+        var windowStart = displayStart(snapshot.filter())
                 .atStartOfDay(BUSINESS_ZONE)
                 .toInstant();
-        var periodEnd = snapshot.filter()
-                .period()
-                .plusMonths(1)
-                .atDay(1)
+        var windowEnd = displayEnd(snapshot.filter())
+                .plusDays(1)
                 .atStartOfDay(BUSINESS_ZONE)
                 .toInstant();
-        return snapshot.oaDocumentFacts().stream()
-                .filter(value -> value.start().isBefore(periodEnd)
-                        && value.endExclusive().isAfter(periodStart))
-                .filter(value -> matches(
-                        value.organizationId(),
-                        value.employeeId(),
-                        snapshot))
-                .toList();
+        return CoveringLeaveDocuments.dropCoveringFacts(
+                snapshot.oaDocumentFacts().stream()
+                        .filter(value -> value.start().isBefore(windowEnd)
+                                && value.endExclusive().isAfter(windowStart))
+                        .filter(value -> matches(
+                                value.organizationId(),
+                                value.employeeId(),
+                                snapshot))
+                        .toList());
+    }
+
+    public static boolean inDisplayWindow(LocalDate date, ReportFilter filter) {
+        return !date.isBefore(displayStart(filter))
+                && !date.isAfter(displayEnd(filter));
+    }
+
+    public static LocalDate displayStart(ReportFilter filter) {
+        return filter.fromDate() != null
+                ? filter.fromDate()
+                : filter.period().atDay(1);
+    }
+
+    public static LocalDate displayEnd(ReportFilter filter) {
+        return filter.toDate() != null
+                ? filter.toDate()
+                : filter.period().atEndOfMonth();
+    }
+
+    private static String sourceOrigin(String origin) {
+        return "PAPER".equalsIgnoreCase(origin) ? "PAPER" : "OA";
+    }
+
+    private static String reportExceptionType(
+            ExceptionFact fact, DailyFact daily) {
+        String type = fact.exceptionType() == null
+                ? ""
+                : fact.exceptionType().toUpperCase(Locale.ROOT);
+        if (type.startsWith("MISSING_PUNCH")) {
+            Instant morning = morningPunch(daily);
+            Instant afternoon = afternoonPunch(daily);
+            if (morning == null && afternoon != null) {
+                return "MISSING_ON_DUTY";
+            }
+            if (morning != null && afternoon == null) {
+                return "MISSING_OFF_DUTY";
+            }
+        }
+        return type.isEmpty() ? fact.exceptionType() : type;
+    }
+
+    private static String exceptionDetails(
+            String reportType, ExceptionFact fact, DailyFact daily) {
+        Instant morning = morningPunch(daily);
+        Instant afternoon = afternoonPunch(daily);
+        return switch (reportType) {
+            case "LATE" -> morning == null
+                    ? "计罚 " + fact.minutes() + " 分钟"
+                    : "上班 " + CLOCK.format(morning)
+                            + "，计罚 " + fact.minutes() + " 分钟";
+            case "EARLY_DEPARTURE" -> afternoon == null
+                    ? "早退 " + fact.minutes() + " 分钟"
+                    : "下班 " + CLOCK.format(afternoon)
+                            + "，早退 " + fact.minutes() + " 分钟";
+            case "MISSING_ON_DUTY" -> afternoon == null
+                    ? "无上班卡"
+                    : "无上班卡，下班 " + CLOCK.format(afternoon);
+            case "MISSING_OFF_DUTY" -> morning == null
+                    ? "无下班卡"
+                    : "上班 " + CLOCK.format(morning) + "，无下班卡";
+            case "ABSENCE" -> "应出勤，无打卡无单据";
+            case "FAKE_OVERTIME" -> "加班时段盖住未请假的上班时段";
+            case "OVERTIME_DOCUMENT_MISSING_OR_LATE" ->
+                    fact.safeEvidenceSummary() == null
+                            || fact.safeEvidenceSummary().startsWith("原因码=")
+                    ? "未报加班"
+                    : fact.safeEvidenceSummary();
+            case "OVERTIME_FORM_BEYOND_LAST_PUNCH" ->
+                    fact.safeEvidenceSummary() == null
+                            || fact.safeEvidenceSummary().startsWith("原因码=")
+                    ? "加班结束晚于打卡"
+                    : fact.safeEvidenceSummary();
+            case "LONG_PUNCH_SPAN_REVIEW" ->
+                    fact.safeEvidenceSummary() == null
+                            || fact.safeEvidenceSummary().startsWith("原因码=")
+                    ? "长时在岗待审"
+                    : fact.safeEvidenceSummary();
+            case "NEGATIVE_LEAVE_BALANCE",
+                    "NEGATIVE_ANNUAL_LEAVE_BALANCE",
+                    "NEGATIVE_TIME_OFF_BALANCE" -> fact.safeEvidenceSummary();
+            default -> morning == null && afternoon == null
+                    ? "无打卡"
+                    : fact.safeEvidenceSummary();
+        };
+    }
+
+    private static Instant morningPunch(DailyFact daily) {
+        if (daily == null) {
+            return null;
+        }
+        Instant first = daily.firstPunchAt();
+        Instant last = daily.lastPunchAt();
+        if (first == null && last == null) {
+            return null;
+        }
+        if (last == null || last.equals(first)) {
+            Instant only = first != null ? first : last;
+            return morningInstant(only) ? only : null;
+        }
+        return first;
+    }
+
+    private static Instant afternoonPunch(DailyFact daily) {
+        if (daily == null) {
+            return null;
+        }
+        Instant first = daily.firstPunchAt();
+        Instant last = daily.lastPunchAt();
+        if (first == null && last == null) {
+            return null;
+        }
+        if (last == null || last.equals(first)) {
+            Instant only = first != null ? first : last;
+            return morningInstant(only) ? null : only;
+        }
+        return last;
+    }
+
+    private static boolean morningInstant(Instant instant) {
+        return !instant.atZone(BUSINESS_ZONE)
+                .toLocalTime()
+                .isAfter(LocalTime.NOON);
+    }
+
+    public static boolean actionableException(ExceptionFact fact) {
+        String type = fact.exceptionType() == null
+                ? ""
+                : fact.exceptionType().toUpperCase(Locale.ROOT);
+        if ("LATE".equals(type) && fact.minutes() <= 0) {
+            return false;
+        }
+        return switch (type) {
+            case "LATE", "EARLY_DEPARTURE",
+                    "MISSING_PUNCH_PENDING", "MISSING_PUNCH_OVERDUE",
+                    "MISSING_PUNCH", "MISSING_ON_DUTY", "MISSING_OFF_DUTY",
+                    "ABSENCE", "FAKE_OVERTIME",
+                    "OVERTIME_FORM_BEYOND_LAST_PUNCH",
+                    "NEGATIVE_LEAVE_BALANCE",
+                    "NEGATIVE_ANNUAL_LEAVE_BALANCE",
+                    "NEGATIVE_TIME_OFF_BALANCE" -> true;
+            default -> false;
+        };
+    }
+
+    public static boolean mutedWuhanDalianAugust(ExceptionFact fact) {
+        if (fact == null || fact.businessDate() == null) {
+            return false;
+        }
+        if (fact.businessDate().getYear() != 2026
+                || fact.businessDate().getMonthValue() != 8) {
+            return false;
+        }
+        String path = fact.organizationName() == null
+                ? ""
+                : fact.organizationName();
+        return path.contains("武汉") || path.contains("大连");
     }
 
     private List<ExceptionFact> visibleExceptions(
             ReportSourceSnapshot snapshot) {
         return snapshot.exceptionFacts().stream()
-                .filter(value -> snapshot.filter().period()
-                        .equals(java.time.YearMonth.from(
-                                value.businessDate())))
+                .filter(value -> inDisplayWindow(
+                        value.businessDate(), snapshot.filter()))
                 .filter(value -> matches(
                         value.organizationId(),
                         value.employeeId(),
@@ -561,6 +762,31 @@ public final class AttendanceReportCalculator {
                         || snapshot.filter().employeeId().equals(employeeId));
     }
 
+    private void applyLeaveBreakdown(
+            Map<String, EmployeeAggregate> aggregates,
+            List<OaDocumentFact> documents) {
+        for (OaDocumentFact document : documents) {
+            String documentType = document.documentType()
+                    .toUpperCase(Locale.ROOT);
+            if (!Set.of("LEAVE", "TIME_OFF").contains(documentType)) {
+                continue;
+            }
+            if (!EFFECTIVE_OA_STATUSES.contains(
+                    document.sourceStatus().toUpperCase(Locale.ROOT))) {
+                continue;
+            }
+            for (EmployeeAggregate aggregate : aggregates.values()) {
+                if (!aggregate.employeeId.equals(document.employeeId())
+                        || !aggregate.organizationId.equals(
+                                document.organizationId())) {
+                    continue;
+                }
+                aggregate.addOaLeave(documentType, document.leaveType(),
+                        document.recognizedMinutes());
+            }
+        }
+    }
+
     private Map<String, EmployeeAggregate> aggregateDaily(
             List<DailyFact> facts) {
         Map<String, EmployeeAggregate> result = new LinkedHashMap<>();
@@ -579,6 +805,23 @@ public final class AttendanceReportCalculator {
                                 ignored -> new EmployeeAggregate(fact))
                         .add(fact));
         return result;
+    }
+
+    private static void addLateEventsFromExceptions(
+            Map<String, EmployeeAggregate> aggregates,
+            ReportSourceSnapshot snapshot) {
+        for (ExceptionFact fact : snapshot.exceptionFacts()) {
+            if (!"LATE".equalsIgnoreCase(fact.exceptionType())
+                    || fact.state() == ExceptionState.RESOLVED) {
+                continue;
+            }
+            for (EmployeeAggregate aggregate : aggregates.values()) {
+                if (aggregate.employeeId.equals(fact.employeeId())) {
+                    aggregate.lateDates.add(fact.businessDate());
+                    aggregate.lateEvents = aggregate.lateDates.size();
+                }
+            }
+        }
     }
 
     private ReportDataSet dataSet(
@@ -612,7 +855,7 @@ public final class AttendanceReportCalculator {
         return value == null ? "—" : value.toString();
     }
 
-    private static String rateByDays(int actualDays, int scheduledDays) {
+    private static String rateByDays(double actualDays, int scheduledDays) {
         if (scheduledDays == 0) {
             return "N/A";
         }
@@ -622,6 +865,13 @@ public final class AttendanceReportCalculator {
                         BigDecimal.valueOf(scheduledDays),
                         2,
                         RoundingMode.HALF_UP)
+                .toPlainString();
+    }
+
+    private static String formatDays(double days) {
+        return BigDecimal.valueOf(days)
+                .setScale(1, RoundingMode.HALF_UP)
+                .stripTrailingZeros()
                 .toPlainString();
     }
 
@@ -641,16 +891,21 @@ public final class AttendanceReportCalculator {
         private long voluntaryOvertime;
         private long totalOvertime;
         private long leave;
+        private long annualLeave;
+        private long timeOff;
+        private long otherLeave;
+        private boolean oaLeaveApplied;
         private long absence;
         private long actualWork;
         private int scheduledAttendanceDays;
-        private int actualAttendanceDays;
+        private double actualAttendanceDays;
         private int sickLeaveDays;
         private long weekdayOvertime;
         private long saturdayOvertime;
         private long sundayOvertime;
         private long holidayOvertime;
         private int lateEvents;
+        private final Set<java.time.LocalDate> lateDates = new HashSet<>();
         private long lateMinutes;
         private long penalizedLateMinutes;
         private int missingPunches;
@@ -692,7 +947,8 @@ public final class AttendanceReportCalculator {
                 sickLeaveDays += fact.scheduledAttendanceDays();
             }
             if (fact.lateMinutes() > 0) {
-                lateEvents++;
+                lateDates.add(fact.businessDate());
+                lateEvents = lateDates.size();
             }
             lateMinutes += fact.lateMinutes();
             penalizedLateMinutes += fact.penalizedLateMinutes();
@@ -707,6 +963,42 @@ public final class AttendanceReportCalculator {
                 case PUBLIC_HOLIDAY ->
                         holidayOvertime += fact.recognizedOvertimeMinutes();
             }
+        }
+
+        private void addOaLeave(
+                String documentType, String leaveType, long minutes) {
+            oaLeaveApplied = true;
+            String classified = leaveType == null
+                    ? ""
+                    : leaveType.toUpperCase(Locale.ROOT);
+            if ("TIME_OFF".equals(documentType)
+                    || classified.equals("COMPENSATORY")
+                    || classified.equals("TIME_OFF")
+                    || classified.contains("调休")) {
+                timeOff += minutes;
+                return;
+            }
+            if (classified.equals("ANNUAL")
+                    || classified.equals("ANNUAL_LEAVE")
+                    || classified.contains("年假")) {
+                annualLeave += minutes;
+                return;
+            }
+            otherLeave += minutes;
+        }
+
+        private long otherLeaveHours() {
+            return oaLeaveApplied ? otherLeave : leave;
+        }
+
+        private long personalActualMinutes() {
+            return scheduled
+                    + paidOvertime
+                    + voluntaryOvertime
+                    - otherLeaveHours()
+                    - annualLeave
+                    + compensatoryOvertime
+                    - timeOff;
         }
 
         private String reference() {

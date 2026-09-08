@@ -75,6 +75,24 @@ sealed interface AttendanceDashboardResponse
                         .map(AttendanceDashboardResponse::toExceptionItem)
                         .toList()
                 : List.of();
+        List<Metric> metrics = ready.metrics().stream()
+                .map(item -> new Metric(
+                        item.key(),
+                        item.label(),
+                        item.displayValue(),
+                        item.suppressed(),
+                        item.suppressed() ? "样本量不足，已隐藏" : null,
+                        null))
+                .toList();
+        List<TodayPunch> todayPunches = ready.todayPunches().stream()
+                .map(item -> new TodayPunch(
+                        item.employeeNumber(),
+                        item.employeeName(),
+                        item.organizationName(),
+                        item.firstPunchAt(),
+                        item.lastPunchAt(),
+                        item.punchCount()))
+                .toList();
         return new Ready(
                 "DASHBOARD",
                 "今日异常考勤",
@@ -84,7 +102,9 @@ sealed interface AttendanceDashboardResponse
                 summary,
                 analytics,
                 exceptions,
-                companies);
+                companies,
+                metrics,
+                todayPunches);
     }
 
     private static ExceptionItem toExceptionItem(
@@ -111,8 +131,28 @@ sealed interface AttendanceDashboardResponse
             Summary summary,
             Analytics analytics,
             List<ExceptionItem> exceptions,
-            List<CompanyOption> companies)
+            List<CompanyOption> companies,
+            List<Metric> metrics,
+            List<TodayPunch> todayPunches)
             implements AttendanceDashboardResponse {
+    }
+
+    record Metric(
+            String key,
+            String label,
+            String displayValue,
+            boolean suppressed,
+            String suppressionLabel,
+            String drillDownReference) {
+    }
+
+    record TodayPunch(
+            String employeeNumber,
+            String employeeName,
+            String organizationName,
+            String firstPunchAt,
+            String lastPunchAt,
+            long punchCount) {
     }
 
     record CompanySelection(

@@ -4,8 +4,11 @@ import {
   IconRefresh,
   IconShieldCheck,
 } from '@tabler/icons-react';
-import { Button, Select, Tooltip } from 'antd';
-import type { ReactNode } from 'react';
+import { Button, DatePicker, Modal, Select, Tooltip, TreeSelect } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
+import dayjs from 'dayjs';
+import type { DataNode } from 'antd/es/tree';
+import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -17,8 +20,8 @@ import {
   defaultCustomerReportSpecificFilters,
   formatMonth,
   getCustomerReportDemo,
+  overviewCards,
   normalizeAnnualLeaveFilters,
-  reportFilterOptions,
   reportSpecificFilterOptions,
   type AnnualLeaveReportRow,
   type AttendanceExceptionReportRow,
@@ -38,20 +41,23 @@ import {
   scopeTypeLabel,
   type CustomerReportDataScope,
 } from './customerReportAccess';
-import {
-  buildCustomerReportCsv,
-  downloadCustomerReportCsv,
-} from './customerReportExport';
-import { realtimeSourceCutoff } from './reportSourceFreshness';
+import { downloadCustomerReportWorkbook } from './customerReportWorkbook';
+import { departmentPathNodes, visibleDepartmentPath } from './departmentPath';
+import { formatFinanceHours, overtimeCellFill, overtimeFeeColumns, overtimeTreatmentHover } from './financeOvertimeLayout';
+import { isProvisionalRealtimeSource, realtimeSourceCutoff } from './reportSourceFreshness';
 import {
   ALL_DEPARTMENTS,
   ALL_EMPLOYEES,
   loadCustomerReport,
   loadCustomerReportDirectory,
   loadCustomerReportScopes,
+  recalculateCustomerReport,
   type CustomerReportDirectoryEntry,
 } from './customerReportApi';
 import { isDemoMode } from '../../shared/config/runtimeMode';
+import { getCurrentOrganizationTree, type OrganizationNode } from '../organization/organizationApi';
+import { pickPreferredCompany } from '../../shared/preferredCompany';
+import { defaultQueryPeriod } from './queryPeriod';
 import './customerReports.css';
 
 export interface CustomerReportExportRequest {
@@ -124,18 +130,25 @@ export function CustomerReportCenterPage({
   const activeDataScope = resolvedScopes.find(
     (scope) => scope.reference === activeScopeReference,
   ) ?? resolvedScopes[0]!;
+  const deepLink = useMemo(() => readCustomerReportDeepLink(), []);
   const [filters, setFilters] = useState<CustomerReportFilters>(() => {
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentMonth = defaultQueryPeriod().format('YYYY-MM');
+    const month = deepLink.period ?? currentMonth;
+    const bounds = monthBounds(month);
     return {
-      month: currentMonth,
+      month,
       department: '全部部门',
       employee: '全部员工',
       organizationId: undefined,
       employeeId: undefined,
+      fromDate: bounds.fromDate,
+      toDate: bounds.toDate,
     };
   });
-  const [activeReport, setActiveReport] = useState<CustomerReportKey>('attendance-detail');
+  const [activeReport, setActiveReport] = useState<CustomerReportKey>(
+    () => deepLink.reportKey ?? 'attendance-detail',
+  );
+  const expectedProjectionVersion = deepLink.expectedProjectionVersion;
   const [exportFeedback, setExportFeedback] = useState('');
   const [specificFeedback, setSpecificFeedback] = useState('');
   const [draftSpecificFilters, setDraftSpecificFilters] = useState<CustomerReportSpecificFilters>({
@@ -170,6 +183,25 @@ export function CustomerReportCenterPage({
     Promise<readonly CustomerReportDirectoryEntry[]>
   >());
   const activeLiveDirectory = liveDirectories.get(activeDirectoryKey) ?? null;
+  const [organizationTree, setOrganizationTree] = useState<OrganizationNode[]>([]);
+
+  useEffect(() => {
+    if (isDemoMode()) {
+      setOrganizationTree([]);
+      return;
+    }
+    let cancelled = false;
+    void getCurrentOrganizationTree(false)
+      .then((nodes) => {
+        if (!cancelled) setOrganizationTree(nodes);
+      })
+      .catch(() => {
+        if (!cancelled) setOrganizationTree([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * Real mode must never borrow demo rows. Until the realtime snapshot actually
@@ -188,6 +220,9 @@ export function CustomerReportCenterPage({
       dataScope: activeDataScope,
     },
     attendanceRows: [],
+    dailyJournalRows: [],
+    overtimeDailyRows: [],
+    financeOvertimeRows: [],
     leaveRows: [],
     overtimeRows: [],
     workHoursRows: [],
@@ -210,7 +245,7 @@ export function CustomerReportCenterPage({
    */
   const dataAsOfLabel = sourceReport.metadata.generatedAt === ''
     ? '数据尚未加载'
-    : `${isDemoMode() ? '示例生成于' : '实时计算于'} ${formatDataAsOf(sourceReport.metadata.generatedAt)}`;
+    : `${isDemoMode() ? '示例生成于' : '核算于'} ${formatDataAsOf(sourceReport.metadata.generatedAt)}`;
   const sourceVersionLabel = sourceReport.metadata.generatedAt === ''
     ? '来源信息尚未加载'
     : sourceReport.metadata.sourceVersions !== undefined
@@ -220,11 +255,14 @@ export function CustomerReportCenterPage({
 
   // Bumped by refresh/retry to reload authorization options before recalculating.
   const [reloadToken, setReloadToken] = useState(0);
+  const [provisionalPoll, setProvisionalPoll] = useState(0);
+  const provisionalPolls = useRef(0);
   const refreshReport = useCallback(() => {
     setLoadedScopeMonth(null);
     setLiveReport(null);
     setReportError(null);
     setDirectoryError(null);
+    setProvisionalPoll(0);
     setLiveDirectories((current) => {
       if (!current.has(activeDirectoryKey)) return current;
       const next = new Map(current);
@@ -242,6 +280,8 @@ export function CustomerReportCenterPage({
     setLoadedScopeMonth(null);
     setLiveReport(null);
     setDirectoryError(null);
+    setProvisionalPoll(0);
+    provisionalPolls.current = 0;
     loadCustomerReportScopes(filters.month)
       .then((scopes) => {
         if (cancelled) return;
@@ -249,11 +289,17 @@ export function CustomerReportCenterPage({
         setLoadedScopeMonth(filters.month);
         if (scopes.length > 0) {
           // Functional update keeps the check off a stale closure value.
-          setActiveScopeReference((current) => (
-            scopes.some((scope) => scope.reference === current)
-              ? current
-              : scopes[0]!.reference
-          ));
+          setActiveScopeReference((current) => {
+            if (deepLink.companyId
+              && scopes.some((scope) => scope.reference === deepLink.companyId)) {
+              return deepLink.companyId;
+            }
+            if (scopes.some((scope) => scope.reference === current)) {
+              return current;
+            }
+            return pickPreferredCompany(scopes, (scope) => scope.label)?.reference
+              ?? scopes[0]!.reference;
+          });
         }
       })
       .catch(() => {
@@ -313,6 +359,7 @@ export function CustomerReportCenterPage({
     filters.month,
     liveDirectories,
     loadedScopeMonth,
+    organizationTree,
   ]);
 
   // Load the active report sheet (real mode only)
@@ -323,13 +370,36 @@ export function CustomerReportCenterPage({
       || availableScopes.length === 0
     ) return;
     let cancelled = false;
-    setReportLoading(true);
+    let retryTimer: number | undefined;
+    const polling = provisionalPoll > 0 && liveReport !== null;
+    if (!polling) {
+      setReportLoading(true);
+      provisionalPolls.current = 0;
+    }
     setReportError(null);
-    loadCustomerReport(activeReport, filters, activeDataScope)
+    loadCustomerReport(
+      activeReport,
+      filters,
+      activeDataScope,
+      polling ? undefined : expectedProjectionVersion,
+      (partial) => {
+        if (cancelled) return;
+        setLiveReport(partial);
+        setReportLoading(false);
+      },
+    )
       .then((data) => {
-        if (!cancelled) {
-          setLiveReport(data);
-          setReportLoading(false);
+        if (cancelled) return;
+        setLiveReport(data);
+        setReportLoading(false);
+        if (
+          isProvisionalRealtimeSource(data.metadata.sourceVersions)
+          && provisionalPolls.current < 30
+        ) {
+          provisionalPolls.current += 1;
+          retryTimer = window.setTimeout(() => {
+            setProvisionalPoll((token) => token + 1);
+          }, 2500);
         }
       })
       .catch((error: unknown) => {
@@ -340,13 +410,18 @@ export function CustomerReportCenterPage({
           );
         }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
   }, [
     activeReport,
     availableScopes.length,
+    expectedProjectionVersion,
     filters,
     activeDataScope,
     loadedScopeMonth,
+    provisionalPoll,
   ]);
 
   const report = useMemo(() => applyCustomerReportSpecificFilters(
@@ -354,9 +429,48 @@ export function CustomerReportCenterPage({
     activeReport,
     appliedSpecificFilters,
   ), [activeReport, appliedSpecificFilters, sourceReport]);
+  const overview = useMemo(
+    () => overviewCards(report, activeReport),
+    [activeReport, report],
+  );
   const activeTab = customerReportTabs.find((tab) => tab.key === activeReport)!;
-  const canExport = isDemoMode() && (capabilities === undefined
-    || capabilities.includes('ATTENDANCE_REPORT:EXPORT_CREATE'));
+  const canExport = capabilities === undefined
+    || capabilities.includes('ATTENDANCE_REPORT:EXPORT_CREATE');
+  const canRecalculate = !isDemoMode()
+    && (
+      capabilities === undefined
+        ? (sourceReport.metadata.allowedActions ?? []).includes('REPORT_RECALCULATE')
+        : capabilities.includes('ATTENDANCE_REPORT:REFRESH')
+          || (sourceReport.metadata.allowedActions ?? []).includes('REPORT_RECALCULATE')
+    );
+  const [recalculateLoading, setRecalculateLoading] = useState(false);
+  const handleRecalculate = useCallback(async (
+    window: 'LAST_3_DAYS' | 'LAST_7_DAYS' | 'MONTH',
+  ) => {
+    if (!canRecalculate || recalculateLoading) return;
+    setRecalculateLoading(true);
+    setReportError(null);
+    try {
+      await recalculateCustomerReport(
+        activeDataScope.reference,
+        filters.month,
+        window,
+      );
+      refreshReport();
+    } catch (error: unknown) {
+      setReportError(
+        error instanceof Error ? error.message : '重新计算失败，请稍后重试。',
+      );
+    } finally {
+      setRecalculateLoading(false);
+    }
+  }, [
+    activeDataScope.reference,
+    canRecalculate,
+    filters.month,
+    recalculateLoading,
+    refreshReport,
+  ]);
   const capabilityMode = capabilities === undefined
     ? '独立演示'
     : canExport
@@ -385,6 +499,28 @@ export function CustomerReportCenterPage({
     }));
   }, [activeDataScope, filters.month]);
 
+  const departmentTreeData = useMemo<DataNode[]>(() => {
+    const tree = Array.isArray(organizationTree) ? organizationTree : [];
+    const company = tree.find((node) => (
+      node.organizationId === activeDataScope.reference
+      || node.name === activeDataScope.label
+    ));
+    const toNodes = (nodes: OrganizationNode[]): DataNode[] => nodes.map((node) => ({
+      key: node.organizationId,
+      value: node.organizationId,
+      title: node.name,
+      children: node.children.length > 0 ? toNodes(node.children) : undefined,
+    }));
+    return [
+      {
+        key: ALL_DEPARTMENTS,
+        value: ALL_DEPARTMENTS,
+        title: '全部授权部门',
+        children: company ? toNodes(company.children) : toNodes(tree),
+      },
+    ];
+  }, [activeDataScope.label, activeDataScope.reference, organizationTree]);
+
   const departmentOptions = useMemo<CustomerReportDepartmentOption[]>(() => {
     const options = !isDemoMode() && activeLiveDirectory !== null
       ? [
@@ -411,12 +547,18 @@ export function CustomerReportCenterPage({
         .filter((identity): identity is string => Boolean(identity))
         .forEach((identity) => employeeByIdentity.set(identity, entry));
     });
+    const selectedOrganizationIds = collectDescendantOrganizationIds(
+      organizationTree,
+      filters.organizationId,
+    );
     const options = !isDemoMode() && activeLiveDirectory !== null
       ? [
         { value: '全部员工', label: '全部授权员工' },
         ...directory
           .filter((entry) => (
             filters.department === '全部部门'
+            || (filters.organizationId !== undefined
+              && selectedOrganizationIds.has(entry.organizationId ?? ''))
             || entry.organizationId === filters.organizationId
           ))
           .map((entry) => ({
@@ -447,6 +589,7 @@ export function CustomerReportCenterPage({
     demoEmployeeDirectory,
     filters.department,
     filters.organizationId,
+    organizationTree,
   ]);
 
   const changeFilter = <K extends keyof CustomerReportFilters>(
@@ -481,6 +624,16 @@ export function CustomerReportCenterPage({
           employeeId: undefined,
         };
       }
+      if (key === 'month') {
+        const month = String(value);
+        const bounds = monthBounds(month);
+        return {
+          ...current,
+          month,
+          fromDate: bounds.fromDate,
+          toDate: bounds.toDate,
+        };
+      }
       return { ...current, [key]: value };
     });
   };
@@ -506,22 +659,26 @@ export function CustomerReportCenterPage({
       dataScopeReference: activeDataScope.reference,
       dataScopeLabel: activeDataScope.label,
     };
-    const writeCsv = () => {
-      downloadCustomerReportCsv(buildCustomerReportCsv({
-        ...request,
-        report,
-      }));
-    };
-
-    // Only the isolated demo exports a local CSV. The production realtime
-    // report deliberately exposes no export action until the export API is
-    // bound to the same LIVE snapshot token.
-    writeCsv();
-    onExport?.(request);
-    setSpecificFeedback('');
-    setExportFeedback(
-      `“${activeTab.label}”已按当前筛选条件导出。`,
-    );
+    setExportFeedback('正在生成导出文件…');
+    void downloadCustomerReportWorkbook({
+      reportKey: activeReport,
+      reportTitle: activeTab.label,
+      month: filters.month,
+      report,
+      overtimeType: appliedSpecificFilters.overtimeType,
+    })
+      .then(() => {
+        onExport?.(request);
+        setSpecificFeedback('');
+        setExportFeedback(
+          `“${activeTab.label}”已按当前${isDemoMode() ? '筛选条件' : '屏幕'}导出。`,
+        );
+      })
+      .catch((error: unknown) => {
+        setExportFeedback(
+          error instanceof Error ? error.message : '导出失败，请刷新报表后重试。',
+        );
+      });
   };
 
   const changeSpecificFilter = <K extends keyof CustomerReportSpecificFilters>(
@@ -607,12 +764,20 @@ export function CustomerReportCenterPage({
           </div>
           <h1>考勤报表中心</h1>
           <p>
-            基于已同步的得力打卡、OA 单据、班次、考勤组和组织人员数据实时计算。
+            显示已钉住的核算结果；新打卡和单据在重新计算前不会改数字。OPEN 月若还没有核算结果，由得力/OA 定时同步成功后的自动任务补一次，或由有权限的人点重新计算。
+            {!isDemoMode() && sourceReport.metadata.periodState === 'OPEN' ? (
+              <span className="customer-report__open-badge"> 暂算 · 期间未关闭</span>
+            ) : null}
+            {!isDemoMode()
+              && canRecalculate
+              && sourceReport.metadata.sourcesNewerThanPin ? (
+                <span className="customer-report__open-badge"> 来源已更新，可重新计算</span>
+              ) : null}
           </p>
         </div>
         <div className="customer-report__hero-action">
           <span className="customer-report__version">
-            统计月份 · {report.metadata.monthLabel}
+            统计期间 · {formatChineseRange(filters.fromDate, filters.toDate)}
           </span>
           <div className="customer-report__hero-buttons">
             {!isDemoMode() ? (
@@ -627,19 +792,42 @@ export function CustomerReportCenterPage({
                 刷新数据
               </Button>
             ) : null}
-            {isDemoMode() ? (
-              <Button
-                type="primary"
-                size="large"
-                icon={<IconDownload aria-hidden="true" stroke={2} />}
-                onClick={handleExport}
-                data-capability-mode={capabilityMode}
-                disabled={!canExport}
-                title={canExport ? undefined : '当前账号没有导出权限'}
-              >
-                导出当前报表
-              </Button>
+            {canRecalculate ? (
+              <>
+                <Button
+                  size="large"
+                  loading={recalculateLoading}
+                  onClick={() => { void handleRecalculate('LAST_3_DAYS'); }}
+                >
+                  重新计算近3天
+                </Button>
+                <Button
+                  size="large"
+                  loading={recalculateLoading}
+                  onClick={() => { void handleRecalculate('LAST_7_DAYS'); }}
+                >
+                  重新计算近一周
+                </Button>
+                <Button
+                  size="large"
+                  loading={recalculateLoading}
+                  onClick={() => { void handleRecalculate('MONTH'); }}
+                >
+                  重新计算本月
+                </Button>
+              </>
             ) : null}
+            <Button
+              type="primary"
+              size="large"
+              icon={<IconDownload aria-hidden="true" stroke={2} />}
+              onClick={handleExport}
+              data-capability-mode={capabilityMode}
+              disabled={!canExport}
+              title={canExport ? undefined : '当前账号没有导出权限'}
+            >
+              导出当前报表
+            </Button>
           </div>
         </div>
       </header>
@@ -712,10 +900,14 @@ export function CustomerReportCenterPage({
             type="button"
             className="customer-report__reset"
             onClick={() => {
+              const month = defaultQueryPeriod().format('YYYY-MM');
               setFilters({
-                month: '2026-06',
+                month,
                 department: '全部部门',
                 employee: '全部员工',
+                organizationId: undefined,
+                employeeId: undefined,
+                ...monthBounds(month),
               });
               setSpecificFeedback('');
               setExportFeedback('');
@@ -726,30 +918,128 @@ export function CustomerReportCenterPage({
         </div>
         <div className="customer-report__filters">
           <label>
-            <span>月份</span>
-            <Select
-              aria-label="月份"
-              value={filters.month}
-              options={reportFilterOptions.months.map((option) => ({ ...option }))}
-              onChange={(value) => changeFilter('month', value)}
-              popupMatchSelectWidth={false}
+            <span>起止日期</span>
+            <DatePicker.RangePicker
+              aria-label="起止日期"
+              locale={zhCN.DatePicker}
+              format="YYYY年M月D日"
+              allowClear={false}
+              value={
+                filters.fromDate && filters.toDate
+                  ? [dayjs(filters.fromDate), dayjs(filters.toDate)]
+                  : undefined
+              }
+              presets={[
+                {
+                  label: '本月',
+                  value: [dayjs().startOf('month'), dayjs().endOf('month')],
+                },
+                {
+                  label: '上月',
+                  value: [
+                    dayjs().subtract(1, 'month').startOf('month'),
+                    dayjs().subtract(1, 'month').endOf('month'),
+                  ],
+                },
+              ]}
+              onChange={(range) => {
+                if (range?.[0] && range[1]) {
+                  const from = range[0];
+                  const to = range[1];
+                  if (from.format('YYYY-MM') !== to.format('YYYY-MM')) {
+                    Modal.warning({
+                      title: '暂不支持跨月',
+                      content: '考勤报表目前只支持同一个月内的日期筛选，跨月展示列为后续功能。请改选同一月的起止日期。',
+                    });
+                    return;
+                  }
+                  setExportFeedback('');
+                  setSpecificFeedback('');
+                  setFilters((current) => ({
+                    ...current,
+                    month: from.format('YYYY-MM'),
+                    fromDate: from.format('YYYY-MM-DD'),
+                    toDate: to.format('YYYY-MM-DD'),
+                  }));
+                }
+              }}
             />
           </label>
           <label>
             <span>部门</span>
+            {!isDemoMode() && organizationTree.length > 0 ? (
+            <TreeSelect
+              aria-label="部门"
+              allowClear
+              showSearch
+              treeDefaultExpandAll={false}
+              treeNodeFilterProp="title"
+              placeholder="全部授权部门"
+              value={filters.organizationId ?? ALL_DEPARTMENTS}
+              treeData={departmentTreeData}
+              onChange={(value) => {
+                const selectedId = value == null || value === ''
+                  ? ALL_DEPARTMENTS
+                  : String(value);
+                setExportFeedback('');
+                setSpecificFeedback('');
+                const department = selectedId === ALL_DEPARTMENTS
+                  ? ALL_DEPARTMENTS
+                  : findOrganizationTitle(departmentTreeData, selectedId)
+                    ?? selectedId;
+                setFilters((current) => ({
+                  ...current,
+                  department,
+                  employee: ALL_EMPLOYEES,
+                  organizationId: selectedId === ALL_DEPARTMENTS
+                    ? undefined
+                    : selectedId,
+                  employeeId: undefined,
+                }));
+                setDraftSpecificFilters((specificFilters) => (
+                  normalizeAnnualLeaveFilters(
+                    specificFilters,
+                    department,
+                    activeDataScope.allowedDepartments,
+                  )
+                ));
+                setAppliedSpecificFilters((specificFilters) => (
+                  normalizeAnnualLeaveFilters(
+                    specificFilters,
+                    department,
+                    activeDataScope.allowedDepartments,
+                  )
+                ));
+              }}
+              notFoundContent="未找到匹配部门"
+              popupMatchSelectWidth={false}
+            />
+            ) : (
             <Select<string, CustomerReportDepartmentOption>
               aria-label="部门"
+              allowClear
               showSearch
+              placeholder="全部授权部门"
               value={filters.organizationId ?? filters.department}
               options={departmentOptions}
               onChange={(value, option) => {
+                if (value === undefined || value === ALL_DEPARTMENTS) {
+                  setExportFeedback('');
+                  setSpecificFeedback('');
+                  setFilters((current) => ({
+                    ...current,
+                    department: ALL_DEPARTMENTS,
+                    employee: ALL_EMPLOYEES,
+                    organizationId: undefined,
+                    employeeId: undefined,
+                  }));
+                  return;
+                }
                 const selectedOption = getSingleSelectOption(option);
                 if (selectedOption === undefined) return;
                 setExportFeedback('');
                 setSpecificFeedback('');
-                const department = value === ALL_DEPARTMENTS
-                  ? ALL_DEPARTMENTS
-                  : selectedOption.label;
+                const department = selectedOption.label;
                 setFilters((current) => ({
                   ...current,
                   department,
@@ -782,37 +1072,39 @@ export function CustomerReportCenterPage({
                   ? '全部授权部门'
                   : filters.department
               )}
-              optionRender={(option) => (
-                option.data.organizationId ? (
-                  <span className="customer-report__employee-option">
-                    <span>{option.data.label}</span>
-                    <small>{option.data.organizationId}</small>
-                  </span>
-                ) : option.data.label
-              )}
+              optionRender={(option) => option.data.label}
               popupMatchSelectWidth={false}
             />
+            )}
           </label>
           <label>
             <span>员工</span>
             <Select<string, CustomerReportEmployeeOption>
               aria-label="员工"
+              allowClear
               showSearch
+              placeholder="全部授权员工"
               value={filters.employeeId ?? filters.employee}
               options={employeeOptions}
               onChange={(value, option) => {
+                if (value === undefined || value === ALL_EMPLOYEES) {
+                  setExportFeedback('');
+                  setSpecificFeedback('');
+                  setFilters((current) => ({
+                    ...current,
+                    employee: ALL_EMPLOYEES,
+                    employeeId: undefined,
+                  }));
+                  return;
+                }
                 const selectedOption = getSingleSelectOption(option);
                 if (selectedOption === undefined) return;
                 setExportFeedback('');
                 setSpecificFeedback('');
                 setFilters((current) => ({
                   ...current,
-                  employee: value === ALL_EMPLOYEES
-                    ? ALL_EMPLOYEES
-                    : selectedOption.label,
-                  employeeId: value === ALL_EMPLOYEES
-                    ? undefined
-                    : selectedOption.employeeId,
+                  employee: selectedOption.label,
+                  employeeId: selectedOption.employeeId,
                 }));
               }}
               optionFilterProp="searchText"
@@ -840,7 +1132,7 @@ export function CustomerReportCenterPage({
             <span>当前范围</span>
             <strong>{filters.department} · {filters.employee}</strong>
             <small>
-              {report.metadata.monthLabel}，共 {report.metadata.rowCount} 名授权员工
+              {formatChineseRange(filters.fromDate, filters.toDate)}，共 {report.metadata.rowCount} 名授权员工
             </small>
           </div>
         </div>
@@ -849,7 +1141,7 @@ export function CustomerReportCenterPage({
       {!isDemoMode() && reportLoading ? (
         <div className="customer-report__load-status" role="status" aria-live="polite">
           <IconInfoCircle aria-hidden="true" stroke={2} />
-          正在加载报表数据…
+          正在汇总本月花名册和打卡。先出的是预览，漏刷可能还会变；完整核算完成后会自动刷新成同一份结果。
         </div>
       ) : null}
 
@@ -862,42 +1154,23 @@ export function CustomerReportCenterPage({
       ) : null}
 
       {!isDemoMode() && liveReport?.metadata.truncated ? (
-        <div className="customer-report__truncation-notice" role="alert">
+        <div className="customer-report__truncation-notice" role="status">
           <IconInfoCircle aria-hidden="true" stroke={2} />
-          当前报表超过最大加载行数，仅显示前部分数据。请缩小部门或员工范围后刷新。
+          正在加载其余员工，当前为预览；全部到齐后人数会自动更新。
         </div>
       ) : null}
 
       <section className="customer-report__metrics" aria-label="当前范围概览">
-        <MetricCard
-          label="范围员工"
-          value={sourceReport.attendanceRows.length}
-          unit="人"
-          hint="筛选范围内在册人员"
-        />
-        <MetricCard
-          label="请假总时长"
-          value={sum(sourceReport.leaveRows.map((row) => row.hours)).toFixed(1)}
-          unit="小时"
-          hint={`${sourceReport.leaveRows.length} 条已审批记录`}
-        />
-        <MetricCard
-          label="加班总时长"
-          value={sum(sourceReport.overtimeRows.map((row) => (
-            row.totalHours ?? 0
-          ))).toFixed(1)}
-          unit="小时"
-          hint="计薪、转调休与义务加班汇总"
-        />
-        <MetricCard
-          label="待处理异常"
-          value={sourceReport.attendanceExceptionRows.filter(
-            (row) => row.state !== '已处理',
-          ).length}
-          unit="项"
-          hint="可在考勤异常总览中分级处理"
-          tone="warning"
-        />
+        {overview.map((card) => (
+          <MetricCard
+            key={card.label}
+            label={card.label}
+            value={card.value}
+            unit={card.unit}
+            hint={card.hint}
+            tone={card.tone}
+          />
+        ))}
       </section>
 
       <section className="customer-report__workspace">
@@ -948,7 +1221,6 @@ export function CustomerReportCenterPage({
           <div className="customer-report__export-feedback" role="status" aria-live="polite">
             <span aria-hidden="true">✓</span>
             <div>
-              <strong>演示文件已导出</strong>
               <p>{exportFeedback}</p>
             </div>
           </div>
@@ -961,7 +1233,11 @@ export function CustomerReportCenterPage({
           aria-labelledby={`customer-report-tab-${activeReport}`}
           className="customer-report__tabpanel"
         >
-          <ActiveReport reportKey={activeReport} report={report} />
+          <ActiveReport
+            reportKey={activeReport}
+            report={report}
+            overtimeType={appliedSpecificFilters.overtimeType}
+          />
         </div>
       </section>
     </main>
@@ -1249,6 +1525,35 @@ function SpecificFilterFields({
           />
         </>
       );
+    case 'overtime-daily':
+    case 'finance-overtime':
+      return (
+        <>
+          <SpecificSelect
+            label="加班类别"
+            value={filters.overtimeType}
+            options={plainOptions(reportSpecificFilterOptions.overtimeTypes)}
+            onChange={(value) => onChange(
+              'overtimeType',
+              value as CustomerReportSpecificFilters['overtimeType'],
+            )}
+          />
+          <SpecificSelect
+            label="加班日期"
+            value={filters.overtimeDay}
+            options={[
+              { value: '全部日期', label: '全部日期' },
+              ...Array.from({ length: daysInMonth(month) }, (_, index) => ({
+                value: String(index + 1),
+                label: `${month.slice(5, 7)}月${String(index + 1).padStart(2, '0')}日`,
+              })),
+            ]}
+            onChange={(value) => onChange('overtimeDay', value)}
+          />
+        </>
+      );
+    case 'daily-journal':
+      return null;
   }
 }
 
@@ -1296,6 +1601,24 @@ function filterCustomerReportOption(
     .includes(query);
 }
 
+function collectDescendantOrganizationIds(
+  nodes: readonly OrganizationNode[],
+  selectedId: string | undefined,
+): Set<string> {
+  const ids = new Set<string>();
+  if (selectedId === undefined || selectedId === '') return ids;
+  const walk = (current: readonly OrganizationNode[], capturing: boolean) => {
+    current.forEach((node) => {
+      const include = capturing || node.organizationId === selectedId;
+      if (include) ids.add(node.organizationId);
+      if (node.children.length > 0) walk(node.children, include);
+    });
+  };
+  walk(nodes, false);
+  if (ids.size === 0) ids.add(selectedId);
+  return ids;
+}
+
 function getSingleSelectOption<OptionType>(
   option: OptionType | OptionType[] | undefined,
 ): OptionType | undefined {
@@ -1305,9 +1628,11 @@ function getSingleSelectOption<OptionType>(
 function ActiveReport({
   reportKey,
   report,
+  overtimeType,
 }: {
   reportKey: CustomerReportKey;
   report: CustomerReportDemo;
+  overtimeType?: string;
 }) {
   switch (reportKey) {
     case 'attendance-detail':
@@ -1316,6 +1641,12 @@ function ActiveReport({
       return <LeaveReport report={report} />;
     case 'overtime':
       return <OvertimeReport report={report} />;
+    case 'overtime-daily':
+      return <OvertimeDailyReport report={report} overtimeType={overtimeType} />;
+    case 'finance-overtime':
+      return <FinanceOvertimeReport report={report} overtimeType={overtimeType} />;
+    case 'daily-journal':
+      return <DailyJournalReport report={report} />;
     case 'work-hours':
       return <WorkHoursReport report={report} />;
     case 'exceptions':
@@ -1352,7 +1683,7 @@ function AttendanceDetailReport({ report }: { report: CustomerReportDemo }) {
             <tr>
               <th scope="col">工号</th>
               <th scope="col">姓名</th>
-              <th scope="col">部门</th>
+              <th scope="col" className="customer-report__matrix-dept">部门</th>
               {report.attendanceRows[0]?.days.map((day) => (
                 <th scope="col" key={day.day}>
                   <span>{String(day.day).padStart(2, '0')}</span>
@@ -1380,30 +1711,65 @@ function AttendanceMatrixRow({ row }: { row: AttendanceDetailRow }) {
     <tr>
       <td>{row.employeeNo}</td>
       <td><strong>{row.employee}</strong><small>{row.position}</small></td>
-      <td>{row.department}</td>
+      <td className="customer-report__matrix-dept customer-report__dept" title={visibleDepartmentPath(row.department)}>
+        {departmentPathNodes(row.department)}
+      </td>
       {row.days.map((day) => {
-        const color = day.status ? statusColor(day.status) : undefined;
-        const content = (
-          <div
-            className={`customer-report__attendance-cell${day.status ? ` is-${day.status}` : ''}`}
-            style={color ? { backgroundColor: color } : undefined}
-          >
-            <span>{day.primary}</span>
-            <small>{day.secondary}</small>
-          </div>
-        );
+        const merged = day.merged === true;
+        const content = merged
+          ? (
+            <div
+              className={slotClassName('customer-report__attendance-cell is-merged', day.mergedStatus, day.mergedLabel)}
+              style={slotStyle(day.mergedStatus)}
+            >
+              <span>{day.mergedLabel || day.primary}</span>
+            </div>
+          )
+          : (
+            <div className="customer-report__attendance-cell">
+              <span className={slotClassName('customer-report__slot', day.primaryStatus, day.primary)} style={slotStyle(day.primaryStatus)}>
+                {day.primary}
+              </span>
+              <small className={slotClassName('customer-report__slot', day.secondaryStatus, day.secondary)} style={slotStyle(day.secondaryStatus)}>
+                {day.secondary}
+              </small>
+            </div>
+          );
         return (
-          <td key={day.day} className={day.status ? 'has-status' : undefined}>
-            {day.note ? (
-              <Tooltip title={day.note} placement="top">
-                {content}
-              </Tooltip>
-            ) : content}
+          <td key={day.day} className={day.status || day.merged ? 'has-status' : undefined}>
+            <Tooltip
+              title={(
+                <div className="customer-report__cell-tooltip">
+                  {day.note ?? `${day.primary || '无'} / ${day.secondary || '无'}`}
+                </div>
+              )}
+              placement="top"
+            >
+              {content}
+            </Tooltip>
           </td>
         );
       })}
     </tr>
   );
+}
+
+function slotClassName(
+  base: string,
+  status: AttendanceStatusKey | undefined,
+  text: string | undefined,
+): string {
+  const classes = [base];
+  if (status) classes.push(`is-${status}`);
+  if ((text ?? '').includes('补签') || status === 'corrected') {
+    classes.push('is-corrected');
+  }
+  return classes.join(' ');
+}
+
+function slotStyle(status: AttendanceStatusKey | undefined): CSSProperties | undefined {
+  const color = status ? statusColor(status) : undefined;
+  return color ? { backgroundColor: color } : undefined;
 }
 
 function LeaveReport({ report }: { report: CustomerReportDemo }) {
@@ -1431,7 +1797,7 @@ function LeaveReport({ report }: { report: CustomerReportDemo }) {
             {report.leaveRows.length > 0 ? report.leaveRows.map((row) => (
               <tr key={row.id}>
                 <td>{row.id}</td>
-                <td>{row.department}</td>
+                <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
                 <td><strong>{row.employee}</strong></td>
                 <td><StatusPill label={row.type} /></td>
                 <td className="customer-report__number">{row.hours.toFixed(1)}</td>
@@ -1448,105 +1814,292 @@ function LeaveReport({ report }: { report: CustomerReportDemo }) {
 }
 
 function OvertimeReport({ report }: { report: CustomerReportDemo }) {
-  const departmentRows = [...new Set(report.overtimeRows.map((row) => row.department))].map((department) => {
-    const rows = report.overtimeRows.filter((row) => row.department === department);
-    const classificationAvailable = rows.every((row) => row.classificationAvailable);
-    return {
-      department,
-      people: rows.length,
-      paidHours: classificationAvailable
-        ? sum(rows.map((row) => row.paidHours ?? 0))
-        : undefined,
-      compensatoryHours: classificationAvailable
-        ? sum(rows.map((row) => row.compensatoryHours ?? 0))
-        : undefined,
-      voluntaryHours: classificationAvailable
-        ? sum(rows.map((row) => row.voluntaryHours ?? 0))
-        : undefined,
-      totalHours: sumKnown(rows.map((row) => row.totalHours)),
-    };
-  });
-  const dayCount = daysInMonth(report.metadata.month);
-  const showDailyBreakdown = report.overtimeRows.some(
-    (row) => row.dailyHours !== undefined,
-  );
-  const hasLegacyRows = report.overtimeRows.some(
-    (row) => !row.classificationAvailable,
-  );
-
   return (
     <ReportSheet
       title={`${report.metadata.monthLabel}加班统计`}
-      subtitle="计薪、转调休、义务加班分类及汇总"
-      meta={`${report.overtimeRows.length} 人`}
+      subtitle="一行一张加班单，含 OA 与纸质来源"
+      meta={`${report.overtimeRows.length} 张单据`}
     >
-      <div className="customer-report__table-scroll" data-testid="report-scroll-region">
-        <h3>部门加班汇总</h3>
-        <table className="customer-report__table customer-report__table--compact">
+      <ScrollTable>
+        <table className="customer-report__table" data-testid="report-table">
           <thead>
             <tr>
+              <th scope="col">工号</th>
               <th scope="col">部门</th>
-              <th scope="col">加班人数</th>
-              <th scope="col">计薪加班</th>
-              <th scope="col">转调休加班</th>
-              <th scope="col">义务加班</th>
-              <th scope="col">汇总加班（小时）</th>
-            </tr>
-          </thead>
-          <tbody>
-            {departmentRows.map((row) => (
-              <tr key={row.department}>
-                <td><strong>{row.department}</strong></td>
-                <td>{row.people}</td>
-                <td>{displayHours(row.paidHours)}</td>
-                <td>{displayHours(row.compensatoryHours)}</td>
-                <td>{displayHours(row.voluntaryHours)}</td>
-                <td><strong>{displayHours(row.totalHours)}</strong></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {hasLegacyRows ? (
-          <SheetFootnote>
-            部分数据来自旧版接口，仅保留“汇总加班”兼容值；旧工作日、周末和法定节假日字段不会映射为新的业务分类。
-          </SheetFootnote>
-        ) : null}
-        <h3>{showDailyBreakdown ? '员工加班分类与每日明细' : '员工加班分类'}</h3>
-        <table className="customer-report__table customer-report__table--daily" data-testid="report-table">
-          <thead>
-            <tr>
-              <th scope="col">部门</th>
-              <th scope="col">员工</th>
-              <th scope="col">计薪加班</th>
-              <th scope="col">转调休加班</th>
-              <th scope="col">义务加班</th>
-              <th scope="col">汇总加班</th>
-              {showDailyBreakdown
-                ? Array.from({ length: dayCount }, (_, index) => (
-                  <th scope="col" key={index + 1}>{index + 1}日</th>
-                ))
-                : null}
+              <th scope="col">姓名</th>
+              <th scope="col">加班类型</th>
+              <th scope="col">加班时段</th>
+              <th scope="col">小时小时</th>
+              <th scope="col">审批状态</th>
+              <th scope="col">来源</th>
             </tr>
           </thead>
           <tbody>
             {report.overtimeRows.length > 0 ? report.overtimeRows.map((row) => (
-              <tr key={row.rowKey ?? `${row.department}\u0000${row.employee}`}>
-                <td>{row.department}</td>
+              <tr key={row.rowKey ?? `${row.employeeNo ?? row.employee}\u0000${row.period}`}>
+                <td>{row.employeeNo ?? '—'}</td>
+                <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
                 <td><strong>{row.employee}</strong></td>
-                <td>{displayHours(row.paidHours)}</td>
-                <td>{displayHours(row.compensatoryHours)}</td>
-                <td>{displayHours(row.voluntaryHours)}</td>
-                <td><strong>{displayHours(row.totalHours)}</strong></td>
-                {showDailyBreakdown
-                  ? Array.from({ length: dayCount }, (_, index) => (
-                    <td key={index}>{row.dailyHours?.[index] || ''}</td>
-                  ))
-                  : null}
+                <td><StatusPill label={row.overtimeType} /></td>
+                <td>{row.period}</td>
+                <td className="customer-report__number">{row.hours.toFixed(1)}</td>
+                <td><StatePill label={row.approvalState} /></td>
+                <td>{row.source}</td>
               </tr>
-            )) : <EmptyTableRow colSpan={(showDailyBreakdown ? dayCount : 0) + 6} />}
+            )) : <EmptyTableRow colSpan={8} />}
           </tbody>
         </table>
-      </div>
+      </ScrollTable>
+    </ReportSheet>
+  );
+}
+
+function FinanceOvertimeReport({
+  report,
+  overtimeType,
+}: {
+  report: CustomerReportDemo;
+  overtimeType?: string;
+}) {
+  const feeColumns = overtimeFeeColumns(overtimeType);
+  const dates = [...new Set(
+    report.financeOvertimeRows.flatMap((row) => row.days.map((day) => day.date.slice(0, 10))),
+  )].sort();
+  const weekdayTotal = report.financeOvertimeRows.reduce((sum, row) => sum + row.weekdayOvertimeHours, 0);
+  const weekendTotal = report.financeOvertimeRows.reduce((sum, row) => sum + row.weekendOvertimeHours, 0);
+  const holidayTotal = report.financeOvertimeRows.reduce((sum, row) => sum + row.holidayOvertimeHours, 0);
+  return (
+    <ReportSheet
+      title={`${report.metadata.monthLabel}每日加班`}
+      subtitle="一人一行：平时 / 周末 / 节假日合计，后面按日列加班小时"
+      meta={`${report.financeOvertimeRows.length} 人`}
+    >
+      <ScrollTable>
+        <table className="customer-report__table customer-report__table--finance-overtime" data-testid="report-table">
+          <thead>
+            <tr>
+              <th scope="col" rowSpan={2}>部门</th>
+              <th scope="col" rowSpan={2}>工号</th>
+              <th scope="col" rowSpan={2}>加班人</th>
+              <th scope="col" rowSpan={2}>平时加班</th>
+              <th scope="col" rowSpan={2}>周末加班</th>
+              <th scope="col" rowSpan={2}>节假日加班</th>
+              {feeColumns.paid ? <th scope="col" rowSpan={2}>加班费</th> : null}
+              {feeColumns.compensatory ? <th scope="col" rowSpan={2}>转调休</th> : null}
+              {feeColumns.voluntary ? <th scope="col" rowSpan={2}>义务加班</th> : null}
+              {dates.map((date) => (
+                <th scope="col" key={date}>{`${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`}</th>
+              ))}
+            </tr>
+            <tr>
+              {dates.map((date) => (
+                <th scope="col" key={`${date}-wd`}>
+                  {(() => {
+                    const day = new Date(`${date}T00:00:00`).getDay();
+                    return day === 0 ? 7 : day;
+                  })()}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {report.financeOvertimeRows.length > 0 ? report.financeOvertimeRows.map((row) => {
+              const byDate = new Map(row.days.map((day) => [day.date.slice(0, 10), day.hours]));
+              return (
+                <tr key={row.employeeNo || row.employee}>
+                  <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>
+                    {departmentPathNodes(row.department)}
+                  </td>
+                  <td>{row.employeeNo}</td>
+                  <td><strong>{row.employee}</strong></td>
+                  <td className="customer-report__number">{formatFinanceHours(row.weekdayOvertimeHours, true)}</td>
+                  <td className="customer-report__number">{formatFinanceHours(row.weekendOvertimeHours, true)}</td>
+                  <td className="customer-report__number">{formatFinanceHours(row.holidayOvertimeHours, true)}</td>
+                  {feeColumns.paid ? (
+                    <td className="customer-report__number">{formatFinanceHours(row.paidOvertimeHours ?? 0, true)}</td>
+                  ) : null}
+                  {feeColumns.compensatory ? (
+                    <td className="customer-report__number">{formatFinanceHours(row.compensatoryOvertimeHours ?? 0, true)}</td>
+                  ) : null}
+                  {feeColumns.voluntary ? (
+                    <td className="customer-report__number">{formatFinanceHours(row.voluntaryOvertimeHours ?? 0, true)}</td>
+                  ) : null}
+                  {dates.map((date) => {
+                    const hours = byDate.get(date) ?? 0;
+                    const day = row.days.find((item) => item.date.slice(0, 10) === date);
+                    const fill = hours > 0 ? overtimeCellFill({
+                      treatment: day?.treatment,
+                      paidHours: day?.paidHours,
+                      compensatoryHours: day?.compensatoryHours,
+                      voluntaryHours: day?.voluntaryHours,
+                    }, overtimeType) : undefined;
+                    const title = overtimeTreatmentHover({
+                      paidHours: day?.paidHours,
+                      compensatoryHours: day?.compensatoryHours,
+                      voluntaryHours: day?.voluntaryHours,
+                    });
+                    return (
+                      <td
+                        key={date}
+                        className="customer-report__number"
+                        style={fill}
+                        title={title || undefined}
+                      >
+                        {formatFinanceHours(Number(hours), true)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            }) : <EmptyTableRow colSpan={6 + (feeColumns.paid ? 1 : 0) + (feeColumns.compensatory ? 1 : 0) + (feeColumns.voluntary ? 1 : 0) + dates.length} />}
+          </tbody>
+          {report.financeOvertimeRows.length > 0 ? (
+            <tfoot>
+              <tr>
+                <td>总计</td>
+                <td />
+                <td />
+                <td className="customer-report__number">{formatFinanceHours(weekdayTotal, true)}</td>
+                <td className="customer-report__number">{formatFinanceHours(weekendTotal, true)}</td>
+                <td className="customer-report__number">{formatFinanceHours(holidayTotal, true)}</td>
+                {feeColumns.paid ? (
+                  <td className="customer-report__number">
+                    {formatFinanceHours(report.financeOvertimeRows.reduce((sum, row) => sum + (row.paidOvertimeHours ?? 0), 0), true)}
+                  </td>
+                ) : null}
+                {feeColumns.compensatory ? (
+                  <td className="customer-report__number">
+                    {formatFinanceHours(report.financeOvertimeRows.reduce((sum, row) => sum + (row.compensatoryOvertimeHours ?? 0), 0), true)}
+                  </td>
+                ) : null}
+                {feeColumns.voluntary ? (
+                  <td className="customer-report__number">
+                    {formatFinanceHours(report.financeOvertimeRows.reduce((sum, row) => sum + (row.voluntaryOvertimeHours ?? 0), 0), true)}
+                  </td>
+                ) : null}
+                {dates.map((date) => {
+                  const total = report.financeOvertimeRows.reduce((sum, row) => {
+                    const hours = row.days.find((day) => day.date.slice(0, 10) === date)?.hours ?? 0;
+                    return sum + hours;
+                  }, 0);
+                  return <td key={date} className="customer-report__number">{formatFinanceHours(total, true)}</td>;
+                })}
+              </tr>
+            </tfoot>
+          ) : null}
+        </table>
+      </ScrollTable>
+    </ReportSheet>
+  );
+}
+
+function OvertimeDailyReport({
+  report,
+  overtimeType,
+}: {
+  report: CustomerReportDemo;
+  overtimeType?: string;
+}) {
+  const feeColumns = overtimeFeeColumns(overtimeType);
+  return (
+    <ReportSheet
+      title={`${report.metadata.monthLabel}加班日报`}
+      subtitle="每人每天工作日 / 周末 / 节假日加班小时，供财务计薪"
+      meta={`${report.overtimeDailyRows.length} 行`}
+    >
+      <ScrollTable>
+        <table className="customer-report__table" data-testid="report-table">
+          <thead>
+            <tr>
+              <th scope="col">工号</th>
+              <th scope="col">部门</th>
+              <th scope="col">姓名</th>
+              <th scope="col">日期</th>
+              <th scope="col">工作日加班</th>
+              <th scope="col">周末加班</th>
+              <th scope="col">节假日加班</th>
+              {feeColumns.paid ? <th scope="col">加班费</th> : null}
+              {feeColumns.compensatory ? <th scope="col">转调休</th> : null}
+              {feeColumns.voluntary ? <th scope="col">义务加班</th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {report.overtimeDailyRows.length > 0 ? report.overtimeDailyRows.map((row) => (
+              <tr key={`${row.employeeNo}-${row.businessDate}`}>
+                <td>{row.employeeNo}</td>
+                <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
+                <td><strong>{row.employee}</strong></td>
+                <td>{row.businessDate}</td>
+                <td className="customer-report__number">{formatFinanceHours(row.weekdayOvertimeHours, true)}</td>
+                <td className="customer-report__number">{formatFinanceHours(row.weekendOvertimeHours, true)}</td>
+                <td className="customer-report__number">{formatFinanceHours(row.holidayOvertimeHours, true)}</td>
+                {feeColumns.paid ? (
+                  <td className="customer-report__number">{formatFinanceHours(row.paidOvertimeHours ?? 0, true)}</td>
+                ) : null}
+                {feeColumns.compensatory ? (
+                  <td className="customer-report__number">{formatFinanceHours(row.compensatoryOvertimeHours ?? 0, true)}</td>
+                ) : null}
+                {feeColumns.voluntary ? (
+                  <td className="customer-report__number">{formatFinanceHours(row.voluntaryOvertimeHours ?? 0, true)}</td>
+                ) : null}
+              </tr>
+            )) : <EmptyTableRow colSpan={9} />}
+          </tbody>
+        </table>
+      </ScrollTable>
+    </ReportSheet>
+  );
+}
+
+function DailyJournalReport({ report }: { report: CustomerReportDemo }) {
+  return (
+    <ReportSheet
+      title={`${report.metadata.monthLabel}考勤日报`}
+      subtitle="一人一日一行，上下班、异常与加班供财务对账"
+      meta={`${report.dailyJournalRows.length} 行`}
+    >
+      <ScrollTable>
+        <table className="customer-report__table" data-testid="report-table">
+          <thead>
+            <tr>
+              <th scope="col">序号</th>
+              <th scope="col">部门</th>
+              <th scope="col">工号</th>
+              <th scope="col">姓名</th>
+              <th scope="col">日期</th>
+              <th scope="col">班次</th>
+              <th scope="col">上班</th>
+              <th scope="col">下班</th>
+              <th scope="col">迟到</th>
+              <th scope="col">早退</th>
+              <th scope="col">旷工</th>
+              <th scope="col">请假</th>
+              <th scope="col">加班</th>
+              <th scope="col">备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.dailyJournalRows.length > 0 ? report.dailyJournalRows.map((row) => (
+              <tr key={`${row.employeeNo}-${row.businessDate}`}>
+                <td>{row.sequence}</td>
+                <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
+                <td>{row.employeeNo}</td>
+                <td><strong>{row.employee}</strong></td>
+                <td>{row.businessDate}</td>
+                <td>{row.shiftLabel}</td>
+                <td>{row.onDuty}</td>
+                <td>{row.offDuty}</td>
+                <td>{row.lateHours}</td>
+                <td>{row.earlyHours}</td>
+                <td>{row.absenceHours}</td>
+                <td>{row.leaveType}</td>
+                <td className="customer-report__number">{row.overtimeHours}</td>
+                <td>{row.remark}</td>
+              </tr>
+            )) : <EmptyTableRow colSpan={14} />}
+          </tbody>
+        </table>
+      </ScrollTable>
     </ReportSheet>
   );
 }
@@ -1564,11 +2117,13 @@ function WorkHoursReport({ report }: { report: CustomerReportDemo }) {
             <tr>
               <th scope="col">姓名</th>
               <th scope="col">部门</th>
-              <th scope="col">应出勤工时</th>
+              <th scope="col">{Number.parseInt(report.metadata.month.slice(5, 7), 10)}月应出勤工时</th>
               <th scope="col">加班时数</th>
+              <th scope="col">义务加班</th>
               <th scope="col">事假+病假+其他假期</th>
               <th scope="col">年假</th>
               <th scope="col">加班换调休</th>
+              <th scope="col">实际调休</th>
               <th scope="col">个人实际出勤工时</th>
               <th scope="col">备注</th>
             </tr>
@@ -1577,16 +2132,18 @@ function WorkHoursReport({ report }: { report: CustomerReportDemo }) {
             {report.workHoursRows.length > 0 ? report.workHoursRows.map((row) => (
               <tr key={row.rowKey ?? `${row.department}\u0000${row.employee}`}>
                 <td><strong>{row.employee}</strong></td>
-                <td>{row.department}</td>
+                <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
                 <td>{row.plannedHours.toFixed(1)}</td>
                 <td>{row.overtimeHours.toFixed(1)}</td>
+                <td>{(row.voluntaryOvertimeHours ?? 0).toFixed(1)}</td>
                 <td>{row.leaveHours.toFixed(1)}</td>
                 <td>{(row.annualLeaveHours ?? 0).toFixed(1)}</td>
                 <td>{(row.exchangedHours ?? 0).toFixed(1)}</td>
+                <td>{(row.usedTimeOffHours ?? 0).toFixed(1)}</td>
                 <td className="customer-report__number"><strong>{row.actualHours.toFixed(1)}</strong></td>
                 <td>{row.note}</td>
               </tr>
-            )) : <EmptyTableRow colSpan={9} />}
+            )) : <EmptyTableRow colSpan={11} />}
           </tbody>
         </table>
       </ScrollTable>
@@ -1624,25 +2181,18 @@ function AttendanceExceptionReport({ report }: { report: CustomerReportDemo }) {
           <thead>
             <tr>
               <th scope="col">考勤日期</th>
-              <th scope="col">级别</th>
               <th scope="col">异常类型</th>
               <th scope="col">工号</th>
               <th scope="col">姓名</th>
               <th scope="col">部门</th>
-              <th scope="col">班次</th>
-              <th scope="col">应出勤</th>
-              <th scope="col">打卡摘要</th>
-              <th scope="col">异常分钟</th>
-              <th scope="col">证据摘要</th>
+              <th scope="col">详情</th>
               <th scope="col">处理状态</th>
-              <th scope="col">负责人</th>
-              <th scope="col">处理时限</th>
             </tr>
           </thead>
           <tbody>
             {rows.length > 0 ? rows.map((row) => (
               <AttendanceExceptionRow row={row} key={row.id} />
-            )) : <EmptyTableRow colSpan={14} />}
+            )) : <EmptyTableRow colSpan={7} />}
           </tbody>
         </table>
       </ScrollTable>
@@ -1675,28 +2225,12 @@ function AttendanceExceptionRow({ row }: { row: AttendanceExceptionReportRow }) 
   return (
     <tr>
       <td>{row.businessDate}</td>
-      <td>
-        <span
-          className="customer-report__severity"
-          data-severity={row.severity}
-        >
-          {row.severity}
-        </span>
-      </td>
       <td><strong>{row.exceptionType}</strong></td>
       <td>{row.employeeNo}</td>
       <td><strong>{row.employee}</strong></td>
-      <td>{row.department}</td>
-      <td>{row.shiftLabel}</td>
-      <td>{row.scheduledWindow}</td>
-      <td>{row.punchSummary}</td>
-      <td className="customer-report__number">
-        {row.exceptionMinutes === undefined ? '—' : row.exceptionMinutes}
-      </td>
-      <td>{row.evidenceSummary}</td>
+      <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
+      <td>{row.details}</td>
       <td><StatePill label={row.state} /></td>
-      <td>{row.owner}</td>
-      <td>{row.dueAt}</td>
     </tr>
   );
 }
@@ -1740,7 +2274,7 @@ function ExceptionTable({ rows }: { rows: ExceptionReportRow[] }) {
           {rows.length > 0 ? rows.map((row) => (
             <tr key={row.id}>
               <td>{row.id}</td>
-              <td>{row.department}</td>
+              <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
               <td><strong>{row.employee}</strong></td>
               <td className="customer-report__number">{row.count}</td>
               <td>{row.details}</td>
@@ -1779,7 +2313,7 @@ function AttendanceRateReport({ report }: { report: CustomerReportDemo }) {
             {report.attendanceRateRows.length > 0 ? report.attendanceRateRows.map((row) => (
               <tr key={row.id}>
                 <td>{row.id}</td>
-                <td>{row.department}</td>
+                <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
                 <td><strong>{row.employee}</strong></td>
                 <td>{displayDays(row.scheduledDays)}</td>
                 <td>{displayDays(row.actualDays)}</td>
@@ -1822,8 +2356,7 @@ function AnnualLeaveReport({ report }: { report: CustomerReportDemo }) {
           <thead>
             <tr>
               <th scope="col">序号</th>
-              <th scope="col">一级部门</th>
-              <th scope="col">二级部门</th>
+              <th scope="col">部门</th>
               <th scope="col">姓名</th>
               <th scope="col">入职日期</th>
               <th scope="col">公司工龄</th>
@@ -1843,7 +2376,7 @@ function AnnualLeaveReport({ report }: { report: CustomerReportDemo }) {
           <tbody>
             {report.annualLeaveRows.length > 0 ? report.annualLeaveRows.map((row) => (
               <AnnualLeaveRow row={row} key={row.id} />
-            )) : <EmptyTableRow colSpan={26} />}
+            )) : <EmptyTableRow colSpan={25} />}
           </tbody>
         </table>
       </ScrollTable>
@@ -1855,8 +2388,7 @@ function AnnualLeaveRow({ row }: { row: AnnualLeaveReportRow }) {
   return (
     <tr>
       <td>{row.id}</td>
-      <td>{row.departmentLevelOne}</td>
-      <td>{row.departmentLevelTwo}</td>
+      <td className="customer-report__dept" title={visibleDepartmentPath(row.department)}>{departmentPathNodes(row.department)}</td>
       <td><strong>{row.employee}</strong></td>
       <td>{row.joinedOn}</td>
       <td>{(row.companySeniority ?? 0).toFixed(1)}</td>
@@ -1952,6 +2484,9 @@ function specificFilterDescription(reportKey: CustomerReportKey): string {
     'attendance-detail': '按异常或审批状态定位员工明细',
     leave: '按请假类型核对审批与小时数',
     overtime: '按加班性质与具体发生日期交叉查询',
+    'overtime-daily': '按加班费/转调休/义务加班与日期核对每日加班小时',
+    'finance-overtime': '按加班类别与日期筛选一人一行日历加班',
+    'daily-journal': '一人一日核对上下班、异常与加班',
     'work-hours': '区分在职、本月入职和本月离职',
     exceptions: '按异常类型、风险级别和处理状态定位待办',
     late: '按发生次数和最长迟到分钟分级',
@@ -1978,6 +2513,13 @@ function copySpecificFiltersForReport(
     case 'overtime':
       next.overtimeType = draft.overtimeType;
       next.overtimeDay = draft.overtimeDay;
+      break;
+    case 'overtime-daily':
+    case 'finance-overtime':
+      next.overtimeType = draft.overtimeType;
+      next.overtimeDay = draft.overtimeDay;
+      break;
+    case 'daily-journal':
       break;
     case 'work-hours':
       next.employmentStatus = draft.employmentStatus;
@@ -2022,6 +2564,13 @@ function resetSpecificFiltersForReport(
       next.overtimeType = defaultCustomerReportSpecificFilters.overtimeType;
       next.overtimeDay = defaultCustomerReportSpecificFilters.overtimeDay;
       break;
+    case 'overtime-daily':
+    case 'finance-overtime':
+      next.overtimeType = defaultCustomerReportSpecificFilters.overtimeType;
+      next.overtimeDay = defaultCustomerReportSpecificFilters.overtimeDay;
+      break;
+    case 'daily-journal':
+      break;
     case 'work-hours':
       next.employmentStatus = defaultCustomerReportSpecificFilters.employmentStatus;
       break;
@@ -2060,6 +2609,10 @@ function specificCriteriaForReport(
       return { 请假类型: filters.leaveType };
     case 'overtime':
       return { 加班类型: filters.overtimeType, 加班日期: filters.overtimeDay };
+    case 'overtime-daily':
+    case 'finance-overtime':
+    case 'daily-journal':
+      return {};
     case 'work-hours':
       return { 在职状态: filters.employmentStatus };
     case 'exceptions':
@@ -2101,6 +2654,9 @@ function rowCountForReport(report: CustomerReportDemo, key: CustomerReportKey): 
     'attendance-detail': report.attendanceRows.length,
     leave: report.leaveRows.length,
     overtime: report.overtimeRows.length,
+    'overtime-daily': report.overtimeDailyRows.length,
+    'finance-overtime': report.financeOvertimeRows.length,
+    'daily-journal': report.dailyJournalRows.length,
     'work-hours': report.workHoursRows.length,
     exceptions: report.attendanceExceptionRows.length,
     late: report.lateRows.length,
@@ -2114,6 +2670,28 @@ function rowCountForReport(report: CustomerReportDemo, key: CustomerReportKey): 
 function daysInMonth(month: string): number {
   const [year, monthNumber] = month.split('-').map(Number);
   return new Date(year!, monthNumber!, 0).getDate();
+}
+
+function formatChineseRange(fromDate?: string, toDate?: string): string {
+  if (!fromDate || !toDate) {
+    return '';
+  }
+  const from = dayjs(fromDate);
+  const to = dayjs(toDate);
+  if (!from.isValid() || !to.isValid()) {
+    return '';
+  }
+  if (from.format('YYYY-MM') === to.format('YYYY-MM')) {
+    return `${from.format('YYYY年M月D日')} 至 ${to.format('M月D日')}`;
+  }
+  return `${from.format('YYYY年M月D日')} 至 ${to.format('YYYY年M月D日')}`;
+}
+
+function monthBounds(month: string): { fromDate: string; toDate: string } {
+  return {
+    fromDate: `${month}-01`,
+    toDate: `${month}-${String(daysInMonth(month)).padStart(2, '0')}`,
+  };
 }
 
 /**
@@ -2136,6 +2714,19 @@ function formatDataAsOf(value: string): string {
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((candidate) => candidate.type === type)?.value ?? '';
   return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
+}
+
+function findOrganizationTitle(nodes: DataNode[], id: string): string | undefined {
+  for (const node of nodes) {
+    if (String(node.key) === id) {
+      return typeof node.title === 'string' ? node.title : undefined;
+    }
+    const nested = node.children
+      ? findOrganizationTitle(node.children, id)
+      : undefined;
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
 }
 
 function formatSourceVersions(values: readonly string[]): string {
@@ -2170,17 +2761,45 @@ function formatSourceFreshness(values: readonly string[]): string {
   }).join(' · ');
 }
 
+const reportTypeToCustomerKey: Record<string, CustomerReportKey> = {
+  ATTENDANCE_DETAIL: 'attendance-detail',
+  LEAVE: 'leave',
+  OVERTIME: 'overtime',
+  WORK_HOURS: 'work-hours',
+  EXCEPTIONS: 'exceptions',
+  LATE: 'late',
+  MISSED_PUNCH: 'missed-punch',
+  ATTENDANCE_RATE: 'attendance-rate',
+  ANNUAL_LEAVE: 'annual-leave',
+};
+
+function readCustomerReportDeepLink(): {
+  reportKey?: CustomerReportKey;
+  period?: string;
+  companyId?: string;
+  expectedProjectionVersion?: string;
+} {
+  const params = new URLSearchParams(window.location.search);
+  const reportType = params.get('reportType') ?? '';
+  const period = params.get('period') ?? '';
+  const companyId = params.get('companyId') ?? '';
+  const expectedProjectionVersion = params.get('expectedProjectionVersion') ?? '';
+  return {
+    reportKey: reportTypeToCustomerKey[reportType],
+    period: /^\d{4}-(0[1-9]|1[0-2])$/.test(period) ? period : undefined,
+    companyId: companyId.trim().length >= 1 && companyId.trim().length <= 36
+      ? companyId.trim()
+      : undefined,
+    expectedProjectionVersion:
+      expectedProjectionVersion.trim().length >= 1
+        && expectedProjectionVersion.trim().length <= 128
+        ? expectedProjectionVersion.trim()
+        : undefined,
+  };
+}
+
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0);
-}
-
-function sumKnown(values: Array<number | undefined>): number | undefined {
-  const known = values.filter((value): value is number => value !== undefined);
-  return known.length === 0 ? undefined : sum(known);
-}
-
-function displayHours(value: number | undefined): string {
-  return value === undefined ? '—' : value.toFixed(1);
 }
 
 function displayDays(value: number | undefined): string {

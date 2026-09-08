@@ -92,6 +92,21 @@ class AttendanceCalculationBoundaryTest {
     }
 
     @Test
+    void arrival_at_shift_start_is_late_with_zero_minutes() {
+        var exact = lateResult(0);
+        assertThat(exact.ruleHits())
+                .filteredOn(value -> "LATE_AT_SHIFT_START".equals(value.ruleCode()))
+                .singleElement()
+                .satisfies(value -> {
+                    assertThat(value.rawMinutes()).isZero();
+                    assertThat(value.includedMinutes()).isZero();
+                });
+        assertThat(exact.items())
+                .extracting(value -> value.category())
+                .contains(ResultCategory.LATE);
+    }
+
+    @Test
     void late_grace_boundaries_preserve_raw_and_chargeable_minutes() {
         var atFifteen = lateResult(15);
         assertThat(atFifteen.ruleHits())
@@ -269,9 +284,307 @@ class AttendanceCalculationBoundaryTest {
         assertThat(timely.metrics().extendedPresenceMinutes()).isEqualTo(120);
         assertThat(timely.metrics().recognizedOvertimeMinutes()).isEqualTo(90);
 
-        var late = overtimeResult(48 * 60 + 1);
-        assertThat(late.metrics().extendedPresenceMinutes()).isEqualTo(120);
-        assertThat(late.metrics().recognizedOvertimeMinutes()).isZero();
+        var lateApproved = overtimeResult(48 * 60 + 1);
+        assertThat(lateApproved.metrics().extendedPresenceMinutes()).isEqualTo(120);
+        assertThat(lateApproved.metrics().recognizedOvertimeMinutes()).isEqualTo(90);
+    }
+
+    @Test
+    void two_auto_punches_confirm_both_morning_and_afternoon_segments() {
+        var morning = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-morning",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:30:00Z",
+                        "2026-07-15T04:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:00:00Z",
+                        "2026-07-15T01:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T03:30:00Z",
+                        "2026-07-15T04:30:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var afternoon = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-afternoon",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T05:00:00Z",
+                        "2026-07-15T09:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T04:30:00Z",
+                        "2026-07-15T05:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T09:00:00Z",
+                        "2026-07-15T10:00:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var result = calculator.calculate(
+                "two-punch-day-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(morning, afternoon),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "in",
+                                        "2026-07-15T00:23:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "out",
+                                        "2026-07-15T08:32:00Z",
+                                        PunchDirection.AUTO)),
+                        List.of(),
+                        List.of(),
+                        SyntheticAttendanceFixtures.defaultPolicy(),
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().confirmedScheduledWorkMinutes())
+                .isEqualTo(480);
+        assertThat(result.metrics().actualWorkMinutes()).isEqualTo(480);
+        assertThat(result.metrics().absenceMinutes()).isZero();
+    }
+
+    @Test
+    void extra_auto_punches_still_confirm_the_whole_day_from_first_to_last() {
+        var morning = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-morning",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:30:00Z",
+                        "2026-07-15T04:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:00:00Z",
+                        "2026-07-15T01:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T03:30:00Z",
+                        "2026-07-15T04:30:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var afternoon = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-afternoon",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T05:00:00Z",
+                        "2026-07-15T09:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T04:30:00Z",
+                        "2026-07-15T05:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T09:00:00Z",
+                        "2026-07-15T10:00:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var result = calculator.calculate(
+                "extra-auto-punches-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(morning, afternoon),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "in",
+                                        "2026-07-15T00:23:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "lunch",
+                                        "2026-07-15T04:05:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "out",
+                                        "2026-07-15T08:32:00Z",
+                                        PunchDirection.AUTO)),
+                        List.of(),
+                        List.of(),
+                        SyntheticAttendanceFixtures.defaultPolicy(),
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().confirmedScheduledWorkMinutes())
+                .isEqualTo(480);
+        assertThat(result.metrics().actualWorkMinutes()).isEqualTo(480);
+        assertThat(result.metrics().absenceMinutes()).isZero();
+    }
+
+    @Test
+    void two_morning_auto_punches_do_not_confirm_afternoon() {
+        var morning = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-morning",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:30:00Z",
+                        "2026-07-15T04:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:00:00Z",
+                        "2026-07-15T01:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T03:30:00Z",
+                        "2026-07-15T04:30:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var afternoon = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-afternoon",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T05:00:00Z",
+                        "2026-07-15T09:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T04:30:00Z",
+                        "2026-07-15T05:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T09:00:00Z",
+                        "2026-07-15T10:00:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var result = calculator.calculate(
+                "two-morning-punches-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(morning, afternoon),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "in",
+                                        "2026-07-15T00:13:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "second",
+                                        "2026-07-15T00:24:00Z",
+                                        PunchDirection.AUTO)),
+                        List.of(),
+                        List.of(),
+                        SyntheticAttendanceFixtures.defaultPolicy(),
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.items())
+                .filteredOn(value -> value.segmentId()
+                        .equals("synthetic-afternoon"))
+                .extracting(value -> value.reasonCode())
+                .allMatch(code -> code != null && code.contains("MISSING"));
+    }
+
+    @Test
+    void extra_auto_punches_never_convert_the_day_to_absence() {
+        var morning = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-morning",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:30:00Z",
+                        "2026-07-15T04:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:00:00Z",
+                        "2026-07-15T01:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T03:30:00Z",
+                        "2026-07-15T04:30:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var afternoon = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-afternoon",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T05:00:00Z",
+                        "2026-07-15T09:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T04:30:00Z",
+                        "2026-07-15T05:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T09:00:00Z",
+                        "2026-07-15T10:00:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var result = calculator.calculate(
+                "extra-auto-no-absence-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(morning, afternoon),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "in",
+                                        "2026-07-15T01:20:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "mid",
+                                        "2026-07-15T04:10:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "out",
+                                        "2026-07-15T08:40:00Z",
+                                        PunchDirection.AUTO)),
+                        List.of(),
+                        List.of(),
+                        SyntheticAttendanceFixtures.defaultPolicy(),
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().absenceMinutes()).isZero();
+        assertThat(result.metrics().confirmedScheduledWorkMinutes())
+                .isEqualTo(480);
+        assertThat(result.items())
+                .extracting(item -> item.category())
+                .doesNotContain(ResultCategory.ABSENCE);
+    }
+
+    @Test
+    void two_punch_weekday_overtime_uses_presence_minus_schedule() {
+        var morning = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-morning",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:30:00Z",
+                        "2026-07-15T04:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T00:00:00Z",
+                        "2026-07-15T01:00:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T03:30:00Z",
+                        "2026-07-15T04:30:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var afternoon = new com.szsemicon.hr.attendance.calculation.domain
+                .AttendanceCalculationModels.ScheduledWorkSegment(
+                "synthetic-afternoon",
+                SyntheticAttendanceFixtures.BUSINESS_DATE,
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T05:00:00Z",
+                        "2026-07-15T09:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T04:30:00Z",
+                        "2026-07-15T05:30:00Z"),
+                SyntheticAttendanceFixtures.interval(
+                        "2026-07-15T09:00:00Z",
+                        "2026-07-15T10:00:00Z"),
+                com.szsemicon.hr.attendance.calculation.domain
+                        .AttendanceCalculationModels.SegmentKind.SCHEDULED_WORK);
+        var form = SyntheticAttendanceFixtures.interval(
+                "2026-07-15T09:30:00Z",
+                "2026-07-15T13:00:00Z");
+        var result = calculator.calculate(
+                "two-punch-weekday-ot-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(morning, afternoon),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "in",
+                                        "2026-07-15T00:23:00Z",
+                                        PunchDirection.AUTO),
+                                SyntheticAttendanceFixtures.punch(
+                                        "out",
+                                        "2026-07-15T13:00:00Z",
+                                        PunchDirection.AUTO)),
+                        List.of(evidence(
+                                "weekday-overtime",
+                                EvidenceKind.OVERTIME,
+                                form,
+                                form.end().plusSeconds(3 * 24 * 3600L))),
+                        List.of(),
+                        SyntheticAttendanceFixtures.defaultPolicy(),
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().confirmedScheduledWorkMinutes())
+                .isEqualTo(480);
+        assertThat(result.metrics().recognizedOvertimeMinutes()).isEqualTo(210);
+        assertThat(result.metrics().actualWorkMinutes()).isEqualTo(690);
     }
 
     @Test
@@ -607,6 +920,68 @@ class AttendanceCalculationBoundaryTest {
                     assertThat(value.includedMinutes()).isZero();
                 });
         assertThat(result.exceptionFingerprints()).hasSize(1);
+    }
+
+    @Test
+    void overtime_clips_to_the_form_when_punches_extend_beyond_it() {
+        var form = SyntheticAttendanceFixtures.interval(
+                "2026-07-15T00:30:00Z",
+                "2026-07-15T09:30:00Z");
+        var result = calculator.calculate(
+                "overtime-clip-to-form-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "early-in",
+                                        "2026-07-15T00:26:00Z",
+                                        PunchDirection.ENTRY),
+                                SyntheticAttendanceFixtures.punch(
+                                        "late-out",
+                                        "2026-07-15T10:00:00Z",
+                                        PunchDirection.EXIT)),
+                        List.of(evidence(
+                                "weekend-overtime",
+                                EvidenceKind.OVERTIME,
+                                form,
+                                form.end())),
+                        List.of(),
+                        SyntheticAttendanceFixtures.defaultPolicy(),
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().recognizedOvertimeMinutes()).isEqualTo(540);
+        assertThat(result.metrics().actualWorkMinutes()).isEqualTo(540);
+    }
+
+    @Test
+    void overtime_uses_punch_span_when_it_is_shorter_than_the_form() {
+        var form = SyntheticAttendanceFixtures.interval(
+                "2026-07-15T00:30:00Z",
+                "2026-07-15T09:30:00Z");
+        var result = calculator.calculate(
+                "overtime-shorter-presence-v1",
+                SyntheticAttendanceFixtures.snapshot(
+                        List.of(),
+                        List.of(
+                                SyntheticAttendanceFixtures.punch(
+                                        "in",
+                                        "2026-07-15T01:00:00Z",
+                                        PunchDirection.ENTRY),
+                                SyntheticAttendanceFixtures.punch(
+                                        "out",
+                                        "2026-07-15T08:00:00Z",
+                                        PunchDirection.EXIT)),
+                        List.of(evidence(
+                                "weekend-overtime-short",
+                                EvidenceKind.OVERTIME,
+                                form,
+                                form.end())),
+                        List.of(),
+                        SyntheticAttendanceFixtures.defaultPolicy(),
+                        SyntheticAttendanceFixtures.KNOWLEDGE_CUTOFF));
+
+        assertThat(result.metrics().recognizedOvertimeMinutes()).isEqualTo(420);
+        assertThat(result.metrics().actualWorkMinutes()).isEqualTo(420);
     }
 
     private DailyAttendanceResult overtimeResult(int submissionLagMinutes) {

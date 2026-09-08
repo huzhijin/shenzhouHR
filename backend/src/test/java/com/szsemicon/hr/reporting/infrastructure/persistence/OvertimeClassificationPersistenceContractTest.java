@@ -64,9 +64,11 @@ class OvertimeClassificationPersistenceContractTest {
                 .contains(
                         "left join oa_attendance_document_context context",
                         "context.overtime_type as overtimetype",
-                        "row_number() over ( partition by document.attendance_source_id, document.source_business_key order by document.knowledge_rank desc, document.created_at desc, document.oa_attendance_document_id desc ) as version_rank",
-                        "where oa.version_rank = 1 and oa.source_status = 'approved'",
-                        "oa.source_status = 'approved'",
+                        "when document.source_status in ( 'approved', 'modified', 'supplemented') then 0",
+                        "when document.source_status = 'unknown' then 1",
+                        "order by case",
+                        "where oa.version_rank = 1",
+                        "oa.source_status in ( 'approved', 'modified', 'supplemented', 'unknown')",
                         "context.activation_decision = 'activated'",
                         "context.overtime_type is not null");
     }

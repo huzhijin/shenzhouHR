@@ -3,6 +3,7 @@ package com.szsemicon.hr.reporting.application;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.WorkWindowFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -12,6 +13,7 @@ import java.time.YearMonth;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -25,6 +27,10 @@ public interface AttendanceReportSourceRepository {
             YearMonth period,
             Instant authorizationTime);
 
+    Optional<PrincipalHome> resolvePrincipalHome(
+            String principalId,
+            LocalDate businessDate);
+
     Optional<RealtimeAuthorization> resolveRealtimeAuthorization(
             String principalId,
             String capabilityCode,
@@ -36,6 +42,32 @@ public interface AttendanceReportSourceRepository {
             String capabilityCode,
             ReportFilter filter,
             Instant authorizationTime);
+
+    /**
+     * Pin metadata plus facts for one employee page. Empty means no published
+     * pin. Tests that only stub {@link #loadAuthorizedSnapshot} may leave this
+     * unimplemented; the query service then falls back to the full snapshot.
+     */
+    default Optional<PagedSnapshot> loadAuthorizedPagedSnapshot(
+            String principalId,
+            String capabilityCode,
+            ReportFilter filter,
+            int page,
+            int size,
+            Instant authorizationTime) {
+        return Optional.empty();
+    }
+
+    record PagedSnapshot(
+            ReportSourceSnapshot snapshot, long totalEmployees) {
+    }
+
+    default boolean hasCommittedSourceEvidence(
+            String companyId,
+            YearMonth period,
+            Instant asOf) {
+        return false;
+    }
 
     Optional<ReportSourceSnapshot> loadAuthorizedSnapshotIntersection(
             String principalId,
@@ -62,6 +94,41 @@ public interface AttendanceReportSourceRepository {
                     String capabilityCode,
                     ReportFilter filter,
                     Instant authorizationTime);
+
+    default List<SourceCutoff> listCommittedSourceCutoffs(Instant asOf) {
+        return List.of();
+    }
+
+    default List<WorkWindowFact> listWorkWindows(
+            String companyId,
+            YearMonth period,
+            Instant asOf) {
+        return List.of();
+    }
+
+    default Set<String> listOrganizationSubtree(String organizationId) {
+        if (organizationId == null || organizationId.isBlank()) {
+            return Set.of();
+        }
+        return Set.of(organizationId);
+    }
+
+    /**
+     * Official report department labels keyed by organization id. Values join
+     * every non-company short name from 一级部门 to the leaf, for example
+     * {@code 服务中心-工程二部-RF-B组}.
+     */
+    default Map<String, String> reportDepartmentPaths(String companyId) {
+        return Map.of();
+    }
+
+    record SourceCutoff(String sourceType, Instant committedAt) {
+
+        public SourceCutoff {
+            sourceType = Objects.requireNonNull(sourceType, "sourceType").trim();
+            Objects.requireNonNull(committedAt, "committedAt");
+        }
+    }
 
     record RealtimeAuthorization(
             AuthorizedScope scope,
@@ -112,6 +179,39 @@ public interface AttendanceReportSourceRepository {
             if (normalized.isEmpty() || normalized.length() > 36) {
                 throw new IllegalArgumentException(
                         field + " must contain valid references");
+            }
+            return normalized;
+        }
+    }
+
+    record PrincipalHome(
+            String employeeId,
+            String employeeNumber,
+            String companyId,
+            String companyName,
+            String organizationId,
+            String organizationName) {
+
+        public PrincipalHome {
+            employeeId = requireText(employeeId, "employeeId", 36);
+            employeeNumber = requireText(
+                    employeeNumber, "employeeNumber", 64);
+            companyId = requireText(companyId, "companyId", 36);
+            companyName = requireText(companyName, "companyName", 200);
+            organizationId = requireText(
+                    organizationId, "organizationId", 36);
+            organizationName = requireText(
+                    organizationName, "organizationName", 200);
+        }
+
+        private static String requireText(
+                String value, String label, int maximumLength) {
+            String normalized = Objects.requireNonNull(value, label).trim();
+            if (normalized.isEmpty()
+                    || normalized.length() > maximumLength) {
+                throw new IllegalArgumentException(
+                        label + " must be non-blank and at most "
+                                + maximumLength + " characters");
             }
             return normalized;
         }
@@ -279,6 +379,25 @@ public interface AttendanceReportSourceRepository {
                             "employee department rate does not match day totals");
                 }
             }
+        }
+
+        public EmployeeDepartmentAttendancePeriod withOrganizationName(
+                String organizationName) {
+            if (Objects.equals(this.organizationName, organizationName)) {
+                return this;
+            }
+            return new EmployeeDepartmentAttendancePeriod(
+                    companyId,
+                    employeeId,
+                    employeeNumber,
+                    employeeName,
+                    organizationId,
+                    organizationName,
+                    periodStart,
+                    periodEnd,
+                    actualAttendanceDays,
+                    scheduledAttendanceDays,
+                    attendanceRate);
         }
 
         private static String requireReference(

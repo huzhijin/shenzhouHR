@@ -2,6 +2,8 @@ package com.szsemicon.hr.evidenceingestion.infrastructure.scheduler;
 
 import com.szsemicon.hr.evidenceingestion.application.DeliPunchSyncApplicationService;
 import com.szsemicon.hr.evidenceingestion.application.DeliSyncLogRepository;
+import com.szsemicon.hr.reporting.application.ScheduledSourceCompletionListener;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -20,8 +22,8 @@ import org.springframework.stereotype.Component;
  * department/company routing and reconciliation gates have passed via:
  * {@code shenzhouhr.deli.auto-sync-enabled=true}</p>
  *
- * <p>Default cron: every hour on the hour. Override via:
- * {@code shenzhouhr.deli.auto-sync-cron=0 0/30 * * * ?} (every 30 min)</p>
+ * <p>Default cron: 00:00, 08:00, 12:00 and 18:00. Override via
+ * {@code shenzhouhr.deli.auto-sync-cron}.</p>
  */
 @Component
 @ConditionalOnProperty(
@@ -38,17 +40,31 @@ public final class DeliAutoSyncJob {
     private final DeliPunchSyncApplicationService syncService;
     private final DeliSyncLogRepository syncLogRepository;
     private final Clock clock;
+    private final ScheduledSourceCompletionListener sourceCompletionListener;
 
     public DeliAutoSyncJob(
             DeliPunchSyncApplicationService syncService,
             DeliSyncLogRepository syncLogRepository,
             Clock clock) {
+        this(syncService, syncLogRepository, clock, null);
+    }
+
+    @Autowired
+    public DeliAutoSyncJob(
+            DeliPunchSyncApplicationService syncService,
+            DeliSyncLogRepository syncLogRepository,
+            Clock clock,
+            @Autowired(required = false)
+                    ScheduledSourceCompletionListener sourceCompletionListener) {
         this.syncService = syncService;
         this.syncLogRepository = syncLogRepository;
         this.clock = clock;
+        this.sourceCompletionListener = sourceCompletionListener;
     }
 
-    @Scheduled(cron = "${shenzhouhr.deli.auto-sync-cron:0 0 * * * ?}")
+    @Scheduled(
+            cron = "${shenzhouhr.deli.auto-sync-cron:0 0 0,8,12,18 * * ?}",
+            zone = "${shenzhouhr.oa.auto-sync-zone:Asia/Shanghai}")
     void triggerScheduledSync() {
         log.info("Scheduled Deli sync starting");
         Instant startedAt = clock.instant();
@@ -71,6 +87,10 @@ public final class DeliAutoSyncJob {
             if (result.successful()) {
                 syncLogRepository.markSucceeded(
                         logId, completedAt, recordCount, durationMs);
+                if (sourceCompletionListener != null
+                        && ScheduledAttendanceRecalcHours.isRecalcHour(startedAt)) {
+                    sourceCompletionListener.onScheduledDeliSuccess();
+                }
             } else {
                 syncLogRepository.markFailed(
                         logId,

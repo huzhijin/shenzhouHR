@@ -39,7 +39,9 @@ final class SelfDashboardRows {
         SelfAttendanceDashboardRepository.DailyFact toDomain() {
             return new SelfAttendanceDashboardRepository.DailyFact(
                     businessDate,
-                    shiftLabel,
+                    shiftLabel == null || shiftLabel.isBlank()
+                            ? "未排班"
+                            : shiftLabel,
                     scheduledMinutes,
                     confirmedMinutes,
                     recognizedOvertimeMinutes,
@@ -78,13 +80,20 @@ final class SelfDashboardRows {
             String safeEvidenceSummary) {
 
         SelfAttendanceDashboardRepository.RecentException toDomain() {
+            String summary = safeEvidenceSummary == null
+                    || safeEvidenceSummary.isBlank()
+                    ? "本人异常"
+                    : safeEvidenceSummary;
+            if (summary.length() > 500) {
+                summary = summary.substring(0, 500);
+            }
             return new SelfAttendanceDashboardRepository.RecentException(
                     businessDate,
                     type,
                     severity,
                     state,
                     minutes,
-                    safeEvidenceSummary);
+                    summary);
         }
     }
 }

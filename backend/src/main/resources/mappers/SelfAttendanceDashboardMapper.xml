@@ -40,8 +40,11 @@
             JOIN auth_data_scope data_scope
               ON data_scope.scope_id = role_assignment.data_scope_id
              AND data_scope.scope_type = 'SELF'
-             AND data_scope.company_id IS NULL
              AND data_scope.organization_id IS NULL
+             AND (
+                    data_scope.company_id IS NULL
+                    OR data_scope.company_id = self_employee.company_id
+             )
             WHERE principal.principal_id = #{principalId}
               AND principal.status = 'ACTIVE'
               AND principal.employee_id IS NOT NULL
@@ -97,8 +100,11 @@
             JOIN auth_data_scope data_scope
               ON data_scope.scope_id = role_assignment.data_scope_id
              AND data_scope.scope_type = 'SELF'
-             AND data_scope.company_id IS NULL
              AND data_scope.organization_id IS NULL
+             AND (
+                    data_scope.company_id IS NULL
+                    OR data_scope.company_id = self_employee.company_id
+             )
             WHERE principal.principal_id = #{principalId}
               AND principal.status = 'ACTIVE'
               AND principal.employee_id IS NOT NULL
@@ -158,8 +164,11 @@
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
          AND data_scope.scope_type = 'SELF'
-         AND data_scope.company_id IS NULL
          AND data_scope.organization_id IS NULL
+         AND (
+                data_scope.company_id IS NULL
+                OR data_scope.company_id = self_employee.company_id
+         )
         WHERE principal.principal_id = #{principalId}
           AND principal.status = 'ACTIVE'
           AND principal.employee_id IS NOT NULL

@@ -10,6 +10,7 @@ import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -18,12 +19,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SelfAttendanceDashboardService {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(SelfAttendanceDashboardService.class);
 
     public static final ZoneId BUSINESS_ZONE =
             AttendanceDashboardService.BUSINESS_ZONE;
@@ -36,6 +42,7 @@ public class SelfAttendanceDashboardService {
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principalProvider;
     private final SelfAttendanceDashboardRepository repository;
+    private final RealtimeAttendanceReportSnapshotService realtimeSnapshots;
     private final Clock clock;
 
     public SelfAttendanceDashboardService(
@@ -43,19 +50,42 @@ public class SelfAttendanceDashboardService {
             CurrentPrincipalProvider principalProvider,
             SelfAttendanceDashboardRepository repository,
             Clock clock) {
+        this(capabilities, principalProvider, repository, clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SelfAttendanceDashboardService(
+            CurrentCapabilityService capabilities,
+            CurrentPrincipalProvider principalProvider,
+            SelfAttendanceDashboardRepository repository,
+            Clock clock,
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+                    RealtimeAttendanceReportSnapshotService realtimeSnapshots) {
         this.capabilities = capabilities;
         this.principalProvider = principalProvider;
         this.repository = repository;
+        this.realtimeSnapshots = realtimeSnapshots;
         this.clock = clock;
     }
 
     @Transactional(readOnly = true)
     public Dashboard query() {
+        return query(null, "MONTH");
+    }
+
+    @Transactional(readOnly = true)
+    public Dashboard query(java.time.YearMonth period, String window) {
         capabilities.require(CapabilityCodes.ATTENDANCE_SELF_READ);
         Instant authorizationTime = clock.instant();
-        LocalDate businessDate = authorizationTime
+        LocalDate today = authorizationTime
                 .atZone(BUSINESS_ZONE)
                 .toLocalDate();
+        java.time.YearMonth resolved = period == null ? java.time.YearMonth.from(today) : period;
+        LocalDate businessDate = "DAY".equalsIgnoreCase(window)
+                ? today
+                : (resolved.equals(java.time.YearMonth.from(today))
+                        ? today
+                        : resolved.atEndOfMonth());
         String principalId = principalProvider.currentPrincipalId();
         var authorizedSelf = repository.resolveAuthorizedSelf(
                         principalId,
@@ -64,24 +94,20 @@ public class SelfAttendanceDashboardService {
                 .orElseThrow(
                         SelfAttendanceDashboardService
                                 ::selfScopeRequired);
-        var source = repository.loadLatestPublished(
-                        principalId,
-                        authorizedSelf,
-                        businessDate,
-                        authorizationTime)
-                .orElseThrow(
-                        SelfAttendanceDashboardService
-                                ::projectionNotReady);
+        var source = loadSelfSource(
+                principalId,
+                authorizedSelf,
+                businessDate,
+                authorizationTime);
         if (!authorizedSelf.employeeId().equals(source.employeeId())
                 || !authorizedSelf.companyId().equals(
-                        source.companyId())
-                || source.dataAsOf().isBefore(businessDate
-                        .atStartOfDay(BUSINESS_ZONE)
-                        .toInstant())) {
+                        source.companyId())) {
             throw projectionNotReady();
         }
 
-        LocalDate periodStart = businessDate.withDayOfMonth(1);
+        LocalDate periodStart = "DAY".equalsIgnoreCase(window)
+                ? businessDate
+                : resolved.atDay(1);
         Map<LocalDate, DailyFact> dailyFacts = dailyFacts(
                 source.dailyFacts(), periodStart, businessDate);
         Map<LocalDate, Long> issueCounts = dailyIssueCounts(
@@ -97,7 +123,11 @@ public class SelfAttendanceDashboardService {
                 dailyFacts.values(), unresolvedExceptionCount);
         List<DailyTrendPoint> dailyTrend = dailyTrend(
                 dailyFacts, issueCounts, periodStart, businessDate);
-        Today today = today(
+        List<RecentException> recent = preferYesterdayExceptions(
+                source.recentExceptions(),
+                today,
+                authorizationTime);
+        Today todayCard = today(
                 dailyFacts.get(businessDate),
                 source.todayIssueLabels());
         return new Dashboard(
@@ -108,9 +138,169 @@ public class SelfAttendanceDashboardService {
                 source.periodState(),
                 summary,
                 dailyTrend,
-                today,
+                todayCard,
                 typeDistribution,
-                source.recentExceptions());
+                recent);
+    }
+
+    private SelfAttendanceDashboardRepository.SourceSnapshot loadSelfSource(
+            String principalId,
+            SelfAttendanceDashboardRepository.AuthorizedSelf authorizedSelf,
+            LocalDate businessDate,
+            Instant authorizationTime) {
+        var published = repository.loadLatestPublished(
+                principalId,
+                authorizedSelf,
+                businessDate,
+                authorizationTime);
+        if (published.isPresent()) {
+            return published.orElseThrow();
+        }
+        if (realtimeSnapshots == null) {
+            throw projectionNotReady();
+        }
+        try {
+            return loadRealtimeSelf(
+                    principalId,
+                    authorizedSelf,
+                    businessDate,
+                    authorizationTime);
+        } catch (ApiProblemException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "realtime self attendance dashboard failed; published snapshot is not ready",
+                    exception);
+            throw sourceNotReady();
+        }
+    }
+
+    private SelfAttendanceDashboardRepository.SourceSnapshot loadRealtimeSelf(
+            String principalId,
+            SelfAttendanceDashboardRepository.AuthorizedSelf authorizedSelf,
+            LocalDate businessDate,
+            Instant authorizationTime) {
+        var snapshot = realtimeSnapshots.loadAuthorizedSnapshot(
+                        principalId,
+                        CapabilityCodes.ATTENDANCE_SELF_READ,
+                        new com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter(
+                                java.time.YearMonth.from(businessDate),
+                                authorizedSelf.companyId(),
+                                null,
+                                authorizedSelf.employeeId(),
+                                null),
+                        null,
+                        authorizationTime)
+                .orElseThrow(SelfAttendanceDashboardService::sourceNotReady);
+        List<DailyFact> dailyFacts = snapshot.dailyFacts().stream()
+                .filter(fact -> authorizedSelf.employeeId()
+                        .equals(fact.employeeId()))
+                .map(fact -> new DailyFact(
+                        fact.businessDate(),
+                        fact.shiftLabel(),
+                        fact.scheduledMinutes(),
+                        fact.actualWorkMinutes(),
+                        fact.recognizedOvertimeMinutes(),
+                        fact.leaveOrTimeOffMinutes(),
+                        fact.firstPunchAt(),
+                        fact.lastPunchAt()))
+                .toList();
+        Map<LocalDate, Long> issueCounts = new HashMap<>();
+        Map<String, Long> typeCounts = new HashMap<>();
+        List<RecentException> recent = new ArrayList<>();
+        List<String> todayLabels = new ArrayList<>();
+        snapshot.exceptionFacts().stream()
+                .filter(fact -> authorizedSelf.employeeId()
+                        .equals(fact.employeeId()))
+                .filter(fact -> fact.state() != com.szsemicon.hr.reporting.domain
+                        .AttendanceReportModels.ExceptionState.RESOLVED)
+                .forEach(fact -> {
+                    issueCounts.merge(fact.businessDate(), 1L, Long::sum);
+                    typeCounts.merge(fact.exceptionType(), 1L, Long::sum);
+                    if (recent.size() < 8) {
+                        try {
+                            recent.add(new RecentException(
+                                    fact.businessDate(),
+                                    fact.exceptionType(),
+                                    fact.severity() == null
+                                            ? "WARNING"
+                                            : fact.severity().name(),
+                                    fact.state() == null
+                                            ? "OPEN"
+                                            : fact.state().name(),
+                                    fact.minutes(),
+                                    fact.safeEvidenceSummary() == null
+                                            || fact.safeEvidenceSummary()
+                                                    .isBlank()
+                                            ? "本人异常"
+                                            : fact.safeEvidenceSummary()));
+                        } catch (RuntimeException ignored) {
+                            // Skip a malformed exception row rather than
+                            // failing the whole self workbench.
+                        }
+                    }
+                    if (fact.businessDate().equals(businessDate)) {
+                        todayLabels.add(fact.exceptionType());
+                    }
+                });
+        List<ExceptionTypeCount> types = typeCounts.entrySet().stream()
+                .filter(entry -> entry.getValue() > 0)
+                .map(entry -> new ExceptionTypeCount(
+                        entry.getKey(), entry.getValue()))
+                .sorted(TYPE_ORDER)
+                .toList();
+        List<SelfAttendanceDashboardRepository.DailyIssueCount> dailyIssues =
+                issueCounts.entrySet().stream()
+                        .filter(entry -> entry.getValue() > 0)
+                        .map(entry -> new SelfAttendanceDashboardRepository
+                                .DailyIssueCount(
+                                        entry.getKey(), entry.getValue()))
+                        .toList();
+        return new SelfAttendanceDashboardRepository.SourceSnapshot(
+                authorizedSelf.employeeId(),
+                authorizedSelf.companyId(),
+                snapshot.projectionVersion(),
+                snapshot.sourceVersions(),
+                snapshot.dataAsOf(),
+                snapshot.periodState(),
+                dailyFacts,
+                dailyIssues,
+                todayLabels,
+                types,
+                recent);
+    }
+
+    private static List<RecentException> preferYesterdayExceptions(
+            List<RecentException> source,
+            LocalDate today,
+            Instant authorizationTime) {
+        LocalDate yesterday = today.minusDays(1);
+        boolean afterNoon = !authorizationTime.atZone(BUSINESS_ZONE)
+                .toLocalTime()
+                .isBefore(LocalTime.NOON);
+        List<RecentException> preferred = new ArrayList<>();
+        for (RecentException item : source) {
+            if (yesterday.equals(item.businessDate())) {
+                preferred.add(item);
+                continue;
+            }
+            if (afterNoon
+                    && today.equals(item.businessDate())
+                    && isMorningException(item.type())) {
+                preferred.add(item);
+            }
+        }
+        if (!preferred.isEmpty()) {
+            return List.copyOf(preferred);
+        }
+        return List.copyOf(source);
+    }
+
+    private static boolean isMorningException(String type) {
+        return "LATE".equals(type)
+                || "MISSING_ON_DUTY".equals(type)
+                || "MISSING_PUNCH".equals(type)
+                || "MISSING_PUNCH_OVERDUE".equals(type);
     }
 
     private static Map<LocalDate, DailyFact> dailyFacts(
@@ -120,11 +310,10 @@ public class SelfAttendanceDashboardService {
         Map<LocalDate, DailyFact> result = new HashMap<>();
         for (DailyFact fact : source) {
             if (fact.businessDate().isBefore(periodStart)
-                    || fact.businessDate().isAfter(businessDate)
-                    || result.put(fact.businessDate(), fact) != null) {
-                throw new IllegalStateException(
-                        "self daily facts are inconsistent");
+                    || fact.businessDate().isAfter(businessDate)) {
+                continue;
             }
+            result.putIfAbsent(fact.businessDate(), fact);
         }
         return Map.copyOf(result);
     }
@@ -136,36 +325,33 @@ public class SelfAttendanceDashboardService {
         Map<LocalDate, Long> result = new HashMap<>();
         for (var item : source) {
             if (item.businessDate().isBefore(periodStart)
-                    || item.businessDate().isAfter(businessDate)
-                    || result.put(
-                                    item.businessDate(),
-                                    item.issueCount())
-                            != null) {
-                throw new IllegalStateException(
-                        "self daily issue counts are inconsistent");
+                    || item.businessDate().isAfter(businessDate)) {
+                continue;
             }
+            result.putIfAbsent(item.businessDate(), item.issueCount());
         }
         return Map.copyOf(result);
     }
 
     private static List<ExceptionTypeCount> validateTypeDistribution(
             List<ExceptionTypeCount> values) {
-        List<ExceptionTypeCount> result = List.copyOf(values);
-        var types = new HashSet<String>();
-        for (int index = 0; index < result.size(); index++) {
-            ExceptionTypeCount item = result.get(index);
-            if (!types.add(item.type())
-                    || (index > 0
-                            && TYPE_ORDER.compare(
-                                            result.get(index - 1),
-                                            item)
-                                    > 0)) {
-                throw new IllegalStateException(
-                        "self exception type distribution"
-                                + " is inconsistent");
-            }
+        if (values == null || values.isEmpty()) {
+            return List.of();
         }
-        return result;
+        var types = new HashSet<String>();
+        List<ExceptionTypeCount> result = new ArrayList<>();
+        for (ExceptionTypeCount item : values) {
+            if (item == null
+                    || item.type() == null
+                    || item.type().isBlank()
+                    || item.count() <= 0
+                    || !types.add(item.type())) {
+                continue;
+            }
+            result.add(item);
+        }
+        result.sort(TYPE_ORDER);
+        return List.copyOf(result);
     }
 
     private static Summary summary(
@@ -216,7 +402,9 @@ public class SelfAttendanceDashboardService {
                             ? 0
                             : fact.recognizedOvertimeMinutes(),
                     fact == null ? 0 : fact.leaveMinutes(),
-                    issueCounts.getOrDefault(date, 0L)));
+                    issueCounts.getOrDefault(date, 0L),
+                    fact == null ? null : fact.firstPunchAt(),
+                    fact == null ? null : fact.lastPunchAt()));
         }
         return List.copyOf(result);
     }
@@ -256,6 +444,14 @@ public class SelfAttendanceDashboardService {
                 HttpStatus.CONFLICT,
                 "SELF_ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY",
                 "本人当月考勤结果尚未生成或发布",
+                true);
+    }
+
+    private static ApiProblemException sourceNotReady() {
+        return new ApiProblemException(
+                HttpStatus.CONFLICT,
+                "SELF_ATTENDANCE_DASHBOARD_SOURCE_NOT_READY",
+                "本人当月考勤来源尚未同步或当前账号没有本人范围",
                 true);
     }
 
@@ -306,7 +502,9 @@ public class SelfAttendanceDashboardService {
             long confirmedMinutes,
             long recognizedOvertimeMinutes,
             long leaveMinutes,
-            long issueCount) {
+            long issueCount,
+            Instant firstPunchAt,
+            Instant lastPunchAt) {
     }
 
     public record Today(

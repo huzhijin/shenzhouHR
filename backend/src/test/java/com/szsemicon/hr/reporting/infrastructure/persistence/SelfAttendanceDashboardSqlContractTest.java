@@ -42,6 +42,7 @@ class SelfAttendanceDashboardSqlContractTest {
                     .contains("employee_version.status = 'ACTIVE'")
                     .contains("data_scope.scope_type = 'SELF'")
                     .contains("data_scope.company_id IS NULL")
+                    .contains("data_scope.company_id = self_employee.company_id")
                     .contains(
                             "data_scope.organization_id IS NULL")
                     .contains("role_assignment.valid_from")

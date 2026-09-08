@@ -264,7 +264,17 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
           </>
         ) : null}
       </section>
-      <Modal width={960} open={createOpen} title={t('access.createLocalAccount')} okText={t('policy.create')} cancelText={t('common.cancel')} confirmLoading={processing} onOk={() => void form.submit()} onCancel={closeCreate}>
+      <Modal
+        className="account-create-modal"
+        width={960}
+        open={createOpen}
+        title={t('access.createLocalAccount')}
+        okText={t('policy.create')}
+        cancelText={t('common.cancel')}
+        confirmLoading={processing}
+        onOk={() => void form.submit()}
+        onCancel={closeCreate}
+      >
         <Form form={form} layout="vertical" onFinish={(values) => void create(values)}>
           <Form.Item label={t('access.username')} name="username" rules={[{ required: true, pattern: /^[A-Za-z0-9._-]{3,128}$/, message: t('access.usernameRule') }]}><Input autoComplete="off" /></Form.Item>
           <Form.Item label={t('access.displayName')} name="displayName" rules={[{ required: true, message: t('access.displayNameRequired') }]}><Input /></Form.Item>
@@ -313,13 +323,20 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
                     (organization) => organization.organizationId === assignment.scopeResourceId,
                   );
                   return (
-                    <div key={field.key} className="role-assignment-row">
+                    <div
+                      key={field.key}
+                      className="role-assignment-row role-assignment-row--create"
+                    >
                       <Form.Item
+                        className="role-assignment-field"
                         label={`${t('access.initialRole')} ${index + 1}`}
                         name={[field.name, 'roleId']}
                         rules={[{ required: true, message: t('access.roleRequired') }]}
                       >
                         <Select
+                          showSearch
+                          optionFilterProp="label"
+                          placeholder="输入角色名称搜索"
                           options={roles.map((candidate) => ({
                             value: candidate.roleId,
                             label: candidate.roleName,
@@ -349,6 +366,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
                         />
                       </Form.Item>
                       <Form.Item
+                        className="role-assignment-field"
                         label={`${t('access.scopeType')} ${index + 1}`}
                         name={[field.name, 'scopeType']}
                         rules={[{ required: true, message: '请选择数据范围类型' }]}
@@ -381,6 +399,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
                       </Form.Item>
                       {assignment.scopeType === 'COMPANY' ? (
                         <Form.Item
+                          className="role-assignment-target"
                           label={`${t('access.company')} ${index + 1}`}
                           name={[field.name, 'scopeResourceId']}
                           rules={[{ required: true, message: t('access.companyRequired') }]}
@@ -389,7 +408,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
                         </Form.Item>
                       ) : null}
                       {assignment.scopeType === 'ORGANIZATION' ? (
-                        <div className="organization-scope-fields">
+                        <div className="organization-scope-fields role-assignment-target">
                           <Form.Item
                             label={`组织所属公司 ${index + 1}`}
                             name={[field.name, 'scopeCompanyId']}
@@ -427,6 +446,7 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
                             />
                           </Form.Item>
                           <Form.Item
+                            className="role-assignment-checkbox"
                             name={[field.name, 'includeDescendants']}
                             valuePropName="checked"
                           >
@@ -437,35 +457,43 @@ export function AccountsPage({ capabilities }: { capabilities: string[] }) {
                         </div>
                       ) : null}
                       {assignment.scopeType === 'SELF' ? (
-                        <p className="form-help">该角色仅授权给所绑定员工本人。</p>
+                        <p className="role-assignment-help">
+                          该角色仅授权给所绑定员工本人。
+                        </p>
                       ) : null}
-                      <Space wrap>
+                      <div className="role-assignment-actions">
                         {role ? (
                           <Button
                             icon={<IconPlus stroke={2} />}
+                            aria-label={`为第 ${index + 1} 条角色授权添加范围`}
                             onClick={() => add({
                               roleId: role.roleId,
                               scopeType: allowedScopes[0],
                               includeDescendants: allowedScopes[0] === 'COMPANY',
                             }, field.name + 1)}
                           >
-                            新增该角色范围
+                            添加范围
                           </Button>
                         ) : null}
                         <Button
                           danger
                           disabled={fields.length <= 1}
                           icon={<IconTrash stroke={2} />}
+                          aria-label={`删除第 ${index + 1} 条角色授权`}
                           onClick={() => remove(field.name)}
                         >
-                          删除本条
+                          删除
                         </Button>
-                      </Space>
+                      </div>
                     </div>
                   );
                 })}
-                <Button icon={<IconPlus stroke={2} />} onClick={() => add({})}>
-                  添加其他角色或范围
+                <Button
+                  className="role-assignment-add-role"
+                  icon={<IconPlus stroke={2} />}
+                  onClick={() => add({})}
+                >
+                  添加角色
                 </Button>
                 <Form.ErrorList errors={errors} />
               </div>

@@ -25,7 +25,8 @@ record AttendanceMonthMatrixResponse(
             String periodLabel,
             String periodState,
             ProjectionScope scope,
-            List<String> allowedActions) {
+            List<String> allowedActions,
+            boolean sourcesNewerThanPin) {
     }
 
     record ProjectionScope(String type, String reference, String label) {
@@ -36,7 +37,9 @@ record AttendanceMonthMatrixResponse(
             String scopeReference,
             String companyId,
             String organizationId,
-            String employeeId) {
+            String employeeId,
+            String fromDate,
+            String toDate) {
     }
 
     record EmployeeRow(
@@ -54,6 +57,16 @@ record AttendanceMonthMatrixResponse(
             String shiftLabel,
             Instant firstPunchAt,
             Instant lastPunchAt,
-            List<String> badges) {
+            List<String> badges,
+            SlotDisplay morning,
+            SlotDisplay afternoon,
+            boolean merged,
+            String hover) {
+    }
+
+    record SlotDisplay(
+            String text,
+            String tone,
+            Instant punchAt) {
     }
 }

@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HexFormat;
@@ -113,6 +114,18 @@ final class AttendanceReportCalculationRows {
     record PunchEventRow(String employeeId, Instant pointInstant) {
     }
 
+    record HrPunchAdjustmentRow(
+            String adjustmentId,
+            String employeeId,
+            LocalDate businessDate,
+            Instant onDutyAt,
+            Instant offDutyAt,
+            Instant createdAt,
+            Integer overtimeMinutesOverride,
+            String clearedExceptionTypes,
+            String dayTypes) {
+    }
+
     /** One approved punch-correction row used as synthetic punch evidence. */
     record PunchCorrectionRow(
             String requestId,
@@ -120,6 +133,24 @@ final class AttendanceReportCalculationRows {
             LocalDate businessDate,
             PunchSide punchSide,
             Instant reviewedAt) {
+    }
+
+    record OrganizationGraphRow(
+            String organizationId,
+            String parentOrganizationId,
+            String name,
+            String orgType) {
+    }
+
+    /**
+     * One ancestor of a current organization, including the node itself at
+     * depth 0. Depth increases toward the company root.
+     */
+    record OrganizationAncestorRow(
+            String organizationId,
+            String ancestorName,
+            String ancestorOrgType,
+            int depth) {
     }
 
     /** One occurrence-time interval granting a permanent no-punch role. */
@@ -171,7 +202,25 @@ final class AttendanceReportCalculationRows {
             Instant endInstant,
             String sourceTimeZone,
             Instant firstSubmittedAt,
-            boolean effectiveCandidate) {
+            boolean effectiveCandidate,
+            String leaveSerial,
+            String originalLeaveSerial) {
+
+        OaDocumentRow(
+                String sourceBusinessKey,
+                String documentType,
+                OvertimeType overtimeType,
+                LeaveType leaveType,
+                String employeeNumber,
+                Instant startInstant,
+                Instant endInstant,
+                String sourceTimeZone,
+                Instant firstSubmittedAt,
+                boolean effectiveCandidate) {
+            this(sourceBusinessKey, documentType, overtimeType, leaveType,
+                    employeeNumber, startInstant, endInstant, sourceTimeZone,
+                    firstSubmittedAt, effectiveCandidate, null, null);
+        }
 
         OaDocumentRow(
                 String sourceBusinessKey,
@@ -185,7 +234,7 @@ final class AttendanceReportCalculationRows {
                 boolean effectiveCandidate) {
             this(sourceBusinessKey, documentType, overtimeType, null,
                     employeeNumber, startInstant, endInstant, sourceTimeZone,
-                    firstSubmittedAt, effectiveCandidate);
+                    firstSubmittedAt, effectiveCandidate, null, null);
         }
     }
 
@@ -205,13 +254,45 @@ final class AttendanceReportCalculationRows {
             Instant startInstant,
             Instant endInstant,
             String sourceStatus,
-            String sourceVersion) {
+            String sourceVersion,
+            OvertimeType overtimeType) {
+
+        OaReportFactRow(
+                String oaAttendanceDocumentId,
+                String sourceBusinessKey,
+                String documentType,
+                LeaveType leaveType,
+                String employeeId,
+                String employeeNumber,
+                String employmentAssignmentId,
+                Instant startInstant,
+                Instant endInstant,
+                String sourceStatus,
+                String sourceVersion) {
+            this(
+                    oaAttendanceDocumentId,
+                    sourceBusinessKey,
+                    documentType,
+                    leaveType,
+                    employeeId,
+                    employeeNumber,
+                    employmentAssignmentId,
+                    startInstant,
+                    endInstant,
+                    sourceStatus,
+                    sourceVersion,
+                    null);
+        }
+    }
+
+    record EmployeeLateDayCountRow(String employeeId, int lateDays) {
     }
 
     /**
      * Ledger components for one employee time account at the report's
-     * knowledge cutoff. Amounts are already normalized to non-negative report
-     * components; the publication model recomputes the displayed balance.
+     * knowledge cutoff. Opening may be negative (overused leave). Other
+     * components are normalized for display; the publication model recomputes
+     * the balance.
      */
     record TimeAccountSnapshotRow(
             String accountId,
@@ -299,6 +380,14 @@ final class AttendanceReportCalculationRows {
         }
     }
 
+    record PunchWindowRow(
+            LocalDate businessDate,
+            int arrivalBeforeMinutes,
+            int arrivalAfterMinutes,
+            int departureBeforeMinutes,
+            int departureAfterMinutes) {
+    }
+
     /** One scheduled work segment for an employee on a business date */
     record ShiftSegmentRow(
             String employeeId,
@@ -309,7 +398,50 @@ final class AttendanceReportCalculationRows {
             Instant arrivalWindowStart,
             Instant arrivalWindowEnd,
             Instant departureWindowStart,
-            Instant departureWindowEnd) {
+            Instant departureWindowEnd,
+            String shiftTemplateName) {
+
+        ShiftSegmentRow(
+                String employeeId,
+                LocalDate businessDate,
+                String segmentId,
+                Instant segmentStart,
+                Instant segmentEnd,
+                Instant arrivalWindowStart,
+                Instant arrivalWindowEnd,
+                Instant departureWindowStart,
+                Instant departureWindowEnd) {
+            this(
+                    employeeId,
+                    businessDate,
+                    segmentId,
+                    segmentStart,
+                    segmentEnd,
+                    arrivalWindowStart,
+                    arrivalWindowEnd,
+                    departureWindowStart,
+                    departureWindowEnd,
+                    null);
+        }
+
+        ShiftSegmentRow withPunchWindow(PunchWindowRow window) {
+            Objects.requireNonNull(window, "window");
+            return new ShiftSegmentRow(
+                    employeeId,
+                    businessDate,
+                    segmentId,
+                    segmentStart,
+                    segmentEnd,
+                    segmentStart.minus(Duration.ofMinutes(
+                            window.arrivalBeforeMinutes())),
+                    segmentStart.plus(Duration.ofMinutes(
+                            window.arrivalAfterMinutes())),
+                    segmentEnd.minus(Duration.ofMinutes(
+                            window.departureBeforeMinutes())),
+                    segmentEnd.plus(Duration.ofMinutes(
+                            window.departureAfterMinutes())),
+                    shiftTemplateName);
+        }
     }
 
     /**

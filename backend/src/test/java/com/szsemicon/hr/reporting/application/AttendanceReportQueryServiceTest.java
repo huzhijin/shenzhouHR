@@ -3,6 +3,7 @@ package com.szsemicon.hr.reporting.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -138,6 +139,74 @@ class AttendanceReportQueryServiceTest {
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
                 CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD));
+        ReportSourceSnapshot live = snapshot(filter);
+        when(realtime.loadAuthorizedSnapshot(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_READ,
+                        filter,
+                        null,
+                        NOW))
+                .thenReturn(Optional.of(live));
+        when(realtime.loadAuthorizedSnapshot(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                        filter,
+                        live.projectionVersion(),
+                        NOW))
+                .thenReturn(Optional.of(live));
+        when(realtime.loadAuthorizedSnapshot(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD,
+                        filter,
+                        live.projectionVersion(),
+                        NOW))
+                .thenReturn(Optional.of(live));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                realtime,
+                CLOCK,
+                new AttendanceReportCalculator());
+
+        AttendanceReportPage result = service.query(
+                ReportType.ATTENDANCE_DETAIL,
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                null,
+                0,
+                20);
+
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.allowedActions())
+                .containsExactly(
+                        "REPORT_DRILL_DOWN",
+                        "REPORT_EXPORT_CREATE",
+                        "REPORT_EXPORT_DOWNLOAD");
+        verify(realtime).loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                null,
+                NOW);
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void reportActionsIncludeRecalculateOnlyWhenRefreshCapabilityIsPresent() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime =
+                mock(RealtimeAttendanceReportSnapshotService.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7), COMPANY, null, null, null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_REFRESH));
         when(realtime.loadAuthorizedSnapshot(
                         PRINCIPAL,
                         CapabilityCodes.ATTENDANCE_REPORT_READ,
@@ -163,16 +232,55 @@ class AttendanceReportQueryServiceTest {
                 0,
                 20);
 
-        assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.allowedActions())
-                .containsExactly("REPORT_DRILL_DOWN");
-        verify(realtime).loadAuthorizedSnapshot(
+                .contains("REPORT_DRILL_DOWN", "REPORT_RECALCULATE")
+                .doesNotContain("REPORT_EXPORT_CREATE");
+    }
+
+    @Test
+    void recalculateRequiresRefreshCapabilityAndDelegatesToRealtimeService() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime =
+                mock(RealtimeAttendanceReportSnapshotService.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7), COMPANY, null, null, null);
+        when(realtime.recalculate(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                        filter,
+                        NOW,
+                        RecalcWindow.MONTH))
+                .thenReturn(snapshot(filter));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                realtime,
+                CLOCK,
+                new AttendanceReportCalculator());
+
+        AttendanceReportRecalculateResult result = service.recalculate(
+                filter.period(), filter.companyId());
+
+        verify(capabilities).require(
+                CapabilityCodes.ATTENDANCE_REPORT_REFRESH);
+        assertThat(result.projectionVersion())
+                .isEqualTo("LIVE-projection-1");
+        verify(realtime).recalculate(
                 PRINCIPAL,
-                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
                 filter,
-                null,
-                NOW);
-        verifyNoInteractions(repository);
+                NOW,
+                RecalcWindow.MONTH);
+        verify(realtime, never()).loadAuthorizedSnapshot(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -268,9 +376,169 @@ class AttendanceReportQueryServiceTest {
         assertThat(result.rows()).hasSize(1);
         assertThat(result.rows().getFirst().days()).hasSize(31);
         assertThat(result.formulaVersion())
-                .isEqualTo("ATTENDANCE_MONTH_MATRIX_V1");
+                .isEqualTo("ATTENDANCE_MONTH_MATRIX_V3");
         assertThat(result.allowedActions())
                 .containsExactly("REPORT_DRILL_DOWN");
+    }
+
+    @Test
+    void monthMatrixReadsPublishedPagesEvenWhenRealtimeEngineIsPresent() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime =
+                mock(RealtimeAttendanceReportSnapshotService.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7),
+                COMPANY,
+                "org-a",
+                null,
+                null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(repository.loadAuthorizedPagedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                0,
+                20,
+                NOW)).thenReturn(Optional.of(
+                        new AttendanceReportSourceRepository.PagedSnapshot(
+                                snapshot(filter), 1L)));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                realtime,
+                CLOCK,
+                new AttendanceReportCalculator());
+
+        AttendanceMonthMatrixPage result = service.queryMonthMatrix(
+                filter.period(),
+                filter.companyId(),
+                filter.organizationId(),
+                null,
+                0,
+                20);
+
+        assertThat(result.totalEmployees()).isEqualTo(1);
+        assertThat(result.rows()).hasSize(1);
+        verify(repository).loadAuthorizedPagedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                0,
+                20,
+                NOW);
+        verify(realtime, never()).loadAuthorizedSnapshot(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void monthMatrixDropsAWholeMonthDateRangeBeforePagingThePin() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 8),
+                COMPANY,
+                null,
+                null,
+                null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ));
+        when(repository.loadAuthorizedPagedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                0,
+                50,
+                NOW)).thenReturn(Optional.of(
+                        new AttendanceReportSourceRepository.PagedSnapshot(
+                                snapshot(filter), 1L)));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                CLOCK);
+
+        AttendanceMonthMatrixPage result = service.queryMonthMatrix(
+                filter.period(),
+                filter.companyId(),
+                null,
+                null,
+                null,
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31),
+                0,
+                50);
+
+        assertThat(result.totalEmployees()).isEqualTo(1);
+        verify(repository).loadAuthorizedPagedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                0,
+                50,
+                NOW);
+        verify(repository, never()).loadAuthorizedSnapshot(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void monthMatrixDoesNotRecalculateDetailToDecideExportActions() {
+        CurrentCapabilityService capabilities =
+                mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository =
+                mock(AttendanceReportSourceRepository.class);
+        ReportFilter filter = new ReportFilter(
+                YearMonth.of(2026, 7),
+                COMPANY,
+                "org-a",
+                null,
+                null);
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_DOWNLOAD));
+        when(repository.loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW)).thenReturn(Optional.of(snapshot(filter)));
+        var service = new AttendanceReportQueryService(
+                capabilities,
+                principal(),
+                repository,
+                CLOCK);
+
+        AttendanceMonthMatrixPage result = service.queryMonthMatrix(
+                filter.period(),
+                filter.companyId(),
+                filter.organizationId(),
+                null,
+                0,
+                20);
+
+        assertThat(result.allowedActions()).contains(
+                "REPORT_DRILL_DOWN",
+                "REPORT_EXPORT_CREATE",
+                "REPORT_EXPORT_DOWNLOAD");
+        verify(repository, never()).loadAuthorizedSnapshotIntersection(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -298,7 +566,7 @@ class AttendanceReportQueryServiceTest {
                 null,
                 null,
                 null,
-                "projection-1",
+                "LIVE-projection-1",
                 0,
                 50);
         AttendanceMonthMatrixPage matrix = service.queryMonthMatrix(
@@ -306,12 +574,12 @@ class AttendanceReportQueryServiceTest {
                 filter.companyId(),
                 null,
                 null,
-                "projection-1",
+                "LIVE-projection-1",
                 0,
                 20);
 
-        assertThat(report.projectionVersion()).isEqualTo("projection-1");
-        assertThat(matrix.projectionVersion()).isEqualTo("projection-1");
+        assertThat(report.projectionVersion()).isEqualTo("LIVE-projection-1");
+        assertThat(matrix.projectionVersion()).isEqualTo("LIVE-projection-1");
     }
 
     @Test
@@ -412,7 +680,18 @@ class AttendanceReportQueryServiceTest {
                         filter,
                         "LIVE-older",
                         NOW);
-        verifyNoInteractions(repository);
+        verify(repository).loadAuthorizedPagedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                0,
+                20,
+                NOW);
+        verify(repository, never()).loadAuthorizedSnapshot(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                filter,
+                NOW);
     }
 
     @Test
@@ -687,7 +966,7 @@ class AttendanceReportQueryServiceTest {
                         "当前授权组织范围",
                         "scope-digest"),
                 filter,
-                "projection-1",
+                "LIVE-projection-1",
                 "OPEN",
                 NOW,
                 List.of("deli:20", "oa:8"),

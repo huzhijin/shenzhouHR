@@ -1,4 +1,4 @@
-import { Card, Space } from 'antd';
+import { Button, Card, message } from 'antd';
 import { useMemo, useState } from 'react';
 
 import { DataTable, type DataColumn } from '../../shared/components/DataTable';
@@ -6,12 +6,17 @@ import { StatusBadge } from '../../shared/components/FeedbackComponents';
 import { PageHeader, ResourcePagination } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
-import { listAttendanceSources } from './attendanceSourceApi';
+import {
+  listAttendanceSources,
+  startAttendanceSourceJob,
+} from './attendanceSourceApi';
 import type { AttendanceSourceView } from './attendanceSourceTypes';
 
 export function SourceOverviewPage() {
+  const [messageApi, messageContextHolder] = message.useMessage();
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(20);
+  const [startingSourceId, setStartingSourceId] = useState<string>();
   const loader = useMemo(
     () => () => listAttendanceSources(page, size),
     [page, size],
@@ -22,16 +27,34 @@ export function SourceOverviewPage() {
     [page, size],
   );
 
+  const startSync = async (source: AttendanceSourceView) => {
+    setStartingSourceId(source.sourceId);
+    try {
+      await startAttendanceSourceJob(source.sourceId);
+      void messageApi.success('已提交同步，将从上次成功水位继续。');
+      sources.reload();
+    } catch {
+      void messageApi.error('同步未提交，请检查权限或稍后重试。');
+    } finally {
+      setStartingSourceId(undefined);
+    }
+  };
+
   return (
     <>
+      {messageContextHolder}
       <PageHeader
         title="在线考勤来源"
-        description="查看得力等外部考勤来源的连接状态和最近同步进度。"
+        description="查看得力等外部考勤来源的连接状态、最近失败原因，并可手动重试同步。"
         breadcrumbs={[{ label: '考勤来源' }, { label: '在线来源' }]}
       />
       {sources.resource.status === 'ready' ? (
         <>
-          <SourceTable sources={sources.resource.data.items} />
+          <SourceTable
+            sources={sources.resource.data.items}
+            startingSourceId={startingSourceId}
+            onRetry={startSync}
+          />
           <ResourcePagination
             ariaLabel="在线考勤来源分页"
             page={page}
@@ -54,7 +77,15 @@ export function SourceOverviewPage() {
   );
 }
 
-function SourceTable({ sources }: { sources: AttendanceSourceView[] }) {
+function SourceTable({
+  sources,
+  startingSourceId,
+  onRetry,
+}: {
+  sources: AttendanceSourceView[];
+  startingSourceId?: string;
+  onRetry: (source: AttendanceSourceView) => void;
+}) {
   const columns: Array<DataColumn<AttendanceSourceView>> = [
     { key: 'name', title: '来源', render: (source) => <strong>{source.displayName}</strong> },
     { key: 'type', title: '类型', render: (source) => sourceTypeLabel(source.sourceType) },
@@ -62,10 +93,30 @@ function SourceTable({ sources }: { sources: AttendanceSourceView[] }) {
     { key: 'timezone', title: '时区', render: (source) => timeZoneLabel(source.timeZone) },
     {
       key: 'last-sync',
-      title: '最近同步',
+      title: '最近成功',
       render: (source) => source.lastSuccessfulSyncAt
         ? formatSyncTime(source.lastSuccessfulSyncAt)
         : '尚未同步',
+    },
+    {
+      key: 'last-failure',
+      title: '最近失败',
+      render: (source) => source.lastFailureReason
+        ? `${source.lastFailureReason}${source.lastFailedSyncAt ? ` · ${formatSyncTime(source.lastFailedSyncAt)}` : ''}`
+        : '无',
+    },
+    {
+      key: 'retry',
+      title: '操作',
+      render: (source) => (
+        <Button
+          size="small"
+          loading={startingSourceId === source.sourceId}
+          onClick={() => onRetry(source)}
+        >
+          手动同步
+        </Button>
+      ),
     },
   ];
   return (
@@ -104,7 +155,7 @@ function SourceState({
       />
     );
   }
-  return <Space />;
+  return null;
 }
 
 function sourceTypeLabel(value: AttendanceSourceView['sourceType']): string {

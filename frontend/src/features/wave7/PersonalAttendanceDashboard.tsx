@@ -5,8 +5,10 @@ import {
   IconLock,
   IconShieldCheck,
 } from '@tabler/icons-react';
-import { Empty } from 'antd';
-import type { ReactNode } from 'react';
+import { DatePicker, Empty } from 'antd';
+import dayjs, { type Dayjs } from 'dayjs';
+import { defaultQueryPeriod } from '../reports/queryPeriod';
+import { useCallback, useState, type ReactNode } from 'react';
 import {
   Area,
   Bar,
@@ -40,6 +42,11 @@ import './personalAttendanceDashboard.css';
 
 export interface PersonalAttendanceDashboardProps {
   projection: SelfAttendanceDashboardProjection;
+  windowKind?: 'DAY' | 'MONTH';
+  period?: Dayjs;
+  onWindowKindChange?: (windowKind: 'DAY' | 'MONTH') => void;
+  onPeriodChange?: (period: Dayjs) => void;
+  mode?: 'workbench' | 'attendance';
 }
 
 interface PersonalTrendPoint extends SelfAttendanceDashboardTrendPoint {
@@ -65,11 +72,19 @@ const exceptionColors = [
 const exceptionTypeLabels: Record<string, string> = {
   ABSENCE: '缺勤',
   EARLY_LEAVE: '早退',
+  EARLY_DEPARTURE: '早退',
   EVIDENCE_CONFLICT: '凭证冲突',
   LATE: '迟到',
+  MISSING_ON_DUTY: '上班漏签',
+  MISSING_OFF_DUTY: '下班漏签',
   MISSING_PUNCH: '缺卡',
   MISSING_PUNCH_OVERDUE: '缺卡逾期',
+  FAKE_OVERTIME: '加班异常',
+  OVERTIME_FORM_BEYOND_LAST_PUNCH: '加班结束晚于打卡',
   OVERTIME_UNCONFIRMED: '加班待确认',
+  NEGATIVE_LEAVE_BALANCE: '假期余额为负',
+  NEGATIVE_ANNUAL_LEAVE_BALANCE: '年假余额为负',
+  NEGATIVE_TIME_OFF_BALANCE: '调休余额为负',
 };
 
 const exceptionStateLabels: Record<
@@ -85,7 +100,7 @@ const severityLabels: Record<
   SelfAttendanceRecentException['severity'],
   string
 > = {
-  ERROR: '阻断',
+  ERROR: '异常',
   INFO: '提示',
   WARNING: '警告',
 };
@@ -95,13 +110,27 @@ export function PersonalAttendanceDashboardRoute({
 }: {
   gateway?: Wave7ProjectionGateway;
 }) {
+  const [windowKind, setWindowKind] = useState<'DAY' | 'MONTH'>('MONTH');
+  const [period, setPeriod] = useState<Dayjs>(() => defaultQueryPeriod());
+  const load = useCallback(
+    () => gateway.loadSelfDashboard(period.format('YYYY-MM'), windowKind),
+    [gateway, period, windowKind],
+  );
   return (
     <Wave7AsyncBoundary
-      loader={gateway.loadSelfDashboard}
+      key={`${windowKind}-${period.format('YYYY-MM')}`}
+      loader={load}
       isEmpty={() => false}
     >
       {(projection) => (
-        <PersonalAttendanceDashboard projection={projection} />
+        <PersonalAttendanceDashboard
+          projection={projection}
+          windowKind={windowKind}
+          period={period}
+          onWindowKindChange={setWindowKind}
+          onPeriodChange={setPeriod}
+          mode="workbench"
+        />
       )}
     </Wave7AsyncBoundary>
   );
@@ -109,6 +138,10 @@ export function PersonalAttendanceDashboardRoute({
 
 export function PersonalAttendanceDashboard({
   projection,
+  period,
+  onWindowKindChange,
+  onPeriodChange,
+  mode = 'attendance',
 }: PersonalAttendanceDashboardProps) {
   if (!isSelfProjection(projection)) {
     return (
@@ -124,6 +157,9 @@ export function PersonalAttendanceDashboard({
   const exceptionTypes = projection.exceptionTypeDistribution.map(
     toExceptionTypePoint,
   );
+  const listedExceptions = mode === 'workbench'
+    ? visibleSelfExceptions(projection)
+    : projection.recentExceptions;
 
   return (
     <main
@@ -136,10 +172,29 @@ export function PersonalAttendanceDashboard({
             <IconLock aria-hidden="true" />
             个人专属 · 仅本人可见
           </p>
-          <h1 id="personal-attendance-dashboard-title">我的考勤工作台</h1>
+          <h1 id="personal-attendance-dashboard-title">
+            {mode === 'workbench' ? '我的异常' : '我的考勤工作台'}
+          </h1>
           <p className="personal-attendance-dashboard__hero-copy">
-            查看本人的考勤结果、每日趋势与待处理异常，不包含组织或其他员工数据。
+            {mode === 'workbench'
+              ? '主看昨天完整异常（迟到、早退、漏签）。中午 12 点后才会列出今天的迟到和早上漏签。'
+              : '查看本人每天的上下班打卡、工时和异常，不包含组织或其他员工数据。'}
           </p>
+          {mode === 'attendance' && onWindowKindChange ? (
+            <div style={{ display: 'flex', gap: 12, marginTop: 12, alignItems: 'center' }}>
+              <DatePicker
+                picker="month"
+                value={period}
+                allowClear={false}
+                onChange={(value) => {
+                  if (value) {
+                    onWindowKindChange('MONTH');
+                    onPeriodChange?.(value);
+                  }
+                }}
+              />
+            </div>
+          ) : null}
         </div>
         <dl className="personal-attendance-dashboard__context">
           <div>
@@ -246,15 +301,31 @@ export function PersonalAttendanceDashboard({
 
         <PersonalPanel
           className="personal-attendance-dashboard__attention-panel"
-          title="我的最近异常"
-          subtitle="仅显示与你相关的异常摘要"
-          meta={`最近 ${projection.recentExceptions.length} 条`}
+          title={mode === 'workbench' ? '昨日异常' : '我的最近异常'}
+          subtitle={mode === 'workbench'
+            ? '只显示本人昨天的异常；中午后附加今天迟到和早上漏签'
+            : '仅显示与你相关的异常摘要'}
+          meta={`${listedExceptions.length} 条`}
         >
           <PersonalExceptionList
-            exceptions={projection.recentExceptions}
+            exceptions={listedExceptions}
           />
         </PersonalPanel>
       </section>
+        {mode === 'attendance' ? (
+          <section
+            className="personal-attendance-dashboard__secondary-grid"
+            aria-label="本人每日打卡"
+          >
+            <PersonalPanel
+              title="每日打卡"
+              subtitle="与考勤明细相同的上班、下班时间"
+              meta={`${projection.dailyTrend.length} 天`}
+            >
+              <PersonalDailyPunchTable projection={projection} />
+            </PersonalPanel>
+          </section>
+        ) : null}
     </main>
   );
 }
@@ -693,6 +764,93 @@ function toExceptionTypePoint(
   };
 }
 
+function visibleSelfExceptions(
+  projection: SelfAttendanceDashboardProjection,
+): SelfAttendanceRecentException[] {
+  const today = shanghaiDate(new Date());
+  const yesterday = shiftShanghaiDate(today, -1);
+  const afterNoon = shanghaiHour(new Date()) >= 12;
+  const preferred = projection.recentExceptions.filter((item) => {
+    if (item.businessDate === yesterday) {
+      return true;
+    }
+    return afterNoon
+      && item.businessDate === today
+      && (item.type === 'LATE'
+        || item.type === 'MISSING_ON_DUTY'
+        || item.type === 'MISSING_PUNCH'
+        || item.type === 'MISSING_PUNCH_OVERDUE');
+  });
+  return preferred.length > 0 ? preferred : projection.recentExceptions;
+}
+
+function PersonalDailyPunchTable({
+  projection,
+}: {
+  projection: SelfAttendanceDashboardProjection;
+}) {
+  if (projection.dailyTrend.length === 0) {
+    return <PersonalEmpty description="本月还没有日考勤事实" />;
+  }
+  return (
+    <table className="personal-attendance-dashboard__punch-table">
+      <thead>
+        <tr>
+          <th>日期</th>
+          <th>上班</th>
+          <th>下班</th>
+          <th>状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        {projection.dailyTrend.map((point) => {
+          const isToday = point.businessDate === projection.businessDate;
+          const first = isToday
+            ? (projection.today?.firstPunchAt ?? point.firstPunchAt ?? null)
+            : (point.firstPunchAt ?? null);
+          const last = isToday
+            ? (projection.today?.lastPunchAt ?? point.lastPunchAt ?? null)
+            : (point.lastPunchAt ?? null);
+          return (
+            <tr key={point.businessDate}>
+              <td>{formatDate(point.businessDate)}</td>
+              <td>{formatPunchTime(first)}</td>
+              <td>{formatPunchTime(last)}</td>
+              <td>{point.issueCount > 0 ? `异常 ${point.issueCount} 项` : '正常'}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function shanghaiDate(value: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
+}
+
+function shanghaiHour(value: Date): number {
+  return Number(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    hour12: false,
+  }).format(value));
+}
+
+function shiftShanghaiDate(isoDate: string, days: number): string {
+  const parts = isoDate.split('-').map(Number);
+  const year = parts[0] ?? 0;
+  const month = parts[1] ?? 1;
+  const day = parts[2] ?? 1;
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  return shifted.toISOString().slice(0, 10);
+}
+
 function exceptionTypeLabel(type: string): string {
   return exceptionTypeLabels[type] ?? '其他异常';
 }
@@ -705,8 +863,8 @@ function formatPunchRange(
   return `${formatPunchTime(firstPunchAt)} – ${formatPunchTime(lastPunchAt)}`;
 }
 
-function formatPunchTime(value: string | null): string {
-  if (value === null) return '—';
+function formatPunchTime(value: string | null | undefined): string {
+  if (value == null) return '—';
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return '—';
   return new Intl.DateTimeFormat('zh-CN', {

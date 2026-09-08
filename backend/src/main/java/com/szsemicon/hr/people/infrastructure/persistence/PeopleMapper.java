@@ -267,6 +267,15 @@ interface PeopleMapper {
             @Param("expectedVersion") long expectedVersion,
             @Param("at") Instant at);
 
+    int correctCurrentEmployeeVersion(
+            @Param("employeeId") String employeeId,
+            @Param("employeeNumber") String employeeNumber,
+            @Param("displayName") String displayName,
+            @Param("status") String status,
+            @Param("effectiveTo") LocalDate effectiveTo,
+            @Param("changeReason") String changeReason,
+            @Param("expectedVersion") long expectedVersion);
+
     void insertEmployeeVersion(PeopleRows.EmployeeRow row);
 
     int closeCurrentEmployeeVersion(

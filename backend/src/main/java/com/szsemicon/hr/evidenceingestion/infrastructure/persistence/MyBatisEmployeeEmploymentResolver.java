@@ -17,9 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Exact, fail-closed employee resolution for attendance evidence ingestion.
  *
- * <p>Employee numbers and confirmed Deli binding values use binary database
- * collation and are never trimmed, case-folded or coerced to numbers. Multiple
- * active employment periods intentionally remain multiple results so the
+ * <p>OA, Deli and HR organizations are independent. Matching is by employee
+ * number (and confirmed Deli binding) only; the source company is not a
+ * match key. Employee numbers and confirmed Deli binding values use binary
+ * database collation and are never trimmed, case-folded or coerced to
+ * numbers. Multiple active rows intentionally remain multiple results so the
  * caller quarantines the evidence as ambiguous.</p>
  */
 @Repository
@@ -75,6 +77,19 @@ public class MyBatisEmployeeEmploymentResolver
                 at.atZone(BUSINESS_ZONE).toLocalDate()));
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<Resolution> resolveByDisplayName(
+            String companyId, String displayName, Instant at) {
+        requireIdentifier(companyId, "companyId", 36);
+        requireReference(displayName, "displayName");
+        Objects.requireNonNull(at, "at");
+        return resolutions(mapper.resolveByDisplayName(
+                companyId,
+                displayName,
+                at.atZone(BUSINESS_ZONE).toLocalDate()));
+    }
+
     private static List<Resolution> resolutions(
             List<EvidenceEmployeeResolverRow> rows) {
         if (rows == null) {
@@ -85,9 +100,10 @@ public class MyBatisEmployeeEmploymentResolver
                 .map(row -> new Resolution(
                         requireStored(row.employeeId(), "employeeId"),
                         requireStored(
-                                row.employmentPeriodId(),
-                                "employmentPeriodId"),
-                        digest(row)))
+                                row.assignmentVersionId(),
+                                "assignmentVersionId"),
+                        digest(row),
+                        requireStored(row.companyId(), "companyId")))
                 .sorted(Comparator
                         .comparing(Resolution::employeeId)
                         .thenComparing(Resolution::employmentPeriodId))
@@ -98,6 +114,7 @@ public class MyBatisEmployeeEmploymentResolver
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             append(digest, requireStored(row.employeeId(), "employeeId"));
+            append(digest, requireStored(row.companyId(), "companyId"));
             append(
                     digest,
                     requireStored(

@@ -36,8 +36,10 @@ class MyBatisAnnualLeaveRepository implements AnnualLeaveManagementRepository {
     public Optional<TimeAccountRow> findTimeAccount(
             String employeeId,
             String employmentPeriodId,
-            int year) {
-        return mapper.findTimeAccount(employeeId, employmentPeriodId, year);
+            int year,
+            String accountType) {
+        return mapper.findTimeAccount(
+                employeeId, employmentPeriodId, year, accountType);
     }
 
     @Override
@@ -45,8 +47,10 @@ class MyBatisAnnualLeaveRepository implements AnnualLeaveManagementRepository {
     public Optional<TimeAccountRow> lockTimeAccount(
             String employeeId,
             String employmentPeriodId,
-            int year) {
-        return mapper.lockTimeAccount(employeeId, employmentPeriodId, year);
+            int year,
+            String accountType) {
+        return mapper.lockTimeAccount(
+                employeeId, employmentPeriodId, year, accountType);
     }
 
     @Override
@@ -57,11 +61,12 @@ class MyBatisAnnualLeaveRepository implements AnnualLeaveManagementRepository {
             String employmentPeriodId,
             String companyId,
             int year,
+            String accountType,
             String policyVersionId,
             Instant now) {
         mapper.createTimeAccountIfAbsent(
                 accountId, employeeId, employmentPeriodId,
-                companyId, year, policyVersionId, now);
+                companyId, year, accountType, policyVersionId, now);
     }
 
     @Override
@@ -153,5 +158,11 @@ class MyBatisAnnualLeaveRepository implements AnnualLeaveManagementRepository {
     public boolean canAccessEmployee(
             String principalId, String capability, String employeeId, Instant at) {
         return mapper.canAccessEmployee(principalId, capability, employeeId, at);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<String> findPrincipalEmployeeId(String principalId) {
+        return mapper.findPrincipalEmployeeId(principalId);
     }
 }

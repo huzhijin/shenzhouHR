@@ -33,6 +33,8 @@ class SelfAttendanceDashboardContractTest {
         Method method = SelfAttendanceDashboardController.class
                 .getDeclaredMethod(
                         "dashboard",
+                        java.time.YearMonth.class,
+                        String.class,
                         org.springframework.util.MultiValueMap.class);
         assertThat(method.getAnnotation(PreAuthorize.class).value())
                 .isEqualTo(
@@ -45,7 +47,7 @@ class SelfAttendanceDashboardContractTest {
         parameters.add("companyId", "company-a");
 
         assertThatThrownBy(() ->
-                controller.dashboard(parameters))
+                controller.dashboard(null, null, parameters))
                 .isInstanceOfSatisfying(
                         ApiProblemException.class,
                         problem -> assertThat(problem.code())
@@ -56,9 +58,9 @@ class SelfAttendanceDashboardContractTest {
     @Test
     void readyResponseIsNoStoreAndContainsOnlySelfSafeFields() {
         var service = mock(SelfAttendanceDashboardService.class);
-        when(service.query()).thenReturn(dashboard());
+        when(service.query(null, null)).thenReturn(dashboard());
         var response = new SelfAttendanceDashboardController(service)
-                .dashboard(new LinkedMultiValueMap<>());
+                .dashboard(null, null, new LinkedMultiValueMap<>());
 
         assertThat(response.getHeaders().getCacheControl())
                 .isEqualTo("no-store");
@@ -143,7 +145,9 @@ class SelfAttendanceDashboardContractTest {
                                         450,
                                         30,
                                         0,
-                                        1)),
+                                        1,
+                                        Instant.parse("2026-07-29T00:25:00Z"),
+                                        null)),
                 new SelfAttendanceDashboardService.Today(
                         "日班",
                         Instant.parse("2026-07-29T00:25:00Z"),

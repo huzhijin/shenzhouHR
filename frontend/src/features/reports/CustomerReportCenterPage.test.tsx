@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // This suite covers the demo sheets, so the page must resolve to demo mode
@@ -14,12 +14,16 @@ import {
   defaultCustomerReportSpecificFilters,
   getCustomerReportDemo,
   normalizeAnnualLeaveFilters,
+  overviewCards,
 } from './customerReportDemo';
+import { isoWeekdayBucket, overtimeTreatmentFill } from './financeOvertimeLayout';
 import {
   buildCustomerReportCsv,
   downloadCustomerReportCsv,
 } from './customerReportExport';
 import { customerReportDemoScopes } from './customerReportAccess';
+import { persistAppearance } from '../../shared/appearance/appearance';
+import { defaultQueryPeriod } from './queryPeriod';
 import { CustomerReportCenterPage } from './CustomerReportCenterPage';
 
 describe('customer report center demo', () => {
@@ -28,11 +32,14 @@ describe('customer report center demo', () => {
   });
 
   it('provides the full nine-report catalog and the source color legend', () => {
-    expect(customerReportTabs).toHaveLength(9);
+    expect(customerReportTabs).toHaveLength(12);
     expect(customerReportTabs.map((tab) => tab.key)).toEqual([
       'attendance-detail',
       'leave',
       'overtime',
+      'overtime-daily',
+      'finance-overtime',
+      'daily-journal',
       'work-hours',
       'exceptions',
       'late',
@@ -53,6 +60,15 @@ describe('customer report center demo', () => {
       '年假',
       '休息日',
       '补签',
+      '婚假',
+      '产假',
+      '陪产假',
+      '丧假',
+      '工伤假',
+      '护理假',
+      '哺乳假',
+      '孕检假',
+      '计生假',
     ]);
   });
 
@@ -72,6 +88,117 @@ describe('customer report center demo', () => {
     expect(filtered.attendanceRows).toHaveLength(1);
     expect(filtered.attendanceRows[0]?.employee).toBe('陈思远');
     expect(filtered.metadata.isDemo).toBe(true);
+  });
+
+  it('splits daily overtime into 加班费 / 转调休 and colors mixed calendar days', () => {
+    const report = getCustomerReportDemo({
+      month: '2026-08',
+      department: '全部部门',
+      employee: '全部员工',
+    });
+    const chen = report.financeOvertimeRows.find((row) => row.employee === '陈思远');
+    expect(chen).toBeDefined();
+    expect(chen?.paidOvertimeHours).toBeGreaterThan(0);
+    expect(chen?.compensatoryOvertimeHours).toBeGreaterThan(0);
+    const mixed = chen?.days.find((day) => (
+      (day.paidHours ?? 0) > 0 && (day.compensatoryHours ?? 0) > 0
+    ));
+    expect(mixed?.treatment).toBe('COMPENSATORY');
+    expect(`${mixed?.paidHours} / ${mixed?.compensatoryHours}`).toBe('1 / 2.5');
+    const weekend = chen?.days.find((day) => isoWeekdayBucket(day.date) === 'weekend');
+    const weekdayPaid = chen?.days.find((day) => day.treatment === 'PAID');
+    expect(weekend?.treatment).toBe('COMPENSATORY');
+    expect(weekdayPaid?.treatment).toBe('PAID');
+    expect(overtimeTreatmentFill('PAID')?.background)
+      .not.toBe(overtimeTreatmentFill('COMPENSATORY')?.background);
+    expect(overtimeTreatmentFill('VOLUNTARY')?.background).toBe('#6b4e9b');
+    expect(overtimeTreatmentFill('VOLUNTARY')?.background)
+      .not.toBe(overtimeTreatmentFill('PAID')?.background);
+    const onlyCompensatory = applyCustomerReportSpecificFilters(
+      report,
+      'finance-overtime',
+      { ...defaultCustomerReportSpecificFilters, overtimeType: '转调休' },
+    );
+    expect(onlyCompensatory.financeOvertimeRows.length)
+      .toBeLessThan(report.financeOvertimeRows.length);
+    expect(onlyCompensatory.financeOvertimeRows.every((row) => (
+      (row.compensatoryOvertimeHours ?? 0) > 0
+    ))).toBe(true);
+    const onlyFee = applyCustomerReportSpecificFilters(
+      report,
+      'overtime-daily',
+      { ...defaultCustomerReportSpecificFilters, overtimeType: '加班费' },
+    );
+    expect(onlyFee.overtimeDailyRows.length).toBeLessThan(report.overtimeDailyRows.length);
+    expect(onlyFee.overtimeDailyRows.every((row) => (row.paidOvertimeHours ?? 0) > 0)).toBe(true);
+    const onlyVoluntary = applyCustomerReportSpecificFilters(
+      report,
+      'overtime-daily',
+      { ...defaultCustomerReportSpecificFilters, overtimeType: '义务加班' },
+    );
+    expect(onlyVoluntary.overtimeDailyRows.length).toBeGreaterThan(0);
+    expect(onlyVoluntary.overtimeDailyRows.every((row) => (
+      (row.voluntaryOvertimeHours ?? 0) > 0
+    ))).toBe(true);
+  });
+
+  it('derives overview cards from the visible sheet after a department filter', () => {
+    const all = getCustomerReportDemo({
+      month: '2026-06',
+      department: '全部部门',
+      employee: '全部员工',
+    });
+    const manufacturing = getCustomerReportDemo({
+      month: '2026-06',
+      department: '制造中心',
+      employee: '全部员工',
+    });
+
+    const allHours = overviewCards(all, 'work-hours');
+    const departmentHours = overviewCards(manufacturing, 'work-hours');
+    expect(allHours[0]?.label).toBe('范围员工');
+    expect(Number(allHours[0]?.value)).toBeGreaterThan(Number(departmentHours[0]?.value));
+    expect(Number(departmentHours[0]?.value)).toBe(manufacturing.workHoursRows.length);
+    expect(departmentHours.map((card) => card.label)).toEqual([
+      '范围员工',
+      '应出勤工时',
+      '加班总时长',
+      '实际出勤工时',
+    ]);
+    expect(departmentHours.slice(1).every((card) => card.value !== 0 && card.value !== '0.0'))
+      .toBe(true);
+
+    const allRates = overviewCards(all, 'attendance-rate');
+    const departmentRates = overviewCards(manufacturing, 'attendance-rate');
+    expect(departmentRates.map((card) => card.label)).toEqual([
+      '应出勤人数',
+      '实际出勤人数',
+      '平均出勤率',
+      '平均工时',
+    ]);
+    expect(Number(allRates[0]?.value)).toBeGreaterThan(Number(departmentRates[0]?.value));
+    expect(Number(departmentRates[0]?.value)).toBe(manufacturing.attendanceRateRows.length);
+  });
+
+  it('shows work-hour totals on the metric cards after selecting a department', () => {
+    render(<CustomerReportCenterPage />);
+    fireEvent.click(screen.getByRole('tab', { name: '个人月度工时' }));
+
+    const departmentSelect = screen.getByLabelText('部门');
+    fireEvent.mouseDown(departmentSelect);
+    fireEvent.click(screen.getByRole('option', { name: '制造中心' }));
+
+    const currentMonth = defaultQueryPeriod().format('YYYY-MM');
+    const manufacturing = getCustomerReportDemo({
+      month: currentMonth,
+      department: '制造中心',
+      employee: '全部员工',
+    });
+    const metrics = screen.getByLabelText('当前范围概览');
+    expect(metrics).toHaveTextContent('应出勤工时');
+    expect(metrics).toHaveTextContent('实际出勤工时');
+    expect(metrics).toHaveTextContent(String(manufacturing.workHoursRows.length));
+    expect(screen.getByTestId('report-table')).toHaveTextContent('陈思远');
   });
 
   it('fails closed when forged filters request people outside the active data scope', () => {
@@ -109,7 +236,8 @@ describe('customer report center demo', () => {
 
     expect(report.metadata.month).toBe(month);
     expect(report.attendanceRows.every((row) => row.days.length === dayCount)).toBe(true);
-    expect(report.overtimeRows.every((row) => (row.dailyHours ?? []).length === dayCount)).toBe(true);
+    expect(report.overtimeRows.some((row) => row.employee === '陈思远')).toBe(true);
+    expect(report.overtimeRows.filter((row) => row.employee === '陈思远')).toHaveLength(4);
     expect(report.leaveRows.every((row) => row.period.includes(`${monthNumber}-`))).toBe(true);
     expect(report.workHoursRows
       .filter((row) => (row.note ?? '').includes('入职') || (row.note ?? '').includes('离职'))
@@ -197,26 +325,72 @@ describe('customer report center demo', () => {
     )).toBe(true);
   });
 
-  it('renders filters, report navigation, the matrix legend and export feedback', () => {
+  it('renders filters, report navigation, the matrix legend and export feedback', async () => {
     const onExport = vi.fn();
     render(<CustomerReportCenterPage onExport={onExport} />);
 
     expect(screen.getByRole('heading', { name: '考勤报表中心' })).toBeInTheDocument();
     expect(screen.getByText('客户演示数据')).toBeInTheDocument();
-    expect(screen.getByLabelText('月份')).toBeInTheDocument();
+    expect(screen.queryByLabelText('月份')).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('起止日期').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('部门')).toBeInTheDocument();
     expect(screen.getByLabelText('员工')).toBeInTheDocument();
-    expect(screen.getAllByRole('tab')).toHaveLength(9);
+    expect(screen.getAllByRole('tab')).toHaveLength(12);
     expect(screen.getByRole('tabpanel', { name: '月度考勤明细矩阵' })).toBeInTheDocument();
-    expect(screen.getByLabelText('考勤状态颜色图例')).toHaveTextContent('迟到早退漏刷加班调休外出出差事假病假年假休息日补签');
+    expect(screen.getByLabelText('考勤状态颜色图例')).toHaveTextContent('迟到早退漏刷加班调休外出出差事假病假年假休息日补签婚假产假陪产假丧假工伤假护理假哺乳假孕检假计生假');
     expect(screen.getByTestId('report-scroll-region')).toHaveClass('customer-report__table-scroll');
 
     fireEvent.click(screen.getByRole('button', { name: '导出当前报表' }));
 
-    expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
-      reportKey: 'attendance-detail',
-    }));
+    await waitFor(() => {
+      expect(onExport).toHaveBeenCalledWith(expect.objectContaining({
+        reportKey: 'attendance-detail',
+      }));
+    });
     expect(screen.getByRole('status')).toHaveTextContent('“月度考勤明细矩阵”已按当前筛选条件导出');
+    expect(screen.queryByText('演示文件已导出')).not.toBeInTheDocument();
+  });
+
+  it('keeps annual-leave legend fill after switching to night', () => {
+    persistAppearance('night');
+    expect(attendanceLegend.find((item) => item.key === 'annual-leave')?.color)
+      .toBe('#7a3434');
+    render(<CustomerReportCenterPage />);
+    const legend = screen.getByLabelText('考勤状态颜色图例');
+    const annual = [...legend.querySelectorAll('span')]
+      .find((node) => node.textContent?.includes('年假'));
+    expect(document.documentElement.dataset.theme).toBe('night');
+    expect(annual?.querySelector('i')).toHaveStyle({ backgroundColor: '#7a3434' });
+  });
+
+  it('merges full-day leave, shows 漏刷, and keeps overtime hours on hover only', () => {
+    const report = getCustomerReportDemo({
+      month: '2026-06',
+      department: '全部部门',
+      employee: '全部员工',
+    });
+    const annual = report.attendanceRows
+      .flatMap((row) => row.days)
+      .find((day) => day.mergedLabel === '年假');
+    expect(annual).toMatchObject({
+      merged: true,
+      primary: '年假',
+      secondary: '年假',
+    });
+    const missed = report.attendanceRows
+      .flatMap((row) => row.days)
+      .find((day) => day.secondary === '漏刷');
+    expect(missed?.secondaryStatus).toBe('missed');
+    const overtime = report.attendanceRows
+      .flatMap((row) => row.days)
+      .find((day) => day.status === 'overtime');
+    expect(overtime?.secondary).toBe('21:10');
+    expect(overtime?.note).toContain('加班');
+
+    render(<CustomerReportCenterPage />);
+    const table = screen.getByTestId('report-table');
+    expect(within(table).getAllByText('年假').length).toBeGreaterThan(0);
+    expect(within(table).getAllByText('漏刷').length).toBeGreaterThan(0);
   });
 
   it('fuzzy-searches authorized departments and employees by name, number, or department', () => {
@@ -337,21 +511,15 @@ describe('customer report center demo', () => {
     });
   });
 
-  it('updates rendered report dates when the month selector changes', () => {
+  it('keeps the date range and hides the extra month filter', () => {
     render(<CustomerReportCenterPage />);
 
-    fireEvent.mouseDown(screen.getByLabelText('月份'));
-    fireEvent.click(screen.getByText('2026年05月'));
-    fireEvent.click(screen.getByRole('tab', { name: '请假统计' }));
-
-    expect(screen.getByRole('heading', {
-      name: '江苏神州半导体科技有限公司2026年05月请假统计',
-    })).toBeInTheDocument();
-    expect(screen.getByTestId('report-table')).toHaveTextContent('05-05 13:30 ～ 05-06 17:30');
-    expect(screen.getByTestId('report-table')).not.toHaveTextContent('06-05 13:30 ～ 06-06 17:30');
+    expect(screen.queryByLabelText('月份')).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('起止日期').length).toBeGreaterThan(0);
+    expect(screen.getByText(/统计期间/)).toBeInTheDocument();
   });
 
-  it('builds and downloads a BOM-prefixed CSV with filters and only visible rows', () => {
+  it('builds and downloads a BOM-prefixed CSV with filters and only visible rows', async () => {
     const source = getCustomerReportDemo({
       month: '2026-05',
       department: '制造中心',
@@ -402,7 +570,9 @@ describe('customer report center demo', () => {
 
       expect(createObjectUrl).toHaveBeenCalledWith(expect.any(Blob));
       expect(anchorClick).toHaveBeenCalledOnce();
-      expect(revokeObjectUrl).toHaveBeenCalledWith('blob:customer-report');
+      await waitFor(() => {
+        expect(revokeObjectUrl).toHaveBeenCalledWith('blob:customer-report');
+      }, { timeout: 3000 });
     } finally {
       anchorClick.mockRestore();
       restoreUrlMethod('createObjectURL', originalCreateObjectUrl);
@@ -425,12 +595,21 @@ describe('customer report center demo', () => {
       report,
     };
 
+    const attendanceDetail = buildCustomerReportCsv({
+      ...commonRequest,
+      reportKey: 'attendance-detail',
+      reportTitle: '考勤明细',
+    }).csv;
+    expect(attendanceDetail).toContain('年假');
+    expect(attendanceDetail).not.toContain('8.0小时');
+    expect(attendanceDetail).toContain('漏刷');
+
     const overtime = buildCustomerReportCsv({
       ...commonRequest,
       reportKey: 'overtime',
       reportTitle: '加班统计',
     }).csv;
-    expect(overtime).toContain('"计薪加班","转调休加班","义务加班","汇总加班"');
+    expect(overtime).toContain('"工号","部门","姓名","加班类型","加班时段","认定小时","审批状态","来源"');
     expect(overtime).not.toContain('"平时加班"');
     expect(overtime).not.toContain('"周末加班"');
     expect(overtime).not.toContain('"法定节假日加班"');
@@ -541,12 +720,12 @@ describe('customer report center demo', () => {
     fireEvent.click(screen.getByRole('button', { name: '重置请假统计筛选' }));
     expect(screen.getByTestId('specific-result-count')).toHaveTextContent('8 条');
 
-    fireEvent.click(screen.getByRole('tab', { name: '加班汇总与每日加班' }));
+    fireEvent.click(screen.getByRole('tab', { name: '加班单据明细' }));
     expect(screen.getByLabelText('加班类型')).toBeInTheDocument();
     expect(screen.getByLabelText('加班日期')).toBeInTheDocument();
-    expect(screen.getAllByRole('columnheader', { name: '计薪加班' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('columnheader', { name: '转调休加班' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('columnheader', { name: '义务加班' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: '加班类型' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: '来源' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: '加班时段' }).length).toBeGreaterThan(0);
     expect(screen.queryByRole('columnheader', { name: '平时加班' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '周末加班' })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: '法定加班' })).not.toBeInTheDocument();
@@ -558,6 +737,11 @@ describe('customer report center demo', () => {
     expect(screen.getByLabelText('异常类型')).toBeInTheDocument();
     expect(screen.getByLabelText('异常级别')).toBeInTheDocument();
     expect(screen.getByLabelText('处理状态')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '详情' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '证据摘要' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('report-table')).toHaveTextContent('上班缺卡');
+    expect(screen.getByTestId('report-table')).toHaveTextContent('下班缺卡');
+    expect(screen.getByTestId('report-table')).toHaveTextContent('无上班卡，下班 18:26');
     selectReportOption('异常类型', '旷工');
     selectReportOption('异常级别', '高');
     selectReportOption('处理状态', '处理中');
@@ -584,6 +768,10 @@ describe('customer report center demo', () => {
     expect(screen.getByLabelText('年休假余额状态')).toBeInTheDocument();
     expect(screen.getByLabelText('一级部门')).toBeInTheDocument();
     expect(screen.getByLabelText('二级部门')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '部门' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '一级部门' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: '二级部门' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('report-table')).toHaveTextContent('制造中心-晶圆制造部');
   });
 });
 

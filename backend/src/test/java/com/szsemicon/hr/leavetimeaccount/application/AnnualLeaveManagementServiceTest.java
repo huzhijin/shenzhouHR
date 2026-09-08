@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementModels.AdjustBalanceCommand;
+import com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementModels.LeaveAccountView;
 import com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementModels.OpeningBalanceCommand;
 import com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository.BalanceIdempotencyRow;
 import com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository.CurrentEmploymentRow;
@@ -146,6 +147,27 @@ class AnnualLeaveManagementServiceTest {
     }
 
     @Test
+    void openingMayBeNegativeWhenNothingIsReserved() {
+        service.setOpeningBalance(new OpeningBalanceCommand(
+                EMPLOYEE,
+                new BigDecimal("-8.00"),
+                2026,
+                LocalDate.of(2026, 8, 1),
+                "cutover overused annual leave",
+                "idem-opening-negative-01"));
+
+        assertThat(repository.account.balanceHours())
+                .isEqualByComparingTo("-8.00");
+        assertThat(repository.ledger)
+                .extracting(LedgerEntryRow::entryType)
+                .containsExactly("OPENING");
+        assertThat(repository.ledger.getFirst().amountHours())
+                .isEqualByComparingTo("-8.00");
+        assertThat(repository.sumLedgerAmount(ACCOUNT))
+                .isEqualByComparingTo(repository.account.balanceHours());
+    }
+
+    @Test
     void downwardAdjustmentCannotConsumeOaReservedHours() {
         repository.seedAccount("10.00", "10.00");
         repository.reservedHours = new BigDecimal("4.00");
@@ -231,6 +253,29 @@ class AnnualLeaveManagementServiceTest {
                         EMPLOYEE,
                         "20000000-0000-0000-0000-000000000002",
                         2026));
+        assertThat(AnnualLeaveManagementModels.accountId(
+                "TIME_OFF", EMPLOYEE, PERIOD, 2026))
+                .isNotEqualTo(AnnualLeaveManagementModels.accountId(
+                        EMPLOYEE, PERIOD, 2026));
+    }
+
+    @Test
+    void timeOffOpeningCreatesASeparateAccount() {
+        OpeningBalanceCommand command = new OpeningBalanceCommand(
+                EMPLOYEE,
+                new BigDecimal("7.00"),
+                2026,
+                LocalDate.of(2026, 8, 1),
+                "期初调休额度录入",
+                "idem-timeoff-opening-0001");
+
+        LeaveAccountView view = service.setOpeningBalance(command, "TIME_OFF");
+
+        assertThat(view.balanceHours()).isEqualByComparingTo("7.00");
+        assertThat(view.equivalentDays()).isEqualByComparingTo("0.88");
+        assertThat(view.accountId()).isEqualTo(
+                AnnualLeaveManagementModels.accountId(
+                        "TIME_OFF", EMPLOYEE, PERIOD, 2026));
     }
 
     @Test
@@ -315,7 +360,8 @@ class AnnualLeaveManagementServiceTest {
         public Optional<TimeAccountRow> findTimeAccount(
                 String employeeId,
                 String employmentPeriodId,
-                int year) {
+                int year,
+                String accountType) {
             accountLocked = false;
             lastLookupEmploymentPeriodId = employmentPeriodId;
             if (account == null
@@ -331,7 +377,8 @@ class AnnualLeaveManagementServiceTest {
         public Optional<TimeAccountRow> lockTimeAccount(
                 String employeeId,
                 String employmentPeriodId,
-                int year) {
+                int year,
+                String accountType) {
             events.add("lock-account");
             accountLocked = true;
             return account != null
@@ -349,6 +396,7 @@ class AnnualLeaveManagementServiceTest {
                 String employmentPeriodId,
                 String companyId,
                 int year,
+                String accountType,
                 String policyVersionId,
                 Instant now) {
             if (account == null) {
@@ -501,6 +549,11 @@ class AnnualLeaveManagementServiceTest {
                 String employeeId,
                 Instant at) {
             return true;
+        }
+
+        @Override
+        public Optional<String> findPrincipalEmployeeId(String principalId) {
+            return Optional.of(EMPLOYEE);
         }
 
         private void seedAccount(String balance, String ledgerAmount) {

@@ -43,10 +43,19 @@ export function listOaDocuments(
   sourceId: string,
   page = 0,
   size = 20,
+  documentType?: string,
 ): Promise<StablePage<OaDocumentView>> {
-  if (demoMode) return Promise.resolve(demoPage(demoOaDocuments, page, size));
+  if (demoMode) {
+    const filtered = documentType
+      ? demoOaDocuments.filter((item) => item.documentType === documentType)
+      : demoOaDocuments;
+    return Promise.resolve(demoPage(filtered, page, size));
+  }
+  const typeQuery = documentType
+    ? `&documentType=${encodeURIComponent(documentType)}`
+    : '';
   return requestJson(
-    `/api/v1/attendance-sources/${encodeURIComponent(sourceId)}/documents?page=${page}&size=${size}`,
+    `/api/v1/attendance-sources/${encodeURIComponent(sourceId)}/documents?page=${page}&size=${size}${typeQuery}`,
   );
 }
 
@@ -60,6 +69,32 @@ export function listAttendanceSourceJobs(
     );
   }
   return requestJson(`/api/v1/attendance-source-jobs?page=${page}&size=${size}`);
+}
+
+export function startAttendanceSourceJob(
+  sourceId: string,
+): Promise<AttendanceSourceJobView> {
+  if (demoMode) {
+    return Promise.resolve({
+      jobId: `JOB-MANUAL-${Date.now()}`,
+      sourceId,
+      sourceDisplayName: '手动重试',
+      sourceType: 'DELI_CLOUD',
+      state: 'QUEUED',
+      committedPages: 0,
+      rawFactCount: 0,
+      quarantinedCount: 0,
+      safeErrorSummary: null,
+      startedAt: null,
+      completedAt: null,
+      rowVersion: 1,
+    });
+  }
+  return requestJson('/api/v1/attendance-source-jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceId }),
+  });
 }
 
 export function retryAttendanceSourceJob(

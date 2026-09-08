@@ -576,6 +576,67 @@
         FOR UPDATE
     </select>
 
+    <select id="findKqCommittedCursor" resultType="string">
+        SELECT watermark.kq_committed_cursor
+        FROM attendance_sync_watermark watermark
+        WHERE watermark.attendance_source_id = #{sourceId}
+    </select>
+
+    <select id="lockKqPageForCommit"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$PageState">
+        SELECT job.attendance_sync_job_id AS job_id,
+               source.attendance_source_id AS source_id,
+               source.company_id,
+               job.status AS job_status,
+               job.page_count AS committed_pages,
+               watermark.kq_committed_cursor AS committed_cursor,
+               watermark.row_version AS watermark_version
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{jobId}
+          AND source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+          AND job.status = 'RUNNING'
+          AND <include refid="companyCapability"/>
+        FOR UPDATE
+    </select>
+
+    <select id="lockSystemKqPageForCommit"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels$PageState">
+        SELECT job.attendance_sync_job_id AS job_id,
+               source.attendance_source_id AS source_id,
+               source.company_id,
+               job.status AS job_status,
+               job.page_count AS committed_pages,
+               watermark.kq_committed_cursor AS committed_cursor,
+               watermark.row_version AS watermark_version
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE job.attendance_sync_job_id = #{jobId}
+          AND source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'DELI_CLOUD'
+          AND source.status = 'ACTIVE'
+          AND job.status = 'RUNNING'
+        FOR UPDATE
+    </select>
+
+    <update id="advanceKqWatermark">
+        UPDATE attendance_sync_watermark
+        SET kq_committed_cursor = #{committedCursor},
+            kq_committed_page_digest = #{pageDigest},
+            kq_committed_at = #{committedAt},
+            row_version = row_version + 1
+        WHERE attendance_source_id = #{sourceId}
+          AND row_version = #{expectedVersion}
+    </update>
+
     <insert id="insertCommittedPage">
         INSERT INTO attendance_sync_job_page (
             attendance_sync_job_page_id, attendance_sync_job_id, page_number,

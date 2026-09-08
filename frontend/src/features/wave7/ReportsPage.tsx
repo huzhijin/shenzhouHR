@@ -15,6 +15,8 @@ import {
   ApiRequestError,
   saveDownloadedFile,
 } from '../../shared/api/apiClient';
+import { realtimeSourceCutoff } from '../reports/reportSourceFreshness';
+import { pickPreferredCompany } from '../../shared/preferredCompany';
 import {
   ConfirmationDialog,
   OperationFeedback,
@@ -35,6 +37,7 @@ import type {
   ReportExportRequest,
   ReportProjection,
   ReportRowProjection,
+  Wave7ProjectionMetadata,
 } from './wave7Contracts';
 import {
   hasLiveReportMetadata,
@@ -77,6 +80,7 @@ export function ReportsRoute({
   const [companyId, setCompanyId] = useState(() =>
     initialCompanyIdFromSearch(searchParameters));
   const [reportPage, setReportPage] = useState(0);
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [exceptionStatus, setExceptionStatus] =
     useState<ReportExceptionState | undefined>(
       () => initialExceptionStatusFromSearch(searchParameters),
@@ -89,6 +93,11 @@ export function ReportsRoute({
     next.delete('expectedProjectionVersion');
     setSearchParameters(next, { replace: true });
   }, [searchParameters, setSearchParameters]);
+  const refreshReport = useCallback(() => {
+    setReportPage(0);
+    clearExpectedProjectionVersion();
+    setRefreshEpoch((value) => value + 1);
+  }, [clearExpectedProjectionVersion]);
   const loadCompanies = useCallback(
     () => gateway.loadReportCompanies(period),
     [gateway, period],
@@ -157,14 +166,17 @@ export function ReportsRoute({
             </label>
           ) : null}
         </div>
-        <p>切换月份后会重新读取当前账号可查看的公司和考勤数据。</p>
+        <p>
+          切换月份或点击刷新后，系统按最新已同步数据实时计算当前授权范围的报表。
+        </p>
+        <Button onClick={refreshReport}>刷新数据</Button>
       </section>
       <Wave7AsyncBoundary
-        key={`companies:${period}`}
+        key={`companies:${period}:${refreshEpoch}`}
         loader={loadCompanies}
         isEmpty={(value) => value.companies.length === 0}
-        emptyTitle="所选月份暂无可查看报表"
-        emptyDescription="所选月份无已发布正式投影。连接数据库或已有原始数据不会自动生成报表，需完成考勤计算与正式投影发布。"
+        emptyTitle="当前范围暂无可计算数据"
+        emptyDescription="请先完成得力/OA 数据同步并确认班次、考勤组等基础数据，然后点击“刷新数据”重试。"
       >
         {(directory) => (
           <AuthorizedCompanyReport
@@ -225,11 +237,16 @@ function AuthorizedCompanyReport({
   const selectedIsAuthorized = directory.companies.some(
     (option) => option.companyId === selectedCompanyId,
   );
+  const preferredCompanyId = pickPreferredCompany(
+    directory.companies,
+    (company) => company.companyName,
+  )?.companyId;
   const effectiveCompanyId = selectedIsAuthorized
     ? selectedCompanyId
-    : directory.companies.length === 1
-      ? directory.companies[0]!.companyId
-      : '';
+    : preferredCompanyId
+      ?? (directory.companies.length === 1
+        ? directory.companies[0]!.companyId
+        : '');
 
   useEffect(() => {
     setMatrixPage(0);
@@ -410,7 +427,9 @@ function AuthorizedCompanyReport({
         </div>
         <p>
           {directory.companies.length > 1
-            ? '当前账号可查看多个公司，请选择公司后查询；结果不会超出账号的数据权限。'
+            ? (preferredCompanyId
+              ? '当前账号可查看多个公司；已默认选择神州半导体，仍可切换其他授权公司。'
+              : '当前账号可查看多个公司，请选择公司后查询；结果不会超出账号的数据权限。')
             : '已按当前月份唯一可见的公司查询。'}
         </p>
       </section>
@@ -570,7 +589,10 @@ export const attendanceReportMatrixSnapshotMismatchMessage =
 function isProjectionVersionChanged(error: unknown): boolean {
   return error instanceof ApiRequestError
     && error.status === 409
-    && error.code === 'ATTENDANCE_REPORT_PROJECTION_CHANGED';
+    && (
+      error.code === 'ATTENDANCE_REPORT_SNAPSHOT_CHANGED'
+      || error.code === 'ATTENDANCE_REPORT_PROJECTION_CHANGED'
+    );
 }
 
 export function attendanceReportMatrixSnapshotsMatch(
@@ -929,9 +951,12 @@ export function ReportView({
     <>
       <PageHeader
         title={projection.reportTitle}
-        description={monthMatrix
-          ? '当前页面以月度矩阵展示；受控导出为同一正式快照的平铺考勤明细，不保留颜色、标签样式或矩阵布局。'
-          : '按当前范围和筛选条件展示汇总明细，并支持受控导出。'}
+        description={reportHeaderDescription(
+          monthMatrix !== null,
+          liveMetadata === null
+            ? undefined
+            : (monthMatrix?.metadata ?? projection.metadata),
+        )}
         actions={(
           <Button type="primary" disabled={!exportEnabled} onClick={() => setExportOpen(true)}>
             创建受控导出
@@ -1106,6 +1131,31 @@ export function ReportView({
   );
 }
 
+function reportHeaderDescription(
+  hasMonthMatrix: boolean,
+  metadata?: Wave7ProjectionMetadata,
+): string {
+  const base = hasMonthMatrix
+    ? '当前页面以月度矩阵展示；受控导出为同一正式快照的平铺考勤明细，不保留颜色、标签样式或矩阵布局。'
+    : '按当前范围和筛选条件展示汇总明细，并支持受控导出。';
+  if (metadata === undefined) return base;
+  const deliCutoff = formatRealtimeSourceCutoff(
+    realtimeSourceCutoff(metadata.sourceVersions, 'DELI_CLOUD'),
+  );
+  const oaCutoff = formatRealtimeSourceCutoff(
+    realtimeSourceCutoff(metadata.sourceVersions, 'OA_ATTENDANCE'),
+  );
+  return `${base} 本次实时计算于 ${formatDateTime(metadata.dataAsOf)}`
+    + `；得力截止 ${deliCutoff}；OA截止 ${oaCutoff}。`;
+}
+
+function formatRealtimeSourceCutoff(value: string | undefined): string {
+  if (value === undefined) return '未提供';
+  if (value === 'UNSYNCED') return '未同步';
+  const formatted = formatDateTime(value);
+  return formatted === '—' ? value : formatted;
+}
+
 function FormalReportPagination({
   projection,
   onPageChange,
@@ -1174,6 +1224,15 @@ const monthMatrixBadgeLabels: Readonly<Record<
   PERSONAL_LEAVE: '事假',
   SICK_LEAVE: '病假',
   ANNUAL_LEAVE: '年假',
+  MARRIAGE_LEAVE: '婚假',
+  MATERNITY_LEAVE: '产假',
+  PATERNITY_LEAVE: '陪产假',
+  BEREAVEMENT_LEAVE: '丧假',
+  WORK_INJURY_LEAVE: '工伤假',
+  NURSING_LEAVE: '护理假',
+  BREASTFEEDING_LEAVE: '哺乳假',
+  PRENATAL_EXAM_LEAVE: '孕检假',
+  FAMILY_PLANNING_LEAVE: '计生假',
   PUNCH_CORRECTION: '补签',
   REST_DAY: '休息日',
   OTHER_LEAVE: '其他请假/调休',
@@ -1602,7 +1661,9 @@ const reportColumnLabels = {
   'compensatory-overtime-hours': '转调休加班',
   'voluntary-overtime-hours': '义务加班',
   'total-overtime-hours': '汇总加班',
-  'leave-hours': '请假/调休',
+  'leave-hours': '事假病假及其他假期',
+  'annual-leave-hours': '年假',
+  'time-off-hours': '实际调休',
   'sick-leave-days': '病假天数',
   'absence-hours': '旷工',
   'actual-work-hours': '实际工时',
@@ -1626,6 +1687,7 @@ const reportColumnLabels = {
   'exception-severity': '异常级别',
   'exception-state': '处理状态',
   'exception-minutes': '异常分钟',
+  'exception-details': '详情',
   'evidence-summary': '异常说明',
   'late-event-count': '迟到次数',
   'attendance-rate': '出勤率（%）',
@@ -1645,6 +1707,7 @@ const reportColumnLabels = {
   'late-count': '迟到次数',
   'early-count': '早退次数',
   'missing-count': '缺卡次数',
+  'source-origin': '来源',
 } satisfies Readonly<Record<ReportColumnKey, string>>;
 
 export function reportColumnLabel(key: ReportColumnKey): string {
@@ -1662,6 +1725,8 @@ export function reportCellDisplayValue(
     return ({
       LATE: '迟到',
       EARLY_DEPARTURE: '早退',
+      MISSING_ON_DUTY: '上班缺卡',
+      MISSING_OFF_DUTY: '下班缺卡',
       MISSING_PUNCH_PENDING: '缺卡待补正',
       MISSING_PUNCH_OVERDUE: '缺卡逾期',
       ABSENCE: '旷工',
@@ -1678,7 +1743,8 @@ export function reportCellDisplayValue(
       NO_SHIFT_OR_CALENDAR: '未配置班次或日历',
       AMBIGUOUS_PUNCH_MATCH: '打卡匹配待确认',
       CROSS_MIDNIGHT_REVIEW_REQUIRED: '跨日考勤待复核',
-      OVERTIME_DOCUMENT_MISSING_OR_LATE: '加班单据缺失或提交较晚',
+      FAKE_OVERTIME: '加班异常',
+      OVERTIME_FORM_BEYOND_LAST_PUNCH: '加班结束晚于打卡',
       EARLY_RETURN_CANDIDATE: '可能提前返岗',
       POST_CLOSE_SOURCE_CHANGE: '结算后来源数据发生变化',
       INPUT_INTEGRITY_ERROR: '考勤数据不完整',

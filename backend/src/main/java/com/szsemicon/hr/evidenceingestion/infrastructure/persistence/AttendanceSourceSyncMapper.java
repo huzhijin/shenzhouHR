@@ -148,9 +148,29 @@ interface AttendanceSourceSyncMapper {
             @Param("capability") String capability,
             @Param("authorizationTime") Instant authorizationTime);
 
+    String findKqCommittedCursor(@Param("sourceId") String sourceId);
+
+    AttendanceSourceSyncModels.PageState lockKqPageForCommit(
+            @Param("jobId") String jobId,
+            @Param("sourceId") String sourceId,
+            @Param("principalId") String principalId,
+            @Param("capability") String capability,
+            @Param("authorizationTime") Instant authorizationTime);
+
+    AttendanceSourceSyncModels.PageState lockSystemKqPageForCommit(
+            @Param("jobId") String jobId,
+            @Param("sourceId") String sourceId);
+
     void insertCommittedPage(AttendanceSourceSyncModels.CommittedPage page);
 
     int advanceWatermark(
+            @Param("sourceId") String sourceId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("committedCursor") String committedCursor,
+            @Param("pageDigest") String pageDigest,
+            @Param("committedAt") Instant committedAt);
+
+    int advanceKqWatermark(
             @Param("sourceId") String sourceId,
             @Param("expectedVersion") long expectedVersion,
             @Param("committedCursor") String committedCursor,
@@ -185,7 +205,7 @@ interface AttendanceSourceSyncMapper {
             @Param("sourceId") String sourceId,
             @Param("principalId") String principalId,
             @Param("capability") String capability,
-            @Param("at") Instant at);
+            @Param("authorizationTime") Instant authorizationTime);
 
     AttendanceSourceSyncModels.PageState lockOaPageForCommit(
             @Param("jobId") String jobId,

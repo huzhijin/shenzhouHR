@@ -270,7 +270,10 @@ export function AccountDetailPage({ capabilities }: { capabilities: string[] }) 
                       />
                     ) : null}
                     {rows.map((assignment, index) => (
-                      <div key={assignment.key} className="role-assignment-row">
+                      <div
+                        key={assignment.key}
+                        className="role-assignment-row role-assignment-row--detail"
+                      >
                         <Form.Item label={`${t('access.scopeType')} ${index + 1}`}>
                           <Select
                             value={assignment.scopeType}

@@ -468,6 +468,27 @@ public class MyBatisPeopleRepository implements PeopleRepository {
     }
 
     @Override
+    public void correctCurrentEmployeeVersion(
+            String employeeId,
+            String employeeNumber,
+            String displayName,
+            String status,
+            LocalDate effectiveTo,
+            String changeReason,
+            long expectedVersion) {
+        if (mapper.correctCurrentEmployeeVersion(
+                employeeId,
+                employeeNumber,
+                displayName,
+                status,
+                effectiveTo,
+                changeReason,
+                expectedVersion) != 1) {
+            throw new OptimisticLockingFailureException("employee version conflict");
+        }
+    }
+
+    @Override
     public void saveEmployeeVersion(EmployeeVersion version) {
         mapper.insertEmployeeVersion(toEmployeeRow(version));
         mapper.upsertEmployeeProjection(

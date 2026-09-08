@@ -42,6 +42,8 @@ public final class AttendanceSourceReadModels {
             int configurationRevision,
             String committedWatermark,
             Instant lastSuccessfulSyncAt,
+            Instant lastFailedSyncAt,
+            String lastFailureReason,
             long rowVersion) {
     }
 
@@ -69,6 +71,13 @@ public final class AttendanceSourceReadModels {
             boolean effectiveCandidate,
             String employeeNumber,
             Instant intervalStart,
-            Instant intervalEndExclusive) {
+            Instant intervalEndExclusive,
+            String employeeName,
+            String department,
+            String leaveType,
+            String overtimeTreatment,
+            Integer payrollCreditMinutes,
+            Integer timeOffCreditMinutes,
+            Integer recognizedWorkMinutes) {
     }
 }

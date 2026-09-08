@@ -23,6 +23,11 @@ interface AttendanceEvidenceMapper {
             @Param("sourceBusinessKey") String sourceBusinessKey,
             @Param("sourceVersion") String sourceVersion);
 
+    EvidenceRows.ReplayStateRow findReplayStateBySourceIdentity(
+            @Param("sourceId") String sourceId,
+            @Param("sourceBusinessKey") String sourceBusinessKey,
+            @Param("sourceVersion") String sourceVersion);
+
     EvidenceRows.RawFactRow findRawByFingerprint(
             @Param("sourceId") String sourceId,
             @Param("stableFingerprint") String stableFingerprint);
@@ -52,6 +57,10 @@ interface AttendanceEvidenceMapper {
 
     void insertEvidenceLink(EvidenceRows.EvidenceLinkRow row);
 
+    int countEvidenceLink(
+            @Param("effectiveAttendanceEventId") String effectiveAttendanceEventId,
+            @Param("rawAttendanceFactId") String rawAttendanceFactId);
+
     void insertRecalculationIntent(EvidenceRows.RecalculationIntentRow row);
 
     List<EvidenceRows.EvidenceTraceRow> evidenceTrace(
@@ -66,6 +75,14 @@ interface AttendanceEvidenceMapper {
 
     String findLatestPublishedOaRuntimeContractRevisionId(
             @Param("sourceId") String sourceId);
+
+    String findOaAttendanceDocumentId(
+            @Param("sourceId") String sourceId,
+            @Param("sourceBusinessKey") String sourceBusinessKey,
+            @Param("sourceVersion") String sourceVersion);
+
+    int countOaAttendanceDocumentContext(
+            @Param("oaAttendanceDocumentId") String oaAttendanceDocumentId);
 
     /** Insert the oa_attendance_document row after raw + normalized are persisted. */
     void insertOaAttendanceDocument(EvidenceRows.OaDocumentRow row);

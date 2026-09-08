@@ -48,8 +48,8 @@ public class AuthenticationService {
             @Value("${shenzhouhr.security.login.max-failures:5}") int maxFailures,
             @Value("${shenzhouhr.security.login.failure-window:PT15M}") Duration failureWindow,
             @Value("${shenzhouhr.security.login.lock-duration:PT30M}") Duration lockDuration,
-            @Value("${shenzhouhr.security.session.idle-timeout:PT30M}") Duration idleTimeout,
-            @Value("${shenzhouhr.security.session.absolute-timeout:PT8H}") Duration absoluteTimeout) {
+            @Value("${shenzhouhr.security.session.idle-timeout:PT6H}") Duration idleTimeout,
+            @Value("${shenzhouhr.security.session.absolute-timeout:PT12H}") Duration absoluteTimeout) {
         this.repository = repository;
         this.auditService = auditService;
         this.tokenService = tokenService;

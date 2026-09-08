@@ -22,12 +22,14 @@ interface AnnualLeaveMapper {
     Optional<AnnualLeaveManagementRepository.TimeAccountRow> findTimeAccount(
             @Param("employeeId") String employeeId,
             @Param("employmentPeriodId") String employmentPeriodId,
-            @Param("year") int year);
+            @Param("year") int year,
+            @Param("accountType") String accountType);
 
     Optional<AnnualLeaveManagementRepository.TimeAccountRow> lockTimeAccount(
             @Param("employeeId") String employeeId,
             @Param("employmentPeriodId") String employmentPeriodId,
-            @Param("year") int year);
+            @Param("year") int year,
+            @Param("accountType") String accountType);
 
     void createTimeAccountIfAbsent(
             @Param("accountId") String accountId,
@@ -35,6 +37,7 @@ interface AnnualLeaveMapper {
             @Param("employmentPeriodId") String employmentPeriodId,
             @Param("companyId") String companyId,
             @Param("year") int year,
+            @Param("accountType") String accountType,
             @Param("policyVersionId") String policyVersionId,
             @Param("now") Instant now);
 
@@ -83,4 +86,7 @@ interface AnnualLeaveMapper {
             @Param("capability") String capability,
             @Param("employeeId") String employeeId,
             @Param("at") Instant at);
+
+    Optional<String> findPrincipalEmployeeId(
+            @Param("principalId") String principalId);
 }

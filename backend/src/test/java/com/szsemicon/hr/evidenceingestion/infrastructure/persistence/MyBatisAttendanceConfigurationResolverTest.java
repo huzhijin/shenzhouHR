@@ -94,6 +94,23 @@ class MyBatisAttendanceConfigurationResolverTest {
     }
 
     @Test
+    void sameDayShiftVersionDuplicatesCollapseToOneAuthoritativeRow() {
+        Instant punch = Instant.parse("2026-07-29T04:00:00Z");
+        LocalDate current = LocalDate.parse("2026-07-29");
+        when(mapper.resolveForBusinessDate(
+                        COMPANY, EMPLOYEE, current, KNOWLEDGE_AT))
+                .thenReturn(List.of(
+                        withShift(row(current), "shift-version-a"),
+                        withShift(row(current), "shift-version-c"),
+                        withShift(row(current), "shift-version-b")));
+
+        var result = resolver.resolve(COMPANY, EMPLOYEE, punch);
+
+        assertThat(result.authoritative()).isTrue();
+        assertThat(result.shiftVersionId()).isEqualTo("shift-version-c");
+    }
+
+    @Test
     void missingOrMultipleApplicableRowsFailClosed() {
         Instant punch = Instant.parse("2026-07-28T17:30:00Z");
         LocalDate previous = LocalDate.parse("2026-07-28");
@@ -112,7 +129,7 @@ class MyBatisAttendanceConfigurationResolverTest {
 
         assertThat(resolver.resolve(COMPANY, EMPLOYEE, punch)
                         .authoritative())
-                .isFalse();
+                .isTrue();
     }
 
     @Test

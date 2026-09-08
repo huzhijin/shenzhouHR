@@ -42,7 +42,7 @@
         FROM time_account ta
         WHERE ta.employee_id   = #{employeeId}
           AND ta.employment_period_id = #{employmentPeriodId}
-          AND ta.account_type  = 'ANNUAL_LEAVE'
+          AND ta.account_type  = #{accountType}
           AND ta.account_year  = #{year}
     </select>
 
@@ -59,7 +59,7 @@
         FROM time_account ta
         WHERE ta.employee_id = #{employeeId}
           AND ta.employment_period_id = #{employmentPeriodId}
-          AND ta.account_type = 'ANNUAL_LEAVE'
+          AND ta.account_type = #{accountType}
           AND ta.account_year = #{year}
         FOR UPDATE
     </select>
@@ -72,7 +72,7 @@
             row_version, created_at, updated_at
         ) VALUES (
             #{accountId}, #{employeeId}, #{employmentPeriodId},
-            #{companyId}, 'ANNUAL_LEAVE', #{year},
+            #{companyId}, #{accountType}, #{year},
             0.00, #{policyVersionId},
             0, #{now}, #{now}
         )
@@ -278,6 +278,12 @@
                         AND ea2.organization_id = data_scope.organization_id
                         AND ea2.current_version_marker = 1
                   ))
+              OR (data_scope.scope_type = 'SELF'
+                  AND principal.employee_id = emp.employee_id
+                  AND (
+                        data_scope.company_id IS NULL
+                        OR data_scope.company_id = emp.company_id
+                  ))
             WHERE principal.principal_id = #{principalId}
               AND principal.status = 'ACTIVE'
               AND emp.employee_id = #{employeeId}
@@ -286,6 +292,14 @@
               AND data_scope.valid_from &lt;= #{at}
               AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
         )
+    </select>
+
+    <select id="findPrincipalEmployeeId" resultType="string">
+        SELECT principal.employee_id
+        FROM auth_principal principal
+        WHERE principal.principal_id = #{principalId}
+          AND principal.status = 'ACTIVE'
+          AND principal.employee_id IS NOT NULL
     </select>
 
 </mapper>

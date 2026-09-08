@@ -1,3 +1,5 @@
+import { visibleDepartmentPath } from './departmentPath';
+
 export type CustomerReportScopeType = 'COMPANY' | 'ORGANIZATION' | 'SELF';
 
 export interface CustomerReportDataScope {
@@ -62,12 +64,36 @@ export const customerReportDemoScopes: readonly CustomerReportDataScope[] = [
 
 export const defaultCustomerReportDataScope = customerReportDemoScopes[0]!;
 
+export function departmentMatchesFilter(department: string, filter: string): boolean {
+  if (filter === '全部部门') return true;
+  const visible = visibleDepartmentPath(department);
+  return department === filter
+    || visible === filter
+    || visible.startsWith(`${filter}-`);
+}
+
 export function isWithinCustomerReportScope(
   row: CustomerReportPerson,
   scope: CustomerReportDataScope,
 ): boolean {
-  return scope.allowedDepartments.includes(row.department)
+  return scope.allowedDepartments.some((allowed) => departmentMatchesFilter(row.department, allowed))
     && scope.allowedEmployees.includes(row.employee);
+}
+
+/**
+ * Live scopes come from authorized companies; the backend already intersected
+ * MASTER_DATA:READ. Empty allow-lists mean "no extra client filter", not
+ * "nobody is allowed". Demo scopes keep the fail-closed name check.
+ */
+export function assertCustomerReportExportable(
+  rows: readonly CustomerReportPerson[],
+  scope: CustomerReportDataScope,
+  isDemo: boolean,
+): void {
+  if (!isDemo) return;
+  if (rows.some((row) => !isWithinCustomerReportScope(row, scope))) {
+    throw new TypeError('报表包含超出当前数据权限范围的记录');
+  }
 }
 
 export function isCustomerReportQueryWithinScope(

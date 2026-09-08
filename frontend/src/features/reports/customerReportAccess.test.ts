@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  assertCustomerReportExportable,
   authorizedDepartmentOptions,
   authorizedEmployeeOptions,
   customerReportDemoScopes,
@@ -47,5 +48,33 @@ describe('customer report data scope', () => {
       { department: '制造中心', employee: '张伟' },
       manufacturingScope,
     )).toBe(false);
+    expect(isWithinCustomerReportScope(
+      { department: '制造中心-\u200B晶圆制造部', employee: '陈思远' },
+      manufacturingScope,
+    )).toBe(true);
+  });
+
+  it('lets live authorized-company snapshots export without a client name allow-list', () => {
+    const liveScope = {
+      reference: '41000000-0000-0000-0000-000000000003',
+      type: 'COMPANY' as const,
+      label: '江苏神州半导体科技股份有限公司',
+      actorLabel: '授权范围',
+      allowedDepartments: [],
+      allowedEmployees: [],
+    };
+    expect(() => assertCustomerReportExportable(
+      [{ department: '服务中心- 工程二部- RF-B组', employee: '卞骏' }],
+      liveScope,
+      false,
+    )).not.toThrow();
+  });
+
+  it('still rejects demo rows outside the granted department and employee names', () => {
+    expect(() => assertCustomerReportExportable(
+      [{ department: '研发中心', employee: '张伟' }],
+      manufacturingScope,
+      true,
+    )).toThrow('报表包含超出当前数据权限范围的记录');
   });
 });

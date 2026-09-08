@@ -282,9 +282,18 @@ x-delivery-contract:
         - { method: GET, path: /me/attendance/feedback, responseSchema: AttendanceFeedbackPage, errors: [401, 403] }
         - { method: POST, path: /me/attendance/feedback, requestSchema: AttendanceFeedbackRequest, responseSchema: AttendanceFeedbackView, errors: [400, 401, 403, 409, 422] }
         - { method: GET, path: /team/attendance, responseSchema: TeamAttendancePage, errors: [401, 403] }
+        - { method: GET, path: /attendance-report-queries/directory, responseSchema: AttendanceReportQueryDirectory, errors: [400, 401, 403] }
+        - { method: GET, path: '/attendance-report-queries/{sheet}', responseSchema: AttendanceReportQueryPage, errors: [400, 401, 403, 409] }
+        - { method: GET, path: '/attendance-report-queries/{sheet}/export', responseSchema: binary, errors: [400, 401, 403, 409] }
+        - { method: GET, path: /paper-overtime, responseSchema: PaperOvertimeLineList, errors: [400, 401, 403] }
+        - { method: POST, path: /paper-overtime/recognize, responseSchema: PaperOvertimeRecognizeView, errors: [400, 401, 403] }
+        - { method: GET, path: /paper-overtime/candidates, responseSchema: PaperOvertimeCandidateList, errors: [400, 401, 403] }
+        - { method: POST, path: /paper-overtime/save, requestSchema: PaperOvertimeSaveRequest, responseSchema: PaperOvertimeSaveView, errors: [400, 401, 403, 409] }
+        - { method: POST, path: /attendance/hr-adjustments/punches, requestSchema: HrPunchAdjustmentRequest, responseSchema: HrPunchAdjustmentView, errors: [400, 401, 403, 409] }
         - { method: GET, path: /attendance-reports/companies, responseSchema: AttendanceReportCompanyDirectory, errors: [400, 401, 403] }
         - { method: GET, path: /attendance-reports, responseSchema: AttendanceReportPage, errors: [400, 401, 403, 409] }
         - { method: GET, path: /attendance-reports/month-matrix, responseSchema: AttendanceMonthMatrixPage, errors: [400, 401, 403, 409] }
+        - { method: POST, path: /attendance-reports/recalculate, requestSchema: AttendanceReportRecalculateRequest, responseSchema: AttendanceReportRecalculateView, errors: [400, 401, 403, 409] }
         - { method: POST, path: /attendance-reports/publications, requestSchema: AttendanceReportPublicationRequest, responseSchema: AttendanceReportPublicationView, errors: [400, 401, 403, 500, 503] }
         - { method: POST, path: /attendance-reports/exports, requestSchema: AttendanceReportExportCreateRequest, responseSchema: AttendanceReportExportView, errors: [400, 401, 403, 409] }
         - { method: GET, path: '/attendance-reports/exports/{exportId}', responseSchema: AttendanceReportExportView, errors: [401, 403, 404] }
@@ -319,6 +328,8 @@ tags:
     description: 每人每自然月一次的补卡申请、配额查询与 HR 审批。
   - name: AttendanceReports
     description: V1.9 正式考勤报表、异常报表及重新鉴权的受控 XLSX 导出。
+  - name: PaperOvertime
+    description: 人事纸质加班单上传识别、匹配候选、保存与已保存明细列表。
 paths:
   /auth/login:
     post:
@@ -527,10 +538,26 @@ paths:
       summary: 获取当前登录员工本人的考勤工作台
       x-capability: ATTENDANCE_SELF:READ
       description: |
-        仅从当前主体绑定员工、有效 SELF 数据范围及当月最新已发布投影读取。
+        仅从当前主体绑定员工、有效 SELF 数据范围及所选期间的钉住投影读取。
         服务端再次按 principal.employee_id 过滤所有日事实和异常事实，不接受公司、
-        组织或员工选择参数，也不返回组织分布或其他员工标识。投影未发布或当天数据
-        尚未就绪时返回 409，不将缺失数据伪装为真实零值。
+        组织或员工选择参数，也不返回组织分布或其他员工标识。无来源且无 pin 时返回
+        空结果提示，不将加载中伪装为真实零值。
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: 指定月份，默认 Asia/Shanghai 当前月。
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        - name: window
+          in: query
+          required: false
+          description: DAY 为当天，MONTH 为本月或指定月份。默认 MONTH。
+          schema:
+            type: string
+            enum: [DAY, MONTH]
+            default: MONTH
       responses:
         '200':
           description: 当前登录员工本人的月度指标、近七日趋势和未解决异常
@@ -2247,6 +2274,52 @@ paths:
           $ref: '#/components/responses/ResourceNotAvailable'
         '409':
           $ref: '#/components/responses/PeopleConflict'
+  /employees/{employeeId}/punch-exemption:
+    get:
+      tags: [People]
+      operationId: getEmployeePunchExemption
+      summary: 查询员工长期免打卡与高管免打卡状态
+      x-capability: EMPLOYEE:READ
+      x-data-scope: PEOPLE:ORGANIZATION
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+      responses:
+        '200':
+          description: 免打卡状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeePunchExemption'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
+    put:
+      tags: [People]
+      operationId: setEmployeePunchExemption
+      summary: 维护员工长期免打卡名单，不授予高管角色
+      x-capability: EMPLOYEE:EDIT
+      x-data-scope: PEOPLE:ORGANIZATION
+      parameters:
+        - $ref: '#/components/parameters/EmployeeId'
+        - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeePunchExemptionUpdate'
+      responses:
+        '200':
+          description: 更新后的免打卡状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeePunchExemption'
+        '401':
+          $ref: '#/components/responses/AuthenticationRequired'
+        '403':
+          $ref: '#/components/responses/AccessDenied'
   /employees/{employeeId}/versions:
     get:
       tags: [People]
@@ -4228,6 +4301,39 @@ paths:
               schema: { $ref: '#/components/schemas/SourceIntegrationStatusView' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-sources/deli-identity-replay:
+    post:
+      tags: [AttendanceSources]
+      operationId: replayDeliPunchIdentity
+      summary: 按当前确认绑定回放得力历史打卡，不推进日常水位
+      x-capability: ATTENDANCE_SOURCE:RUN
+      x-data-scope: ATTENDANCE_SOURCE:COMPANY
+      description: |
+        一次性运维入口：先按七月冲突映射写入确认绑定，再按 source_record_id
+        回放时间窗内已入库/仍可从得力拉到的打卡。默认窗口 2026-08-01 至
+        2026-08-13（上海时区）。不改得力 00:00/12:00 增量 cron，也不推进水位。
+        服务端开关 shenzhouhr.deli.replay-enabled 默认关闭。
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeliIdentityReplayRequest' }
+      responses:
+        '200':
+          description: 回放结果；仍隔离的记录带 reason、empno、雪花 id
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeliIdentityReplayView' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /attendance-sources/{sourceId}:
     parameters:
       - { $ref: '#/components/parameters/SourceId' }
@@ -4450,6 +4556,28 @@ paths:
         '200': { $ref: '#/components/responses/W4PageOk' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
+  /identity-effective-from-cutover:
+    get:
+      tags: [People]
+      operationId: diagnoseIdentityEffectiveFromCutover
+      x-capability: IDENTITY_EFFECTIVE_FROM:CUTOVER
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+    post:
+      tags: [People]
+      operationId: executeIdentityEffectiveFromCutover
+      x-capability: IDENTITY_EFFECTIVE_FROM:CUTOVER
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ChangeReason' }
+      responses:
+        '200': { $ref: '#/components/responses/W4MutationOk' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /attendance-punch-imports/template:
     get:
       tags: [PunchImports]
@@ -5043,6 +5171,21 @@ paths:
           schema:
             type: string
             maxLength: 36
+        - name: period
+          in: query
+          required: false
+          description: 指定月份，默认 Asia/Shanghai 当前月。
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        - name: window
+          in: query
+          required: false
+          description: DAY 为当天，MONTH 为本月或指定月份。默认 MONTH。
+          schema:
+            type: string
+            enum: [DAY, MONTH]
+            default: MONTH
       responses:
         '200':
           description: 今日异常看板，或多公司授权下的显式公司选择状态
@@ -5061,6 +5204,215 @@ paths:
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /paper-overtime:
+    get:
+      tags: [PaperOvertime]
+      operationId: listPaperOvertime
+      x-capability: PAPER_OVERTIME:MANAGE
+      summary: 列出已保存的纸质加班明细
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, maxLength: 36 }
+        - name: fromDate
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: toDate
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 已保存纸质加班明细
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaperOvertimeLineList'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /paper-overtime/recognize:
+    post:
+      tags: [PaperOvertime]
+      operationId: recognizePaperOvertime
+      x-capability: PAPER_OVERTIME:MANAGE
+      summary: 主表上传附件并识别为明细草稿，不写加班证据
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, maxLength: 36 }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: 识别草稿；尚未入库证据
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaperOvertimeRecognizeView'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /paper-overtime/candidates:
+    get:
+      tags: [PaperOvertime]
+      operationId: listPaperOvertimeCandidates
+      x-capability: PAPER_OVERTIME:MANAGE
+      summary: 按姓名与部门文本列出花名册候选人
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, maxLength: 36 }
+        - name: name
+          in: query
+          required: false
+          schema: { type: string, maxLength: 100 }
+        - name: department
+          in: query
+          required: false
+          schema: { type: string, maxLength: 191 }
+        - name: asOf
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 同名全部返回，按部门接近度排序
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaperOvertimeCandidateList'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /paper-overtime/save:
+    post:
+      tags: [PaperOvertime]
+      operationId: savePaperOvertime
+      x-capability: PAPER_OVERTIME:MANAGE
+      summary: 确认后保存纸质加班明细为已批准加班证据
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaperOvertimeSaveRequest'
+      responses:
+        '200':
+          description: 已写入加班证据；不触发核算
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaperOvertimeSaveView'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance/hr-adjustments/punches:
+    post:
+      tags: [AttendanceReports]
+      operationId: saveHrPunchAdjustment
+      x-capability: ATTENDANCE_ADJUST:MANAGE
+      summary: 人事把漏刷改成正常打卡并留下原因后重算当月
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HrPunchAdjustmentRequest'
+      responses:
+        '201':
+          description: 已写入补卡裁定并触发当月重算
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HrPunchAdjustmentView'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance/hr-adjustments/punches/batch:
+    post:
+      tags: [AttendanceReports]
+      operationId: saveHrPunchAdjustmentBatch
+      x-capability: ATTENDANCE_ADJUST:MANAGE
+      summary: 批量写入人事调整，默认不立即重算
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 300
+                  items:
+                    $ref: '#/components/schemas/HrPunchAdjustmentRequest'
+      responses:
+        '201':
+          description: 已批量写入人事调整
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [savedCount, items]
+                properties:
+                  savedCount: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HrPunchAdjustmentView'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /attendance-reports:
     get:
       tags: [AttendanceReports]
@@ -5068,9 +5420,9 @@ paths:
       x-capability: ATTENDANCE_REPORT:READ
       description: |
         服务端先按当前主体、有效角色、当前任职及公司/组织/本人数据范围过滤，
-        再以请求时最新已提交的得力打卡、OA 单据及其来源水位，以及业务日期内有效的人员组织、
-        班次、考勤组、日历和规则版本形成一致输入快照并实时计算。查询不要求已发布
-        报表投影、人工发布、审批、重新打开或重新发布；客户端筛选只能缩小授权范围。
+        再读取该公司月已钉住的完整核算快照。没有合格快照时按当前已提交的得力打卡、
+        OA 单据、人员组织、班次、考勤组和规则完整核算一次并落库。普通 GET 不重算；
+        查询不要求人工发布、审批、重新打开或重新发布；客户端筛选只能缩小授权范围。
       parameters:
         - name: reportType
           in: query
@@ -5108,6 +5460,14 @@ paths:
           schema:
             type: string
             maxLength: 32
+        - name: fromDate
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: toDate
+          in: query
+          required: false
+          schema: { type: string, format: date }
         - { $ref: '#/components/parameters/ExpectedProjectionVersion' }
         - { $ref: '#/components/parameters/Page' }
         - name: size
@@ -5120,7 +5480,7 @@ paths:
             default: 50
       responses:
         '200':
-          description: 授权范围内基于当前已提交输入快照实时计算的正式报表页
+          description: 授权范围内基于已钉住核算快照的正式报表页
           headers:
             Cache-Control: { schema: { type: string, const: no-store } }
             X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
@@ -5137,9 +5497,9 @@ paths:
       operationId: getAttendanceMonthMatrix
       x-capability: ATTENDANCE_REPORT:READ
       description: |
-        按员工分页返回由同一实时输入快照计算的正式月度考勤矩阵。状态标签由最新
-        已提交的得力打卡、有效 OA 单据、班次和规则计算结果组合；不要求先发布报表
-        投影。颜色只是客户端展示提示，不参与计算；同一天的多个不同状态全部返回。
+        按员工分页返回由同一钉住快照组装的正式月度考勤矩阵。状态标签来自该快照中的
+        得力打卡、有效 OA 单据、班次和规则计算结果；不要求人工发布。颜色只是客户端
+        展示提示，不参与计算；同一天的多个不同状态全部返回。
       parameters:
         - name: period
           in: query
@@ -5160,6 +5520,14 @@ paths:
           in: query
           required: false
           schema: { type: string, maxLength: 36 }
+        - name: fromDate
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: toDate
+          in: query
+          required: false
+          schema: { type: string, format: date }
         - { $ref: '#/components/parameters/ExpectedProjectionVersion' }
         - { $ref: '#/components/parameters/Page' }
         - name: size
@@ -5191,7 +5559,7 @@ paths:
       x-capability: ATTENDANCE_REPORT:READ
       description: |
         只返回当前主体在指定月份具备有效 ATTENDANCE_REPORT:READ 数据范围、
-        且公司与任职在当前有效边界内的安全名称；不依赖已发布报表投影，也不返回
+        且公司与任职在当前有效边界内的安全名称；不要求人工发布，也不返回
         未授权公司。
       parameters:
         - name: period
@@ -5213,6 +5581,328 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-report-queries/directory:
+    get:
+      tags: [AttendanceReports]
+      operationId: listAttendanceReportQueryDirectory
+      x-capability: ATTENDANCE_REPORT_QUERY:READ
+      parameters:
+        - name: companyId
+          in: query
+          schema: { type: string, maxLength: 36 }
+        - name: period
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+      responses:
+        '200':
+          description: 查询报表授权公司与员工目录
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceReportQueryDirectory' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-report-queries/{sheet}:
+    get:
+      tags: [AttendanceReports]
+      operationId: queryAttendanceReportSheet
+      x-capability: ATTENDANCE_REPORT_QUERY:READ
+      parameters:
+        - name: sheet
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - exceptions
+              - leave
+              - overtime
+              - makeup
+              - work-hours
+              - late
+              - missed-punch
+              - missed-punch-stat
+              - attendance-rate
+              - annual-leave
+              - annual-leave-stat
+              - time-off
+              - time-off-stat
+              - matrix
+              - leave-summary
+              - overtime-daily
+              - finance-overtime
+              - overtime-fee-daily
+              - overtime-voluntary-daily
+              - overtime-comp-daily
+              - daily-journal
+              - time-off-daily
+              - absence-stat
+              - leave-stat
+        - name: companyId
+          in: query
+          schema: { type: string, maxLength: 36 }
+        - name: organizationId
+          in: query
+          schema: { type: string, maxLength: 36 }
+        - name: employeeId
+          in: query
+          schema: { type: string, maxLength: 36 }
+        - name: employeeNumber
+          in: query
+          schema: { type: string }
+        - name: period
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        - name: fromDate
+          in: query
+          schema: { type: string, format: date }
+        - name: toDate
+          in: query
+          schema: { type: string, format: date }
+        - { $ref: '#/components/parameters/Page' }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: exceptionType
+          in: query
+          schema: { type: string }
+        - name: severity
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { type: string }
+        - name: leaveType
+          in: query
+          schema: { type: string }
+        - name: approvalState
+          in: query
+          schema: { type: string }
+        - name: overtimeTreatment
+          in: query
+          schema: { type: string }
+        - name: occurrenceDay
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 31 }
+        - name: lateCountBand
+          in: query
+          schema: { type: string }
+        - name: lateMinuteBand
+          in: query
+          schema: { type: string }
+        - name: punchSide
+          in: query
+          schema: { type: string }
+        - name: employmentStatus
+          in: query
+          schema: { type: string }
+        - name: attendanceType
+          in: query
+          schema: { type: string }
+        - name: rateBelow
+          in: query
+          schema: { type: number }
+        - name: annualBalanceBand
+          in: query
+          schema: { type: string }
+        - name: annualLevelOne
+          in: query
+          schema: { type: string }
+        - name: annualLevelTwo
+          in: query
+          schema: { type: string }
+        - name: attendanceStatus
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 查询报表分页
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceReportQueryPage' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-report-queries/{sheet}/export:
+    get:
+      tags: [AttendanceReports]
+      operationId: exportAttendanceReportQuerySheet
+      x-capability: ATTENDANCE_REPORT:EXPORT_DOWNLOAD
+      description: |
+        按当前查询页筛选导出与屏幕一致的 xlsx。考勤明细为签到/签退两行。
+        不走官方九类报表投影字段平铺表。
+        exportScope=ALL 导出全部匹配行（默认，上限 50000）；
+        exportScope=PAGE 仅导出当前 page/size 这一页。
+      parameters:
+        - name: sheet
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - exceptions
+              - leave
+              - overtime
+              - makeup
+              - work-hours
+              - late
+              - missed-punch
+              - missed-punch-stat
+              - attendance-rate
+              - annual-leave
+              - annual-leave-stat
+              - time-off
+              - time-off-stat
+              - matrix
+              - leave-summary
+              - overtime-daily
+              - finance-overtime
+              - overtime-fee-daily
+              - overtime-voluntary-daily
+              - overtime-comp-daily
+              - daily-journal
+              - time-off-daily
+              - absence-stat
+              - leave-stat
+        - name: companyId
+          in: query
+          schema: { type: string, maxLength: 36 }
+        - name: organizationId
+          in: query
+          schema: { type: string, maxLength: 36 }
+        - name: employeeId
+          in: query
+          schema: { type: string, maxLength: 36 }
+        - name: employeeNumber
+          in: query
+          schema: { type: string }
+        - name: period
+          in: query
+          schema:
+            type: string
+            pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        - name: fromDate
+          in: query
+          schema: { type: string, format: date }
+        - name: toDate
+          in: query
+          schema: { type: string, format: date }
+        - name: exportScope
+          in: query
+          schema:
+            type: string
+            enum: [ALL, PAGE]
+            default: ALL
+        - { $ref: '#/components/parameters/Page' }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: exceptionType
+          in: query
+          schema: { type: string }
+        - name: severity
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { type: string }
+        - name: leaveType
+          in: query
+          schema: { type: string }
+        - name: approvalState
+          in: query
+          schema: { type: string }
+        - name: overtimeTreatment
+          in: query
+          schema: { type: string }
+        - name: occurrenceDay
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 31 }
+        - name: lateCountBand
+          in: query
+          schema: { type: string }
+        - name: lateMinuteBand
+          in: query
+          schema: { type: string }
+        - name: punchSide
+          in: query
+          schema: { type: string }
+        - name: employmentStatus
+          in: query
+          schema: { type: string }
+        - name: attendanceType
+          in: query
+          schema: { type: string }
+        - name: rateBelow
+          in: query
+          schema: { type: number }
+        - name: annualBalanceBand
+          in: query
+          schema: { type: string }
+        - name: annualLevelOne
+          in: query
+          schema: { type: string }
+        - name: annualLevelTwo
+          in: query
+          schema: { type: string }
+        - name: attendanceStatus
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 查询报表 xlsx
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            Content-Disposition: { schema: { type: string } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /attendance-reports/recalculate:
+    post:
+      tags: [AttendanceReports]
+      operationId: recalculateAttendanceReport
+      x-capability: ATTENDANCE_REPORT:REFRESH
+      description: |
+        由 HR 管理员或系统管理员对指定公司月执行整月重新计算并追加新的钉住快照。
+        普通 GET、页面刷新和高管/部门经理/员工不得调用。无 REFRESH 能力时返回 403，
+        不核算、不写投影。
+      parameters:
+        - { $ref: '#/components/parameters/CsrfToken' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceReportRecalculateRequest'
+      responses:
+        '200':
+          description: 重新计算完成，返回最新钉住快照令牌
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceReportRecalculateView' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '409': { $ref: '#/components/responses/AttendanceReportRealtimeConflict' }
   /attendance-reports/publications:
     post:
       tags: [AttendanceReports]
@@ -7699,6 +8389,19 @@ components:
         changeReason: { type: [string, 'null'] }
         createdBy: { $ref: '#/components/schemas/ResourceId' }
         createdAt: { type: string, format: date-time }
+    EmployeePunchExemption:
+      type: object
+      additionalProperties: false
+      required: [standingExempt, executiveExempt]
+      properties:
+        standingExempt: { type: boolean }
+        executiveExempt: { type: boolean }
+    EmployeePunchExemptionUpdate:
+      type: object
+      additionalProperties: false
+      required: [standingExempt]
+      properties:
+        standingExempt: { type: boolean }
     EmployeeDetail:
       allOf:
         - $ref: '#/components/schemas/EmployeeVersionSummary'
@@ -8095,6 +8798,73 @@ components:
       required: [sourceId]
       properties:
         sourceId: { $ref: '#/components/schemas/ResourceId' }
+        throughDate:
+          type: string
+          format: date
+          description: |
+            可选。只摄入该日（上海时区）及之前尚未越过水位的记录，并在遇到下一天时停止、
+            不把水位越过未摄入页。省略则从当前水位拉到源端最新。
+    DeliIdentityReplayRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        fromDate: { type: string, format: date }
+        toDate: { type: string, format: date }
+        throughToday: { type: boolean, default: false }
+        seedBindings: { type: boolean, default: true }
+        recalculate: { type: boolean, default: true }
+    DeliIdentityReplayQuarantineNote:
+      type: object
+      additionalProperties: false
+      required: [sourceRecordId]
+      properties:
+        sourceRecordId: { type: string, minLength: 1, maxLength: 128 }
+        employeeNumber: { type: [string, 'null'], maxLength: 128 }
+        deliPersonId: { type: [string, 'null'], maxLength: 128 }
+        punchInstant: { type: [string, 'null'], format: date-time }
+        reason: { type: [string, 'null'], maxLength: 64 }
+    DeliIdentityReplayView:
+      type: object
+      additionalProperties: false
+      required:
+        - sourceId
+        - companyId
+        - fromDate
+        - toDate
+        - acceptedCount
+        - quarantinedCount
+        - identityReplayedCount
+        - identityMovedCount
+        - seededBindings
+        - skippedBindings
+        - missingEmployees
+        - stillQuarantinedCount
+        - stillQuarantined
+        - recalculated
+      properties:
+        sourceId: { $ref: '#/components/schemas/ResourceId' }
+        companyId: { $ref: '#/components/schemas/ResourceId' }
+        fromDate: { type: string, format: date }
+        toDate: { type: string, format: date }
+        acceptedCount: { type: integer, minimum: 0 }
+        quarantinedCount: { type: integer, minimum: 0 }
+        identityReplayedCount: { type: integer, minimum: 0 }
+        identityMovedCount: { type: integer, minimum: 0 }
+        seededBindings:
+          type: array
+          items: { type: string, maxLength: 128 }
+        skippedBindings:
+          type: array
+          items: { type: string, maxLength: 256 }
+        missingEmployees:
+          type: array
+          items: { type: string, maxLength: 128 }
+        stillQuarantinedCount: { type: integer, minimum: 0 }
+        stillQuarantined:
+          type: array
+          items: { $ref: '#/components/schemas/DeliIdentityReplayQuarantineNote' }
+        recalculated: { type: boolean }
     AttendanceSourceSyncJobView:
       type: object
       additionalProperties: false
@@ -8653,6 +9423,14 @@ components:
           type: integer
           format: int64
           minimum: 0
+        firstPunchAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastPunchAt:
+          type: string
+          format: date-time
+          nullable: true
     SelfAttendanceDashboardToday:
       type: object
       additionalProperties: false
@@ -9115,7 +9893,7 @@ components:
           maxLength: 100
     AttendanceReportProjectionMetadata:
       type: object
-      description: 实时报表输入快照元数据；schema 名称为兼容既有客户端保留。
+      description: 钉住报表快照元数据；schema 名称为兼容既有客户端保留。
       additionalProperties: false
       required:
         - projectionVersion
@@ -9131,7 +9909,7 @@ components:
           type: string
           minLength: 1
           maxLength: 128
-          description: 兼容字段名；实时报表中为当前来源水位与配置版本生成的不透明快照令牌，并非发布版本。
+          description: 兼容字段名；钉住快照的不透明令牌，并非人工发布版本。
         sourceVersions:
           type: array
           minItems: 1
@@ -9145,7 +9923,7 @@ components:
         dataAsOf:
           type: string
           format: date-time
-          description: 服务端形成一致输入快照并执行计算的时间；不是得力或 OA 各自的截止时间。
+          description: 钉住该快照时的核算时间；不是得力或 OA 各自的截止时间。重新计算前不会随今天前进。
         timeZone: { type: string, const: Asia/Shanghai }
         periodLabel:
           type: string
@@ -9159,7 +9937,12 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [REPORT_DRILL_DOWN, REPORT_EXPORT_CREATE, REPORT_EXPORT_DOWNLOAD]
+            enum: [REPORT_DRILL_DOWN, REPORT_EXPORT_CREATE, REPORT_EXPORT_DOWNLOAD, REPORT_RECALCULATE]
+        sourcesNewerThanPin:
+          type: boolean
+          description: |
+            当前已提交得力/OA 水位是否新于该钉住快照。为 true 时仅对持有
+            ATTENDANCE_REPORT:REFRESH 的主体展示「来源已更新，可重新计算」。
     AttendanceReportCompanyOption:
       type: object
       additionalProperties: false
@@ -9167,6 +9950,12 @@ components:
       properties:
         companyId: { type: string, minLength: 1, maxLength: 36 }
         companyName: { type: string, minLength: 1, maxLength: 200 }
+    AttendanceReportQueryDirectory:
+      type: object
+      additionalProperties: true
+    AttendanceReportQueryPage:
+      type: object
+      additionalProperties: true
     AttendanceReportCompanyDirectory:
       type: object
       additionalProperties: false
@@ -9180,6 +9969,165 @@ components:
           uniqueItems: true
           items:
             $ref: '#/components/schemas/AttendanceReportCompanyOption'
+    PaperOvertimeEmployeeCandidate:
+      type: object
+      additionalProperties: false
+      required: [employeeId, employeeNumber, displayName, departmentName, employmentStatus]
+      properties:
+        employeeId: { type: string, maxLength: 36 }
+        employeeNumber: { type: string, maxLength: 32 }
+        displayName: { type: string, maxLength: 100 }
+        organizationId: { type: [string, 'null'], maxLength: 36 }
+        departmentName: { type: string, maxLength: 191 }
+        employmentStatus: { type: string, maxLength: 32 }
+    PaperOvertimeCandidateList:
+      type: array
+      items:
+        $ref: '#/components/schemas/PaperOvertimeEmployeeCandidate'
+    PaperOvertimeDraftLine:
+      type: object
+      additionalProperties: false
+      required: [lineId, candidates]
+      properties:
+        lineId: { type: string, maxLength: 36 }
+        ocrName: { type: [string, 'null'], maxLength: 100 }
+        ocrDepartment: { type: [string, 'null'], maxLength: 191 }
+        overtimeDate: { type: [string, 'null'], format: date }
+        start: { type: [string, 'null'], format: time }
+        end: { type: [string, 'null'], format: time }
+        overtimeType:
+          type: [string, 'null']
+          enum: [PAID, COMPENSATORY, VOLUNTARY]
+        reason: { type: [string, 'null'], maxLength: 500 }
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaperOvertimeEmployeeCandidate'
+    PaperOvertimeRecognizeView:
+      type: object
+      additionalProperties: false
+      required: [batchId, lines]
+      properties:
+        batchId: { type: string, maxLength: 36 }
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaperOvertimeDraftLine'
+    PaperOvertimeSaveLine:
+      type: object
+      additionalProperties: false
+      required: [employeeId, overtimeDate, start, end, overtimeType]
+      properties:
+        employeeId: { type: string, maxLength: 36 }
+        overtimeDate: { type: string, format: date }
+        start: { type: string, format: time }
+        end: { type: string, format: time }
+        overtimeType:
+          type: string
+          enum: [PAID, COMPENSATORY, VOLUNTARY]
+        reason: { type: [string, 'null'], maxLength: 500 }
+    PaperOvertimeSaveRequest:
+      type: object
+      additionalProperties: false
+      required: [companyId, lines]
+      properties:
+        companyId: { type: string, maxLength: 36 }
+        batchId: { type: [string, 'null'], maxLength: 36 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PaperOvertimeSaveLine'
+    PaperOvertimeSaveView:
+      type: object
+      additionalProperties: false
+      required: [batchId, savedCount]
+      properties:
+        batchId: { type: string, maxLength: 36 }
+        savedCount: { type: integer, minimum: 0 }
+    PaperOvertimeSavedLine:
+      type: object
+      additionalProperties: false
+      required: [lineId, batchId]
+      properties:
+        lineId: { type: string, maxLength: 36 }
+        batchId: { type: string, maxLength: 36 }
+        employeeId: { type: [string, 'null'], maxLength: 36 }
+        employeeNumber: { type: [string, 'null'], maxLength: 32 }
+        employeeName: { type: [string, 'null'], maxLength: 100 }
+        departmentName: { type: [string, 'null'], maxLength: 191 }
+        overtimeDate: { type: [string, 'null'], format: date }
+        startAt: { type: [string, 'null'], format: date-time }
+        endAt: { type: [string, 'null'], format: date-time }
+        overtimeType:
+          type: [string, 'null']
+          enum: [PAID, COMPENSATORY, VOLUNTARY]
+        reason: { type: [string, 'null'], maxLength: 500 }
+        documentId: { type: [string, 'null'], maxLength: 36 }
+    HrPunchAdjustmentRequest:
+      type: object
+      additionalProperties: false
+      required: [employeeId, businessDate, reason]
+      properties:
+        companyId: { type: [string, 'null'], maxLength: 36 }
+        employeeId: { type: string, maxLength: 36 }
+        businessDate: { type: string, format: date }
+        onDutyAt: { type: [string, 'null'], format: date-time }
+        offDutyAt: { type: [string, 'null'], format: date-time }
+        reason: { type: string, maxLength: 500 }
+        overtimeHours: { type: [number, 'null'], minimum: 0, maximum: 24 }
+        clearedExceptionTypes:
+          type: [array, 'null']
+          items: { type: string, maxLength: 32 }
+        dayTypes:
+          type: [array, 'null']
+          items: { type: string, maxLength: 32 }
+        recalculate: { type: [boolean, 'null'], default: true }
+    HrPunchAdjustmentView:
+      type: object
+      additionalProperties: false
+      required: [adjustmentId, companyId, employeeId, businessDate]
+      properties:
+        adjustmentId: { type: string, maxLength: 36 }
+        companyId: { type: string, maxLength: 36 }
+        employeeId: { type: string, maxLength: 36 }
+        businessDate: { type: string, format: date }
+    PaperOvertimeLineList:
+      type: array
+      items:
+        $ref: '#/components/schemas/PaperOvertimeSavedLine'
+    AttendanceReportRecalculateRequest:
+      type: object
+      additionalProperties: false
+      required: [companyId, period]
+      properties:
+        companyId: { type: string, minLength: 1, maxLength: 36 }
+        period:
+          type: string
+          pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        window:
+          type: string
+          enum: [LAST_3_DAYS, LAST_7_DAYS, MONTH]
+        employeeIds:
+          type: [array, 'null']
+          maxItems: 200
+          items: { type: string, maxLength: 36 }
+        fromDate: { type: [string, 'null'], format: date }
+        toDate: { type: [string, 'null'], format: date }
+    AttendanceReportRecalculateView:
+      type: object
+      additionalProperties: false
+      required: [projectionVersion, dataAsOf, sourceVersions, sourcesNewerThanPin]
+      properties:
+        projectionVersion: { type: string, minLength: 1, maxLength: 128 }
+        dataAsOf: { type: string, format: date-time }
+        sourceVersions:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 128 }
+        sourcesNewerThanPin: { type: boolean }
+        skippedMonths:
+          type: array
+          items: { type: string, minLength: 1, maxLength: 7 }
     AttendanceReportFilters:
       type: object
       additionalProperties: false
@@ -9193,6 +10141,8 @@ components:
         organizationId: { type: [string, 'null'], maxLength: 36 }
         employeeId: { type: [string, 'null'], maxLength: 36 }
         status: { type: [string, 'null'], maxLength: 32 }
+        fromDate: { type: [string, 'null'], format: date }
+        toDate: { type: [string, 'null'], format: date }
     AttendanceReportColumn:
       type: object
       additionalProperties: false
@@ -9273,6 +10223,15 @@ components:
         - PERSONAL_LEAVE
         - SICK_LEAVE
         - ANNUAL_LEAVE
+        - MARRIAGE_LEAVE
+        - MATERNITY_LEAVE
+        - PATERNITY_LEAVE
+        - BEREAVEMENT_LEAVE
+        - WORK_INJURY_LEAVE
+        - NURSING_LEAVE
+        - BREASTFEEDING_LEAVE
+        - PRENATAL_EXAM_LEAVE
+        - FAMILY_PLANNING_LEAVE
         - PUNCH_CORRECTION
         - REST_DAY
         - OTHER_LEAVE
@@ -9281,6 +10240,16 @@ components:
         - EXEMPT_PUNCH
         - OTHER_ATTENDANCE_DOCUMENT
         - OTHER_EXCEPTION
+    AttendanceMonthMatrixSlotDisplay:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 40 }
+        tone:
+          type: [string, 'null']
+          maxLength: 64
+        punchAt: { type: [string, 'null'], format: date-time }
     AttendanceMonthMatrixDay:
       type: object
       additionalProperties: false
@@ -9291,6 +10260,10 @@ components:
         - firstPunchAt
         - lastPunchAt
         - badges
+        - morning
+        - afternoon
+        - merged
+        - hover
       properties:
         date: { type: string, format: date }
         organizationName: { type: [string, 'null'], maxLength: 200 }
@@ -9302,6 +10275,12 @@ components:
           uniqueItems: true
           items:
             $ref: '#/components/schemas/AttendanceMonthMatrixBadgeCode'
+        morning:
+          $ref: '#/components/schemas/AttendanceMonthMatrixSlotDisplay'
+        afternoon:
+          $ref: '#/components/schemas/AttendanceMonthMatrixSlotDisplay'
+        merged: { type: boolean }
+        hover: { type: string, maxLength: 500 }
     AttendanceMonthMatrixEmployeeRow:
       type: object
       additionalProperties: false
@@ -9360,7 +10339,10 @@ components:
           pattern: '^[a-f0-9]{64}$'
         formulaVersion:
           type: string
-          const: ATTENDANCE_MONTH_MATRIX_V1
+          enum:
+            - ATTENDANCE_MONTH_MATRIX_V1
+            - ATTENDANCE_MONTH_MATRIX_V2
+            - ATTENDANCE_MONTH_MATRIX_V3
         filters:
           $ref: '#/components/schemas/AttendanceMonthMatrixFilters'
         dates:

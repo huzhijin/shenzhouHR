@@ -74,9 +74,15 @@ class AttendanceReportProjectionPublicationSqlContractTest {
                         "employee_version.employee_version_id "
                                 + "= #{employeeVersionId}",
                         "employment.assignment_id = "
-                                + "match_decision.employment_period_id",
+                                + "#{employmentAssignmentId}",
                         "organization_version.organization_version_id "
-                                + "= #{organizationVersionId}")
+                                + "= #{organizationVersionId}",
+                        "#{intervalStart}",
+                        "#{intervalEndExclusive}")
+                .doesNotContain(
+                        "normalized.interval_start &lt;=> #{intervalStart}",
+                        "normalized.interval_end &lt;=> #{intervalEndExclusive}",
+                        "normalized.point_instant &lt;=> #{pointInstant}")
                 .doesNotContain(
                         "employee_version.effective_from",
                         "employee_version.effective_to",

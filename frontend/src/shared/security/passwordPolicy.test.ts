@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { passwordMeetsPolicy } from './passwordPolicy';
+import { passwordMeetsPolicy, passwordPolicyIssues } from './passwordPolicy';
 
 describe('passwordMeetsPolicy', () => {
   it('accepts a password that satisfies every rule', () => {
@@ -24,5 +24,11 @@ describe('passwordMeetsPolicy', () => {
 
   it('rejects non-string values', () => {
     expect(passwordMeetsPolicy(undefined)).toBe(false);
+  });
+
+  it('explains that Admin@123 is too short instead of looking like a no-op', () => {
+    expect(passwordMeetsPolicy('Admin@123')).toBe(false);
+    expect(passwordPolicyIssues('Admin@123').map((issue) => issue.code))
+      .toEqual(['length-short']);
   });
 });

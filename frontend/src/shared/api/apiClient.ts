@@ -85,19 +85,40 @@ export async function requestFile(path: string, init: RequestInit = {}): Promise
   };
 }
 
+/** Keep the blob URL until the browser has started the download. */
+export const BROWSER_DOWNLOAD_REVOKE_MS = 1500;
+
+export function triggerBrowserDownload(blob: Blob, fileName: string): void {
+  if (
+    typeof document === 'undefined'
+    || typeof URL === 'undefined'
+    || typeof URL.createObjectURL !== 'function'
+  ) {
+    return;
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  link.rel = 'noopener';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }, BROWSER_DOWNLOAD_REVOKE_MS);
+}
+
 export function saveDownloadedFile(file: DownloadedFile): void {
-  const url = URL.createObjectURL(file.blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = file.fileName;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  triggerBrowserDownload(file.blob, file.fileName);
 }
 
 export function createIdempotencyKey(scope: string): string {
-  const unique = globalThis.crypto.randomUUID();
+  const cryptoRef = globalThis.crypto;
+  const unique = cryptoRef && typeof cryptoRef.randomUUID === 'function'
+    ? cryptoRef.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `${scope}:${unique}`;
 }
 
@@ -149,6 +170,13 @@ async function request(path: string, init: RequestInit, accept: string): Promise
   } catch (error: unknown) {
     if (error instanceof ApiRequestError) {
       throw error;
+    }
+    if (isAbortLike(error)) {
+      throw new ApiRequestError(408, {
+        code: 'REQUEST_TIMEOUT',
+        retryable: true,
+        message: translate('error.requestTimeout'),
+      });
     }
     throw new ApiRequestError(0, {
       code: 'NETWORK_REQUEST_FAILED',
@@ -209,10 +237,21 @@ function safeMessage(status: number): string {
   if (status === 401) return translate('organization.sessionInvalid');
   if (status === 403 || status === 404) return translate('organization.notAvailable');
   if (status === 400) return translate('error.invalidRequest');
+  if (status === 408) return translate('error.requestTimeout');
   if (status === 409 || status === 412) return translate('error.dataChanged');
   if (status === 422) return translate('error.validationFailed');
   if (status === 429) return translate('error.tooManyRequests');
   return translate('error.serviceUnavailable');
+}
+
+function isAbortLike(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const name = 'name' in error && typeof error.name === 'string'
+    ? error.name
+    : '';
+  return name === 'AbortError' || name === 'TimeoutError';
 }
 
 function isErrorBody(value: unknown): value is ApiErrorBody {
@@ -231,15 +270,43 @@ function sanitizeServerErrorBody(body: ApiErrorBody): Partial<ApiErrorBody> {
 
   // Server messages can contain implementation details. Keep only metadata
   // needed for client-side branching and support lookup; the constructor will
-  // select a status-based, user-facing message.
+  // select a status-based, user-facing message. Known attendance-report codes
+  // keep their Chinese operator text so a 409 is not shown as a generic 500.
+  const code = safeErrorCode(body.code);
+  const message = passThroughOperatorMessage(code, body.message);
   return {
-    code: safeErrorCode(body.code),
+    code,
+    ...(message ? { message } : {}),
     ...(correlationId ? { correlationId } : {}),
     ...(typeof body.retryable === 'boolean'
       ? { retryable: body.retryable }
       : {}),
     ...(fieldErrors ? { fieldErrors } : {}),
   };
+}
+
+function passThroughOperatorMessage(
+  code: string,
+  value: string | undefined,
+): string | undefined {
+  if (
+    !code.startsWith('ATTENDANCE_REPORT_')
+    && !code.startsWith('PAPER_OVERTIME_')
+    && !code.startsWith('EMPLOYEE_')
+  ) {
+    return undefined;
+  }
+  if (typeof value !== 'string') return undefined;
+  const message = value.trim();
+  if (
+    message.length === 0
+    || message.length > 160
+    || hasControlCharacter(message)
+    || !/^[\u4e00-\u9fa5]/.test(message)
+  ) {
+    return undefined;
+  }
+  return message;
 }
 
 function safeErrorCode(value: string): string {

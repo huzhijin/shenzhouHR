@@ -40,8 +40,9 @@ describe('people management business display', () => {
     const department = options.find((option) => option.value === departmentId);
 
     expect(department).toMatchObject({
-      label: '— 人力资源部',
+      label: '江苏神州半导体科技股份有限公司 / 人力资源部（HR）',
       value: departmentId,
+      searchText: '江苏神州半导体科技股份有限公司 人力资源部 HR',
       disabled: false,
     });
     expect(department?.label).not.toContain(departmentId);
@@ -59,6 +60,7 @@ describe('people management business display', () => {
     expect(options.at(-1)).toEqual({
       label: '部门信息暂不可用',
       value: 'historic-department-id',
+      searchText: '部门信息暂不可用',
       disabled: true,
     });
   });
@@ -95,6 +97,9 @@ describe('people management business display', () => {
     expect(employeeDetail).not.toContain('{row.actorId}');
     expect(employeeDetail).not.toContain("label={t('employee.positionId')}");
     expect(employeeDetail).toContain('<Form.Item name="positionId" hidden>');
+    expect(employeeDetail).toContain('假期额度');
+    expect(employeeDetail).toContain('调休');
+    expect(employeeDetail).toContain('年假');
     expect(organization).not.toContain('<PeopleContextStrip');
     expect(organization).not.toContain('<SourceAuthority');
     expect(organization).not.toContain('<VersionAuditPanel');

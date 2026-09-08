@@ -223,14 +223,14 @@ describe('business reference selects', () => {
     });
   });
 
-  it('keeps multiple authorized companies searchable and selectable without locking one', async () => {
+  it('defaults to 神州半导体 among multiple authorized companies without locking the field', async () => {
     const secondCompany = {
       companyId: 'company-2',
       companyCode: 'SZSH',
       companyName: '上海昇州半导体科技有限公司',
     };
     const onChange = vi.fn();
-    api.listReferenceCompanies.mockResolvedValue([company, secondCompany]);
+    api.listReferenceCompanies.mockResolvedValue([secondCompany, company]);
 
     render(<CompanySelect aria-label="多公司" onChange={onChange} />);
 
@@ -238,7 +238,9 @@ describe('business reference selects', () => {
     await waitFor(() => expect(api.listReferenceCompanies).toHaveBeenCalled());
     expect(input).not.toBeDisabled();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    expect(onChange).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith(company.companyId);
+    });
 
     fireEvent.mouseDown(input);
     expect(await screen.findByText(company.companyName)).toBeInTheDocument();
@@ -437,6 +439,8 @@ const source: Awaited<ReturnType<
   code: 'DELI-01',
   displayName: '得力考勤',
   state: 'ACTIVE',
+  lastFailedSyncAt: null,
+  lastFailureReason: null,
   timeZone: 'Asia/Shanghai',
   configurationRevision: 1,
   committedWatermark: null,

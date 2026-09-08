@@ -29,6 +29,20 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
             Instant.parse("2026-08-15T13:00:00Z");
 
     @Test
+    void keepsSignedSeeyonFormIdInOvertimeBusinessKey() throws Exception {
+        long negativeId = -388371210472787123L;
+        Fixture fixture = fixture(-6539634143789166714L, negativeId);
+
+        OaPage page = fixture.adapter().fetchPage("oa-source", null);
+
+        assertThat(page.records()).singleElement().satisfies(record -> {
+            assertThat(record.sourceBusinessKey())
+                    .isEqualTo("OVERTIME:-388371210472787123");
+            assertThat(record.overtimeType()).isEqualTo(OvertimeType.PAID);
+        });
+    }
+
+    @Test
     void readsField0096AndMapsKnownOvertimeType() throws Exception {
         Fixture fixture = fixture(-6539634143789166714L);
 
@@ -38,7 +52,7 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
             assertThat(record.sourceBusinessKey()).isEqualTo("OVERTIME:172");
             assertThat(record.sourceVersion())
                     .isNotEqualTo("1")
-                    .endsWith(":state=3");
+                    .endsWith(":state=3:Asia/Shanghai");
             assertThat(record.overtimeType()).isEqualTo(OvertimeType.PAID);
             assertThat(record.effectiveCandidate()).isTrue();
         });
@@ -51,7 +65,9 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
                 .anySatisfy(statement -> assertThat(statement)
                         .contains(
                                 "s.field0096         AS overtime_type_id",
-                                "FROM formson_0172 s"));
+                                "FROM formson_0172 s",
+                                "COALESCE(cs.finish_date, cs.start_date, cs.create_date)")
+                        .doesNotContain("lastmodifydate"));
     }
 
     @Test
@@ -59,9 +75,9 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
         Timestamp modified = Timestamp.valueOf("2026-08-15 12:00:00");
 
         assertThat(OaMysqlAttendanceDocumentAdapter.sourceVersion(modified, 0))
-                .isEqualTo("2026-08-15T12:00:00:state=0");
+                .isEqualTo("2026-08-15T12:00:00:state=0:Asia/Shanghai");
         assertThat(OaMysqlAttendanceDocumentAdapter.sourceVersion(modified, 3))
-                .isEqualTo("2026-08-15T12:00:00:state=3");
+                .isEqualTo("2026-08-15T12:00:00:state=3:Asia/Shanghai");
         assertThat(OaMysqlAttendanceDocumentAdapter.sourceVersion(null, 3))
                 .isNull();
         assertThat(OaMysqlAttendanceDocumentAdapter.sourceVersion(modified, null))
@@ -99,7 +115,34 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
                 .contains("未知加班类型: enumId=42, recordId=172");
     }
 
+    @Test
+    void overlappingWindowReadsOvertimeByStartWithoutCursor() throws Exception {
+        Fixture fixture = fixture(-6539634143789166714L);
+        var records = fixture.adapter().fetchOverlapping(
+                "oa-source",
+                Instant.parse("2026-07-31T16:00:00Z"),
+                Instant.parse("2026-08-31T16:00:00Z"));
+        assertThat(records).singleElement().satisfies(record -> {
+            assertThat(record.sourceBusinessKey()).isEqualTo("OVERTIME:172");
+            assertThat(record.employeeNumber()).isEqualTo("E001");
+            assertThat(record.overtimeType()).isEqualTo(OvertimeType.PAID);
+        });
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(
+                        fixture.connection(),
+                        org.mockito.Mockito.atLeastOnce())
+                .prepareStatement(sql.capture());
+        assertThat(sql.getAllValues())
+                .anySatisfy(statement -> assertThat(statement)
+                        .contains("s.field0100 >= ? AND s.field0100 < ?")
+                        .doesNotContain("LIMIT ?"));
+    }
+
     private static Fixture fixture(Long overtimeTypeId) throws Exception {
+        return fixture(overtimeTypeId, 172L);
+    }
+
+    private static Fixture fixture(Long overtimeTypeId, long formId) throws Exception {
         Connection connection = mock(Connection.class);
         PreparedStatement emptyStatement = mock(PreparedStatement.class);
         ResultSet emptyResult = mock(ResultSet.class);
@@ -118,7 +161,7 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
         when(overtimeResult.getInt("approval_state")).thenReturn(3);
         when(overtimeResult.getTimestamp("last_modified"))
                 .thenReturn(Timestamp.from(MODIFIED));
-        when(overtimeResult.getLong("form_id")).thenReturn(172L);
+        when(overtimeResult.getLong("form_id")).thenReturn(formId);
         when(overtimeResult.getLong("overtime_type_id"))
                 .thenReturn(overtimeTypeId != null ? overtimeTypeId : 0L);
         when(overtimeResult.wasNull())

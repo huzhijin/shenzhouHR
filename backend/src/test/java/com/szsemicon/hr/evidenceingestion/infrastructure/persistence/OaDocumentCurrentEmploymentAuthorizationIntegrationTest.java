@@ -64,6 +64,7 @@ class OaDocumentCurrentEmploymentAuthorizationIntegrationTest {
                     source_business_key VARCHAR(128) NOT NULL,
                     source_version VARCHAR(64) NOT NULL,
                     document_type VARCHAR(64) NOT NULL,
+                    leave_type VARCHAR(32),
                     source_status VARCHAR(32) NOT NULL,
                     knowledge_rank BIGINT NOT NULL,
                     created_at TIMESTAMP NOT NULL
@@ -82,13 +83,15 @@ class OaDocumentCurrentEmploymentAuthorizationIntegrationTest {
                         FORMER_DEPARTMENT_PRINCIPAL,
                         CAPABILITY,
                         SOURCE_ID,
-                        beforeTransfer))
+                        beforeTransfer,
+                        null))
                 .isOne();
         assertThat(mapper.listOaDocuments(
                         FORMER_DEPARTMENT_PRINCIPAL,
                         CAPABILITY,
                         SOURCE_ID,
                         beforeTransfer,
+                        null,
                         20,
                         0))
                 .hasSize(1);
@@ -99,13 +102,15 @@ class OaDocumentCurrentEmploymentAuthorizationIntegrationTest {
                         FORMER_DEPARTMENT_PRINCIPAL,
                         CAPABILITY,
                         SOURCE_ID,
-                        afterTransfer))
+                        afterTransfer,
+                        null))
                 .isZero();
         assertThat(mapper.listOaDocuments(
                         FORMER_DEPARTMENT_PRINCIPAL,
                         CAPABILITY,
                         SOURCE_ID,
                         afterTransfer,
+                        null,
                         20,
                         0))
                 .isEmpty();
@@ -114,13 +119,15 @@ class OaDocumentCurrentEmploymentAuthorizationIntegrationTest {
                         CURRENT_DEPARTMENT_PRINCIPAL,
                         CAPABILITY,
                         SOURCE_ID,
-                        afterTransfer))
+                        afterTransfer,
+                        null))
                 .isOne();
         assertThat(mapper.listOaDocuments(
                         CURRENT_DEPARTMENT_PRINCIPAL,
                         CAPABILITY,
                         SOURCE_ID,
                         afterTransfer,
+                        null,
                         20,
                         0))
                 .hasSize(1);

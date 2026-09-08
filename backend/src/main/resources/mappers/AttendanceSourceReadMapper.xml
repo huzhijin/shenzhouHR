@@ -191,6 +191,21 @@
                    WHERE success.attendance_source_id = source.attendance_source_id
                      AND success.status IN ('SUCCEEDED', 'PARTIALLY_QUARANTINED')
                ) AS last_successful_sync_at,
+               (
+                   SELECT MAX(failed.finished_at)
+                   FROM attendance_sync_job failed
+                   WHERE failed.attendance_source_id = source.attendance_source_id
+                     AND failed.status = 'FAILED'
+               ) AS last_failed_sync_at,
+               (
+                   SELECT latest.safe_error_code
+                   FROM attendance_sync_job latest
+                   WHERE latest.attendance_source_id = source.attendance_source_id
+                     AND latest.status = 'FAILED'
+                   ORDER BY latest.finished_at DESC,
+                            latest.attendance_sync_job_id DESC
+                   LIMIT 1
+               ) AS last_failure_reason,
                source.row_version
         FROM attendance_source source
         LEFT JOIN attendance_source_config_revision configuration
@@ -240,7 +255,7 @@
     </select>
 
     <select id="countOaDocuments" resultType="long">
-        SELECT COUNT(*)
+        SELECT COUNT(DISTINCT document.oa_attendance_document_id)
         FROM oa_attendance_document document
         JOIN attendance_source source
           ON source.attendance_source_id = document.attendance_source_id
@@ -253,12 +268,15 @@
          AND match_decision.match_status = 'MATCHED'
         JOIN employee employee
           ON employee.employee_id = match_decision.employee_id
-        JOIN employment_assignment employment
+        LEFT JOIN employment_assignment employment
           ON employment.assignment_id = match_decision.employment_period_id
          AND employment.employee_id = employee.employee_id
         WHERE source.attendance_source_id = #{sourceId}
           AND source.source_type = 'OA_ATTENDANCE'
           AND <include refid="oaDocumentVisibility"/>
+          <if test="documentType != null and documentType != ''">
+              AND document.document_type = #{documentType}
+          </if>
     </select>
 
     <select id="listOaDocuments"
@@ -269,10 +287,17 @@
                document.document_type,
                document.source_status,
                CASE WHEN document.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
-                    THEN TRUE ELSE FALSE END AS effective_candidate,
+                    THEN 1 ELSE 0 END AS effective_candidate,
                employee.employee_number,
-               normalized.interval_start,
-               normalized.interval_end AS interval_end_exclusive
+               ANY_VALUE(employee_version.display_name) AS employee_name,
+               ANY_VALUE(organization_version.name) AS department,
+               ANY_VALUE(document.leave_type) AS leave_type,
+               ANY_VALUE(context.overtime_treatment) AS overtime_treatment,
+               ANY_VALUE(context.payroll_credit_minutes) AS payroll_credit_minutes,
+               ANY_VALUE(context.time_off_credit_minutes) AS time_off_credit_minutes,
+               ANY_VALUE(context.recognized_work_minutes) AS recognized_work_minutes,
+               ANY_VALUE(normalized.interval_start) AS interval_start,
+               ANY_VALUE(normalized.interval_end) AS interval_end_exclusive
         FROM oa_attendance_document document
         JOIN attendance_source source
           ON source.attendance_source_id = document.attendance_source_id
@@ -285,14 +310,37 @@
          AND match_decision.match_status = 'MATCHED'
         JOIN employee employee
           ON employee.employee_id = match_decision.employee_id
-        JOIN employment_assignment employment
+        LEFT JOIN employment_assignment employment
           ON employment.assignment_id = match_decision.employment_period_id
          AND employment.employee_id = employee.employee_id
+        LEFT JOIN employee_current_projection employee_projection
+          ON employee_projection.employee_id = employee.employee_id
+        LEFT JOIN employee_version employee_version
+          ON employee_version.employee_version_id =
+             employee_projection.current_version_id
+        LEFT JOIN organization_current_projection organization_projection
+          ON organization_projection.organization_id =
+             employment.organization_id
+        LEFT JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             organization_projection.current_version_id
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id =
+             document.oa_attendance_document_id
         WHERE source.attendance_source_id = #{sourceId}
           AND source.source_type = 'OA_ATTENDANCE'
           AND <include refid="oaDocumentVisibility"/>
-        ORDER BY document.knowledge_rank DESC,
-                 document.created_at DESC,
+          <if test="documentType != null and documentType != ''">
+              AND document.document_type = #{documentType}
+          </if>
+        GROUP BY document.oa_attendance_document_id,
+                 document.source_business_key,
+                 document.source_version,
+                 document.document_type,
+                 document.source_status,
+                 employee.employee_number
+        ORDER BY MAX(document.knowledge_rank) DESC,
+                 MAX(document.created_at) DESC,
                  document.oa_attendance_document_id DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>

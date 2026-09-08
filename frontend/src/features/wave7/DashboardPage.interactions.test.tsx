@@ -16,7 +16,7 @@ describe('attendance dashboard visualization and drill-through', () => {
     cleanup();
   });
 
-  it('filters the authorized priority list and opens a safe detail drawer', () => {
+  it('opens a safe detail drawer from the exception people list', () => {
     const onOpenReports = vi.fn();
     render(
       <MemoryRouter>
@@ -28,30 +28,19 @@ describe('attendance dashboard visualization and drill-through', () => {
     );
 
     expect(screen.getByRole('region', {
-      name: '异常趋势与严重程度',
-    })).toBeInTheDocument();
-    expect(screen.getByRole('region', {
-      name: '异常类型与组织排行',
-    })).toBeInTheDocument();
-    expect(screen.getByRole('img', {
-      name: /2026-07-30：异常 2 条/,
-    })).toBeInTheDocument();
-
+      name: '异常图形汇总',
+    })).toHaveTextContent('漏刷');
     const anomalyList = screen.getByRole('region', {
-      name: '今日异常考勤列表',
+      name: '异常人员列表',
     });
     expect(anomalyList).toHaveTextContent('张三');
     expect(anomalyList).toHaveTextContent('李四');
 
-    fireEvent.click(screen.getByRole('button', {
-      name: '筛选错误级别异常 1 条',
-    }));
-    const filteredList = screen.getByRole('region', {
-      name: '今日异常考勤列表',
-    });
-    expect(filteredList).toHaveTextContent('张三');
-    expect(filteredList).not.toHaveTextContent('李四');
-    expect(screen.getByRole('status')).toHaveTextContent('当前筛选：错误级别');
+    fireEvent.click(screen.getByRole('button', { name: /漏刷/ }));
+    expect(screen.getByRole('region', { name: '异常人员列表' }))
+      .toHaveTextContent('张三');
+    expect(screen.getByRole('region', { name: '异常人员列表' }))
+      .not.toHaveTextContent('李四');
 
     fireEvent.click(screen.getAllByRole('button', {
       name: '查看张三的异常详情',
@@ -62,13 +51,15 @@ describe('attendance dashboard visualization and drill-through', () => {
     expect(within(drawer).queryByText('exception-1')).not.toBeInTheDocument();
 
     fireEvent.click(within(drawer).getByRole('button', {
-      name: '进入异常报表',
+      name: '打开异常详情',
     }));
     expect(onOpenReports).toHaveBeenCalledWith({
       reportType: 'EXCEPTIONS',
       period: '2026-07',
       companyId: 'company-a',
       projectionVersion: 'ATTENDANCE-DASHBOARD-2026-07-30-V1',
+      employeeNumber: 'SZ001',
+      fromDate: '2026-07-30',
     });
   });
 
@@ -88,19 +79,18 @@ describe('attendance dashboard visualization and drill-through', () => {
       </MemoryRouter>,
     );
 
-    const summary = screen.getByLabelText('今日异常汇总指标');
-    expect(within(summary).getByText('未处理异常').nextElementSibling)
-      .toHaveTextContent('2');
-    const anomalyList = screen.getByRole('region', {
-      name: '今日异常考勤',
-    });
-    expect(anomalyList).toHaveTextContent(
+    expect(screen.getByRole('heading', { name: '异常人员' }))
+      .toBeInTheDocument();
+    expect(screen.getByText(
       '当前账号仅可查看汇总指标，无权查看员工异常明细',
-    );
-    expect(anomalyList).not.toHaveTextContent('张三');
-    expect(anomalyList).not.toHaveTextContent('SZ001');
-    expect(anomalyList).not.toHaveTextContent('今日没有未处理的异常考勤');
-    expect(screen.queryByRole('button', { name: '查看异常报表' }))
+    )).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '异常人员列表' }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText('张三')).not.toBeInTheDocument();
+    expect(screen.queryByText('SZ001')).not.toBeInTheDocument();
+    expect(screen.queryByText('今日没有未处理的异常考勤'))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '异常详情' }))
       .not.toBeInTheDocument();
   });
 

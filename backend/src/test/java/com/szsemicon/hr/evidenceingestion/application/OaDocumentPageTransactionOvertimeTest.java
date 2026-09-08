@@ -13,10 +13,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.szsemicon.hr.attendance.domain.LeaveType;
 import com.szsemicon.hr.attendance.domain.OvertimeType;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.evidenceingestion.application.AttendanceSourceSyncModels.SourceJobStart;
 import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort;
+import com.szsemicon.hr.evidenceingestion.port.OaOrgMemberDirectoryPort;
 import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort.DocumentType;
 import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort.OaDocumentRecord;
 import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort.OaPage;
@@ -46,11 +48,14 @@ class OaDocumentPageTransactionOvertimeTest {
             mock(AttendanceEvidenceRepository.class);
     private final EmployeeEmploymentResolverPort employeeResolver =
             mock(EmployeeEmploymentResolverPort.class);
+    private final OaOrgMemberDirectoryPort memberDirectory =
+            mock(OaOrgMemberDirectoryPort.class);
     private final OaDocumentPageTransaction transaction =
             new OaDocumentPageTransaction(
                     syncRepository,
                     evidenceRepository,
                     employeeResolver,
+                    memberDirectory,
                     Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
@@ -87,6 +92,20 @@ class OaDocumentPageTransactionOvertimeTest {
 
         assertThat(result.acceptedCount()).isEqualTo(1);
         assertThat(result.quarantinedCount()).isZero();
+        ArgumentCaptor<EvidenceRows.RawFactRow> raw =
+                ArgumentCaptor.forClass(EvidenceRows.RawFactRow.class);
+        verify(evidenceRepository).insertRawFact(raw.capture());
+        assertThat(raw.getValue().factKind()).isEqualTo("OA_DOCUMENT");
+        assertThat(raw.getValue().sourceInstant()).isNull();
+        assertThat(raw.getValue().intervalStart()).isEqualTo(START);
+        assertThat(raw.getValue().intervalEnd()).isEqualTo(END);
+        ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
+                ArgumentCaptor.forClass(EvidenceRows.NormalizedRecordRow.class);
+        verify(evidenceRepository).insertNormalizedRecord(normalized.capture());
+        assertThat(normalized.getValue().recordKind()).isEqualTo("OA_INTERVAL");
+        assertThat(normalized.getValue().pointInstant()).isNull();
+        assertThat(normalized.getValue().intervalStart()).isEqualTo(START);
+        assertThat(normalized.getValue().intervalEnd()).isEqualTo(END);
         ArgumentCaptor<EvidenceRows.OaDocumentRow> row =
                 ArgumentCaptor.forClass(EvidenceRows.OaDocumentRow.class);
         verify(evidenceRepository).insertOaAttendanceDocument(row.capture());
@@ -129,28 +148,103 @@ class OaDocumentPageTransactionOvertimeTest {
     }
 
     @Test
-    void missingPublishedRuntimeContractFailsBeforeAnyEvidenceWrite() {
+    void equalStartAndEndUsesPointTemporalInsteadOfViolatingIntervalCheck() {
         employeeMatches();
+        OaDocumentRecord point = new OaDocumentRecord(
+                "PUNCH_CORRECTION:204",
+                "2026-08-15T12:00:00:state=3",
+                "member-204",
+                "E001",
+                DocumentType.PUNCH_CORRECTION,
+                SourceStatus.APPROVED,
+                START,
+                START,
+                "Asia/Shanghai",
+                NOW,
+                NOW,
+                null,
+                null,
+                "OA_PUNCH_CORRECTION_BATCH",
+                true);
 
-        assertThatThrownBy(() -> transaction.commitPage(
+        OaDocumentPageTransaction.PageCommitResult result =
+                transaction.commitPage(
                         job(),
                         "principal-1",
                         "request-1",
                         CapabilityCodes.ATTENDANCE_SOURCE_RUN,
                         1,
-                        page(overtime(OvertimeType.PAID))))
-                .isInstanceOf(AttendanceSourceSyncFailure.class)
-                .hasMessage("OA_RUNTIME_CONTRACT_NOT_PUBLISHED");
+                        page(point));
 
-        verify(evidenceRepository)
-                .findLatestPublishedOaRuntimeContractRevisionId("source-1");
+        assertThat(result.acceptedCount()).isEqualTo(1);
+        ArgumentCaptor<EvidenceRows.RawFactRow> raw =
+                ArgumentCaptor.forClass(EvidenceRows.RawFactRow.class);
+        verify(evidenceRepository).insertRawFact(raw.capture());
+        assertThat(raw.getValue().sourceInstant()).isEqualTo(START);
+        assertThat(raw.getValue().intervalStart()).isNull();
+        assertThat(raw.getValue().intervalEnd()).isNull();
+        ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
+                ArgumentCaptor.forClass(EvidenceRows.NormalizedRecordRow.class);
+        verify(evidenceRepository).insertNormalizedRecord(normalized.capture());
+        assertThat(normalized.getValue().pointInstant()).isEqualTo(START);
+        assertThat(normalized.getValue().intervalStart()).isNull();
+        assertThat(normalized.getValue().intervalEnd()).isNull();
+    }
+
+    @Test
+    void invertedIntervalIsQuarantinedWithoutEvidenceWrite() {
+        OaDocumentRecord inverted = new OaDocumentRecord(
+                "LEAVE:170",
+                "2026-08-15T12:00:00:state=3",
+                "member-170",
+                "E001",
+                DocumentType.LEAVE,
+                SourceStatus.APPROVED,
+                END,
+                START,
+                "Asia/Shanghai",
+                NOW,
+                NOW,
+                null,
+                null,
+                "OA_LEAVE_BATCH",
+                true,
+                null,
+                LeaveType.ANNUAL,
+                "L-1",
+                null);
+
+        OaDocumentPageTransaction.PageCommitResult result =
+                transaction.commitPage(
+                        job(),
+                        "principal-1",
+                        "request-1",
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        1,
+                        page(inverted));
+
+        assertThat(result.quarantinedCount()).isEqualTo(1);
         verify(evidenceRepository, never()).insertRawFact(any());
-        verify(evidenceRepository, never())
-                .insertOaAttendanceDocument(any());
+    }
+
+    @Test
+    void missingPublishedRuntimeContractStillWritesTheOvertimeDocument() {
+        employeeMatches();
+
+        OaDocumentPageTransaction.PageCommitResult result =
+                transaction.commitPage(
+                        job(),
+                        "principal-1",
+                        "request-1",
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        1,
+                        page(overtime(OvertimeType.PAID)));
+
+        assertThat(result.acceptedCount()).isEqualTo(1);
+        verify(evidenceRepository).insertOaAttendanceDocument(any());
         verify(evidenceRepository, never())
                 .insertOaAttendanceDocumentContext(any());
-        verify(syncRepository, never())
-                .incrementJobCounters(any(), anyInt(), anyInt());
+        verify(syncRepository).incrementJobCounters("job-1", 1, 0);
     }
 
     @Test
@@ -238,6 +332,9 @@ class OaDocumentPageTransactionOvertimeTest {
                 CapabilityCodes.ATTENDANCE_SOURCE_RUN,
                 1,
                 page(overtime(OvertimeType.PAID)));
+        when(evidenceRepository.findOaAttendanceDocumentId(
+                        "source-1", "OVERTIME:172", "1"))
+                .thenReturn("oa-1");
         when(evidenceRepository
                         .findLatestPublishedOaRuntimeContractRevisionId(
                                 "source-1"))
@@ -253,11 +350,101 @@ class OaDocumentPageTransactionOvertimeTest {
                         page(overtime(OvertimeType.PAID)));
 
         assertThat(replay.acceptedCount()).isEqualTo(1);
-        verify(evidenceRepository, times(1))
+        verify(evidenceRepository, times(2))
                 .findLatestPublishedOaRuntimeContractRevisionId("source-1");
         verify(evidenceRepository, times(1)).insertRawFact(any());
         verify(evidenceRepository, times(1))
                 .insertOaAttendanceDocumentContext(any());
+    }
+
+    @Test
+    void replayBackfillsMissingContextForNegativeSeeyonOvertimeId() {
+        employeeMatches();
+        publishedRuntimeContract();
+        OaDocumentRecord negative = new OaDocumentRecord(
+                "OVERTIME:-388371210472787123",
+                "2026-08-15T13:00:00:state=3",
+                "member-172",
+                "E001",
+                DocumentType.OVERTIME,
+                SourceStatus.APPROVED,
+                START,
+                END,
+                "Asia/Shanghai",
+                NOW,
+                NOW,
+                null,
+                null,
+                "OA_OVERTIME_BATCH",
+                true,
+                OvertimeType.PAID);
+        String digest = AttendanceEvidenceDigests.sha256(
+                "OA_RAW_FACT_V1",
+                "source-1",
+                "company-1",
+                negative.sourceBusinessKey(),
+                negative.sourceVersion(),
+                "member-172",
+                "E001",
+                START.toString(),
+                END.toString(),
+                "Asia/Shanghai",
+                "OVERTIME",
+                "APPROVED",
+                "PAID",
+                "");
+        when(evidenceRepository.findRawBySourceIdentity(
+                        "source-1",
+                        negative.sourceBusinessKey(),
+                        negative.sourceVersion()))
+                .thenReturn(new EvidenceRows.RawFactRow(
+                        "raw-1",
+                        "source-1",
+                        "company-1",
+                        "OA_DOCUMENT",
+                        negative.sourceBusinessKey(),
+                        negative.sourceVersion(),
+                        null,
+                        START.toString(),
+                        "Asia/Shanghai",
+                        null,
+                        START,
+                        END,
+                        digest,
+                        null,
+                        "request-1",
+                        NOW,
+                        "principal-1"));
+        when(evidenceRepository.findOaAttendanceDocumentId(
+                        "source-1",
+                        negative.sourceBusinessKey(),
+                        negative.sourceVersion()))
+                .thenReturn("oa-doc-neg");
+        when(evidenceRepository.hasOaAttendanceDocumentContext("oa-doc-neg"))
+                .thenReturn(false);
+
+        OaDocumentPageTransaction.PageCommitResult result =
+                transaction.commitPage(
+                        job(),
+                        "principal-1",
+                        "request-1",
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        1,
+                        page(negative));
+
+        assertThat(result.acceptedCount()).isEqualTo(1);
+        ArgumentCaptor<EvidenceRows.OaDocumentContextRow> context =
+                ArgumentCaptor.forClass(
+                        EvidenceRows.OaDocumentContextRow.class);
+        verify(evidenceRepository)
+                .insertOaAttendanceDocumentContext(context.capture());
+        assertThat(context.getValue().oaAttendanceDocumentId())
+                .isEqualTo("oa-doc-neg");
+        assertThat(context.getValue().activationDecision())
+                .isEqualTo("ACTIVATED");
+        assertThat(context.getValue().overtimeType())
+                .isEqualTo(OvertimeType.PAID);
+        verify(evidenceRepository, never()).insertRawFact(any());
     }
 
     @Test
@@ -309,6 +496,40 @@ class OaDocumentPageTransactionOvertimeTest {
     }
 
     @Test
+    void leaveAndRevocationSerialsReachEvidenceRow() {
+        employeeMatches();
+
+        OaDocumentPageTransaction.PageCommitResult result =
+                transaction.commitPage(
+                        job(),
+                        "principal-1",
+                        "request-1",
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        1,
+                        new OaPage(
+                                List.of(leave("L-100"), revocation("L-100")),
+                                null,
+                                "next-1",
+                                "e".repeat(64)));
+
+        assertThat(result.acceptedCount()).isEqualTo(2);
+        ArgumentCaptor<EvidenceRows.OaDocumentRow> rows =
+                ArgumentCaptor.forClass(EvidenceRows.OaDocumentRow.class);
+        verify(evidenceRepository, times(2))
+                .insertOaAttendanceDocument(rows.capture());
+        assertThat(rows.getAllValues())
+                .extracting(
+                        EvidenceRows.OaDocumentRow::documentType,
+                        EvidenceRows.OaDocumentRow::leaveSerial,
+                        EvidenceRows.OaDocumentRow::originalLeaveSerial)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                "LEAVE", "L-100", null),
+                        org.assertj.core.groups.Tuple.tuple(
+                                "LEAVE_REVOCATION", "R-100", "L-100"));
+    }
+
+    @Test
     void unclassifiedOvertimeIsQuarantinedBeforeEffectiveEvidence() {
         employeeMatches();
 
@@ -341,6 +562,60 @@ class OaDocumentPageTransactionOvertimeTest {
         verify(syncRepository).advanceWatermark(
                 "source-1", 7L, "next-1", "e".repeat(64), NOW);
         verify(syncRepository).incrementJobCounters("job-1", 0, 1);
+    }
+
+    @Test
+    void digestChangeOnExistingDocumentKeepsFirstWriteAndContinuesPage() {
+        employeeMatches();
+        publishedRuntimeContract();
+        OaDocumentRecord record = overtime(OvertimeType.PAID);
+        when(evidenceRepository.findRawBySourceIdentity(
+                        "source-1",
+                        record.sourceBusinessKey(),
+                        record.sourceVersion()))
+                .thenReturn(new EvidenceRows.RawFactRow(
+                        "raw-1",
+                        "source-1",
+                        "company-1",
+                        "OA_DOCUMENT",
+                        record.sourceBusinessKey(),
+                        record.sourceVersion(),
+                        null,
+                        START.toString(),
+                        "Asia/Shanghai",
+                        null,
+                        START,
+                        END,
+                        "a".repeat(64),
+                        null,
+                        "request-1",
+                        NOW,
+                        "principal-1"));
+        when(evidenceRepository.findOaAttendanceDocumentId(
+                        "source-1",
+                        record.sourceBusinessKey(),
+                        record.sourceVersion()))
+                .thenReturn("oa-doc-1");
+        when(evidenceRepository.hasOaAttendanceDocumentContext("oa-doc-1"))
+                .thenReturn(true);
+
+        OaDocumentPageTransaction.PageCommitResult result =
+                transaction.commitPage(
+                        job(),
+                        "principal-1",
+                        "request-1",
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        1,
+                        page(record));
+
+        assertThat(result.acceptedCount()).isEqualTo(1);
+        assertThat(result.quarantinedCount()).isZero();
+        verify(evidenceRepository, never()).insertRawFact(any());
+        verify(evidenceRepository, never()).insertOaAttendanceDocument(any());
+        verify(syncRepository).insertCommittedPage(any());
+        verify(syncRepository).advanceWatermark(
+                "source-1", 7L, "next-1", "e".repeat(64), NOW);
+        verify(syncRepository).incrementJobCounters("job-1", 1, 0);
     }
 
     @Test
@@ -409,6 +684,71 @@ class OaDocumentPageTransactionOvertimeTest {
                 "source-1", 9L, "next-1", "e".repeat(64), NOW);
     }
 
+    @Test
+    void rematchRecordsPromotesQuarantinedOvertimeWithoutWatermark() {
+        employeeMatches();
+        publishedRuntimeContract();
+        OaDocumentRecord record = overtime(OvertimeType.PAID);
+        when(evidenceRepository.findRawBySourceIdentity(
+                        "source-1",
+                        record.sourceBusinessKey(),
+                        record.sourceVersion()))
+                .thenReturn(new EvidenceRows.RawFactRow(
+                        "raw-1",
+                        "source-1",
+                        "company-1",
+                        "OA_DOCUMENT",
+                        record.sourceBusinessKey(),
+                        record.sourceVersion(),
+                        null,
+                        START.toString(),
+                        "Asia/Shanghai",
+                        null,
+                        START,
+                        END,
+                        "a".repeat(64),
+                        null,
+                        "request-1",
+                        NOW,
+                        "principal-1"));
+        when(evidenceRepository.findOaAttendanceDocumentId(
+                        "source-1",
+                        record.sourceBusinessKey(),
+                        record.sourceVersion()))
+                .thenReturn(null);
+        when(evidenceRepository.findReplayStateBySourceIdentity(
+                        "source-1",
+                        record.sourceBusinessKey(),
+                        record.sourceVersion()))
+                .thenReturn(new EvidenceRows.ReplayStateRow(
+                        "raw-1",
+                        "norm-old",
+                        1,
+                        "QUARANTINED",
+                        "NO_AUTHORITATIVE_MATCH",
+                        "UNMATCHED",
+                        "NO_AUTHORITATIVE_MATCH",
+                        null,
+                        null,
+                        null,
+                        null));
+
+        OaDocumentPageTransaction.PageCommitResult result =
+                transaction.rematchRecords(
+                        job(),
+                        "principal-1",
+                        "request-1",
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        List.of(record));
+
+        assertThat(result.acceptedCount()).isEqualTo(1);
+        verify(evidenceRepository).insertOaAttendanceDocument(any());
+        verify(syncRepository, never()).advanceWatermark(
+                any(), anyLong(), any(), any(), any());
+        verify(syncRepository, never()).insertCommittedPage(any());
+        verify(syncRepository).incrementJobCounters("job-1", 1, 0);
+    }
+
     private void employeeMatches() {
         when(employeeResolver.resolveByEmployeeNumber(
                         "company-1", "E001", START))
@@ -451,6 +791,52 @@ class OaDocumentPageTransactionOvertimeTest {
                 "1",
                 overtimeType != null,
                 overtimeType);
+    }
+
+    private static OaDocumentRecord leave(String leaveSerial) {
+        return new OaDocumentRecord(
+                "LEAVE:170",
+                "2026-08-15T12:00:00:state=3",
+                "member-170",
+                "E001",
+                DocumentType.LEAVE,
+                SourceStatus.APPROVED,
+                START,
+                END,
+                "Asia/Shanghai",
+                NOW,
+                NOW,
+                null,
+                null,
+                "OA_LEAVE_BATCH",
+                true,
+                null,
+                LeaveType.ANNUAL,
+                leaveSerial,
+                null);
+    }
+
+    private static OaDocumentRecord revocation(String originalLeaveSerial) {
+        return new OaDocumentRecord(
+                "LEAVE_REVOCATION:370",
+                "2026-08-15T12:00:00:state=3",
+                "member-170",
+                "E001",
+                DocumentType.LEAVE_REVOCATION,
+                SourceStatus.APPROVED,
+                START,
+                END,
+                "Asia/Shanghai",
+                NOW,
+                NOW,
+                null,
+                null,
+                "OA_LEAVE_REVOCATION_BATCH",
+                true,
+                null,
+                null,
+                "R-100",
+                originalLeaveSerial);
     }
 
     private static OaDocumentRecord overtime(

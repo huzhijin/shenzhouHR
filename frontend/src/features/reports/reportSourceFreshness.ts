@@ -1,5 +1,14 @@
 export type RealtimeAttendanceSource = 'DELI_CLOUD' | 'OA_ATTENDANCE';
 
+export function isProvisionalRealtimeSource(
+  values: readonly string[] | undefined,
+): boolean {
+  return (values ?? []).some((value) => (
+    value.includes('WORKBENCH-PUNCH')
+    || value.includes('PROVISIONAL')
+  ));
+}
+
 const sourceVersionPrefixes: Readonly<Record<RealtimeAttendanceSource, string>> = {
   DELI_CLOUD: 'SOURCE.DELI_CLOUD:',
   OA_ATTENDANCE: 'SOURCE.OA_ATTENDANCE:',

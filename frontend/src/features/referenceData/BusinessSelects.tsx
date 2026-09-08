@@ -23,6 +23,7 @@ import {
   type BusinessSelectProps,
   ReferenceSelect,
 } from './ReferenceSelect';
+import { pickPreferredCompany } from '../../shared/preferredCompany';
 import {
   useDebouncedValue,
   useReferenceOptions,
@@ -41,6 +42,9 @@ export function CompanySelect(props: BusinessSelectProps) {
   const onlyCompany = state.status === 'ready' && state.options.length === 1
     ? state.options[0]
     : undefined;
+  const preferredCompany = state.status === 'ready'
+    ? pickPreferredCompany(state.options, (company) => company.label)
+    : undefined;
   const noCompany = state.status === 'ready' && state.options.length === 0;
   const statusMessage = noCompany
     ? '当前账号没有可用公司，请联系系统管理员检查公司权限。'
@@ -52,10 +56,10 @@ export function CompanySelect(props: BusinessSelectProps) {
     statusMessage ? statusMessageId : undefined,
   ].filter(Boolean).join(' ') || undefined;
   useEffect(() => {
-    if (!props.value && onlyCompany) {
-      props.onChange?.(onlyCompany.value);
+    if (!props.value && preferredCompany) {
+      props.onChange?.(preferredCompany.value);
     }
-  }, [onlyCompany, props.onChange, props.value]);
+  }, [preferredCompany, props.onChange, props.value]);
   return (
     <div className="company-select-field">
       <ReferenceSelect

@@ -15,6 +15,8 @@ import {
   recalculateDemoPriorService,
   updateDemoEmployee,
   updateDemoEmploymentPeriod,
+  getDemoPunchExemption,
+  setDemoPunchExemption,
 } from './demoEmployees';
 
 export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'TERMINATED';
@@ -215,6 +217,32 @@ export function createLocalEmployee(
   });
 }
 
+export interface PunchExemptionStatus {
+  standingExempt: boolean;
+  executiveExempt: boolean;
+}
+
+export function getPunchExemption(employeeId: string): Promise<PunchExemptionStatus> {
+  if (isDemoMode()) return Promise.resolve(getDemoPunchExemption(employeeId));
+  return requestJson<PunchExemptionStatus>(
+    `${basePath}/${encodeURIComponent(employeeId)}/punch-exemption`,
+  );
+}
+
+export function setPunchExemption(
+  employeeId: string,
+  standingExempt: boolean,
+): Promise<PunchExemptionStatus> {
+  if (isDemoMode()) return Promise.resolve(setDemoPunchExemption(employeeId, standingExempt));
+  return requestJson<PunchExemptionStatus>(
+    `${basePath}/${encodeURIComponent(employeeId)}/punch-exemption`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ standingExempt }),
+    },
+  );
+}
+
 export function updateLocalEmployee(
   employeeId: string,
   request: EmployeeUpdateRequest,
@@ -339,36 +367,67 @@ export interface AnnualLeaveAccount {
   totalEntries: number;
 }
 
+export type LeaveAccountKind = 'ANNUAL_LEAVE' | 'TIME_OFF';
+
+function leaveAccountBasePath(employeeId: string, kind: LeaveAccountKind): string {
+  const suffix = kind === 'TIME_OFF' ? 'time-off' : 'annual-leave';
+  return `${basePath}/${encodeURIComponent(employeeId)}/${suffix}`;
+}
+
+function demoLeaveAccount(
+  employeeId: string,
+  year: number,
+  kind: LeaveAccountKind,
+): AnnualLeaveAccount {
+  const hours = kind === 'TIME_OFF' ? 16 : 40;
+  return {
+    accountId: `demo-account-${kind}-${employeeId}-${year}`,
+    employeeId,
+    year,
+    balanceHours: hours,
+    equivalentDays: hours / 8,
+    rowVersion: 0,
+    entries: [
+      {
+        entryId: `demo-entry-${kind}`,
+        entryType: 'OPENING',
+        entryTypeLabel: '期初录入',
+        amountHours: hours,
+        sourceType: 'HR_OPENING_IMPORT',
+        businessDate: `${year}-08-01`,
+        effectiveFrom: `${year}-08-01`,
+        expiresOn: `${year}-12-31`,
+        occurredAt: `${year}-08-01T08:00:00Z`,
+      },
+    ],
+    totalEntries: 1,
+  };
+}
+
 export function getAnnualLeaveAccount(
   employeeId: string,
   year: number,
 ): Promise<AnnualLeaveAccount> {
+  return getLeaveAccount(employeeId, year, 'ANNUAL_LEAVE');
+}
+
+export function getTimeOffAccount(
+  employeeId: string,
+  year: number,
+): Promise<AnnualLeaveAccount> {
+  return getLeaveAccount(employeeId, year, 'TIME_OFF');
+}
+
+export function getLeaveAccount(
+  employeeId: string,
+  year: number,
+  kind: LeaveAccountKind,
+): Promise<AnnualLeaveAccount> {
   if (isDemoMode()) {
-    return Promise.resolve({
-      accountId: `demo-account-${employeeId}-${year}`,
-      employeeId,
-      year,
-      balanceHours: 40,
-      equivalentDays: 5,
-      rowVersion: 0,
-      entries: [
-        {
-          entryId: 'demo-entry-1',
-          entryType: 'OPENING',
-          entryTypeLabel: '期初录入',
-          amountHours: 40,
-          sourceType: 'HR_OPENING_IMPORT',
-          businessDate: `${year}-01-01`,
-          effectiveFrom: `${year}-01-01`,
-          expiresOn: `${year}-12-31`,
-          occurredAt: `${year}-01-01T08:00:00Z`,
-        },
-      ],
-      totalEntries: 1,
-    });
+    return Promise.resolve(demoLeaveAccount(employeeId, year, kind));
   }
   return requestJson<AnnualLeaveAccount>(
-    `${basePath}/${encodeURIComponent(employeeId)}/annual-leave?year=${year}&page=0&size=20`,
+    `${leaveAccountBasePath(employeeId, kind)}?year=${year}&page=0&size=20`,
   );
 }
 
@@ -379,11 +438,32 @@ export function setAnnualLeaveOpeningBalance(
   reason: string,
   idempotencyKey: string,
 ): Promise<AnnualLeaveAccount> {
+  return setLeaveOpeningBalance(employeeId, balanceHours, year, reason, idempotencyKey, 'ANNUAL_LEAVE');
+}
+
+export function setTimeOffOpeningBalance(
+  employeeId: string,
+  balanceHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<AnnualLeaveAccount> {
+  return setLeaveOpeningBalance(employeeId, balanceHours, year, reason, idempotencyKey, 'TIME_OFF');
+}
+
+export function setLeaveOpeningBalance(
+  employeeId: string,
+  balanceHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+  kind: LeaveAccountKind,
+): Promise<AnnualLeaveAccount> {
   if (isDemoMode()) {
-    return getAnnualLeaveAccount(employeeId, year);
+    return getLeaveAccount(employeeId, year, kind);
   }
   return requestJson<AnnualLeaveAccount>(
-    `${basePath}/${encodeURIComponent(employeeId)}/annual-leave/opening`,
+    `${leaveAccountBasePath(employeeId, kind)}/opening`,
     {
       method: 'POST',
       headers: { 'Idempotency-Key': idempotencyKey },
@@ -399,11 +479,32 @@ export function adjustAnnualLeaveBalance(
   reason: string,
   idempotencyKey: string,
 ): Promise<AnnualLeaveAccount> {
+  return adjustLeaveBalance(employeeId, adjustmentHours, year, reason, idempotencyKey, 'ANNUAL_LEAVE');
+}
+
+export function adjustTimeOffBalance(
+  employeeId: string,
+  adjustmentHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<AnnualLeaveAccount> {
+  return adjustLeaveBalance(employeeId, adjustmentHours, year, reason, idempotencyKey, 'TIME_OFF');
+}
+
+export function adjustLeaveBalance(
+  employeeId: string,
+  adjustmentHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+  kind: LeaveAccountKind,
+): Promise<AnnualLeaveAccount> {
   if (isDemoMode()) {
-    return getAnnualLeaveAccount(employeeId, year);
+    return getLeaveAccount(employeeId, year, kind);
   }
   return requestJson<AnnualLeaveAccount>(
-    `${basePath}/${encodeURIComponent(employeeId)}/annual-leave/adjust`,
+    `${leaveAccountBasePath(employeeId, kind)}/adjust`,
     {
       method: 'POST',
       headers: { 'Idempotency-Key': idempotencyKey },

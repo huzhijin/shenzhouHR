@@ -86,6 +86,7 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                 .thenReturn(fetched);
         when(source.fetchPage("source-1", "42", settings))
                 .thenReturn(terminal);
+        stubKqTerminal(source, "source-1");
         when(transaction.commitPage(
                         eq(job),
                         eq("SYSTEM"),
@@ -191,6 +192,8 @@ class DeliPunchScheduledSyncApplicationServiceTest {
         when(source.fetchPage("source-new", null, settings))
                 .thenReturn(new DeliPunchSourcePort.DeliPage(
                         List.of(), "0", "0", "b".repeat(64)));
+        stubKqTerminal(source, "source-existing");
+        stubKqTerminal(source, "source-new");
         when(repository.findCreatedJob("existing-job", "SYSTEM"))
                 .thenReturn(Optional.of(status(
                         "existing-job", "source-existing", 0)));
@@ -256,6 +259,18 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                 .isEqualTo("DELI_SYNC_ALREADY_RUNNING");
     }
 
+    private static void stubKqTerminal(
+            DeliPunchSourcePort source, String sourceId) {
+        var kqSettings = new DeliPunchSourcePort.FetchSettings(
+                500,
+                ZoneId.of("Asia/Shanghai"),
+                Map.of(),
+                DeliPunchSourcePort.FetchSettings.MODULE_KQ);
+        when(source.fetchPage(sourceId, null, kqSettings))
+                .thenReturn(new DeliPunchSourcePort.DeliPage(
+                        List.of(), "0", "0", "k".repeat(64)));
+    }
+
     private static DeliPunchSourcePort.DeliPunchRecord punch(
             String recordId, Instant at) {
         return new DeliPunchSourcePort.DeliPunchRecord(
@@ -264,6 +279,7 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                 "user-1",
                 ConfirmedBindingKind.DELI_EXT_ID,
                 "E001",
+                null,
                 at,
                 Long.toString(at.getEpochSecond()),
                 "Asia/Shanghai",

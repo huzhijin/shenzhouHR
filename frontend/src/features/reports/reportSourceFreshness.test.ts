@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { realtimeSourceCutoff } from './reportSourceFreshness';
+import { isProvisionalRealtimeSource, realtimeSourceCutoff } from './reportSourceFreshness';
 
 const digest = (value: string) => value.repeat(64);
 
@@ -34,5 +34,13 @@ describe('realtime source freshness', () => {
 
     expect(realtimeSourceCutoff(values, 'DELI_CLOUD')).toBe('UNSYNCED');
     expect(realtimeSourceCutoff(values, 'OA_ATTENDANCE')).toBeUndefined();
+  });
+
+  it('detects the punch-roster preview so the sheet can refresh onto the final calc', () => {
+    expect(isProvisionalRealtimeSource(['WORKBENCH-PUNCH:V1'])).toBe(true);
+    expect(isProvisionalRealtimeSource(['ATTENDANCE.PROVISIONAL:V1'])).toBe(true);
+    expect(isProvisionalRealtimeSource([
+      'SOURCE.DELI_CLOUD:2026-08-12T02:00:00Z:' + 'a'.repeat(64),
+    ])).toBe(false);
   });
 });

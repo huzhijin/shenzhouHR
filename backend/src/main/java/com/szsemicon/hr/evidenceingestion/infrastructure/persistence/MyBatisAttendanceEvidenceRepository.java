@@ -32,6 +32,15 @@ public class MyBatisAttendanceEvidenceRepository
     }
 
     @Override
+    public EvidenceRows.ReplayStateRow findReplayStateBySourceIdentity(
+            String sourceId,
+            String sourceBusinessKey,
+            String sourceVersion) {
+        return mapper.findReplayStateBySourceIdentity(
+                sourceId, sourceBusinessKey, sourceVersion);
+    }
+
+    @Override
     public EvidenceRows.RawFactRow findRawByFingerprint(
             String sourceId,
             String stableFingerprint) {
@@ -94,6 +103,13 @@ public class MyBatisAttendanceEvidenceRepository
     }
 
     @Override
+    public boolean hasEvidenceLink(
+            String effectiveAttendanceEventId, String rawAttendanceFactId) {
+        return mapper.countEvidenceLink(
+                effectiveAttendanceEventId, rawAttendanceFactId) > 0;
+    }
+
+    @Override
     public void insertRecalculationIntent(EvidenceRows.RecalculationIntentRow row) {
         mapper.insertRecalculationIntent(row);
     }
@@ -118,6 +134,22 @@ public class MyBatisAttendanceEvidenceRepository
             String sourceId) {
         return mapper.findLatestPublishedOaRuntimeContractRevisionId(
                 sourceId);
+    }
+
+    @Override
+    public String findOaAttendanceDocumentId(
+            String sourceId,
+            String sourceBusinessKey,
+            String sourceVersion) {
+        return mapper.findOaAttendanceDocumentId(
+                sourceId, sourceBusinessKey, sourceVersion);
+    }
+
+    @Override
+    public boolean hasOaAttendanceDocumentContext(
+            String oaAttendanceDocumentId) {
+        return mapper.countOaAttendanceDocumentContext(
+                oaAttendanceDocumentId) > 0;
     }
 
     @Override

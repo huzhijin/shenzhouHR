@@ -100,6 +100,16 @@ CREATE TABLE employee (
     employment_status VARCHAR(32) NOT NULL
 );
 
+CREATE TABLE punch_exemption_assignment (
+    exemption_id VARCHAR(36) PRIMARY KEY,
+    employee_id VARCHAR(36) NOT NULL,
+    listed_employee_number VARCHAR(64) NOT NULL,
+    source VARCHAR(32) NOT NULL,
+    valid_from TIMESTAMP NOT NULL,
+    valid_to TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE employment_assignment (
     assignment_id VARCHAR(36) PRIMARY KEY,
     employee_id VARCHAR(36) NOT NULL,

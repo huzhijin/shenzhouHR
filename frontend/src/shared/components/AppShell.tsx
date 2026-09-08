@@ -26,6 +26,7 @@ import type { MenuItem } from '../../features/session/sessionApi';
 import { logout } from '../../features/session/sessionApi';
 import { changePassword } from '../../features/auth/authApi';
 import { selectedMenuKey } from '../../app/routeAuthorization';
+import { AppearanceToggle } from '../appearance/AppearanceToggle';
 import { BrandLogo } from './BrandLogo';
 import { AccessibleButton } from './AccessibleButton';
 import { isDemoMode } from '../config/runtimeMode';
@@ -54,6 +55,7 @@ const menuIcons = {
   'attendance-policies': IconShieldCheck,
   'attendance-sources-online': IconServer,
   'attendance-sources-oa': IconFileDescription,
+  'paper-overtime': IconFileDescription,
   'attendance-source-jobs': IconRefresh,
   'attendance-punch-imports': IconFileSpreadsheet,
   workbench: IconFileAnalytics,
@@ -63,6 +65,21 @@ const menuIcons = {
   'attendance-feedback': IconFileAnalytics,
   'attendance-screen': IconFileAnalytics,
   'attendance-reports': IconFileAnalytics,
+  'attendance-query-exceptions': IconFileAnalytics,
+  'attendance-query-leave': IconFileAnalytics,
+  'attendance-query-overtime': IconFileAnalytics,
+  'attendance-query-work-hours': IconFileAnalytics,
+  'attendance-query-absence-stat': IconFileAnalytics,
+  'attendance-query-leave-stat': IconFileAnalytics,
+  'attendance-query-late': IconFileAnalytics,
+  'attendance-query-missed-punch': IconFileAnalytics,
+  'attendance-query-missed-punch-stat': IconFileAnalytics,
+  'attendance-query-attendance-rate': IconFileAnalytics,
+  'attendance-query-annual-leave': IconFileAnalytics,
+  'attendance-query-annual-leave-stat': IconFileAnalytics,
+  'attendance-query-time-off': IconFileAnalytics,
+  'attendance-query-time-off-stat': IconFileAnalytics,
+  'attendance-query-matrix': IconFileAnalytics,
   'self-today': IconClock,
   'self-records': IconCalendar,
   'self-leave': IconCalendar,
@@ -81,7 +98,13 @@ const navigationGroups = [
       '/rules',
       '/sources/',
       '/access/',
+      '/attendance/queries/',
     ].some((prefix) => item.path.startsWith(prefix)),
+  },
+  {
+    key: 'report-queries',
+    label: 'navigation.reportQueries',
+    matches: (item: MenuItem) => item.path.startsWith('/attendance/queries/'),
   },
   {
     key: 'people',
@@ -188,6 +211,7 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
             {translate('app.openNavigation')}
           </span>
           <span className="app-topbar__spacer" aria-hidden="true" />
+          <AppearanceToggle />
           {demoMode ? (
             <span className="app-environment app-environment--demo">
               {translate('app.demoEnvironment')}

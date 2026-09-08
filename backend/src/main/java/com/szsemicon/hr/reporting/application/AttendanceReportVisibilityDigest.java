@@ -1,5 +1,6 @@
 package com.szsemicon.hr.reporting.application;
 
+import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.OaDocumentFact;
@@ -106,6 +107,8 @@ final class AttendanceReportVisibilityDigest {
         digest.add(filter.organizationId());
         digest.add(filter.employeeId());
         digest.add(filter.status());
+        digest.add(filter.fromDate());
+        digest.add(filter.toDate());
     }
 
     private static void appendStrings(
@@ -145,7 +148,6 @@ final class AttendanceReportVisibilityDigest {
             ReportSourceSnapshot snapshot) {
         switch (reportType) {
             case ATTENDANCE_DETAIL,
-                    OVERTIME,
                     WORK_HOURS,
                     LATE,
                     MISSED_PUNCH,
@@ -154,10 +156,7 @@ final class AttendanceReportVisibilityDigest {
                             digest,
                             snapshot.dailyFacts().stream()
                                     .filter(fact -> visible(
-                                            fact.businessDate()
-                                                    .getYear(),
-                                            fact.businessDate()
-                                                    .getMonthValue(),
+                                            fact.businessDate(),
                                             fact.organizationId(),
                                             fact.employeeId(),
                                             snapshot.filter()))
@@ -166,6 +165,21 @@ final class AttendanceReportVisibilityDigest {
                                             .thenComparing(
                                                     DailyFact::employeeId))
                                     .toList());
+            case OVERTIME -> appendOaFacts(
+                    digest,
+                    snapshot.oaDocumentFacts().stream()
+                            .filter(fact -> visibleOa(
+                                    fact, snapshot.filter()))
+                            .filter(fact -> "OVERTIME".equalsIgnoreCase(
+                                    fact.documentType()))
+                            .filter(fact -> EFFECTIVE_OA_STATUSES.contains(
+                                    fact.sourceStatus()
+                                            .toUpperCase(Locale.ROOT)))
+                            .sorted(Comparator.comparing(
+                                            OaDocumentFact::documentId)
+                                    .thenComparing(
+                                            OaDocumentFact::employeeId))
+                            .toList());
             case LEAVE -> appendOaFacts(
                     digest,
                     snapshot.oaDocumentFacts().stream()
@@ -186,8 +200,7 @@ final class AttendanceReportVisibilityDigest {
                     digest,
                     snapshot.exceptionFacts().stream()
                             .filter(fact -> visible(
-                                    fact.businessDate().getYear(),
-                                    fact.businessDate().getMonthValue(),
+                                    fact.businessDate(),
                                     fact.organizationId(),
                                     fact.employeeId(),
                                     snapshot.filter()))
@@ -217,30 +230,26 @@ final class AttendanceReportVisibilityDigest {
     }
 
     private static boolean visible(
-            int year,
-            int month,
+            java.time.LocalDate date,
             String organizationId,
             String employeeId,
             ReportFilter filter) {
-        return filter.period().getYear() == year
-                && filter.period().getMonthValue() == month
+        return AttendanceReportCalculator.inDisplayWindow(date, filter)
                 && matchesReferences(
                         organizationId, employeeId, filter);
     }
 
     private static boolean visibleOa(
             OaDocumentFact fact, ReportFilter filter) {
-        var periodStart = filter.period()
-                .atDay(1)
+        var windowStart = AttendanceReportCalculator.displayStart(filter)
                 .atStartOfDay(BUSINESS_ZONE)
                 .toInstant();
-        var periodEnd = filter.period()
-                .plusMonths(1)
-                .atDay(1)
+        var windowEnd = AttendanceReportCalculator.displayEnd(filter)
+                .plusDays(1)
                 .atStartOfDay(BUSINESS_ZONE)
                 .toInstant();
-        return fact.start().isBefore(periodEnd)
-                && fact.endExclusive().isAfter(periodStart)
+        return fact.start().isBefore(windowEnd)
+                && fact.endExclusive().isAfter(windowStart)
                 && matchesReferences(
                         fact.organizationId(),
                         fact.employeeId(),

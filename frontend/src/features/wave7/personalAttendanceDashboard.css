@@ -548,6 +548,19 @@
   }
 }
 
+.personal-attendance-dashboard__punch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.personal-attendance-dashboard__punch-table th,
+.personal-attendance-dashboard__punch-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--personal-dashboard-divider);
+}
+
 @media (max-width: 420px) {
   .personal-attendance-dashboard__summary {
     grid-template-columns: 1fr;

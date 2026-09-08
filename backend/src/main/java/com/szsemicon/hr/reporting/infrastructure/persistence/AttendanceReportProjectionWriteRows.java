@@ -108,7 +108,7 @@ final class AttendanceReportProjectionWriteRows {
             long absenceMinutes,
             long actualWorkMinutes,
             int scheduledAttendanceDays,
-            int actualAttendanceDays,
+            double actualAttendanceDays,
             long lateMinutes,
             long penalizedLateMinutes,
             long earlyDepartureMinutes,

@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -43,7 +44,9 @@ public class AttendanceSourceSyncController {
             @Valid @RequestBody StartSyncRequest request,
             HttpServletRequest servletRequest) {
         var result = startService.run(
-                request.sourceId(), correlationId(servletRequest));
+                request.sourceId(),
+                correlationId(servletRequest),
+                request.throughDate());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .cacheControl(CacheControl.noStore())
                 .body(result);
@@ -89,6 +92,10 @@ public class AttendanceSourceSyncController {
     }
 
     public record StartSyncRequest(
-            @NotBlank @Size(max = 36) String sourceId) {
+            @NotBlank @Size(max = 36) String sourceId,
+            LocalDate throughDate) {
+        public StartSyncRequest(String sourceId) {
+            this(sourceId, null);
+        }
     }
 }

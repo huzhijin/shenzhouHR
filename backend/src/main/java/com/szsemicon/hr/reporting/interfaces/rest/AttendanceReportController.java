@@ -1,10 +1,13 @@
 package com.szsemicon.hr.reporting.interfaces.rest;
 
+import com.szsemicon.hr.reporting.application.AttendanceMonthMatrixPage;
 import com.szsemicon.hr.reporting.application.AttendanceReportPage;
 import com.szsemicon.hr.reporting.application.AttendanceReportQueryService;
+import com.szsemicon.hr.reporting.application.RecalcWindow;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
 import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
@@ -15,7 +18,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.MultiValueMap;
+import com.szsemicon.hr.authorization.domain.CapabilityCodes;
+import com.szsemicon.hr.reporting.application.AttendanceReportRecalculateResult;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +46,8 @@ public class AttendanceReportController {
             "employeeId",
             "status",
             "expectedProjectionVersion",
+            "fromDate",
+            "toDate",
             "page",
             "size");
     private static final Set<String> MONTH_MATRIX_PARAMETERS = Set.of(
@@ -43,6 +56,8 @@ public class AttendanceReportController {
             "organizationId",
             "employeeId",
             "expectedProjectionVersion",
+            "fromDate",
+            "toDate",
             "page",
             "size");
 
@@ -78,6 +93,55 @@ public class AttendanceReportController {
                         resolvedPeriod.toString(), items));
     }
 
+    @PostMapping("/recalculate")
+    @PreAuthorize(
+            "hasAuthority('"
+                    + CapabilityCodes.ATTENDANCE_REPORT_REFRESH
+                    + "')")
+    ResponseEntity<RecalculateResponse> recalculate(
+            @Valid @RequestBody RecalculateRequest request) {
+        AttendanceReportRecalculateResult result;
+        if (request.employeeIds() != null && !request.employeeIds().isEmpty()) {
+            result = queryService.recalculateEmployees(
+                    request.period(),
+                    request.companyId(),
+                    request.employeeIds(),
+                    request.fromDate(),
+                    request.toDate(),
+                    null);
+        } else {
+            result = queryService.recalculate(
+                    request.period(),
+                    request.companyId(),
+                    RecalcWindow.from(request.window()));
+        }
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(new RecalculateResponse(
+                        result.projectionVersion(),
+                        result.dataAsOf(),
+                        result.sourceVersions(),
+                        result.sourcesNewerThanPin(),
+                        result.skippedMonths()));
+    }
+
+    record RecalculateRequest(
+            @NotBlank @Size(max = 36) String companyId,
+            @NotNull YearMonth period,
+            @Size(max = 32) String window,
+            @Size(max = 200) List<@Size(max = 36) String> employeeIds,
+            java.time.LocalDate fromDate,
+            java.time.LocalDate toDate) {
+    }
+
+    record RecalculateResponse(
+            String projectionVersion,
+            java.time.Instant dataAsOf,
+            List<String> sourceVersions,
+            boolean sourcesNewerThanPin,
+            List<String> skippedMonths) {
+    }
+
     @GetMapping
     @PreAuthorize("hasAuthority('ATTENDANCE_REPORT:READ')")
     ResponseEntity<AttendanceReportResponse> report(
@@ -88,6 +152,8 @@ public class AttendanceReportController {
             @RequestParam(required = false) String organizationId,
             @RequestParam(required = false) String employeeId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) LocalDate fromDate,
+            @RequestParam(required = false) LocalDate toDate,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             @RequestParam MultiValueMap<String, String> requestParameters) {
@@ -105,6 +171,8 @@ public class AttendanceReportController {
                 parameterValue(
                         requestParameters,
                         "expectedProjectionVersion"),
+                fromDate,
+                toDate,
                 page,
                 size);
         return ResponseEntity.ok()
@@ -119,6 +187,8 @@ public class AttendanceReportController {
             @RequestParam(required = false) String companyId,
             @RequestParam(required = false) String organizationId,
             @RequestParam(required = false) String employeeId,
+            @RequestParam(required = false) LocalDate fromDate,
+            @RequestParam(required = false) LocalDate toDate,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             @RequestParam MultiValueMap<String, String> requestParameters) {
@@ -135,6 +205,8 @@ public class AttendanceReportController {
                 parameterValue(
                         requestParameters,
                         "expectedProjectionVersion"),
+                fromDate,
+                toDate,
                 page,
                 size);
         var metadata = new AttendanceMonthMatrixResponse.ProjectionMetadata(
@@ -148,13 +220,20 @@ public class AttendanceReportController {
                         result.scope().type().name(),
                         result.scope().reference(),
                         result.scope().label()),
-                result.allowedActions());
+                result.allowedActions(),
+                result.sourcesNewerThanPin());
         var filters = new AttendanceMonthMatrixResponse.ReportFilters(
                 result.filters().period().toString(),
                 result.scope().reference(),
                 result.filters().companyId(),
                 result.filters().organizationId(),
-                result.filters().employeeId());
+                result.filters().employeeId(),
+                result.filters().fromDate() == null
+                        ? null
+                        : result.filters().fromDate().toString(),
+                result.filters().toDate() == null
+                        ? null
+                        : result.filters().toDate().toString());
         var rows = result.rows().stream()
                 .map(row -> new AttendanceMonthMatrixResponse.EmployeeRow(
                         row.employeeId(),
@@ -171,7 +250,11 @@ public class AttendanceReportController {
                                         day.lastPunchAt(),
                                         day.badges().stream()
                                                 .map(Enum::name)
-                                                .toList()))
+                                                .toList(),
+                                        toSlot(day.morning()),
+                                        toSlot(day.afternoon()),
+                                        day.merged(),
+                                        day.hover()))
                                 .toList()))
                 .toList();
         return ResponseEntity.ok()
@@ -202,14 +285,21 @@ public class AttendanceReportController {
                         page.scope().type().name(),
                         page.scope().reference(),
                         page.scope().label()),
-                page.allowedActions());
+                page.allowedActions(),
+                page.sourcesNewerThanPin());
         var filters = new AttendanceReportResponse.ReportFilters(
                 page.filters().period().toString(),
                 page.scope().reference(),
                 page.filters().companyId(),
                 page.filters().organizationId(),
                 page.filters().employeeId(),
-                page.filters().status());
+                page.filters().status(),
+                page.filters().fromDate() == null
+                        ? null
+                        : page.filters().fromDate().toString(),
+                page.filters().toDate() == null
+                        ? null
+                        : page.filters().toDate().toString());
         var columns = page.columns().stream()
                 .map(column -> new AttendanceReportResponse.ReportColumn(
                         column.field().key(),
@@ -243,6 +333,14 @@ public class AttendanceReportController {
                 page.page(),
                 page.size(),
                 page.totalPages());
+    }
+
+    private static AttendanceMonthMatrixResponse.SlotDisplay toSlot(
+            AttendanceMonthMatrixPage.SlotDisplay slot) {
+        return new AttendanceMonthMatrixResponse.SlotDisplay(
+                slot.text(),
+                slot.tone(),
+                slot.punchAt());
     }
 
     private static void rejectUnknownParameters(

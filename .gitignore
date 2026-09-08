@@ -16,6 +16,10 @@ w3-real-pgid-*/
 
 # Release packages (build artifacts — rebuild from source, never commit)
 /release/
+/release-candidates/
+*.tar.gz
+*.jar
+!backend/src/test/resources/**/*.jar
 
 # Generated local quality reports are snapshots, not reproducible CI inputs.
 /output/*-quality-gate.*

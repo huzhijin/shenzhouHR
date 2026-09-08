@@ -27,4 +27,15 @@ describe('demo employees', () => {
     expect(new Set(managementCenter.items.map((employee) => employee.organizationName)))
       .toEqual(new Set(['人力资源部', '财务管理部', '数字化与信息部']));
   });
+
+  it('finds employees by partial name, employee number, department name, or department code', () => {
+    expect(getDemoEmployeePage(0, 20, { query: '周明' }).items)
+      .toHaveLength(1);
+    expect(getDemoEmployeePage(0, 20, { query: 'syn-0001' }).items)
+      .toHaveLength(1);
+    expect(getDemoEmployeePage(0, 20, { query: '人力资源' }).items)
+      .toHaveLength(3);
+    expect(getDemoEmployeePage(0, 20, { query: 'fab1-a' }).items)
+      .toHaveLength(3);
+  });
 });

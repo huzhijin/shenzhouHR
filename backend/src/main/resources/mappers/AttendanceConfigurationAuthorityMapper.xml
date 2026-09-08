@@ -10,6 +10,7 @@
       selecting an arbitrary employment, assignment, or publication.
     -->
     <select id="resolveForBusinessDate"
+            timeout="120"
             resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceConfigurationAuthorityRow">
         SELECT
             #{businessDate} AS business_date,
@@ -209,6 +210,50 @@
           )
          AND effective_shift.effective_from &lt;= #{businessDate}
          AND effective_shift.created_at &lt;= #{knowledgeAsOf}
+         AND EXISTS (
+                SELECT 1
+                FROM shift_publication_timeline current_shift_pub
+                WHERE current_shift_pub.shift_template_id =
+                        effective_shift.shift_template_id
+                  AND current_shift_pub.shift_version_id =
+                        effective_shift.shift_version_id
+                  AND current_shift_pub.state = 'PUBLISHED'
+                  AND current_shift_pub.business_effective_from
+                        &lt;= #{businessDate}
+                  AND current_shift_pub.recorded_at &lt;= #{knowledgeAsOf}
+         )
+         AND NOT EXISTS (
+                SELECT 1
+                FROM shift_version newer_shift_version
+                WHERE newer_shift_version.shift_template_id =
+                        effective_shift.shift_template_id
+                  AND newer_shift_version.effective_from
+                        &lt;= #{businessDate}
+                  AND newer_shift_version.created_at &lt;= #{knowledgeAsOf}
+                  AND (
+                        newer_shift_version.effective_from
+                            &gt; effective_shift.effective_from
+                        OR (
+                            newer_shift_version.effective_from =
+                                effective_shift.effective_from
+                            AND newer_shift_version.version_number
+                                &gt; effective_shift.version_number
+                        )
+                  )
+                  AND EXISTS (
+                        SELECT 1
+                        FROM shift_publication_timeline newer_shift_pub
+                        WHERE newer_shift_pub.shift_template_id =
+                                newer_shift_version.shift_template_id
+                          AND newer_shift_pub.shift_version_id =
+                                newer_shift_version.shift_version_id
+                          AND newer_shift_pub.state = 'PUBLISHED'
+                          AND newer_shift_pub.business_effective_from
+                                &lt;= #{businessDate}
+                          AND newer_shift_pub.recorded_at
+                                &lt;= #{knowledgeAsOf}
+                  )
+         )
         JOIN shift_template effective_shift_template
           ON effective_shift_template.shift_template_id =
                 effective_shift.shift_template_id
@@ -255,63 +300,6 @@
                 calendar_version.time_zone_snapshot
           AND location_revision.time_zone =
                 effective_shift.time_zone_snapshot
-          AND COALESCE(
-                (
-                    SELECT latest_group_template.action_code
-                    FROM audit_event latest_group_template
-                    WHERE latest_group_template.resource_type =
-                            'SHIFT_TEMPLATE'
-                      AND latest_group_template.resource_id_ref =
-                            group_shift_template.shift_template_id
-                      AND latest_group_template.action_code IN (
-                            'SHIFT_TEMPLATE_ACTIVE',
-                            'SHIFT_TEMPLATE_INACTIVE'
-                      )
-                      AND latest_group_template.occurred_at
-                            &lt;= #{knowledgeAsOf}
-                    ORDER BY
-                        CASE
-                            WHEN latest_group_template.policy_version IS NULL
-                            THEN 0 ELSE 1
-                        END DESC,
-                        CAST(COALESCE(
-                            latest_group_template.policy_version, '0')
-                            AS DECIMAL(20, 0)) DESC,
-                        latest_group_template.occurred_at DESC,
-                        latest_group_template.event_id DESC
-                    LIMIT 1
-                ),
-                'SHIFT_TEMPLATE_ACTIVE'
-          ) &lt;&gt; 'SHIFT_TEMPLATE_INACTIVE'
-          AND COALESCE(
-                (
-                    SELECT latest_effective_template.action_code
-                    FROM audit_event latest_effective_template
-                    WHERE latest_effective_template.resource_type =
-                            'SHIFT_TEMPLATE'
-                      AND latest_effective_template.resource_id_ref =
-                            effective_shift_template.shift_template_id
-                      AND latest_effective_template.action_code IN (
-                            'SHIFT_TEMPLATE_ACTIVE',
-                            'SHIFT_TEMPLATE_INACTIVE'
-                      )
-                      AND latest_effective_template.occurred_at
-                            &lt;= #{knowledgeAsOf}
-                    ORDER BY
-                        CASE
-                            WHEN latest_effective_template.policy_version
-                                IS NULL
-                            THEN 0 ELSE 1
-                        END DESC,
-                        CAST(COALESCE(
-                            latest_effective_template.policy_version, '0')
-                            AS DECIMAL(20, 0)) DESC,
-                        latest_effective_template.occurred_at DESC,
-                        latest_effective_template.event_id DESC
-                    LIMIT 1
-                ),
-                'SHIFT_TEMPLATE_ACTIVE'
-          ) &lt;&gt; 'SHIFT_TEMPLATE_INACTIVE'
         ORDER BY employee_version.employee_version_id,
                  employment.assignment_id,
                  attendance_assignment.attendance_group_assignment_id,

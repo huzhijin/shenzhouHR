@@ -25,7 +25,8 @@ public record AttendanceMonthMatrixPage(
         int page,
         int size,
         long totalEmployees,
-        int totalPages) {
+        int totalPages,
+        boolean sourcesNewerThanPin) {
 
     public AttendanceMonthMatrixPage {
         sourceVersions = List.copyOf(sourceVersions);
@@ -47,16 +48,57 @@ public record AttendanceMonthMatrixPage(
         }
     }
 
+    public record SlotDisplay(
+            String text,
+            String tone,
+            Instant punchAt) {
+
+        public SlotDisplay {
+            text = text == null ? "" : text;
+        }
+
+        public static SlotDisplay empty() {
+            return new SlotDisplay("", null, null);
+        }
+    }
+
     public record DayCell(
             LocalDate date,
             String organizationName,
             String shiftLabel,
             Instant firstPunchAt,
             Instant lastPunchAt,
-            List<BadgeCode> badges) {
+            List<BadgeCode> badges,
+            SlotDisplay morning,
+            SlotDisplay afternoon,
+            boolean merged,
+            String hover) {
 
         public DayCell {
             badges = List.copyOf(badges);
+            morning = morning == null ? SlotDisplay.empty() : morning;
+            afternoon = afternoon == null ? SlotDisplay.empty() : afternoon;
+            hover = hover == null ? "" : hover;
+        }
+
+        public DayCell(
+                LocalDate date,
+                String organizationName,
+                String shiftLabel,
+                Instant firstPunchAt,
+                Instant lastPunchAt,
+                List<BadgeCode> badges) {
+            this(
+                    date,
+                    organizationName,
+                    shiftLabel,
+                    firstPunchAt,
+                    lastPunchAt,
+                    badges,
+                    SlotDisplay.empty(),
+                    SlotDisplay.empty(),
+                    false,
+                    "");
         }
     }
 
@@ -76,6 +118,15 @@ public record AttendanceMonthMatrixPage(
         PERSONAL_LEAVE,
         SICK_LEAVE,
         ANNUAL_LEAVE,
+        MARRIAGE_LEAVE,
+        MATERNITY_LEAVE,
+        PATERNITY_LEAVE,
+        BEREAVEMENT_LEAVE,
+        WORK_INJURY_LEAVE,
+        NURSING_LEAVE,
+        BREASTFEEDING_LEAVE,
+        PRENATAL_EXAM_LEAVE,
+        FAMILY_PLANNING_LEAVE,
         PUNCH_CORRECTION,
         REST_DAY,
         OTHER_LEAVE,

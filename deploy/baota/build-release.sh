@@ -143,6 +143,11 @@ cp "$SCRIPT_DIR/README.md" "$RELEASE_ROOT/DEPLOYMENT-NOTES.md"
 install -m 0644 \
   "$REPO_ROOT/docs/deployment/baota-deployment-guide.md" \
   "$RELEASE_ROOT/docs/deployment/baota-deployment-guide.md"
+if [[ -f "$REPO_ROOT/docs/deployment/2026-08-19-full16-upgrade.md" ]]; then
+  install -m 0644 \
+    "$REPO_ROOT/docs/deployment/2026-08-19-full16-upgrade.md" \
+    "$RELEASE_ROOT/docs/deployment/2026-08-19-full16-upgrade.md"
+fi
 chmod +x "$RELEASE_ROOT/install.sh" "$RELEASE_ROOT/upgrade.sh" \
   "$RELEASE_ROOT/deploy/baota/"*.sh \
   "$RELEASE_ROOT/deploy/baota/mysql/"*.sh "$RELEASE_ROOT/deploy/baota/scripts/"*.sh

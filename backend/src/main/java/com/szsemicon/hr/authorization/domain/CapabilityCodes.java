@@ -76,6 +76,8 @@ public final class CapabilityCodes {
             "ATTENDANCE_DASHBOARD:READ";
     public static final String ATTENDANCE_REPORT_READ =
             "ATTENDANCE_REPORT:READ";
+    public static final String ATTENDANCE_REPORT_QUERY_READ =
+            "ATTENDANCE_REPORT_QUERY:READ";
     public static final String ATTENDANCE_REPORT_EXPORT_CREATE =
             "ATTENDANCE_REPORT:EXPORT_CREATE";
     public static final String ATTENDANCE_REPORT_EXPORT_DOWNLOAD =
@@ -104,6 +106,12 @@ public final class CapabilityCodes {
             "ATTENDANCE_FEEDBACK:CREATE";
     public static final String PAYROLL_RESERVATION_READ =
             "PAYROLL:RESERVATION_READ";
+    public static final String IDENTITY_EFFECTIVE_FROM_CUTOVER =
+            "IDENTITY_EFFECTIVE_FROM:CUTOVER";
+    public static final String PAPER_OVERTIME_MANAGE =
+            "PAPER_OVERTIME:MANAGE";
+    public static final String ATTENDANCE_ADJUST_MANAGE =
+            "ATTENDANCE_ADJUST:MANAGE";
 
     private static final String SERVER_INTERNAL_PAYROLL_PREFIX = "PAYROLL:";
 

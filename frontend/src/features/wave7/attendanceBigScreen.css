@@ -27,6 +27,16 @@
   background: #dde6f0;
 }
 
+[data-theme='night'] .od15-viewport {
+  --od15-bg: #152033;
+  --od15-surface: #1c2b42;
+  --od15-surface-2: #24344d;
+  --od15-fg: #e8eef6;
+  --od15-muted: #9aa6b8;
+  --od15-border: #3d4c63;
+  background: #101826;
+}
+
 .od15-viewport *,
 .od15-viewport *::before,
 .od15-viewport *::after {

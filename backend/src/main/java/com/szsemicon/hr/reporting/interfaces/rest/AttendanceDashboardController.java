@@ -2,6 +2,7 @@ package com.szsemicon.hr.reporting.interfaces.rest;
 
 import com.szsemicon.hr.reporting.application.AttendanceDashboardService;
 import com.szsemicon.hr.shared.web.ApiProblemException;
+import java.time.YearMonth;
 import java.util.Set;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -17,7 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/attendance-dashboards")
 public class AttendanceDashboardController {
 
-    private static final Set<String> PARAMETERS = Set.of("companyId");
+    private static final Set<String> PARAMETERS = Set.of(
+            "companyId", "period", "window");
 
     private final AttendanceDashboardService dashboardService;
 
@@ -30,12 +32,17 @@ public class AttendanceDashboardController {
     @PreAuthorize("hasAuthority('ATTENDANCE_DASHBOARD:READ')")
     ResponseEntity<AttendanceDashboardResponse> dashboard(
             @RequestParam(required = false) String companyId,
+            @RequestParam(required = false) YearMonth period,
+            @RequestParam(required = false) String window,
             @RequestParam MultiValueMap<String, String> requestParameters) {
         rejectUnknownParameters(requestParameters);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(AttendanceDashboardResponse.from(
-                        dashboardService.query(companyId)));
+                        dashboardService.query(
+                                companyId,
+                                period,
+                                window == null ? "MONTH" : window)));
     }
 
     private static void rejectUnknownParameters(

@@ -52,8 +52,9 @@ class OaDocumentLatestVersionSqlTest {
                     normalized_attendance_record_id VARCHAR(64) PRIMARY KEY,
                     raw_attendance_fact_id VARCHAR(64) NOT NULL,
                     validation_status VARCHAR(32) NOT NULL,
-                    interval_start TIMESTAMP NOT NULL,
-                    interval_end TIMESTAMP NOT NULL
+                    interval_start TIMESTAMP NULL,
+                    interval_end TIMESTAMP NULL,
+                    point_instant TIMESTAMP NULL
                 )
                 """);
         execute("""
@@ -71,6 +72,8 @@ class OaDocumentLatestVersionSqlTest {
                     source_version VARCHAR(128) NOT NULL,
                     document_type VARCHAR(32) NOT NULL,
                     leave_type VARCHAR(32),
+                    leave_serial VARCHAR(64),
+                    original_leave_serial VARCHAR(64),
                     source_status VARCHAR(32) NOT NULL,
                     normalized_attendance_record_id VARCHAR(64) NOT NULL,
                     knowledge_rank BIGINT NOT NULL,
@@ -103,6 +106,21 @@ class OaDocumentLatestVersionSqlTest {
         insertVersion("revoked", "OUTING:252", "v2", "REVOKED", 2, 2);
 
         assertThat(effectiveBusinessKeys()).isEmpty();
+    }
+
+    @Test
+    void pendingLatestOutingIsEffective() throws Exception {
+        insertVersion("pending", "OUTING:252", "v1", "UNKNOWN", 1, 1);
+
+        assertThat(effectiveBusinessKeys()).containsExactly("OUTING:252");
+    }
+
+    @Test
+    void pendingLatestOvertimeIsEffectiveWhenActivated() throws Exception {
+        insertVersion("pending", "OVERTIME:172", "v1", "UNKNOWN", 1, 1);
+        insertOvertimeContext("pending");
+
+        assertThat(effectiveBusinessKeys()).containsExactly("OVERTIME:172");
     }
 
     @Test
@@ -143,11 +161,12 @@ class OaDocumentLatestVersionSqlTest {
         try (PreparedStatement statement = connection.prepareStatement(
                 effectiveDocumentSql())) {
             statement.setTimestamp(1, dataAsOf);
-            statement.setString(2, COMPANY_ID);
-            statement.setTimestamp(
-                    3, Timestamp.valueOf("2026-08-16 00:00:00"));
-            statement.setTimestamp(
-                    4, Timestamp.valueOf("2026-08-15 00:00:00"));
+            Timestamp windowEnd = Timestamp.valueOf("2026-08-16 00:00:00");
+            Timestamp windowStart = Timestamp.valueOf("2026-08-15 00:00:00");
+            statement.setTimestamp(2, windowEnd);
+            statement.setTimestamp(3, windowStart);
+            statement.setTimestamp(4, windowStart);
+            statement.setTimestamp(5, windowEnd);
             try (ResultSet result = statement.executeQuery()) {
                 List<String> keys = new ArrayList<>();
                 while (result.next()) {

@@ -151,10 +151,15 @@ class Wave4DomainContractTest {
                 resolver, "source-1", "legal-1", "ONE", "location-1",
                 "device-1", "BOUND", ConfirmedBindingKind.DELI_EXT_ID,
                 Instant.EPOCH).reason())
-                .isEqualTo("EMPLOYEE_NUMBER");
+                .isEqualTo("CONFIRMED_BINDING");
         assertThat(EvidenceResolutionPolicy.resolve(
                 resolver, "source-1", "legal-1", "MANY", "location-1",
                 "device-1", "BOUND", ConfirmedBindingKind.DELI_EXT_ID,
+                Instant.EPOCH).reason())
+                .isEqualTo("CONFIRMED_BINDING");
+        assertThat(EvidenceResolutionPolicy.resolve(
+                resolver, "source-1", "legal-1", "MANY", "location-1",
+                "device-1", "NONE", ConfirmedBindingKind.DELI_EXT_ID,
                 Instant.EPOCH).status())
                 .isEqualTo(EvidenceResolutionPolicy.MatchStatus.AMBIGUOUS);
         assertThat(EvidenceResolutionPolicy.resolve(

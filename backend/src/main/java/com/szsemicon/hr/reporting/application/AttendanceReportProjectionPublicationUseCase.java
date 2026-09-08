@@ -11,4 +11,37 @@ import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.
 public interface AttendanceReportProjectionPublicationUseCase {
 
     PublicationResult publish(PublishCommand command);
+
+    default PublicationResult publish(
+            PublishCommand command,
+            java.time.LocalDate copyBefore,
+            java.time.LocalDate copyFromExclusive) {
+        return publish(command, copyBefore, copyFromExclusive, (String) null);
+    }
+
+    default PublicationResult publish(
+            PublishCommand command,
+            java.time.LocalDate copyBefore,
+            java.time.LocalDate copyFromExclusive,
+            String employeeId) {
+        return publish(command);
+    }
+
+    default PublicationResult publish(
+            PublishCommand command,
+            java.time.LocalDate copyBefore,
+            java.time.LocalDate copyFromExclusive,
+            java.util.Collection<String> employeeIds) {
+        if (employeeIds == null || employeeIds.isEmpty()) {
+            return publish(command, copyBefore, copyFromExclusive, (String) null);
+        }
+        if (employeeIds.size() == 1) {
+            return publish(
+                    command,
+                    copyBefore,
+                    copyFromExclusive,
+                    employeeIds.iterator().next());
+        }
+        return publish(command);
+    }
 }

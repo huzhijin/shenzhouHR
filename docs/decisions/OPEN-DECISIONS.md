@@ -2,6 +2,12 @@
 
 > 本文件追加式维护。关闭条目时仅将标题改为 `RESOLVED` 并增加 `Resolution`，不得删除历史。
 
+## RESOLVED — product-decision — 2026-08-17 范围答卷
+- **Date**: 2026-08-17
+- **Source**: [2026-08-17-scope-confirmation.md](2026-08-17-scope-confirmation.md)
+- **Resolution**: Q6=A；Q10=无销假用请假时段，有销假用销假实际时段，多张有效销假按时段相加（重叠并集）；Q16=B 内网对账后再排部署窗口。目标库 `localhost/shenzhou_hr` 授权前向迁到 V48。
+
+
 ## OPEN — waiting-on-external-condition — MySQL 验证与外部系统联调条件
 - **Date**: 2026-07-20
 - **Source**: PRD V1.7 / ADR-005 / 首阶段实施计划

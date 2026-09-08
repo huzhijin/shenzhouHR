@@ -17,6 +17,7 @@ import type {
   ReportProjection,
   SelfAttendanceDashboardProjection,
   TodayProjection,
+  Wave7ProjectionMetadata,
 } from './wave7Contracts';
 import {
   assertAttendanceReportExportView,
@@ -38,6 +39,8 @@ export interface ReportQuery {
   employeeId?: string;
   status?: ReportExceptionState;
   expectedProjectionVersion?: string;
+  fromDate?: string;
+  toDate?: string;
   page?: number;
   size?: number;
 }
@@ -53,6 +56,8 @@ export interface AttendanceMonthMatrixQuery {
   organizationId?: string;
   employeeId?: string;
   expectedProjectionVersion?: string;
+  fromDate?: string;
+  toDate?: string;
   page?: number;
   size?: number;
 }
@@ -64,12 +69,12 @@ export type ReportExceptionState =
   | 'RESOLVED';
 
 export interface Wave7ProjectionGateway {
-  loadSelfDashboard(): Promise<SelfAttendanceDashboardProjection>;
+  loadSelfDashboard(period?: string, window?: string): Promise<SelfAttendanceDashboardProjection>;
   loadToday(): Promise<TodayProjection>;
   loadRecords(): Promise<AttendanceRecordsProjection>;
   loadLeave(): Promise<LeaveProjection>;
   loadFeedback(): Promise<FeedbackProjection>;
-  loadDashboard(companyId?: string): Promise<DashboardLoadResult>;
+  loadDashboard(companyId?: string, period?: string, window?: string): Promise<DashboardLoadResult>;
   loadReportCompanies(
     period: string,
   ): Promise<AttendanceReportCompanyDirectory>;
@@ -86,22 +91,52 @@ export interface Wave7ProjectionGateway {
   downloadReportExport?(
     exportId: string,
   ): Promise<DownloadedFile>;
+  recalculateAttendanceReport?(
+    request: { companyId: string; period: string; window?: string },
+  ): Promise<{
+    projectionVersion: string;
+    dataAsOf: string;
+    sourceVersions: string[];
+    sourcesNewerThanPin: boolean;
+  }>;
 }
 
 const reportExportBasePath = '/api/v1/attendance-reports/exports';
 const xlsxMediaType =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+// Kept in source for the Wave 7 fail-closed contract; leave/feedback pages
+// still surface this code when the upstream is not wired.
 const upstreamPending = (): Promise<never> => Promise.reject(new ApiRequestError(503, {
   code: 'WAVE7_UPSTREAM_PENDING',
   message: '该功能的数据尚未准备好，请稍后再试。',
   retryable: false,
 }));
+void upstreamPending;
+
+function selfServiceMetadata(
+  dashboard: SelfAttendanceDashboardProjection,
+): Wave7ProjectionMetadata {
+  return {
+    projectionVersion: dashboard.metadata.projectionVersion,
+    sourceVersions: dashboard.metadata.sourceVersions,
+    dataAsOf: dashboard.metadata.dataAsOf,
+    timeZone: dashboard.metadata.timeZone,
+    periodLabel: dashboard.metadata.periodLabel,
+    periodState: dashboard.metadata.periodState,
+    scope: dashboard.metadata.scope,
+    allowedActions: [],
+  };
+}
 
 export const wave7ProjectionGateway: Wave7ProjectionGateway = {
-  loadSelfDashboard: async () => {
+  loadSelfDashboard: async (period, window) => {
+    const parameters = new URLSearchParams();
+    if (period) parameters.set('period', period);
+    if (window) parameters.set('window', window);
+    const query = parameters.size > 0 ? `?${parameters.toString()}` : '';
     const response = await requestJson<unknown>(
-      '/api/v1/me/attendance-dashboard',
+      `/api/v1/me/attendance-dashboard${query}`,
     );
     try {
       return parseSelfAttendanceDashboardResponse(response);
@@ -110,22 +145,109 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
       throw invalidSelfAttendanceDashboardResponse();
     }
   },
-  loadToday: upstreamPending,
-  loadRecords: upstreamPending,
-  loadLeave: upstreamPending,
-  loadFeedback: upstreamPending,
-  loadDashboard: async (companyId) => {
+  loadToday: async () => {
+    const dashboard = await wave7ProjectionGateway.loadSelfDashboard();
+    return {
+      kind: 'TODAY' as const,
+      metadata: selfServiceMetadata(dashboard),
+      businessDate: dashboard.businessDate,
+      shiftLabel: dashboard.today?.shiftLabel ?? undefined,
+      firstEffectivePunch: dashboard.today?.firstPunchAt ?? undefined,
+      lastEffectivePunch: dashboard.today?.lastPunchAt ?? undefined,
+      attendanceStatus: dashboard.today?.statusLabel ?? '尚未排班',
+      confirmedMinutes: dashboard.today?.confirmedMinutes ?? 0,
+      issueLabels: dashboard.today?.issueLabels ?? [],
+    };
+  },
+  loadRecords: async () => {
+    const dashboard = await wave7ProjectionGateway.loadSelfDashboard();
+    return {
+      kind: 'RECORDS' as const,
+      metadata: selfServiceMetadata(dashboard),
+      summary: {
+        scheduledMinutes: dashboard.summary.scheduledMinutes,
+        confirmedMinutes: dashboard.summary.confirmedMinutes,
+        recognizedOvertimeMinutes: dashboard.summary.recognizedOvertimeMinutes,
+        leaveMinutes: dashboard.summary.leaveMinutes,
+      },
+      records: dashboard.dailyTrend.map((point) => ({
+        businessDate: point.businessDate,
+        shiftLabel: point.businessDate === dashboard.businessDate
+          ? (dashboard.today?.shiftLabel ?? '无班次')
+          : '实时日事实',
+        confirmedMinutes: point.confirmedMinutes,
+        statusLabel: point.issueCount > 0 ? '存在未解决异常' : '正常',
+        issueLabels: point.issueCount > 0 ? [`异常 ${point.issueCount} 项`] : [],
+        firstPunchAt: point.businessDate === dashboard.businessDate
+          ? (dashboard.today?.firstPunchAt ?? point.firstPunchAt ?? null)
+          : (point.firstPunchAt ?? null),
+        lastPunchAt: point.businessDate === dashboard.businessDate
+          ? (dashboard.today?.lastPunchAt ?? point.lastPunchAt ?? null)
+          : (point.lastPunchAt ?? null),
+      })),
+    };
+  },
+  loadLeave: async () => {
+    const body = await requestJson<{
+      year: number;
+      accounts: Array<{
+        accountId: string | null;
+        year: number;
+        balanceHours: number;
+        equivalentDays: number;
+        rowVersion: number;
+      }>;
+    }>('/api/v1/me/leave-accounts');
+    const labels = ['年假', '调休'];
+    return {
+      kind: 'LEAVE' as const,
+      metadata: {
+        projectionVersion: `SELF-LEAVE-${body.year}`,
+        sourceVersions: ['LEAVE-ACCOUNT:V1'],
+        dataAsOf: new Date().toISOString(),
+        timeZone: 'Asia/Shanghai',
+        periodLabel: String(body.year),
+        periodState: 'OPEN' as const,
+        scope: {
+          type: 'SELF' as const,
+          reference: 'current-principal',
+          label: '本人',
+        },
+        allowedActions: [],
+      },
+      accounts: (body.accounts ?? []).map((account, index) => ({
+        accountReference: account.accountId ?? `self-leave-${index}`,
+        label: labels[index] ?? `假期账户 ${index + 1}`,
+        unit: 'HOURS' as const,
+        grantedHours: 0,
+        openingHours: 0,
+        usedHours: 0,
+        remainingHours: Number(account.balanceHours ?? 0),
+        equivalentDays: Number(account.equivalentDays ?? 0),
+        ledgerVersion: String(account.rowVersion ?? 0),
+      })),
+    };
+  },
+  loadFeedback: async () => {
+    const dashboard = await wave7ProjectionGateway.loadSelfDashboard();
+    return {
+      kind: 'FEEDBACK' as const,
+      metadata: selfServiceMetadata(dashboard),
+      items: [],
+    };
+  },
+  loadDashboard: async (companyId, period, window) => {
     const normalizedCompanyId = normalizeDashboardCompanyId(companyId);
     const parameters = new URLSearchParams();
     if (normalizedCompanyId !== undefined) {
       parameters.set('companyId', normalizedCompanyId);
     }
+    if (period) parameters.set('period', period);
+    if (window) parameters.set('window', window);
     const query = parameters.size > 0
       ? `?${parameters.toString()}`
       : '';
-    const response = await requestJson<unknown>(
-      `/api/v1/attendance-dashboards${query}`,
-    );
+    const response = await requestDashboard(query);
     try {
       const result = parseAttendanceDashboardResponse(response);
       if (
@@ -186,6 +308,12 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     if (normalized.status !== undefined) {
       parameters.set('status', normalized.status);
     }
+    if (normalized.fromDate !== undefined) {
+      parameters.set('fromDate', normalized.fromDate);
+    }
+    if (normalized.toDate !== undefined) {
+      parameters.set('toDate', normalized.toDate);
+    }
     if (normalized.expectedProjectionVersion !== undefined) {
       parameters.set(
         'expectedProjectionVersion',
@@ -197,6 +325,7 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
 
     const response = await requestJson<unknown>(
       `/api/v1/attendance-reports?${parameters.toString()}`,
+      { signal: AbortSignal.timeout(900_000) },
     );
     try {
       assertLiveReportProjection(response);
@@ -241,6 +370,12 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     if (normalized.employeeId !== undefined) {
       parameters.set('employeeId', normalized.employeeId);
     }
+    if (normalized.fromDate !== undefined) {
+      parameters.set('fromDate', normalized.fromDate);
+    }
+    if (normalized.toDate !== undefined) {
+      parameters.set('toDate', normalized.toDate);
+    }
     if (normalized.expectedProjectionVersion !== undefined) {
       parameters.set(
         'expectedProjectionVersion',
@@ -251,6 +386,7 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     parameters.set('size', String(normalized.size));
     const response = await requestJson<unknown>(
       `/api/v1/attendance-reports/month-matrix?${parameters.toString()}`,
+      { signal: AbortSignal.timeout(120_000) },
     );
     try {
       assertAttendanceMonthMatrixProjection(response);
@@ -341,9 +477,10 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     } catch (error: unknown) {
       throw safeReportExportError(error);
     }
+    const receivedType = file.blob.type.toLowerCase().split(';', 1)[0]?.trim() ?? '';
     if (
       file.blob.size < 1
-      || file.blob.type.toLowerCase() !== xlsxMediaType
+      || receivedType !== xlsxMediaType
       || !isSafeXlsxFileName(file.fileName)
       || !await hasXlsxZipSignature(file.blob)
     ) {
@@ -355,6 +492,35 @@ export const wave7ProjectionGateway: Wave7ProjectionGateway = {
     }
     return file;
   },
+  recalculateAttendanceReport: async (request) => {
+    const response = await requestJson<{
+      projectionVersion: string;
+      dataAsOf: string;
+      sourceVersions: string[];
+      sourcesNewerThanPin: boolean;
+    }>(
+      '/api/v1/attendance-reports/recalculate',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          companyId: request.companyId,
+          period: request.period,
+          window: request.window ?? 'MONTH',
+        }),
+        signal: AbortSignal.timeout(900_000),
+      },
+    );
+    if (
+      typeof response.projectionVersion !== 'string'
+      || response.projectionVersion.length < 1
+      || typeof response.dataAsOf !== 'string'
+      || !Array.isArray(response.sourceVersions)
+      || typeof response.sourcesNewerThanPin !== 'boolean'
+    ) {
+      throw invalidReportResponse();
+    }
+    return response;
+  },
 };
 
 interface NormalizedReportQuery {
@@ -365,6 +531,8 @@ interface NormalizedReportQuery {
   employeeId?: string;
   status?: ReportExceptionState;
   expectedProjectionVersion?: string;
+  fromDate?: string;
+  toDate?: string;
   page: number;
   size: number;
 }
@@ -375,6 +543,8 @@ interface NormalizedAttendanceMonthMatrixQuery {
   organizationId?: string;
   employeeId?: string;
   expectedProjectionVersion?: string;
+  fromDate?: string;
+  toDate?: string;
   page: number;
   size: number;
 }
@@ -392,6 +562,8 @@ function normalizeAttendanceMonthMatrixQuery(
         'organizationId',
         'employeeId',
         'expectedProjectionVersion',
+        'fromDate',
+        'toDate',
         'page',
         'size',
       ],
@@ -423,6 +595,8 @@ function normalizeAttendanceMonthMatrixQuery(
       query.expectedProjectionVersion,
       128,
     ),
+    fromDate: normalizeOptionalDate(query.fromDate),
+    toDate: normalizeOptionalDate(query.toDate),
     page,
     size,
   };
@@ -441,6 +615,8 @@ function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {
         'employeeId',
         'status',
         'expectedProjectionVersion',
+        'fromDate',
+        'toDate',
         'page',
         'size',
       ],
@@ -487,6 +663,8 @@ function normalizeReportQuery(query?: ReportQuery): NormalizedReportQuery {
       query.expectedProjectionVersion,
       128,
     ),
+    fromDate: normalizeOptionalDate(query.fromDate),
+    toDate: normalizeOptionalDate(query.toDate),
     page,
     size,
   };
@@ -526,6 +704,13 @@ function normalizeDashboardCompanyId(
     });
   }
   return value;
+}
+
+async function requestDashboard(query: string): Promise<unknown> {
+  return requestJson<unknown>(
+    `/api/v1/attendance-dashboards${query}`,
+    { signal: AbortSignal.timeout(900_000) },
+  );
 }
 
 function invalidDashboardResponse(): ApiRequestError {
@@ -575,6 +760,8 @@ function normalizeReportExportCreateRequest(
         'organizationId',
         'employeeId',
         'status',
+        'fromDate',
+        'toDate',
       ],
     )
     || !isYearMonth(request.filters.period)
@@ -708,6 +895,17 @@ function hasOnlyKeys(
 function isYearMonth(value: unknown): value is string {
   return typeof value === 'string'
     && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+function normalizeOptionalDate(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== 'string'
+    || !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value)
+  ) {
+    throw invalidReportQuery();
+  }
+  return value;
 }
 
 function normalizeOptionalFilter(

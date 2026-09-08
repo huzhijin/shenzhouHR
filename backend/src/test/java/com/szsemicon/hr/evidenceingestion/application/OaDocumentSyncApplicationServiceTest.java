@@ -24,6 +24,7 @@ import com.szsemicon.hr.evidenceingestion.port.OaAttendanceDocumentSourcePort.So
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -229,6 +230,35 @@ class OaDocumentSyncApplicationServiceTest {
         verify(repository).markFinished("job-a", "SUCCEEDED", NOW);
         verify(repository).markFinished("job-b", "SUCCEEDED", NOW);
         verify(capabilities, never()).require(anyString());
+    }
+
+    @Test
+    void rematchWindowDoesNotFetchByCursorOrAdvanceWatermark() {
+        prepareManualJob("SUCCEEDED", null, "cursor-9");
+        OaDocumentRecord overtime = record("OVERTIME:172");
+        when(source.fetchOverlapping(eq(SOURCE_ID), any(), any()))
+                .thenReturn(List.of(overtime));
+        when(pageTransaction.rematchRecords(
+                        any(), eq(PRINCIPAL), eq(CORRELATION_ID),
+                        eq(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
+                        eq(List.of(overtime))))
+                .thenReturn(new OaDocumentPageTransaction.PageCommitResult(1, 0));
+
+        JobStatus result = service().rematchWindow(
+                SOURCE_ID,
+                LocalDate.of(2026, 8, 1),
+                LocalDate.of(2026, 8, 31),
+                CORRELATION_ID);
+
+        assertThat(result.state()).isEqualTo("SUCCEEDED");
+        verify(source).fetchOverlapping(eq(SOURCE_ID), any(), any());
+        verify(source, never()).fetchPage(anyString(), any());
+        verify(pageTransaction, never()).commitPage(
+                any(), anyString(), anyString(), anyString(),
+                any(Integer.class), any());
+        verify(repository).markFinished(JOB_ID, "SUCCEEDED", NOW);
+        verify(repository, never()).advanceWatermark(
+                anyString(), any(Long.class), any(), any(), any());
     }
 
     private OaDocumentSyncApplicationService service() {

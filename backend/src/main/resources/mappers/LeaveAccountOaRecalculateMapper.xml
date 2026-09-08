@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper">
+
+    <select id="listActiveCompanyIds" resultType="string">
+        SELECT company_id
+        FROM company
+        WHERE status = 'ACTIVE'
+        ORDER BY company_id
+    </select>
+
+    <select id="listCompanyEmployments"
+            resultType="com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper$EmployeeEmploymentRow">
+        SELECT ea.employee_id AS employeeId,
+               ea.employment_period_id AS employmentPeriodId,
+               employee.company_id AS companyId
+        FROM employment_assignment ea
+        JOIN employee employee
+          ON employee.employee_id = ea.employee_id
+        WHERE employee.company_id = #{companyId}
+          AND ea.current_version_marker = 1
+          AND ea.record_status = 'ACTIVE'
+          AND employee.employment_status = 'ACTIVE'
+          AND ea.effective_from &lt;= #{at}
+          AND (ea.effective_to IS NULL OR ea.effective_to &gt; #{at})
+    </select>
+
+    <select id="listOaHours"
+            resultType="com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper$OaHourRow">
+        SELECT employee_id AS employeeId,
+               kind AS kind,
+               SUM(recognized_minutes) AS recognizedMinutes
+        FROM (
+            SELECT fact.employee_id,
+                   fact.oa_attendance_document_id,
+                   CASE
+                       WHEN fact.document_type = 'LEAVE'
+                            AND (
+                                fact.leave_type_code IN ('ANNUAL', 'ANNUAL_LEAVE')
+                                OR fact.leave_type_code LIKE '%年假%'
+                            )
+                       THEN 'ANNUAL'
+                       WHEN fact.document_type = 'TIME_OFF'
+                       THEN 'TIME_OFF'
+                       WHEN fact.document_type = 'OVERTIME'
+                            AND (
+                                fact.leave_type_code LIKE '%COMPENSATORY%'
+                                OR fact.leave_type_code LIKE '%调休%'
+                            )
+                       THEN 'COMPENSATORY_OT'
+                       ELSE NULL
+                   END AS kind,
+                   MAX(fact.recognized_minutes) AS recognized_minutes
+            FROM attendance_report_oa_fact fact
+            JOIN attendance_report_projection projection
+              ON projection.attendance_report_projection_id =
+                 fact.attendance_report_projection_id
+            WHERE projection.company_id = #{companyId}
+              AND projection.status = 'PUBLISHED'
+              AND projection.formula_catalog_version =
+                  'FULL_CALCULATION_OA_FORM_HOURS_V8'
+              AND fact.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
+              AND COALESCE(fact.interval_start, fact.point_instant) &gt;= #{yearStart}
+              AND COALESCE(fact.interval_start, fact.point_instant) &lt; #{yearEndExclusive}
+            GROUP BY fact.employee_id,
+                     fact.oa_attendance_document_id,
+                     kind
+        ) documents
+        WHERE kind IS NOT NULL
+        GROUP BY employee_id, kind
+    </select>
+
+    <select id="listUnreversedOaSyncEntries"
+            resultType="com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper$OaSyncEntryRow">
+        SELECT entry.time_account_ledger_entry_id AS entryId,
+               entry.entry_type AS entryType,
+               entry.amount_hours AS amountHours
+        FROM time_account_ledger_entry entry
+        WHERE entry.time_account_id = #{accountId}
+          AND entry.source_type = 'OA_SYNC'
+          AND entry.entry_type IN ('USE', 'OVERTIME_CREDIT')
+          AND entry.business_date &gt;= #{yearStart}
+          AND entry.business_date &lt; #{yearEndExclusive}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM time_account_ledger_entry reversal
+              WHERE reversal.reversal_of_entry_id =
+                    entry.time_account_ledger_entry_id
+          )
+    </select>
+
+    <insert id="insertReversal">
+        INSERT INTO time_account_ledger_entry (
+            time_account_ledger_entry_id,
+            time_account_id,
+            sequence_no,
+            entry_type,
+            amount_hours,
+            source_type,
+            source_id,
+            business_date,
+            effective_from,
+            expires_on,
+            policy_version_id,
+            period_version_id,
+            close_snapshot_id,
+            request_id,
+            reversal_of_entry_id,
+            actor_id,
+            occurred_at
+        ) VALUES (
+            #{entryId},
+            #{accountId},
+            #{sequenceNo},
+            'REVERSAL',
+            #{amountHours},
+            #{sourceType},
+            #{sourceId},
+            #{businessDate},
+            #{businessDate},
+            NULL,
+            #{policyVersionId},
+            NULL,
+            NULL,
+            #{requestId},
+            #{reversalOfEntryId},
+            #{actorId},
+            #{occurredAt}
+        )
+    </insert>
+</mapper>

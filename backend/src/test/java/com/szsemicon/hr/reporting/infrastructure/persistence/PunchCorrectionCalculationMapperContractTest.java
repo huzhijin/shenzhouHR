@@ -38,6 +38,18 @@ class PunchCorrectionCalculationMapperContractTest {
                 "assignment.valid_to &gt; #{windowstart}");
     }
 
+    @Test
+    void standingPunchExemptionIsCompanyScopedByEmployeeNumber()
+            throws Exception {
+        String mapper = normalized(Files.readString(MAPPER));
+
+        assertThat(mapper).contains(
+                "from punch_exemption_assignment assignment",
+                "assignment.source = 'standing_list'",
+                "roster_employee.employee_number = listed_employee.employee_number",
+                "roster_employee.company_id = #{companyid}");
+    }
+
     private static String normalized(String value) {
         return value.replaceAll("\\s+", " ")
                 .trim()

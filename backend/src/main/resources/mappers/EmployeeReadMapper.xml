@@ -210,4 +210,15 @@
         employee.employee_id
         LIMIT #{limit} OFFSET #{offset}
     </select>
+
+    <select id="canAccessEmployee" resultType="boolean">
+        <include refid="peopleAsOfCte"/>
+        SELECT CASE WHEN COUNT(*) &gt; 0 THEN TRUE ELSE FALSE END
+        FROM employee employee
+        JOIN employee_at ON employee_at.employee_id = employee.employee_id
+        LEFT JOIN current_assignment
+          ON current_assignment.employee_id = employee.employee_id
+        WHERE employee.employee_id = #{employeeId}
+          AND <include refid="visibilityPredicate"/>
+    </select>
 </mapper>

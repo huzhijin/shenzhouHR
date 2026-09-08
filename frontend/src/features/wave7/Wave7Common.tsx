@@ -15,18 +15,28 @@ export function Wave7AsyncBoundary<T>({
   isEmpty,
   emptyTitle,
   emptyDescription = '当前授权范围内暂无可显示数据。',
+  loadingTitle,
+  loadingDescription,
   children,
 }: {
   loader: () => Promise<T>;
   isEmpty: (projection: T) => boolean;
   emptyTitle?: string;
   emptyDescription?: string;
+  loadingTitle?: string;
+  loadingDescription?: string;
   children: (projection: T) => ReactNode;
 }) {
   const { resource, reload } = useAsyncResource(loader, isEmpty, [loader]);
 
   if (resource.status === 'loading' || resource.status === 'partial-loading') {
-    return <StatePanel state={resource.status} />;
+    return (
+      <StatePanel
+        state={resource.status}
+        title={loadingTitle}
+        description={loadingDescription}
+      />
+    );
   }
   if (resource.status === 'empty') {
     return (
@@ -158,7 +168,6 @@ export function SelfServiceNavigation({ capabilities }: { capabilities: readonly
     { path: '/me/today', label: '今日', capability: 'ATTENDANCE_SELF:READ' },
     { path: '/me/records', label: '记录', capability: 'ATTENDANCE_SELF:READ' },
     { path: '/me/leave', label: '假期', capability: 'LEAVE_SELF:READ' },
-    { path: '/me/feedback', label: '反馈', capability: 'ATTENDANCE_FEEDBACK:READ' },
   ].filter((item) => capabilities.includes(item.capability));
 
   if (items.length === 0) return null;
@@ -215,26 +224,28 @@ function Wave7ErrorState({ error, onRetry }: {
 }) {
   if (
     error.status === 409
-    && error.code === 'ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY'
+    && (error.code === 'ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY'
+      || error.code === 'ATTENDANCE_DASHBOARD_SOURCE_NOT_READY')
   ) {
     return (
       <StatePanel
         state="empty"
-        title="今日异常考勤尚未生成"
-        description="当前公司的今日考勤结果尚未生成。完成数据同步后，还需完成考勤计算并发布正式投影，再刷新查看。"
+        title="今日考勤看板暂不可用"
+        description="工作台按当前授权范围内的花名册和今日打卡汇总。组织调整后刷新即可，不必等整月重新计算。请确认得力/OA 已同步后再刷新。"
         onRetry={error.retryable ? onRetry : undefined}
       />
     );
   }
   if (
     error.status === 409
-    && error.code === 'SELF_ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY'
+    && (error.code === 'SELF_ATTENDANCE_DASHBOARD_PROJECTION_NOT_READY'
+      || error.code === 'SELF_ATTENDANCE_DASHBOARD_SOURCE_NOT_READY')
   ) {
     return (
       <StatePanel
         state="empty"
-        title="本人考勤工作台尚未生成"
-        description="本人的当月考勤结果尚未生成或尚未发布。完成数据同步后，还需完成考勤计算并发布正式投影，再刷新查看。"
+        title="本人考勤工作台暂不可用"
+        description="本人的当月考勤还不能安全计算。请先确认得力/OA 已同步成功，再刷新查看，不必再做报表发布。"
         onRetry={error.retryable ? onRetry : undefined}
       />
     );
@@ -244,6 +255,16 @@ function Wave7ErrorState({ error, onRetry }: {
   }
   if (error.status === 403 || error.status === 404) {
     return <StatePanel state="403" description="当前账号无权访问该内容。" />;
+  }
+  if (error.status === 408 || error.code === 'REQUEST_TIMEOUT') {
+    return (
+      <StatePanel
+        state="error"
+        title="工作台加载超时"
+        description="查询时间较长，请刷新重试。这不是网络断开。"
+        onRetry={error.retryable ? onRetry : undefined}
+      />
+    );
   }
   // Correlation metadata remains on the gateway error for diagnostics, not end-user display.
   return (

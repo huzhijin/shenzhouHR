@@ -31,6 +31,8 @@ export interface AttendanceSourceView {
   configurationRevision: number;
   committedWatermark: string | null;
   lastSuccessfulSyncAt: string | null;
+  lastFailedSyncAt: string | null;
+  lastFailureReason: string | null;
   rowVersion: number;
 }
 
@@ -59,6 +61,13 @@ export interface OaDocumentView {
   employeeNumber: string | null;
   intervalStart: string | null;
   intervalEndExclusive: string | null;
+  employeeName?: string | null;
+  department?: string | null;
+  leaveType?: string | null;
+  overtimeTreatment?: string | null;
+  payrollCreditMinutes?: number | null;
+  timeOffCreditMinutes?: number | null;
+  recognizedWorkMinutes?: number | null;
 }
 
 export interface IntegrationStatusView {

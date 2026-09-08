@@ -12,7 +12,9 @@ import com.szsemicon.hr.shared.validation.IdempotencyKeyPolicy;
 import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -104,7 +106,8 @@ public class DeliPunchSyncApplicationService {
                         Objects.requireNonNull(result.job()),
                         "SYSTEM",
                         correlationId,
-                        CapabilityCodes.ATTENDANCE_SOURCE_RUN);
+                        CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                        null);
                 recordCount = Math.addExact(
                         recordCount,
                         Math.addExact(
@@ -130,6 +133,11 @@ public class DeliPunchSyncApplicationService {
 
     public AttendanceSourceSyncModels.JobStatus run(
             String sourceId, String correlationId) {
+        return run(sourceId, correlationId, null);
+    }
+
+    public AttendanceSourceSyncModels.JobStatus run(
+            String sourceId, String correlationId, LocalDate throughDate) {
         requireReference(sourceId, 36);
         requireReference(correlationId, 64);
         capabilities.require(CapabilityCodes.ATTENDANCE_SOURCE_RUN);
@@ -203,7 +211,8 @@ public class DeliPunchSyncApplicationService {
                 job,
                 principalId,
                 correlationId,
-                CapabilityCodes.ATTENDANCE_SOURCE_RUN);
+                CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                throughDate);
     }
 
     public AttendanceSourceSyncModels.JobStatus retry(
@@ -311,14 +320,16 @@ public class DeliPunchSyncApplicationService {
                 job,
                 principalId,
                 correlationId,
-                CapabilityCodes.ATTENDANCE_SOURCE_RETRY);
+                CapabilityCodes.ATTENDANCE_SOURCE_RETRY,
+                null);
     }
 
     private AttendanceSourceSyncModels.JobStatus execute(
             AttendanceSourceSyncModels.SourceJobStart job,
             String principalId,
             String correlationId,
-            String executionCapability) {
+            String executionCapability,
+            LocalDate throughDate) {
         String jobId = job.jobId();
 
         DeliPunchSourcePort source =
@@ -348,43 +359,65 @@ public class DeliPunchSyncApplicationService {
 
         int quarantined = 0;
         try {
-            // A complete employee directory is required before any check-in
-            // page is requested. Continuing after a directory failure would
-            // turn a protocol problem into silently quarantined evidence.
+            // Confirm the live org tree first. Punch identity still uses the
+            // punch empno / employee_num, not directory id. A directory
+            // failure must stop before check-in pages.
+            int departmentCount = fetchDepartmentDirectory(
+                    source, job.sourceId());
+            org.slf4j.LoggerFactory.getLogger(getClass())
+                    .info("Deli department directory ready: source={} count={}",
+                            job.sourceId(), departmentCount);
             Map<String, String> employeeDirectory = fetchEmployeeDirectory(
                     source, job.sourceId());
-            var fetchSettings = fetchSettings(job, employeeDirectory);
+            var fetchSettings = fetchSettings(
+                    job,
+                    employeeDirectory,
+                    DeliPunchSourcePort.FetchSettings.MODULE_CHECKIN);
+            var kqSettings = fetchSettings(
+                    job,
+                    employeeDirectory,
+                    DeliPunchSourcePort.FetchSettings.MODULE_KQ);
             repository.markRunning(jobId, clock.instant());
-            String cursor = job.committedCursor();
-            Set<String> seenCursors = new HashSet<>();
-            seenCursors.add(cursor == null ? "0" : cursor);
-            int pageNumber = 0;
-            while (true) {
-                if (pageNumber >= MAX_PAGES_PER_RUN) {
-                    throw new AttendanceSourceSyncFailure(
-                            "DELI_PAGE_LIMIT_REACHED");
-                }
-                DeliPunchSourcePort.DeliPage page = fetchWithRetry(
-                        source, job, cursor, fetchSettings);
-                if (isTerminalEmptyPage(page, cursor)) {
-                    break;
-                }
-                requireForwardCursor(page, seenCursors);
-                pageNumber++;
-                var outcome = pageTransaction.commitPage(
-                        job,
-                        principalId,
-                        correlationId,
-                        executionCapability,
-                        pageNumber,
-                        page,
-                        configurationResolver,
-                        periodProtection);
-                quarantined = Math.addExact(
-                        quarantined, outcome.quarantinedCount());
-                cursor = page.nextCursor();
-                applyRateLimit(job.rateLimitPerMinute());
+            Instant windowStart = null;
+            Instant windowEndExclusive = null;
+            if (throughDate != null) {
+                ZoneId zone = ZoneId.of(job.sourceTimeZone());
+                windowStart = throughDate.atStartOfDay(zone).toInstant();
+                windowEndExclusive = throughDate.plusDays(1)
+                        .atStartOfDay(zone)
+                        .toInstant();
             }
+            StreamProgress progress = pageUntilEmpty(
+                    source,
+                    job,
+                    principalId,
+                    correlationId,
+                    executionCapability,
+                    configurationResolver,
+                    periodProtection,
+                    fetchSettings,
+                    job.committedCursor(),
+                    0,
+                    0,
+                    false,
+                    windowStart,
+                    windowEndExclusive);
+            progress = pageUntilEmpty(
+                    source,
+                    job,
+                    principalId,
+                    correlationId,
+                    executionCapability,
+                    configurationResolver,
+                    periodProtection,
+                    kqSettings,
+                    repository.findKqCommittedCursor(job.sourceId()),
+                    progress.pageNumber(),
+                    progress.quarantined(),
+                    true,
+                    windowStart,
+                    windowEndExclusive);
+            quarantined = progress.quarantined();
             repository.markFinished(
                     jobId,
                     quarantined == 0
@@ -440,6 +473,20 @@ public class DeliPunchSyncApplicationService {
         return values.size() == 1 ? values.getFirst() : null;
     }
 
+    private static int fetchDepartmentDirectory(
+            DeliPunchSourcePort source, String sourceId) {
+        try {
+            var departments = source.fetchDepartmentDirectory(sourceId);
+            if (departments == null) {
+                throw new AttendanceSourceSyncFailure(
+                        "DELI_DEPARTMENT_DIRECTORY_CONTRACT_INVALID");
+            }
+            return departments.size();
+        } catch (DeliPunchSourcePort.FetchException exception) {
+            throw new AttendanceSourceSyncFailure(exception.safeCode());
+        }
+    }
+
     private static Map<String, String> fetchEmployeeDirectory(
             DeliPunchSourcePort source, String sourceId) {
         try {
@@ -457,7 +504,8 @@ public class DeliPunchSyncApplicationService {
 
     private static DeliPunchSourcePort.FetchSettings fetchSettings(
             AttendanceSourceSyncModels.SourceJobStart job,
-            Map<String, String> employeeDirectory) {
+            Map<String, String> employeeDirectory,
+            String apiModule) {
         if (job.rateLimitPerMinute() < 60
                 || job.rateLimitPerMinute() > 10_000
                 || job.backoffSeconds() < 0
@@ -469,11 +517,141 @@ public class DeliPunchSyncApplicationService {
             return new DeliPunchSourcePort.FetchSettings(
                     job.pageSize(),
                     ZoneId.of(job.sourceTimeZone()),
-                    employeeDirectory);
+                    employeeDirectory,
+                    apiModule);
         } catch (RuntimeException exception) {
             throw new AttendanceSourceSyncFailure(
                     "DELI_RUNTIME_CONFIGURATION_INVALID");
         }
+    }
+
+    private StreamProgress pageUntilEmpty(
+            DeliPunchSourcePort source,
+            AttendanceSourceSyncModels.SourceJobStart job,
+            String principalId,
+            String correlationId,
+            String executionCapability,
+            AttendanceConfigurationResolverPort configurationResolver,
+            AttendancePeriodProtectionPort periodProtection,
+            DeliPunchSourcePort.FetchSettings fetchSettings,
+            String startCursor,
+            int pageNumber,
+            int quarantined,
+            boolean kqStream,
+            Instant windowStart,
+            Instant windowEndExclusive) {
+        String cursor = startCursor;
+        Set<String> seenCursors = new HashSet<>();
+        seenCursors.add(cursor == null ? "0" : cursor);
+        while (true) {
+            if (pageNumber >= MAX_PAGES_PER_RUN) {
+                throw new AttendanceSourceSyncFailure(
+                        "DELI_PAGE_LIMIT_REACHED");
+            }
+            DeliPunchSourcePort.DeliPage page = fetchWithRetry(
+                    source, job, cursor, fetchSettings);
+            if (isTerminalEmptyPage(page, cursor)) {
+                return new StreamProgress(pageNumber, quarantined);
+            }
+            requireForwardCursor(page, seenCursors);
+            DeliPunchSourcePort.DeliPage toCommit = page;
+            boolean advanceWatermark = true;
+            boolean stopAfterCommit = false;
+            if (windowEndExclusive != null) {
+                Instant start = windowStart == null
+                        ? Instant.EPOCH
+                        : windowStart;
+                List<DeliPunchSourcePort.DeliPunchRecord> inWindow =
+                        new ArrayList<>();
+                boolean afterWindow = false;
+                for (var record : page.records()) {
+                    Instant at = record.punchInstant();
+                    if (!at.isBefore(windowEndExclusive)) {
+                        afterWindow = true;
+                    } else if (!at.isBefore(start)) {
+                        inWindow.add(record);
+                    }
+                }
+                toCommit = new DeliPunchSourcePort.DeliPage(
+                        inWindow,
+                        page.inputCursor(),
+                        page.nextCursor(),
+                        page.pageDigest());
+                if (afterWindow) {
+                    if (inWindow.isEmpty()) {
+                        return new StreamProgress(pageNumber, quarantined);
+                    }
+                    advanceWatermark = false;
+                    stopAfterCommit = true;
+                }
+            }
+            pageNumber++;
+            var outcome = commitFetchedPage(
+                    job,
+                    principalId,
+                    correlationId,
+                    executionCapability,
+                    pageNumber,
+                    toCommit,
+                    configurationResolver,
+                    periodProtection,
+                    kqStream,
+                    advanceWatermark);
+            quarantined = Math.addExact(
+                    quarantined, outcome.quarantinedCount());
+            if (stopAfterCommit) {
+                return new StreamProgress(pageNumber, quarantined);
+            }
+            cursor = page.nextCursor();
+            applyRateLimit(job.rateLimitPerMinute());
+        }
+    }
+
+    private DeliPunchPageTransaction.PageCommitResult commitFetchedPage(
+            AttendanceSourceSyncModels.SourceJobStart job,
+            String principalId,
+            String correlationId,
+            String executionCapability,
+            int pageNumber,
+            DeliPunchSourcePort.DeliPage page,
+            AttendanceConfigurationResolverPort configurationResolver,
+            AttendancePeriodProtectionPort periodProtection,
+            boolean kqStream,
+            boolean advanceWatermark) {
+        if (!advanceWatermark) {
+            return pageTransaction.commitPageWithoutAdvancingWatermark(
+                    job,
+                    principalId,
+                    correlationId,
+                    executionCapability,
+                    pageNumber,
+                    page,
+                    configurationResolver,
+                    periodProtection,
+                    kqStream);
+        }
+        return kqStream
+                ? pageTransaction.commitKqPage(
+                        job,
+                        principalId,
+                        correlationId,
+                        executionCapability,
+                        pageNumber,
+                        page,
+                        configurationResolver,
+                        periodProtection)
+                : pageTransaction.commitPage(
+                        job,
+                        principalId,
+                        correlationId,
+                        executionCapability,
+                        pageNumber,
+                        page,
+                        configurationResolver,
+                        periodProtection);
+    }
+
+    private record StreamProgress(int pageNumber, int quarantined) {
     }
 
     private static DeliPunchSourcePort.DeliPage fetchWithRetry(

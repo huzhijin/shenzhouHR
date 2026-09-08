@@ -109,6 +109,16 @@ class AttendanceReportDataScopeSqlContractTest {
                                 + "current_assignment.organization_id")
                 .contains("principal.employee_id = fact.employee_id");
 
+        String organizationFilter = between(
+                xml,
+                "<sql id=\"factInSelectedOrganizationOrDescendant\">",
+                "</sql>");
+        assertThat(organizationFilter)
+                .contains("fact.organization_id = #{organizationId}")
+                .contains("WITH RECURSIVE organization_subtree")
+                .contains("child.parent_organization_id")
+                .contains("organization_current_closure closure");
+
         assertThat(count(xml, "<include refid=\"reportFactVisibility\"/>"))
                 .as("all enumerated fact reads must share one scope predicate")
                 .isEqualTo(FACT_QUERY_IDS.size());
@@ -121,7 +131,9 @@ class AttendanceReportDataScopeSqlContractTest {
                             "fact.attendance_report_projection_id ="
                                     + " #{projectionId}")
                     .contains("fact.company_id = #{companyId}")
-                    .contains("fact.organization_id = #{organizationId}")
+                    .contains(
+                            "<include refid=\""
+                                    + "factInSelectedOrganizationOrDescendant\"/>")
                     .doesNotContain(" OFFSET ")
                     .doesNotContain(" COUNT(");
         }
@@ -157,7 +169,7 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("projection.status = 'PUBLISHED'")
                 .containsPattern(
                         "projection\\.formula_catalog_version\\s*=\\s*"
-                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
+                                + "'FULL_CALCULATION_OA_FORM_HOURS_V8'")
                 .contains("projection.published_at &lt;= #{authorizationTime}")
                 .contains("#{companyId} IS NULL")
                 .contains(
@@ -167,7 +179,7 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("newer_projection.company_id =")
                 .containsPattern(
                         "newer_projection\\.formula_catalog_version\\s*=\\s*"
-                                + "'FULL_CALCULATION_OVERTIME_CLASSIFICATION_V2'")
+                                + "'FULL_CALCULATION_OA_FORM_HOURS_V8'")
                 .contains("ORDER BY projection.company_id")
                 .contains(
                         "projection.attendance_report_projection_id DESC")
@@ -187,9 +199,11 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("company.name AS company_name")
                 .contains("company.status = 'ACTIVE'")
                 .contains("principal.status = 'ACTIVE'")
-                .contains(
-                        "capability.capability_code ="
-                                + " 'ATTENDANCE_REPORT:READ'")
+                .contains("capability.capability_code = #{capabilityCode}")
+                .contains("'ATTENDANCE_REPORT:READ'")
+                .contains("'ATTENDANCE_DASHBOARD:READ'")
+                .contains("'ATTENDANCE_SELF:READ'")
+                .contains("'ATTENDANCE_REPORT:REFRESH'")
                 .contains("role_assignment.valid_from")
                 .contains("role_assignment.valid_to")
                 .contains("data_scope.valid_from")
@@ -231,6 +245,9 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("scoped_version.effective_from")
                 .contains("scoped_version.effective_to")
                 .contains("self_employee.company_id =")
+                .contains("'ATTENDANCE_DASHBOARD:READ'")
+                .contains("'ATTENDANCE_SELF:READ'")
+                .contains("'ATTENDANCE_REPORT:REFRESH'")
                 .doesNotContain("attendance_report_projection")
                 .doesNotContain("${");
         assertThat(organizationQuery)

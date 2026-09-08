@@ -61,9 +61,15 @@ export function StatePanel({
         className="async-state"
         data-state={state}
         aria-busy="true"
-        aria-label={translate('state.loading')}
+        aria-label={title ?? translate('state.loading')}
         aria-live="polite"
       >
+        {title || description ? (
+          <div className="state-panel state-panel--loading">
+            {title ? <h2>{title}</h2> : null}
+            {description ? <p>{description}</p> : null}
+          </div>
+        ) : null}
         <Skeleton active paragraph={{ rows: 6 }} />
       </section>
     );

@@ -80,6 +80,12 @@ public enum LeaveType {
     PRENATAL_NURSING,
 
     /**
+     * Breastfeeding time (哺乳假) — one paid hour each workday. Counts as
+     * attendance. Weekend hours are excluded.
+     */
+    BREASTFEEDING,
+
+    /**
      * Personal leave (事假) — unpaid leave for personal reasons. Does NOT
      * count as attendance.
      */
@@ -89,7 +95,17 @@ public enum LeaveType {
      * Compensatory time-off (调休) — time off in lieu of overtime worked.
      * Counts as attendance.
      */
-    COMPENSATORY;
+    COMPENSATORY,
+
+    /**
+     * Family-planning leave (计生假). Counts as attendance and includes weekends.
+     */
+    FAMILY_PLANNING,
+
+    /**
+     * Catch-all OA leave (其他). Counts as attendance and includes weekends.
+     */
+    OTHER;
 
     /**
      * Returns the database leave code string corresponding to this enum value.
@@ -107,9 +123,12 @@ public enum LeaveType {
             case PATERNITY -> "PATERNITY_LEAVE";
             case BEREAVEMENT -> "BEREAVEMENT_LEAVE";
             case WORK_INJURY -> "WORK_INJURY_LEAVE";
-            case PRENATAL_NURSING -> "PRENATAL_EXAM_TIME"; // Represents both prenatal and nursing
+            case PRENATAL_NURSING -> "PRENATAL_EXAM_TIME";
+            case BREASTFEEDING -> "BREASTFEEDING_TIME";
             case PERSONAL -> "PERSONAL_LEAVE";
             case COMPENSATORY -> "TIME_OFF";
+            case FAMILY_PLANNING -> "FAMILY_PLANNING_LEAVE";
+            case OTHER -> "OTHER_LEAVE";
         };
     }
 
@@ -132,9 +151,12 @@ public enum LeaveType {
             case "PATERNITY_LEAVE" -> PATERNITY;
             case "BEREAVEMENT_LEAVE" -> BEREAVEMENT;
             case "WORK_INJURY_LEAVE" -> WORK_INJURY;
-            case "PRENATAL_EXAM_TIME", "BREASTFEEDING_TIME", "NURSING_LEAVE" -> PRENATAL_NURSING;
+            case "PRENATAL_EXAM_TIME", "NURSING_LEAVE" -> PRENATAL_NURSING;
+            case "BREASTFEEDING_TIME" -> BREASTFEEDING;
             case "PERSONAL_LEAVE" -> PERSONAL;
             case "TIME_OFF" -> COMPENSATORY;
+            case "FAMILY_PLANNING_LEAVE" -> FAMILY_PLANNING;
+            case "OTHER_LEAVE" -> OTHER;
             default -> null;
         };
     }
@@ -153,5 +175,18 @@ public enum LeaveType {
      */
     public boolean countsAsAttendance() {
         return this != PERSONAL;
+    }
+
+    /**
+     * Weekend and public-holiday hours are included for calendar leave types
+     * (产假, 陪产假, 丧假, 病假, 计生假, and others) and excluded for 年休假,
+     * 调休假, 事假, 婚假, and 哺乳假.
+     */
+    public boolean includesWeekendHours() {
+        return this != ANNUAL
+                && this != COMPENSATORY
+                && this != PERSONAL
+                && this != BREASTFEEDING
+                && this != MARRIAGE;
     }
 }

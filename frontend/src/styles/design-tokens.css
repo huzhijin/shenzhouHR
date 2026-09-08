@@ -289,6 +289,26 @@
   --accent: var(--color-brand-primary);
 }
 
+[data-theme='night'] {
+  --color-canvas: oklch(21.01% 0.0318 264.66);
+  --color-on-canvas: oklch(95.95% 0.0080 253.85);
+  --color-surface: oklch(27.81% 0.0296 256.85);
+  --color-on-surface: oklch(95.95% 0.0080 253.85);
+  --color-surface-subtle: oklch(32% 0.03 256);
+  --color-on-surface-subtle: oklch(86.90% 0.0198 252.89);
+  --color-text-primary: oklch(95.95% 0.0080 253.85);
+  --color-text-secondary: oklch(86.90% 0.0198 252.89);
+  --color-text-muted: oklch(71.07% 0.0351 256.79);
+  --color-border: oklch(44.55% 0.0374 257.28);
+  --color-info-soft: oklch(33.96% 0.1087 262.08);
+  --color-on-info-soft: oklch(95.38% 0.0161 262.75);
+  --bg: var(--color-canvas);
+  --surface: var(--color-surface);
+  --fg: var(--color-text-primary);
+  --muted: var(--color-text-muted);
+  --border: var(--color-border);
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-instant: 0ms;

@@ -174,6 +174,34 @@ describe('firstAuthorizedPath', () => {
     )).toBe('attendance-punch-imports');
   });
 
+  it('exposes daily overtime and time-off daily query routes with query read', () => {
+    const menu = [
+      { key: 'attendance-query-leave-summary', label: '请假汇总', path: '/attendance/queries/leave-summary' },
+      { key: 'attendance-query-overtime-daily', label: '加班日报', path: '/attendance/queries/overtime-daily' },
+      { key: 'attendance-query-finance-overtime', label: '每日加班查询', path: '/attendance/queries/finance-overtime' },
+      { key: 'attendance-query-overtime-fee-daily', label: '每日加班费查询', path: '/attendance/queries/overtime-fee-daily' },
+      { key: 'attendance-query-overtime-voluntary-daily', label: '每日义务加班查询', path: '/attendance/queries/overtime-voluntary-daily' },
+      { key: 'attendance-query-overtime-comp-daily', label: '每日调休查询', path: '/attendance/queries/overtime-comp-daily' },
+      { key: 'attendance-query-absence-stat', label: '旷工统计表', path: '/attendance/queries/absence-stat' },
+      { key: 'attendance-query-leave-stat', label: '请假统计表', path: '/attendance/queries/leave-stat' },
+      { key: 'attendance-query-daily-journal', label: '考勤日报', path: '/attendance/queries/daily-journal' },
+      { key: 'attendance-query-makeup', label: '补签', path: '/attendance/queries/makeup' },
+      { key: 'attendance-query-time-off-daily', label: '调休日报', path: '/attendance/queries/time-off-daily' },
+      { key: 'attendance-query-missed-punch-stat', label: '忘打卡统计表', path: '/attendance/queries/missed-punch-stat' },
+      { key: 'attendance-query-annual-leave-stat', label: '年假统计表', path: '/attendance/queries/annual-leave-stat' },
+      { key: 'attendance-query-time-off-stat', label: '调休统计表', path: '/attendance/queries/time-off-stat' },
+      { key: 'paper-overtime', label: '纸质加班单', path: '/attendance/paper-overtime' },
+    ];
+    expect(authorizedMenu({
+      capabilities: ['ATTENDANCE_REPORT_QUERY:READ'],
+      menu,
+    })).toEqual(menu.slice(0, 14));
+    expect(authorizedMenu({
+      capabilities: ['ATTENDANCE_REPORT_QUERY:READ', 'PAPER_OVERTIME:MANAGE'],
+      menu,
+    }).map((item) => item.path)).not.toContain('/attendance/paper-overtime');
+  });
+
   it('exposes each WAVE-7 route only with its exact read capability', () => {
     const menu = [
       { key: 'workbench', label: '管理看板', path: '/workbench' },

@@ -27,7 +27,7 @@ class AttendanceSourceSyncControllerTest {
         when(servletRequest.getAttribute(
                         CorrelationIdFilter.REQUEST_ATTRIBUTE))
                 .thenReturn("request-1");
-        when(dispatcher.run("oa-source-1", "request-1"))
+        when(dispatcher.run("oa-source-1", "request-1", null))
                 .thenReturn(expected);
         var controller = new AttendanceSourceSyncController(
                 dispatcher, jobService);
@@ -39,7 +39,7 @@ class AttendanceSourceSyncControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(response.getBody()).isSameAs(expected);
-        verify(dispatcher).run("oa-source-1", "request-1");
+        verify(dispatcher).run("oa-source-1", "request-1", null);
     }
 
     private static AttendanceSourceSyncModels.JobStatus status() {

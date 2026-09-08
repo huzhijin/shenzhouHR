@@ -25,6 +25,7 @@ import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.security.ResourceNotAvailableAccessDeniedException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -137,6 +138,7 @@ class DeliPunchSyncApplicationServiceTest {
                         "user-1",
                         ConfirmedBindingKind.DELI_EXT_ID,
                         "E001",
+                        null,
                         NOW,
                         "1785290400",
                         "Asia/Shanghai",
@@ -157,6 +159,7 @@ class DeliPunchSyncApplicationServiceTest {
                 .thenReturn(first);
         when(production.fetchPage("source-1", "1", settings))
                 .thenReturn(terminal);
+        stubKqTerminal(production, "source-1", 500, "Asia/Shanghai");
         prepareCreatedJob(null);
         when(pageTransaction.commitPage(
                         any(),
@@ -205,6 +208,179 @@ class DeliPunchSyncApplicationServiceTest {
     }
 
     @Test
+    void throughDateStopsBeforeTheNextShanghaiDayWithoutAdvancingWatermark() {
+        DeliPunchSourcePort production = productionSource();
+        var configuration =
+                mock(AttendanceConfigurationResolverPort.class);
+        var protection =
+                mock(AttendancePeriodProtectionPort.class);
+        var inDay = new DeliPunchSourcePort.DeliPunchRecord(
+                "in-day",
+                "version-1",
+                "user-1",
+                ConfirmedBindingKind.DELI_USER_ID,
+                "SZST0489",
+                null,
+                Instant.parse("2026-07-31T23:00:00Z"),
+                "1785510000",
+                "Asia/Shanghai",
+                Direction.AUTO,
+                "fp",
+                "terminal-1",
+                null,
+                "UNKNOWN",
+                true);
+        var nextDay = new DeliPunchSourcePort.DeliPunchRecord(
+                "next-day",
+                "version-2",
+                "user-2",
+                ConfirmedBindingKind.DELI_USER_ID,
+                "SZST0494",
+                null,
+                Instant.parse("2026-08-01T16:30:00Z"),
+                "1785576600",
+                "Asia/Shanghai",
+                Direction.AUTO,
+                "fp",
+                "terminal-2",
+                null,
+                "UNKNOWN",
+                true);
+        var mixed = new DeliPunchSourcePort.DeliPage(
+                List.of(inDay, nextDay),
+                "0",
+                "1",
+                "a".repeat(64));
+        var settings = new DeliPunchSourcePort.FetchSettings(
+                500, java.time.ZoneId.of("Asia/Shanghai"));
+        when(production.fetchPage("source-1", null, settings))
+                .thenReturn(mixed);
+        stubKqTerminal(production, "source-1", 500, "Asia/Shanghai");
+        when(pageTransaction.commitPageWithoutAdvancingWatermark(
+                        any(),
+                        eq(PRINCIPAL),
+                        eq("request-1"),
+                        eq(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
+                        eq(1),
+                        any(),
+                        eq(configuration),
+                        eq(protection),
+                        eq(false)))
+                .thenReturn(new DeliPunchPageTransaction.PageCommitResult(1, 0));
+        prepareCreatedJob(null);
+        var service = service(
+                Set.of(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
+                List.of(production),
+                List.of(configuration),
+                List.of(protection));
+
+        JobStatus result = service.run(
+                "source-1",
+                "request-1",
+                LocalDate.of(2026, 8, 1));
+
+        assertThat(result.state()).isEqualTo("SUCCEEDED");
+        verify(pageTransaction).commitPageWithoutAdvancingWatermark(
+                any(),
+                eq(PRINCIPAL),
+                eq("request-1"),
+                eq(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
+                eq(1),
+                org.mockito.ArgumentMatchers.argThat(page ->
+                        page.records().size() == 1
+                                && "in-day".equals(
+                                        page.records().getFirst()
+                                                .sourceRecordId())),
+                eq(configuration),
+                eq(protection),
+                eq(false));
+        verify(pageTransaction, never()).commitPage(
+                any(), any(), any(), any(), anyInt(),
+                any(), any(), any());
+        verify(production, times(1)).fetchPage("source-1", null, settings);
+    }
+
+    @Test
+    void authorizedRunCommitsKqPagesOnASeparateCursorAfterCheckin() {
+        DeliPunchSourcePort production = productionSource();
+        var configuration =
+                mock(AttendanceConfigurationResolverPort.class);
+        var protection =
+                mock(AttendancePeriodProtectionPort.class);
+        var checkinTerminal = new DeliPunchSourcePort.DeliPage(
+                List.of(), "0", "0", "b".repeat(64));
+        var kqPage = new DeliPunchSourcePort.DeliPage(
+                List.of(new DeliPunchSourcePort.DeliPunchRecord(
+                        "12851355327",
+                        "version-kq",
+                        "1191370861845925889",
+                        ConfirmedBindingKind.DELI_USER_ID,
+                        "SZST0542",
+                        null,
+                        NOW,
+                        "1785538386",
+                        "Asia/Shanghai",
+                        Direction.AUTO,
+                        "fp",
+                        "13750C_8D32C1032484A20A",
+                        null,
+                        "UNKNOWN",
+                        true)),
+                "12848301274",
+                "12852026233",
+                "c".repeat(64));
+        var kqTerminal = new DeliPunchSourcePort.DeliPage(
+                List.of(), "12852026233", "12852026233", "d".repeat(64));
+        var checkinSettings = new DeliPunchSourcePort.FetchSettings(
+                500, java.time.ZoneId.of("Asia/Shanghai"));
+        var kqSettings = new DeliPunchSourcePort.FetchSettings(
+                500,
+                java.time.ZoneId.of("Asia/Shanghai"),
+                java.util.Map.of(),
+                DeliPunchSourcePort.FetchSettings.MODULE_KQ);
+        when(production.fetchPage("source-1", null, checkinSettings))
+                .thenReturn(checkinTerminal);
+        when(repository.findKqCommittedCursor("source-1"))
+                .thenReturn("12848301274");
+        when(production.fetchPage("source-1", "12848301274", kqSettings))
+                .thenReturn(kqPage);
+        when(production.fetchPage("source-1", "12852026233", kqSettings))
+                .thenReturn(kqTerminal);
+        when(pageTransaction.commitKqPage(
+                        any(),
+                        eq(PRINCIPAL),
+                        eq("request-1"),
+                        eq(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
+                        eq(1),
+                        eq(kqPage),
+                        eq(configuration),
+                        eq(protection)))
+                .thenReturn(new DeliPunchPageTransaction.PageCommitResult(1, 0));
+        prepareCreatedJob(null);
+        var service = service(
+                Set.of(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
+                List.of(production),
+                List.of(configuration),
+                List.of(protection));
+
+        JobStatus result = service.run("source-1", "request-1");
+
+        assertThat(result.state()).isEqualTo("SUCCEEDED");
+        verify(pageTransaction, never()).commitPage(
+                any(), any(), any(), any(), anyInt(),
+                any(), any(), any());
+        verify(pageTransaction).commitKqPage(
+                any(),
+                eq(PRINCIPAL),
+                eq("request-1"),
+                eq(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
+                eq(1),
+                eq(kqPage),
+                eq(configuration),
+                eq(protection));
+    }
+
+    @Test
     void nonRetryableVendorFailureIsNotCalledAgain() {
         DeliPunchSourcePort production = productionSource();
         var settings = new DeliPunchSourcePort.FetchSettings(
@@ -248,6 +424,7 @@ class DeliPunchSyncApplicationServiceTest {
                         "safe",
                         true))
                 .thenReturn(terminal);
+        stubKqTerminal(production, "source-1", 500, "Asia/Shanghai");
         prepareCreatedJob(null);
         var service = service(
                 Set.of(CapabilityCodes.ATTENDANCE_SOURCE_RUN),
@@ -274,6 +451,7 @@ class DeliPunchSyncApplicationServiceTest {
                         "user-1",
                         ConfirmedBindingKind.DELI_EXT_ID,
                         "E001",
+                        null,
                         NOW,
                         "1785290400",
                         "Asia/Shanghai",
@@ -317,6 +495,7 @@ class DeliPunchSyncApplicationServiceTest {
                 75, java.time.ZoneId.of("Asia/Chongqing"));
         when(production.fetchPage("source-1", "41", settings))
                 .thenReturn(terminal);
+        stubKqTerminal(production, "source-1", 75, "Asia/Chongqing");
         var retryJob = new SourceJobStart(
                 "job-2",
                 "source-1",
@@ -510,6 +689,21 @@ class DeliPunchSyncApplicationServiceTest {
                 : status("FAILED", failureCode);
         when(repository.findCreatedJob("job-1", PRINCIPAL))
                 .thenReturn(Optional.of(status));
+    }
+
+    private static void stubKqTerminal(
+            DeliPunchSourcePort source,
+            String sourceId,
+            int pageSize,
+            String zone) {
+        var kqSettings = new DeliPunchSourcePort.FetchSettings(
+                pageSize,
+                java.time.ZoneId.of(zone),
+                java.util.Map.of(),
+                DeliPunchSourcePort.FetchSettings.MODULE_KQ);
+        when(source.fetchPage(sourceId, null, kqSettings))
+                .thenReturn(new DeliPunchSourcePort.DeliPage(
+                        List.of(), "0", "0", "k".repeat(64)));
     }
 
     private static DeliPunchSourcePort productionSource() {

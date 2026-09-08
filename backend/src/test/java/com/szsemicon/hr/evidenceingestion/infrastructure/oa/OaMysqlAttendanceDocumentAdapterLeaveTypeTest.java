@@ -25,6 +25,14 @@ class OaMysqlAttendanceDocumentAdapterLeaveTypeTest {
             assertThat(record.leaveType()).isEqualTo(LeaveType.PERSONAL);
             assertThat(record.effectiveCandidate()).isTrue();
         });
+        assertThat(fetch("计生假").records()).singleElement().satisfies(record -> {
+            assertThat(record.leaveType()).isEqualTo(LeaveType.FAMILY_PLANNING);
+            assertThat(record.effectiveCandidate()).isTrue();
+        });
+        assertThat(fetch("其他").records()).singleElement().satisfies(record -> {
+            assertThat(record.leaveType()).isEqualTo(LeaveType.OTHER);
+            assertThat(record.effectiveCandidate()).isTrue();
+        });
     }
 
     @Test
@@ -50,10 +58,10 @@ class OaMysqlAttendanceDocumentAdapterLeaveTypeTest {
         when(leaveResult.getString("member_id")).thenReturn("member-172");
         when(leaveResult.getString("employee_code")).thenReturn("E001");
         when(leaveResult.getString("leave_type_label")).thenReturn(label);
-        when(leaveResult.getTimestamp("start_dt"))
-                .thenReturn(Timestamp.from(Instant.parse("2026-08-15T01:00:00Z")));
-        when(leaveResult.getTimestamp("end_dt"))
-                .thenReturn(Timestamp.from(Instant.parse("2026-08-15T10:00:00Z")));
+        when(leaveResult.getObject("start_dt", java.time.LocalDateTime.class))
+                .thenReturn(java.time.LocalDateTime.parse("2026-08-15T09:00:00"));
+        when(leaveResult.getObject("end_dt", java.time.LocalDateTime.class))
+                .thenReturn(java.time.LocalDateTime.parse("2026-08-15T18:00:00"));
         when(leaveResult.getInt("approval_state")).thenReturn(3);
         when(leaveResult.getTimestamp("last_modified"))
                 .thenReturn(Timestamp.from(Instant.parse("2026-08-15T10:30:00Z")));

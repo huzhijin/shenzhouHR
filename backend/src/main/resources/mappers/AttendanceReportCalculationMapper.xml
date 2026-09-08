@@ -8,8 +8,11 @@
       Safe realtime freshness metadata. Provider cursors can contain opaque
       values and are intentionally excluded; the committed page digest binds
       the exact local page while committed_at is suitable for display.
+      Deli and OA are matched by employee number, not by the selected
+      company's source row, because the three org trees are independent.
     -->
     <select id="findAttendanceSourceVersions"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$SourceInputVersionRow">
         SELECT
             source.attendance_source_id AS source_id,
@@ -36,8 +39,7 @@
         LEFT JOIN attendance_sync_watermark watermark
           ON watermark.attendance_source_id = source.attendance_source_id
          AND watermark.committed_at &lt;= #{dataAsOf}
-        WHERE source.company_id = #{companyId}
-          AND source.status = 'ACTIVE'
+        WHERE source.status = 'ACTIVE'
           AND source.source_type IN ('DELI_CLOUD', 'OA_ATTENDANCE')
           AND source.created_at &lt;= #{dataAsOf}
         ORDER BY source.source_type, source.attendance_source_id
@@ -52,6 +54,7 @@
       Column order matches EmployeeIdentityIntervalRow component order.
     -->
     <select id="findEmployeeIdentityIntervals"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$EmployeeIdentityIntervalRow">
         SELECT
             employee.employee_id,
@@ -110,19 +113,30 @@
     </select>
 
     <!--
-      Activated punch points for the whole company-month in one read. The
-      lifecycle subquery keeps reversed or superseded events out of the
-      projection as they were known at dataAsOf, matching
-      AttendanceEvidenceMapper.findExactEvents without allowing a later
-      lifecycle fact to rewrite a historical report snapshot.
+      Activated punch points for the roster month in one read. Punches are
+      bound by employee number so a Deli fact stored under another source
+      company still attaches to the same 工号. The lifecycle subquery keeps
+      reversed or superseded events out of the projection as they were known
+      at dataAsOf, matching AttendanceEvidenceMapper.findExactEvents without
+      allowing a later lifecycle fact to rewrite a historical report snapshot.
     -->
     <select id="findActivatedPunchEvents"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchEventRow">
-        SELECT event.employee_id,
+        SELECT roster_employee.employee_id,
                event.point_instant
         FROM effective_attendance_event event
-        WHERE event.company_id = #{companyId}
-          AND event.event_kind = 'PUNCH_POINT'
+        JOIN employee roster_employee
+          ON roster_employee.company_id = #{companyId}
+         AND (
+                roster_employee.employee_id = event.employee_id
+                OR roster_employee.employee_number = (
+                    SELECT punch_employee.employee_number
+                    FROM employee punch_employee
+                    WHERE punch_employee.employee_id = event.employee_id
+                )
+         )
+        WHERE event.event_kind = 'PUNCH_POINT'
           AND event.point_instant IS NOT NULL
           AND event.created_at &lt;= #{dataAsOf}
           AND event.point_instant &gt;= #{windowStart}
@@ -146,6 +160,7 @@
       approval cannot leak into an earlier report snapshot.
     -->
     <select id="findApprovedPunchCorrections"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchCorrectionRow">
         SELECT
             correction.punch_correction_request_id AS requestId,
@@ -167,33 +182,125 @@
             correction.punch_correction_request_id
     </select>
 
+    <select id="findHrPunchAdjustments"
+            timeout="3600"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$HrPunchAdjustmentRow">
+        SELECT
+            adjustment.adjustment_id AS adjustmentId,
+            adjustment.employee_id AS employeeId,
+            adjustment.business_date AS businessDate,
+            adjustment.on_duty_at AS onDutyAt,
+            adjustment.off_duty_at AS offDutyAt,
+            adjustment.created_at AS createdAt,
+            adjustment.overtime_minutes_override AS overtimeMinutesOverride,
+            adjustment.cleared_exception_types AS clearedExceptionTypes,
+            adjustment.day_types AS dayTypes
+        FROM attendance_hr_punch_adjustment adjustment
+        WHERE adjustment.company_id = #{companyId}
+          AND adjustment.reversed_at IS NULL
+          AND adjustment.created_at &lt;= #{dataAsOf}
+          AND adjustment.business_date &gt;= #{periodStart}
+          AND adjustment.business_date &lt; #{periodEndExclusive}
+        ORDER BY
+            adjustment.employee_id,
+            adjustment.business_date,
+            adjustment.created_at
+    </select>
+
     <!--
-      EXECUTIVE is the confirmed permanent punch-exemption role. Company
-      scoping is anchored through employee; role codes alone are never a data
-      boundary.
+      EXECUTIVE is a permanent no-punch role. Match by 工号 across companies
+      because the HR account may sit under another legal entity. An open-ended
+      or still-current assignment covers the whole report window even if the
+      role was granted after the first day of the month.
     -->
     <select id="findPunchExemptionRoleIntervals"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchExemptionRoleIntervalRow">
         SELECT
-            employee.employee_id AS employeeId,
+            roster_employee.employee_id AS employeeId,
             assignment.valid_from AS validFrom,
             assignment.valid_to AS validTo
-        FROM employee employee
+        FROM employee roster_employee
+        JOIN employee role_employee
+          ON role_employee.employee_number = roster_employee.employee_number
         JOIN auth_principal principal
-          ON principal.employee_id = employee.employee_id
-         AND principal.status = 'ACTIVE'
+          ON principal.employee_id = role_employee.employee_id
         JOIN auth_principal_role_assignment assignment
           ON assignment.principal_id = principal.principal_id
         JOIN auth_role role
           ON role.role_id = assignment.role_id
          AND role.role_code = 'EXECUTIVE'
-        WHERE employee.company_id = #{companyId}
-          AND assignment.valid_from &lt; #{windowEndExclusive}
+        WHERE roster_employee.company_id = #{companyId}
           AND (
                 assignment.valid_to IS NULL
                 OR assignment.valid_to &gt; #{windowStart}
           )
-        ORDER BY employee.employee_id, assignment.valid_from
+        ORDER BY roster_employee.employee_id, assignment.valid_from
+    </select>
+
+    <select id="findStandingPunchExemptionIntervals"
+            timeout="3600"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchExemptionRoleIntervalRow">
+        SELECT
+            roster_employee.employee_id AS employeeId,
+            assignment.valid_from AS validFrom,
+            assignment.valid_to AS validTo
+        FROM punch_exemption_assignment assignment
+        JOIN employee listed_employee
+          ON listed_employee.employee_id = assignment.employee_id
+        JOIN employee roster_employee
+          ON roster_employee.employee_number = listed_employee.employee_number
+        WHERE roster_employee.company_id = #{companyId}
+          AND assignment.source = 'STANDING_LIST'
+          AND (
+                assignment.valid_to IS NULL
+                OR assignment.valid_to &gt; #{windowStart}
+          )
+        ORDER BY roster_employee.employee_id, assignment.valid_from
+    </select>
+
+    <select id="findCurrentOrganizationGraph"
+            timeout="3600"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$OrganizationGraphRow">
+        SELECT
+            identity.organization_id AS organizationId,
+            version.parent_organization_id AS parentOrganizationId,
+            version.name AS name,
+            version.org_type AS orgType
+        FROM organization_identity identity
+        JOIN organization_current_projection projection
+          ON projection.organization_id = identity.organization_id
+        JOIN organization_version version
+          ON version.organization_version_id = projection.current_version_id
+         AND version.organization_id = identity.organization_id
+         AND version.status = 'ACTIVE'
+        WHERE identity.company_id = #{companyId}
+          AND identity.identity_status = 'ACTIVE'
+    </select>
+
+    <select id="findCurrentOrganizationAncestors"
+            timeout="3600"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$OrganizationAncestorRow">
+        SELECT
+            closure.descendant_organization_id AS organizationId,
+            version.name AS ancestorName,
+            version.org_type AS ancestorOrgType,
+            closure.depth AS depth
+        FROM organization_current_closure closure
+        JOIN organization_identity descendant
+          ON descendant.organization_id = closure.descendant_organization_id
+         AND descendant.company_id = #{companyId}
+         AND descendant.identity_status = 'ACTIVE'
+        JOIN organization_identity ancestor
+          ON ancestor.organization_id = closure.ancestor_organization_id
+         AND ancestor.company_id = #{companyId}
+        JOIN organization_current_projection projection
+          ON projection.organization_id = ancestor.organization_id
+        JOIN organization_version version
+          ON version.organization_version_id = projection.current_version_id
+         AND version.organization_id = ancestor.organization_id
+         AND version.status = 'ACTIVE'
+        ORDER BY closure.descendant_organization_id ASC, closure.depth DESC
     </select>
 
     <!--
@@ -203,6 +310,7 @@
       ambiguous authority for one employee-day fails closed in the orchestrator.
     -->
     <select id="findPublishedCalendarDays"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$CalendarDayRow">
         WITH calendar_candidates AS (
             SELECT DISTINCT
@@ -399,6 +507,7 @@
       overtime classification.
     -->
     <select id="findEffectiveOaDocuments"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$OaDocumentRow">
         SELECT
             oa.source_business_key AS sourceBusinessKey,
@@ -406,11 +515,15 @@
             context.overtime_type AS overtimeType,
             oa.leave_type AS leaveType,
             employee.employee_number AS employeeNumber,
-            normalized.interval_start AS startInstant,
-            normalized.interval_end AS endInstant,
+            COALESCE(normalized.interval_start, normalized.point_instant)
+                    AS startInstant,
+            COALESCE(normalized.interval_end, normalized.point_instant)
+                    AS endInstant,
             raw.source_time_zone AS sourceTimeZone,
             oa.first_submitted_at AS firstSubmittedAt,
-            TRUE AS effectiveCandidate
+            TRUE AS effectiveCandidate,
+            oa.leave_serial AS leaveSerial,
+            oa.original_leave_serial AS originalLeaveSerial
         FROM (
             SELECT
                 document.*,
@@ -419,6 +532,14 @@
                         document.attendance_source_id,
                         document.source_business_key
                     ORDER BY
+                        CASE
+                            WHEN document.source_status IN (
+                                    'APPROVED',
+                                    'MODIFIED',
+                                    'SUPPLEMENTED') THEN 0
+                            WHEN document.source_status = 'UNKNOWN' THEN 1
+                            ELSE 2
+                        END,
                         document.knowledge_rank DESC,
                         document.created_at DESC,
                         document.oa_attendance_document_id DESC
@@ -438,15 +559,28 @@
          AND match_decision.match_status = 'MATCHED'
         JOIN employee employee
           ON employee.employee_id = match_decision.employee_id
-         AND employee.company_id = #{companyId}
         LEFT JOIN oa_attendance_document_context context
           ON context.oa_attendance_document_id =
              oa.oa_attendance_document_id
         WHERE oa.version_rank = 1
-          AND oa.source_status = 'APPROVED'
+          AND oa.source_status IN (
+                    'APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'UNKNOWN')
           AND oa.document_type &lt;&gt; 'TRIP'
-          AND normalized.interval_start &lt; #{windowEndExclusive}
-          AND normalized.interval_end &gt; #{windowStart}
+          AND (
+                (
+                    normalized.interval_start &lt; #{windowEndExclusive}
+                    AND normalized.interval_end &gt; #{windowStart}
+                )
+                OR (
+                    oa.document_type = 'PUNCH_CORRECTION'
+                    AND COALESCE(
+                            normalized.interval_start,
+                            normalized.point_instant) &gt;= #{windowStart}
+                    AND COALESCE(
+                            normalized.interval_start,
+                            normalized.point_instant) &lt; #{windowEndExclusive}
+                )
+          )
           AND (
                 oa.document_type &lt;&gt; 'OVERTIME'
                 OR (
@@ -467,6 +601,7 @@
       first amend the original leave interval in the evidence resolver.
     -->
     <select id="findReportableOaDocuments"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$OaReportFactRow">
         WITH ranked_document AS (
             SELECT
@@ -476,6 +611,14 @@
                         document.attendance_source_id,
                         document.source_business_key
                     ORDER BY
+                        CASE
+                            WHEN document.source_status IN (
+                                    'APPROVED',
+                                    'MODIFIED',
+                                    'SUPPLEMENTED') THEN 0
+                            WHEN document.source_status = 'UNKNOWN' THEN 1
+                            ELSE 2
+                        END,
                         document.knowledge_rank DESC,
                         document.created_at DESC,
                         document.oa_attendance_document_id DESC
@@ -491,10 +634,13 @@
             match_decision.employee_id AS employeeId,
             employee.employee_number AS employeeNumber,
             match_decision.employment_period_id AS employmentAssignmentId,
-            normalized.interval_start AS startInstant,
-            normalized.interval_end AS endInstant,
+            COALESCE(normalized.interval_start, normalized.point_instant)
+                    AS startInstant,
+            COALESCE(normalized.interval_end, normalized.point_instant)
+                    AS endInstant,
             oa.source_status AS sourceStatus,
-            oa.source_version AS sourceVersion
+            oa.source_version AS sourceVersion,
+            context.overtime_type AS overtimeType
         FROM ranked_document oa
         JOIN normalized_attendance_record normalized
           ON normalized.normalized_attendance_record_id =
@@ -502,22 +648,66 @@
          AND normalized.validation_status = 'VALID'
         JOIN raw_attendance_fact raw
           ON raw.raw_attendance_fact_id = normalized.raw_attendance_fact_id
-         AND raw.company_id = #{companyId}
         JOIN employee_match_decision match_decision
           ON match_decision.normalized_attendance_record_id =
              normalized.normalized_attendance_record_id
          AND match_decision.match_status = 'MATCHED'
         JOIN employee employee
           ON employee.employee_id = match_decision.employee_id
-         AND employee.company_id = #{companyId}
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id =
+             oa.oa_attendance_document_id
         WHERE oa.version_rank = 1
-          AND oa.source_status = 'APPROVED'
-          AND oa.document_type IN ('LEAVE', 'TIME_OFF')
-          AND normalized.interval_start &lt; #{windowEndExclusive}
-          AND normalized.interval_end &gt; #{windowStart}
+          AND oa.source_status IN (
+                    'APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'UNKNOWN')
+          AND oa.document_type IN (
+                'LEAVE',
+                'TIME_OFF',
+                'OVERTIME',
+                'OUTING',
+                'TRIP',
+                'PUNCH_CORRECTION',
+                'EXEMPT_PUNCH')
+          AND (
+                (
+                    normalized.interval_start &lt; #{windowEndExclusive}
+                    AND normalized.interval_end &gt; #{windowStart}
+                )
+                OR (
+                    oa.document_type = 'PUNCH_CORRECTION'
+                    AND COALESCE(
+                            normalized.interval_start,
+                            normalized.point_instant) &gt;= #{windowStart}
+                    AND COALESCE(
+                            normalized.interval_start,
+                            normalized.point_instant) &lt; #{windowEndExclusive}
+                )
+          )
         ORDER BY employee.employee_number,
                  normalized.interval_start,
                  oa.oa_attendance_document_id
+    </select>
+
+    <select id="countLateDaysBeforeWindow"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$EmployeeLateDayCountRow">
+        SELECT fact.employee_id AS employeeId,
+               COUNT(*) AS lateDays
+        FROM attendance_report_daily_fact fact
+        WHERE fact.attendance_report_projection_id = (
+                SELECT projection.attendance_report_projection_id
+                FROM attendance_report_projection projection
+                WHERE projection.company_id = #{companyId}
+                  AND projection.period_start = #{periodStart}
+                  AND projection.status = 'PUBLISHED'
+                ORDER BY projection.published_at DESC,
+                         projection.attendance_report_projection_id DESC
+                LIMIT 1
+          )
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt; #{beforeDate}
+          AND fact.late_minutes &gt; 0
+        GROUP BY fact.employee_id
     </select>
 
     <!--
@@ -528,6 +718,7 @@
       as the stable version written into the immutable projection.
     -->
     <select id="findTimeAccountSnapshots"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$TimeAccountSnapshotRow">
         WITH ledger_effect AS (
             SELECT
@@ -622,29 +813,45 @@
     </select>
 
     <!--
-      Resolve the complete V7/V11 scheduling authority as it was visible at
-      dataAsOf. Every business date must have exactly one active assignment /
-      group / calendar / shift candidate and exactly one enabled, published,
-      company-scoped PUNCH_WINDOW policy. Ambiguous or incomplete authority is
-      deliberately omitted (fail closed) rather than guessed.
+      Resolve scheduling as it was visible at dataAsOf. Realtime reports pick
+      the latest applicable shift version for that day (same rule as Deli
+      ingestion). Overlapping seasonal versions are not a publish gate and
+      must not empty the month. Other assignment / group / calendar
+      collisions are still omitted rather than guessed.
 
       Shift segments are stored in shift_version.segments_json. MySQL 8
       JSON_TABLE expands only WORK segments, preserving start/end day offsets
       for overnight shifts. Calendar shift overrides take precedence over the
       group's shift template, and SPECIAL_WORKDAY is scheduled like WORKDAY.
     -->
-    <select id="findScheduledWorkSegments"
-            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$ShiftSegmentRow">
-        WITH period_business_dates AS (
-            SELECT DISTINCT calendar_day.business_date
-            FROM work_calendar_day calendar_day
-            WHERE calendar_day.business_date &gt;= #{periodStart}
-              AND calendar_day.business_date &lt; #{periodEndExclusive}
+    <select id="findUniquePunchWindows"
+            timeout="120"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchWindowRow">
+        WITH date_ones AS (
+            SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3
+            UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+            UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
         ),
-        valid_punch_window_policy AS (
+        period_business_dates AS (
+            SELECT DATE_ADD(
+                    CAST(#{periodStart} AS DATE),
+                    INTERVAL (ones.n + 10 * tens.n) DAY) AS business_date
+            FROM date_ones ones
+            CROSS JOIN date_ones tens
+            WHERE (ones.n + 10 * tens.n) &lt; 62
+              AND DATE_ADD(
+                    CAST(#{periodStart} AS DATE),
+                    INTERVAL (ones.n + 10 * tens.n) DAY)
+                    &lt; #{periodEndExclusive}
+        ),
+        published_punch_windows AS (
             SELECT DISTINCT
-                business_date.business_date,
+                version.scope_id,
                 version.scoped_version_id,
+                version.effective_from,
+                version.effective_to,
+                publication.business_effective_from,
+                publication.event_sequence,
                 CAST(JSON_UNQUOTE(JSON_EXTRACT(
                     version.parameters_json,
                     '$.arrivalBeforeMinutes')) AS UNSIGNED)
@@ -661,10 +868,7 @@
                     version.parameters_json,
                     '$.departureAfterMinutes')) AS UNSIGNED)
                     AS departure_after_minutes
-            FROM period_business_dates business_date
-            JOIN attendance_policy_template template
-              ON template.template_code = 'PUNCH_WINDOW'
-             AND template.created_at &lt;= #{dataAsOf}
+            FROM attendance_policy_template template
             JOIN attendance_policy_scope policy_scope
               ON policy_scope.policy_template_id =
                     template.policy_template_id
@@ -672,20 +876,15 @@
              AND policy_scope.created_at &lt;= #{dataAsOf}
             JOIN attendance_policy_scoped_version version
               ON version.scope_id = policy_scope.scope_id
-             AND version.effective_from &lt;= business_date.business_date
-             AND (
-                    version.effective_to IS NULL
-                    OR version.effective_to &gt; business_date.business_date
-             )
              AND version.created_at &lt;= #{dataAsOf}
             JOIN attendance_policy_lifecycle_event publication
               ON publication.scope_id = version.scope_id
              AND publication.scoped_version_id = version.scoped_version_id
              AND publication.action = 'PUBLISHED'
-             AND publication.business_effective_from
-                    &lt;= business_date.business_date
              AND publication.recorded_at &lt;= #{dataAsOf}
-            WHERE JSON_TYPE(JSON_EXTRACT(
+            WHERE template.template_code = 'PUNCH_WINDOW'
+              AND template.created_at &lt;= #{dataAsOf}
+              AND JSON_TYPE(JSON_EXTRACT(
                         version.parameters_json, '$.enabled')) = 'BOOLEAN'
               AND JSON_UNQUOTE(JSON_EXTRACT(
                         version.parameters_json, '$.enabled')) = 'true'
@@ -717,12 +916,29 @@
                         version.parameters_json,
                         '$.departureAfterMinutes')) AS UNSIGNED)
                     BETWEEN 0 AND 720
-              AND NOT EXISTS (
+        ),
+        valid_punch_window_policy AS (
+            SELECT DISTINCT
+                business_date.business_date,
+                windows.scoped_version_id,
+                windows.arrival_before_minutes,
+                windows.arrival_after_minutes,
+                windows.departure_before_minutes,
+                windows.departure_after_minutes
+            FROM period_business_dates business_date
+            JOIN published_punch_windows windows
+              ON windows.effective_from &lt;= business_date.business_date
+             AND (
+                    windows.effective_to IS NULL
+                    OR windows.effective_to &gt; business_date.business_date
+             )
+             AND windows.business_effective_from
+                    &lt;= business_date.business_date
+            WHERE NOT EXISTS (
                     SELECT 1
                     FROM attendance_policy_lifecycle_event later
-                    WHERE later.scope_id = publication.scope_id
-                      AND later.event_sequence &gt;
-                            publication.event_sequence
+                    WHERE later.scope_id = windows.scope_id
+                      AND later.event_sequence &gt; windows.event_sequence
                       AND later.business_effective_from
                             &lt;= business_date.business_date
                       AND later.recorded_at &lt;= #{dataAsOf}
@@ -740,6 +956,120 @@
             FROM valid_punch_window_policy
             GROUP BY business_date
             HAVING COUNT(*) = 1
+        )
+        SELECT
+            business_date AS businessDate,
+            arrival_before_minutes AS arrivalBeforeMinutes,
+            arrival_after_minutes AS arrivalAfterMinutes,
+            departure_before_minutes AS departureBeforeMinutes,
+            departure_after_minutes AS departureAfterMinutes
+        FROM unique_punch_window_policy
+        ORDER BY business_date
+    </select>
+
+    <select id="findScheduledWorkSegments"
+            timeout="3600"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$ShiftSegmentRow">
+        WITH shift_template_names AS (
+            SELECT ranked.resource_id_ref AS shift_template_id,
+                   ranked.anchor_ref
+            FROM (
+                SELECT metadata.resource_id_ref,
+                       metadata.anchor_ref,
+                       ROW_NUMBER() OVER (
+                            PARTITION BY metadata.resource_id_ref
+                            ORDER BY
+                                CAST(COALESCE(metadata.policy_version, '0')
+                                     AS DECIMAL(20, 0)) DESC,
+                                metadata.occurred_at DESC,
+                                metadata.event_id DESC
+                       ) AS rn
+                FROM audit_event metadata
+                WHERE metadata.resource_type =
+                        'SHIFT_TEMPLATE_METADATA'
+                  AND metadata.action_code =
+                        'SHIFT_TEMPLATE_NAME_CAPTURED'
+                  AND metadata.occurred_at &lt;= #{dataAsOf}
+                  AND metadata.resource_id_ref IN (
+                        SELECT company_shift.shift_template_id
+                        FROM shift_template company_shift
+                        WHERE company_shift.company_id = #{companyId}
+                  )
+            ) ranked
+            WHERE ranked.rn = 1
+        ),
+        latest_group_template_status AS (
+            SELECT ranked.resource_id_ref AS shift_template_id,
+                   ranked.action_code
+            FROM (
+                SELECT latest_group_template.resource_id_ref,
+                       latest_group_template.action_code,
+                       ROW_NUMBER() OVER (
+                            PARTITION BY latest_group_template.resource_id_ref
+                            ORDER BY
+                                CASE
+                                    WHEN latest_group_template.policy_version
+                                        IS NULL
+                                    THEN 0 ELSE 1
+                                END DESC,
+                                CAST(COALESCE(
+                                    latest_group_template.policy_version,
+                                    '0') AS DECIMAL(20, 0)) DESC,
+                                latest_group_template.occurred_at DESC,
+                                latest_group_template.event_id DESC
+                       ) AS rn
+                FROM audit_event latest_group_template
+                WHERE latest_group_template.resource_type =
+                        'SHIFT_TEMPLATE'
+                  AND latest_group_template.action_code IN (
+                        'SHIFT_TEMPLATE_ACTIVE',
+                        'SHIFT_TEMPLATE_INACTIVE')
+                  AND latest_group_template.occurred_at
+                        &lt;= #{dataAsOf}
+                  AND latest_group_template.resource_id_ref IN (
+                        SELECT company_shift.shift_template_id
+                        FROM shift_template company_shift
+                        WHERE company_shift.company_id = #{companyId}
+                  )
+            ) ranked
+            WHERE ranked.rn = 1
+        ),
+        latest_effective_template_status AS (
+            SELECT ranked.resource_id_ref AS shift_template_id,
+                   ranked.action_code
+            FROM (
+                SELECT latest_effective_template.resource_id_ref,
+                       latest_effective_template.action_code,
+                       ROW_NUMBER() OVER (
+                            PARTITION BY
+                                latest_effective_template.resource_id_ref
+                            ORDER BY
+                                CASE
+                                    WHEN latest_effective_template.policy_version
+                                        IS NULL
+                                    THEN 0 ELSE 1
+                                END DESC,
+                                CAST(COALESCE(
+                                    latest_effective_template.policy_version,
+                                    '0') AS DECIMAL(20, 0)) DESC,
+                                latest_effective_template.occurred_at DESC,
+                                latest_effective_template.event_id DESC
+                       ) AS rn
+                FROM audit_event latest_effective_template
+                WHERE latest_effective_template.resource_type =
+                        'SHIFT_TEMPLATE'
+                  AND latest_effective_template.action_code IN (
+                        'SHIFT_TEMPLATE_ACTIVE',
+                        'SHIFT_TEMPLATE_INACTIVE')
+                  AND latest_effective_template.occurred_at
+                        &lt;= #{dataAsOf}
+                  AND latest_effective_template.resource_id_ref IN (
+                        SELECT company_shift.shift_template_id
+                        FROM shift_template company_shift
+                        WHERE company_shift.company_id = #{companyId}
+                  )
+            ) ranked
+            WHERE ranked.rn = 1
         ),
         schedule_candidates AS (
             SELECT DISTINCT
@@ -750,6 +1080,10 @@
                 calendar_version.work_calendar_version_id,
                 calendar_day.work_calendar_day_id,
                 effective_shift.shift_version_id,
+                COALESCE(
+                    shift_template_names.anchor_ref,
+                    effective_shift_template.template_code
+                ) AS shift_template_name,
                 CONCAT_WS(
                     '|',
                     assignment.attendance_group_assignment_id,
@@ -816,6 +1150,9 @@
              AND group_shift_template.company_id = employee.company_id
              AND group_shift_template.location_id = location.location_id
              AND group_shift_template.created_at &lt;= #{dataAsOf}
+            LEFT JOIN latest_group_template_status latest_group_template
+              ON latest_group_template.shift_template_id =
+                    group_shift_template.shift_template_id
             JOIN calendar_publication_timeline calendar_publication
               ON calendar_publication.work_calendar_id =
                     work_calendar.work_calendar_id
@@ -845,13 +1182,65 @@
                     OR effective_shift.shift_version_id =
                         calendar_day.shift_version_override_id
               )
+             AND effective_shift.effective_from
+                    &lt;= calendar_day.business_date
              AND effective_shift.created_at &lt;= #{dataAsOf}
+             AND EXISTS (
+                    SELECT 1
+                    FROM shift_publication_timeline current_shift_pub
+                    WHERE current_shift_pub.shift_template_id =
+                            effective_shift.shift_template_id
+                      AND current_shift_pub.shift_version_id =
+                            effective_shift.shift_version_id
+                      AND current_shift_pub.state = 'PUBLISHED'
+                      AND current_shift_pub.business_effective_from
+                            &lt;= calendar_day.business_date
+                      AND current_shift_pub.recorded_at &lt;= #{dataAsOf}
+             )
+             AND NOT EXISTS (
+                    SELECT 1
+                    FROM shift_version newer_shift_version
+                    WHERE newer_shift_version.shift_template_id =
+                            effective_shift.shift_template_id
+                      AND newer_shift_version.effective_from
+                            &lt;= calendar_day.business_date
+                      AND newer_shift_version.created_at &lt;= #{dataAsOf}
+                      AND (
+                            newer_shift_version.effective_from
+                                &gt; effective_shift.effective_from
+                            OR (
+                                newer_shift_version.effective_from =
+                                    effective_shift.effective_from
+                                AND newer_shift_version.version_number
+                                    &gt; effective_shift.version_number
+                            )
+                      )
+                      AND EXISTS (
+                            SELECT 1
+                            FROM shift_publication_timeline newer_shift_pub
+                            WHERE newer_shift_pub.shift_template_id =
+                                    newer_shift_version.shift_template_id
+                              AND newer_shift_pub.shift_version_id =
+                                    newer_shift_version.shift_version_id
+                              AND newer_shift_pub.state = 'PUBLISHED'
+                              AND newer_shift_pub.business_effective_from
+                                    &lt;= calendar_day.business_date
+                              AND newer_shift_pub.recorded_at
+                                    &lt;= #{dataAsOf}
+                      )
+             )
             JOIN shift_template effective_shift_template
               ON effective_shift_template.shift_template_id =
                     effective_shift.shift_template_id
              AND effective_shift_template.company_id = employee.company_id
              AND effective_shift_template.location_id = location.location_id
              AND effective_shift_template.created_at &lt;= #{dataAsOf}
+            LEFT JOIN latest_effective_template_status latest_effective_template
+              ON latest_effective_template.shift_template_id =
+                    effective_shift_template.shift_template_id
+            LEFT JOIN shift_template_names
+              ON shift_template_names.shift_template_id =
+                    effective_shift_template.shift_template_id
             JOIN shift_publication_timeline shift_publication
               ON shift_publication.shift_template_id =
                     effective_shift.shift_template_id
@@ -920,59 +1309,11 @@
                     effective_shift.time_zone_snapshot
               AND effective_shift.time_zone_snapshot = 'Asia/Shanghai'
               AND COALESCE(
-                    (
-                        SELECT latest_group_template.action_code
-                        FROM audit_event latest_group_template
-                        WHERE latest_group_template.resource_type =
-                                'SHIFT_TEMPLATE'
-                          AND latest_group_template.resource_id_ref =
-                                group_shift_template.shift_template_id
-                          AND latest_group_template.action_code IN (
-                                'SHIFT_TEMPLATE_ACTIVE',
-                                'SHIFT_TEMPLATE_INACTIVE')
-                          AND latest_group_template.occurred_at
-                                &lt;= #{dataAsOf}
-                        ORDER BY
-                            CASE
-                                WHEN latest_group_template.policy_version
-                                    IS NULL
-                                THEN 0 ELSE 1
-                            END DESC,
-                            CAST(COALESCE(
-                                latest_group_template.policy_version,
-                                '0') AS DECIMAL(20, 0)) DESC,
-                            latest_group_template.occurred_at DESC,
-                            latest_group_template.event_id DESC
-                        LIMIT 1
-                    ),
+                    (latest_group_template.action_code),
                     'SHIFT_TEMPLATE_ACTIVE'
               ) &lt;&gt; 'SHIFT_TEMPLATE_INACTIVE'
               AND COALESCE(
-                    (
-                        SELECT latest_effective_template.action_code
-                        FROM audit_event latest_effective_template
-                        WHERE latest_effective_template.resource_type =
-                                'SHIFT_TEMPLATE'
-                          AND latest_effective_template.resource_id_ref =
-                                effective_shift_template.shift_template_id
-                          AND latest_effective_template.action_code IN (
-                                'SHIFT_TEMPLATE_ACTIVE',
-                                'SHIFT_TEMPLATE_INACTIVE')
-                          AND latest_effective_template.occurred_at
-                                &lt;= #{dataAsOf}
-                        ORDER BY
-                            CASE
-                                WHEN latest_effective_template.policy_version
-                                    IS NULL
-                                THEN 0 ELSE 1
-                            END DESC,
-                            CAST(COALESCE(
-                                latest_effective_template.policy_version,
-                                '0') AS DECIMAL(20, 0)) DESC,
-                            latest_effective_template.occurred_at DESC,
-                            latest_effective_template.event_id DESC
-                        LIMIT 1
-                    ),
+                    (latest_effective_template.action_code),
                     'SHIFT_TEMPLATE_ACTIVE'
               ) &lt;&gt; 'SHIFT_TEMPLATE_INACTIVE'
               AND EXISTS (
@@ -1107,7 +1448,8 @@
               ON unique_key.employee_id = candidate.employee_id
              AND unique_key.business_date = candidate.business_date
         )
-        SELECT
+        SELECT /*+ SET_VAR(optimizer_switch='derived_merge=off')
+                   SET_VAR(optimizer_search_depth=1) */
             schedule.employee_id AS employeeId,
             schedule.business_date AS businessDate,
             CONCAT(
@@ -1116,25 +1458,12 @@
                 ':', schedule.segment_order) AS segmentId,
             schedule.segment_start_utc AS segmentStart,
             schedule.segment_end_utc AS segmentEnd,
-            DATE_SUB(
-                schedule.segment_start_utc,
-                INTERVAL punch_window.arrival_before_minutes MINUTE)
-                    AS arrivalWindowStart,
-            DATE_ADD(
-                schedule.segment_start_utc,
-                INTERVAL punch_window.arrival_after_minutes MINUTE)
-                    AS arrivalWindowEnd,
-            DATE_SUB(
-                schedule.segment_end_utc,
-                INTERVAL punch_window.departure_before_minutes MINUTE)
-                    AS departureWindowStart,
-            DATE_ADD(
-                schedule.segment_end_utc,
-                INTERVAL punch_window.departure_after_minutes MINUTE)
-                    AS departureWindowEnd
+            CAST(NULL AS DATETIME(6)) AS arrivalWindowStart,
+            CAST(NULL AS DATETIME(6)) AS arrivalWindowEnd,
+            CAST(NULL AS DATETIME(6)) AS departureWindowStart,
+            CAST(NULL AS DATETIME(6)) AS departureWindowEnd,
+            schedule.shift_template_name AS shiftTemplateName
         FROM resolved_schedule schedule
-        JOIN unique_punch_window_policy punch_window
-          ON punch_window.business_date = schedule.business_date
         ORDER BY
             schedule.employee_id,
             schedule.business_date,
@@ -1152,13 +1481,23 @@
       No wall-clock database function participates in historical projection.
     -->
     <select id="findAttendancePolicies"
+            timeout="3600"
             resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$AttendancePolicyRow">
-        WITH RECURSIVE business_dates (business_date) AS (
-            SELECT CAST(#{periodStart} AS DATE)
-            UNION ALL
-            SELECT DATE_ADD(business_date, INTERVAL 1 DAY)
-            FROM business_dates
-            WHERE DATE_ADD(business_date, INTERVAL 1 DAY)
+        WITH date_ones AS (
+            SELECT 0 AS n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3
+            UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+            UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+        ),
+        business_dates (business_date) AS (
+            SELECT DATE_ADD(
+                    CAST(#{periodStart} AS DATE),
+                    INTERVAL (ones.n + 10 * tens.n) DAY)
+            FROM date_ones ones
+            CROSS JOIN date_ones tens
+            WHERE (ones.n + 10 * tens.n) &lt; 62
+              AND DATE_ADD(
+                    CAST(#{periodStart} AS DATE),
+                    INTERVAL (ones.n + 10 * tens.n) DAY)
                     &lt; #{periodEndExclusive}
         ),
         group_authority_candidates AS (
@@ -1568,5 +1907,512 @@
         JOIN company_policy_summary company_policy
           ON company_policy.business_date = group_policy.business_date
         ORDER BY group_policy.employee_id, group_policy.business_date
+    </select>
+
+    <select id="findEmployeeIdentityIntervalsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$EmployeeIdentityIntervalRow">
+        SELECT
+            employee.employee_id,
+            employee_version.employee_version_id,
+            employee_version.employee_number,
+            employee_version.display_name AS employee_name,
+            employment.assignment_id AS employment_assignment_id,
+            organization.organization_id,
+            organization_version.organization_version_id,
+            organization_version.name AS organization_name,
+            employee_version.effective_from AS employee_version_from,
+            employee_version.effective_to AS employee_version_to,
+            DATE(employment.effective_from) AS employment_from,
+            DATE(employment.effective_to) AS employment_to,
+            DATE(organization_version.effective_from)
+                AS organization_version_from,
+            DATE(organization_version.effective_to)
+                AS organization_version_to
+        FROM employee employee
+        JOIN employee_version employee_version
+          ON employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt; #{periodEndExclusive}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{periodStart}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND DATE(employment.effective_from) &lt; #{periodEndExclusive}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{periodStart}
+         )
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.company_id = employee.company_id
+         AND organization.identity_status = 'ACTIVE'
+        JOIN organization_version organization_version
+          ON organization_version.organization_id =
+             organization.organization_id
+         AND organization_version.status = 'ACTIVE'
+         AND DATE(organization_version.effective_from)
+             &lt; #{periodEndExclusive}
+         AND (
+                organization_version.effective_to IS NULL
+                OR DATE(organization_version.effective_to) &gt; #{periodStart}
+         )
+        WHERE employee.company_id = #{companyId}
+          AND employee.employee_id = #{employeeId}
+        ORDER BY employee.employee_id,
+                 employee_version.employee_version_id,
+                 employment.assignment_id,
+                 organization_version.organization_version_id
+    </select>
+
+    <select id="findActivatedPunchEventsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchEventRow">
+        SELECT roster_employee.employee_id,
+               event.point_instant
+        FROM effective_attendance_event event
+        JOIN employee roster_employee
+          ON roster_employee.company_id = #{companyId}
+         AND roster_employee.employee_id = #{employeeId}
+         AND (
+                roster_employee.employee_id = event.employee_id
+                OR roster_employee.employee_number = (
+                    SELECT punch_employee.employee_number
+                    FROM employee punch_employee
+                    WHERE punch_employee.employee_id = event.employee_id
+                )
+         )
+        WHERE event.event_kind = 'PUNCH_POINT'
+          AND event.point_instant IS NOT NULL
+          AND event.created_at &lt;= #{dataAsOf}
+          AND event.point_instant &gt;= #{windowStart}
+          AND event.point_instant &lt; #{windowEndExclusive}
+          AND (
+                SELECT lifecycle.lifecycle_type
+                FROM effective_event_lifecycle_fact lifecycle
+                WHERE lifecycle.effective_attendance_event_id =
+                      event.effective_attendance_event_id
+                  AND lifecycle.knowledge_at &lt;= #{dataAsOf}
+                ORDER BY lifecycle.knowledge_at DESC,
+                         lifecycle.effective_event_lifecycle_fact_id DESC
+                LIMIT 1
+          ) = 'ACTIVATED'
+        ORDER BY event.employee_id, event.point_instant
+    </select>
+
+    <select id="findApprovedPunchCorrectionsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchCorrectionRow">
+        SELECT
+            correction.punch_correction_request_id AS requestId,
+            correction.employee_id AS employeeId,
+            correction.business_date AS businessDate,
+            correction.punch_side AS punchSide,
+            correction.reviewed_at AS reviewedAt
+        FROM punch_correction_request correction
+        JOIN employee employee
+          ON employee.employee_id = correction.employee_id
+         AND employee.company_id = #{companyId}
+        WHERE correction.status = 'APPROVED'
+          AND correction.employee_id = #{employeeId}
+          AND correction.reviewed_at &lt;= #{dataAsOf}
+          AND correction.business_date &gt;= #{periodStart}
+          AND correction.business_date &lt; #{periodEndExclusive}
+        ORDER BY
+            correction.employee_id,
+            correction.business_date,
+            correction.punch_correction_request_id
+    </select>
+
+    <select id="findHrPunchAdjustmentsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$HrPunchAdjustmentRow">
+        SELECT
+            adjustment.adjustment_id AS adjustmentId,
+            adjustment.employee_id AS employeeId,
+            adjustment.business_date AS businessDate,
+            adjustment.on_duty_at AS onDutyAt,
+            adjustment.off_duty_at AS offDutyAt,
+            adjustment.created_at AS createdAt,
+            adjustment.overtime_minutes_override AS overtimeMinutesOverride,
+            adjustment.cleared_exception_types AS clearedExceptionTypes,
+            adjustment.day_types AS dayTypes
+        FROM attendance_hr_punch_adjustment adjustment
+        WHERE adjustment.company_id = #{companyId}
+          AND adjustment.employee_id = #{employeeId}
+          AND adjustment.reversed_at IS NULL
+          AND adjustment.created_at &lt;= #{dataAsOf}
+          AND adjustment.business_date &gt;= #{periodStart}
+          AND adjustment.business_date &lt; #{periodEndExclusive}
+        ORDER BY
+            adjustment.employee_id,
+            adjustment.business_date,
+            adjustment.created_at
+    </select>
+
+    <select id="findPunchExemptionRoleIntervalsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchExemptionRoleIntervalRow">
+        SELECT
+            roster_employee.employee_id AS employeeId,
+            assignment.valid_from AS validFrom,
+            assignment.valid_to AS validTo
+        FROM employee roster_employee
+        JOIN employee role_employee
+          ON role_employee.employee_number = roster_employee.employee_number
+        JOIN auth_principal principal
+          ON principal.employee_id = role_employee.employee_id
+        JOIN auth_principal_role_assignment assignment
+          ON assignment.principal_id = principal.principal_id
+        JOIN auth_role role
+          ON role.role_id = assignment.role_id
+         AND role.role_code = 'EXECUTIVE'
+        WHERE roster_employee.company_id = #{companyId}
+          AND roster_employee.employee_id = #{employeeId}
+          AND (
+                assignment.valid_to IS NULL
+                OR assignment.valid_to &gt; #{windowStart}
+          )
+        ORDER BY roster_employee.employee_id, assignment.valid_from
+    </select>
+
+    <select id="findStandingPunchExemptionIntervalsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$PunchExemptionRoleIntervalRow">
+        SELECT
+            roster_employee.employee_id AS employeeId,
+            assignment.valid_from AS validFrom,
+            assignment.valid_to AS validTo
+        FROM punch_exemption_assignment assignment
+        JOIN employee listed_employee
+          ON listed_employee.employee_id = assignment.employee_id
+        JOIN employee roster_employee
+          ON roster_employee.employee_number = listed_employee.employee_number
+        WHERE roster_employee.company_id = #{companyId}
+          AND roster_employee.employee_id = #{employeeId}
+          AND assignment.source = 'STANDING_LIST'
+          AND (
+                assignment.valid_to IS NULL
+                OR assignment.valid_to &gt; #{windowStart}
+          )
+        ORDER BY roster_employee.employee_id, assignment.valid_from
+    </select>
+
+    <select id="findEffectiveOaDocumentsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$OaDocumentRow">
+        SELECT
+            oa.source_business_key AS sourceBusinessKey,
+            oa.document_type AS documentType,
+            context.overtime_type AS overtimeType,
+            oa.leave_type AS leaveType,
+            employee.employee_number AS employeeNumber,
+            COALESCE(normalized.interval_start, normalized.point_instant)
+                    AS startInstant,
+            COALESCE(normalized.interval_end, normalized.point_instant)
+                    AS endInstant,
+            raw.source_time_zone AS sourceTimeZone,
+            oa.first_submitted_at AS firstSubmittedAt,
+            TRUE AS effectiveCandidate,
+            oa.leave_serial AS leaveSerial,
+            oa.original_leave_serial AS originalLeaveSerial
+        FROM (
+            SELECT
+                document.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY
+                        document.attendance_source_id,
+                        document.source_business_key
+                    ORDER BY
+                        CASE
+                            WHEN document.source_status IN (
+                                    'APPROVED',
+                                    'MODIFIED',
+                                    'SUPPLEMENTED') THEN 0
+                            WHEN document.source_status = 'UNKNOWN' THEN 1
+                            ELSE 2
+                        END,
+                        document.knowledge_rank DESC,
+                        document.created_at DESC,
+                        document.oa_attendance_document_id DESC
+                ) AS version_rank
+            FROM oa_attendance_document document
+            WHERE document.created_at &lt;= #{dataAsOf}
+              AND document.normalized_attendance_record_id IN (
+                    SELECT match_decision.normalized_attendance_record_id
+                    FROM employee_match_decision match_decision
+                    WHERE match_decision.employee_id = #{employeeId}
+                      AND match_decision.match_status = 'MATCHED'
+              )
+        ) oa
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             oa.normalized_attendance_record_id
+         AND normalized.validation_status = 'VALID'
+        JOIN raw_attendance_fact raw
+          ON raw.raw_attendance_fact_id = normalized.raw_attendance_fact_id
+        JOIN employee_match_decision match_decision
+          ON match_decision.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+         AND match_decision.match_status = 'MATCHED'
+         AND match_decision.employee_id = #{employeeId}
+        JOIN employee employee
+          ON employee.employee_id = match_decision.employee_id
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id =
+             oa.oa_attendance_document_id
+        WHERE oa.version_rank = 1
+          AND oa.source_status IN (
+                    'APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'UNKNOWN')
+          AND oa.document_type &lt;&gt; 'TRIP'
+          AND (
+                (
+                    normalized.interval_start &lt; #{windowEndExclusive}
+                    AND normalized.interval_end &gt; #{windowStart}
+                )
+                OR (
+                    oa.document_type = 'PUNCH_CORRECTION'
+                    AND COALESCE(
+                            normalized.interval_start,
+                            normalized.point_instant) &gt;= #{windowStart}
+                    AND COALESCE(
+                            normalized.interval_start,
+                            normalized.point_instant) &lt; #{windowEndExclusive}
+                )
+          )
+          AND (
+                oa.document_type &lt;&gt; 'OVERTIME'
+                OR (
+                    context.activation_decision = 'ACTIVATED'
+                    AND context.overtime_type IS NOT NULL
+                )
+          )
+        ORDER BY employee.employee_number,
+                 normalized.interval_start,
+                 oa.source_business_key
+    </select>
+
+    <select id="findReportableOaDocumentsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$OaReportFactRow">
+        WITH ranked_document AS (
+            SELECT
+                document.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY
+                        document.attendance_source_id,
+                        document.source_business_key
+                    ORDER BY
+                        CASE
+                            WHEN document.source_status IN (
+                                    'APPROVED',
+                                    'MODIFIED',
+                                    'SUPPLEMENTED') THEN 0
+                            WHEN document.source_status = 'UNKNOWN' THEN 1
+                            ELSE 2
+                        END,
+                        document.knowledge_rank DESC,
+                        document.created_at DESC,
+                        document.oa_attendance_document_id DESC
+                ) AS version_rank
+            FROM oa_attendance_document document
+            WHERE document.created_at &lt;= #{dataAsOf}
+              AND document.normalized_attendance_record_id IN (
+                    SELECT match_decision.normalized_attendance_record_id
+                    FROM employee_match_decision match_decision
+                    WHERE match_decision.employee_id = #{employeeId}
+                      AND match_decision.match_status = 'MATCHED'
+              )
+        )
+        SELECT
+            oa.oa_attendance_document_id AS oaAttendanceDocumentId,
+            oa.source_business_key AS sourceBusinessKey,
+            oa.document_type AS documentType,
+            oa.leave_type AS leaveType,
+            match_decision.employee_id AS employeeId,
+            employee.employee_number AS employeeNumber,
+            match_decision.employment_period_id AS employmentAssignmentId,
+            COALESCE(normalized.interval_start, normalized.point_instant)
+                    AS startInstant,
+            COALESCE(normalized.interval_end, normalized.point_instant)
+                    AS endInstant,
+            oa.source_status AS sourceStatus,
+            oa.source_version AS sourceVersion,
+            context.overtime_type AS overtimeType
+        FROM ranked_document oa
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             oa.normalized_attendance_record_id
+         AND normalized.validation_status = 'VALID'
+        JOIN raw_attendance_fact raw
+          ON raw.raw_attendance_fact_id = normalized.raw_attendance_fact_id
+        JOIN employee_match_decision match_decision
+          ON match_decision.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+         AND match_decision.match_status = 'MATCHED'
+         AND match_decision.employee_id = #{employeeId}
+        JOIN employee employee
+          ON employee.employee_id = match_decision.employee_id
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id =
+             oa.oa_attendance_document_id
+        WHERE oa.version_rank = 1
+          AND oa.source_status IN (
+                    'APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'UNKNOWN')
+          AND oa.document_type IN (
+                'LEAVE',
+                'TIME_OFF',
+                'OVERTIME',
+                'OUTING',
+                'TRIP',
+                'PUNCH_CORRECTION',
+                'EXEMPT_PUNCH')
+          AND (
+                (
+                    normalized.interval_start &lt; #{windowEndExclusive}
+                    AND normalized.interval_end &gt; #{windowStart}
+                )
+                OR (
+                    oa.document_type = 'PUNCH_CORRECTION'
+                    AND COALESCE(
+                            normalized.interval_start,
+                            normalized.point_instant) &gt;= #{windowStart}
+                    AND COALESCE(
+                            normalized.interval_start,
+                            normalized.point_instant) &lt; #{windowEndExclusive}
+                )
+          )
+        ORDER BY employee.employee_number,
+                 normalized.interval_start,
+                 oa.oa_attendance_document_id
+    </select>
+
+    <select id="countLateDaysBeforeWindowForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$EmployeeLateDayCountRow">
+        SELECT fact.employee_id AS employeeId,
+               COUNT(*) AS lateDays
+        FROM attendance_report_daily_fact fact
+        WHERE fact.attendance_report_projection_id = (
+                SELECT projection.attendance_report_projection_id
+                FROM attendance_report_projection projection
+                WHERE projection.company_id = #{companyId}
+                  AND projection.period_start = #{periodStart}
+                  AND projection.status = 'PUBLISHED'
+                ORDER BY projection.published_at DESC,
+                         projection.attendance_report_projection_id DESC
+                LIMIT 1
+          )
+          AND fact.employee_id = #{employeeId}
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt; #{beforeDate}
+          AND fact.late_minutes &gt; 0
+        GROUP BY fact.employee_id
+    </select>
+
+    <select id="findTimeAccountSnapshotsForEmployee"
+            timeout="60"
+            resultType="com.szsemicon.hr.reporting.infrastructure.orchestrator.AttendanceReportCalculationRows$TimeAccountSnapshotRow">
+        WITH ledger_effect AS (
+            SELECT
+                entry.time_account_id,
+                COALESCE(original.entry_type, entry.entry_type)
+                    AS semantic_type,
+                COALESCE(original.amount_hours, entry.amount_hours)
+                    AS semantic_amount_hours,
+                entry.amount_hours,
+                entry.sequence_no
+            FROM time_account_ledger_entry entry
+            LEFT JOIN time_account_ledger_entry original
+              ON entry.entry_type = 'REVERSAL'
+             AND original.time_account_ledger_entry_id =
+                 entry.reversal_of_entry_id
+            WHERE entry.occurred_at &lt;= #{dataAsOf}
+              AND entry.time_account_id IN (
+                    SELECT account.time_account_id
+                    FROM time_account account
+                    WHERE account.company_id = #{companyId}
+                      AND account.employee_id = #{employeeId}
+              )
+        ),
+        ledger_totals AS (
+            SELECT
+                time_account_id,
+                COALESCE(MAX(sequence_no), 0) AS max_sequence,
+                COALESCE(SUM(CASE WHEN semantic_type = 'OPENING'
+                    THEN amount_hours ELSE 0 END), 0) AS opening_hours,
+                COALESCE(SUM(CASE WHEN semantic_type = 'GRANT'
+                    THEN amount_hours ELSE 0 END), 0) AS granted_hours,
+                COALESCE(SUM(CASE WHEN semantic_type = 'OVERTIME_CREDIT'
+                    THEN amount_hours ELSE 0 END), 0)
+                    AS overtime_credit_hours,
+                COALESCE(SUM(CASE
+                    WHEN semantic_type = 'ADJUSTMENT'
+                         AND semantic_amount_hours &gt; 0
+                    THEN amount_hours ELSE 0 END), 0)
+                    AS manual_increase_hours,
+                COALESCE(SUM(CASE
+                    WHEN semantic_type = 'ADJUSTMENT'
+                         AND semantic_amount_hours &lt; 0
+                    THEN amount_hours ELSE 0 END), 0)
+                    AS manual_deduction_hours,
+                COALESCE(SUM(CASE WHEN semantic_type = 'USE'
+                    THEN amount_hours ELSE 0 END), 0) AS used_hours,
+                COALESCE(SUM(CASE WHEN semantic_type = 'EXPIRY'
+                    THEN amount_hours ELSE 0 END), 0) AS expired_hours,
+                COALESCE(SUM(CASE WHEN semantic_type = 'RETURN'
+                    THEN amount_hours ELSE 0 END), 0) AS returned_hours
+            FROM ledger_effect
+            GROUP BY time_account_id
+        )
+        SELECT
+            account.time_account_id AS accountId,
+            account.employee_id AS employeeId,
+            assignment.assignment_id AS employmentAssignmentId,
+            CASE account.account_type
+                WHEN 'ANNUAL_LEAVE' THEN 'ANNUAL_LEAVE'
+                WHEN 'TIME_OFF' THEN 'COMP_TIME'
+                WHEN 'WORK_HOURS' THEN 'RECOGNIZED_OVERTIME'
+            END AS accountType,
+            COALESCE(totals.opening_hours, 0) AS openingHours,
+            COALESCE(totals.granted_hours, 0) AS grantedHours,
+            COALESCE(totals.overtime_credit_hours, 0)
+                AS overtimeCreditHours,
+            COALESCE(totals.manual_increase_hours, 0)
+                AS manualIncreaseHours,
+            -COALESCE(totals.used_hours, 0) AS usedHours,
+            -COALESCE(totals.expired_hours, 0) AS expiredHours,
+            COALESCE(totals.returned_hours, 0) AS returnedHours,
+            -COALESCE(totals.manual_deduction_hours, 0)
+                AS manualDeductionHours,
+            CONCAT(
+                'TIME_ACCOUNT:', account.time_account_id,
+                ':ASOF:S', COALESCE(totals.max_sequence, 0)
+            ) AS ledgerVersion
+        FROM time_account account
+        JOIN employment_assignment assignment
+          ON assignment.employment_period_id = account.employment_period_id
+         AND assignment.employee_id = account.employee_id
+         AND assignment.version_valid_to IS NULL
+         AND assignment.record_status = 'ACTIVE'
+         AND assignment.created_at &lt;= #{dataAsOf}
+         AND assignment.effective_from &lt; #{periodEndExclusive}
+         AND (
+                assignment.effective_to IS NULL
+                OR assignment.effective_to &gt; #{periodStart}
+         )
+        LEFT JOIN ledger_totals totals
+          ON totals.time_account_id = account.time_account_id
+        WHERE account.company_id = #{companyId}
+          AND account.employee_id = #{employeeId}
+          AND account.account_year = YEAR(#{periodStart})
+          AND account.created_at &lt;= #{dataAsOf}
+        ORDER BY account.employee_id,
+                 account.account_type,
+                 account.time_account_id
     </select>
 </mapper>

@@ -16,8 +16,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Resolves the effective attendance setup only from published V7 timelines.
@@ -32,6 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class MyBatisAttendanceConfigurationResolver
         implements AttendanceConfigurationResolverPort {
 
+    private static final Logger log =
+            LoggerFactory.getLogger(MyBatisAttendanceConfigurationResolver.class);
     private static final LocalTime CROSS_DAY_CUTOFF = LocalTime.of(6, 0);
     private static final int IDENTIFIER_MAX = 36;
     private static final int SEED_DAYS_BEFORE_UTC = 2;
@@ -39,6 +45,8 @@ public class MyBatisAttendanceConfigurationResolver
 
     private final AttendanceConfigurationAuthorityMapper mapper;
     private final Clock clock;
+    private final ThreadLocal<Map<QueryKey, List<AttendanceConfigurationAuthorityRow>>>
+            queryCache = ThreadLocal.withInitial(HashMap::new);
 
     public MyBatisAttendanceConfigurationResolver(
             AttendanceConfigurationAuthorityMapper mapper, Clock clock) {
@@ -63,7 +71,7 @@ public class MyBatisAttendanceConfigurationResolver
                 offset++) {
             LocalDate businessDate = utcDate.plusDays(offset);
             List<AttendanceConfigurationAuthorityRow> rows =
-                    mapper.resolveForBusinessDate(
+                    loadForBusinessDate(
                             companyId,
                             employeeId,
                             businessDate,
@@ -84,6 +92,18 @@ public class MyBatisAttendanceConfigurationResolver
             for (AttendanceConfigurationAuthorityRow row : entry.getValue()) {
                 if (!validStoredRow(
                         row, companyId, employeeId, entry.getKey())) {
+                    log.warn(
+                            "attendance configuration row invalid"
+                                    + " company={} employee={} businessDate={}"
+                                    + " shift={} locationTz={} calendarTz={}"
+                                    + " shiftTz={}",
+                            companyId,
+                            employeeId,
+                            entry.getKey(),
+                            row.shiftVersionId(),
+                            row.locationTimeZone(),
+                            row.calendarTimeZone(),
+                            row.shiftTimeZone());
                     return unavailable(companyId, employeeId, instant);
                 }
                 Set<LocalDate> dates = applicableDates(row, instant);
@@ -92,7 +112,16 @@ public class MyBatisAttendanceConfigurationResolver
                     interpretations.add(dates);
                 }
             }
+            applicable = collapseSameDayShiftDuplicates(applicable);
             if (applicable.size() > 1) {
+                log.warn(
+                        "attendance configuration ambiguous"
+                                + " company={} employee={} businessDate={}"
+                                + " applicable={}",
+                        companyId,
+                        employeeId,
+                        entry.getKey(),
+                        applicable.size());
                 return unavailable(companyId, employeeId, instant);
             }
             if (applicable.size() == 1) {
@@ -101,6 +130,13 @@ public class MyBatisAttendanceConfigurationResolver
         }
 
         if (interpretations.size() != 1) {
+            log.warn(
+                    "attendance configuration interpretation mismatch"
+                            + " company={} employee={} instant={} interpretations={}",
+                    companyId,
+                    employeeId,
+                    instant,
+                    interpretations.size());
             return unavailable(companyId, employeeId, instant);
         }
         Set<LocalDate> candidateDates = interpretations.iterator().next();
@@ -149,6 +185,103 @@ public class MyBatisAttendanceConfigurationResolver
                 candidateDates,
                 digest,
                 true);
+    }
+
+    private List<AttendanceConfigurationAuthorityRow> loadForBusinessDate(
+            String companyId,
+            String employeeId,
+            LocalDate businessDate,
+            Instant knowledgeAsOf) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return mapper.resolveForBusinessDate(
+                    companyId,
+                    employeeId,
+                    businessDate,
+                    knowledgeAsOf);
+        }
+        QueryKey key = new QueryKey(companyId, employeeId, businessDate);
+        Map<QueryKey, List<AttendanceConfigurationAuthorityRow>> cache =
+                queryCache.get();
+        if (cache.containsKey(key)) {
+            return cache.get(key);
+        }
+        registerCacheCleanup();
+        List<AttendanceConfigurationAuthorityRow> rows =
+                mapper.resolveForBusinessDate(
+                        companyId,
+                        employeeId,
+                        businessDate,
+                        knowledgeAsOf);
+        cache.put(key, rows);
+        return rows;
+    }
+
+    private void registerCacheCleanup() {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()
+                || TransactionSynchronizationManager.getResource(this)
+                        != null) {
+            return;
+        }
+        TransactionSynchronizationManager.bindResource(this, Boolean.TRUE);
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        queryCache.remove();
+                        TransactionSynchronizationManager
+                                .unbindResourceIfPossible(
+                                        MyBatisAttendanceConfigurationResolver
+                                                .this);
+                    }
+                });
+    }
+
+    private record QueryKey(
+            String companyId,
+            String employeeId,
+            LocalDate businessDate) {
+    }
+
+    private static List<AttendanceConfigurationAuthorityRow>
+            collapseSameDayShiftDuplicates(
+                    List<AttendanceConfigurationAuthorityRow> rows) {
+        if (rows.size() <= 1) {
+            return rows;
+        }
+        Map<String, AttendanceConfigurationAuthorityRow> chosen =
+                new HashMap<>();
+        for (AttendanceConfigurationAuthorityRow row : rows) {
+            String key = shiftIndependentKey(row);
+            AttendanceConfigurationAuthorityRow existing = chosen.get(key);
+            if (existing == null
+                    || row.shiftVersionId()
+                            .compareTo(existing.shiftVersionId())
+                            > 0) {
+                chosen.put(key, row);
+            }
+        }
+        if (chosen.size() == 1 && rows.size() > 1) {
+            log.info(
+                    "collapsed {} same-day shift versions to {}",
+                    rows.size(),
+                    chosen.values().iterator().next().shiftVersionId());
+        }
+        return new ArrayList<>(chosen.values());
+    }
+
+    private static String shiftIndependentKey(
+            AttendanceConfigurationAuthorityRow row) {
+        return String.join(
+                "|",
+                row.companyId(),
+                row.employeeId(),
+                row.employmentAssignmentId(),
+                row.attendanceGroupAssignmentId(),
+                row.attendanceGroupRevisionId(),
+                row.locationRevisionId(),
+                row.workCalendarVersionId(),
+                row.workCalendarDayId(),
+                row.shiftTemplateId());
     }
 
     private static Set<LocalDate> applicableDates(

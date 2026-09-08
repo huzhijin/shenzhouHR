@@ -26,3 +26,31 @@ export function allOrganizationKeys(nodes: OrganizationNode[]): string[] {
     ...allOrganizationKeys(node.children),
   ]);
 }
+
+export function filterOrganizationNodes(
+  nodes: OrganizationNode[],
+  query: string,
+): OrganizationNode[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
+  if (!normalizedQuery) return nodes;
+  return filterOrganizationBranch(nodes, normalizedQuery);
+}
+
+function filterOrganizationBranch(
+  nodes: OrganizationNode[],
+  normalizedQuery: string,
+  parentNames: string[] = [],
+): OrganizationNode[] {
+  return nodes.flatMap((node) => {
+    const path = [...parentNames, node.name];
+    const children = filterOrganizationBranch(
+      node.children,
+      normalizedQuery,
+      path,
+    );
+    const searchText = `${path.join(' ')} ${node.code}`
+      .toLocaleLowerCase('zh-CN');
+    if (!searchText.includes(normalizedQuery) && children.length === 0) return [];
+    return [{ ...node, children }];
+  });
+}

@@ -131,7 +131,45 @@ public final class AttendanceReportPublicationModels {
             Instant intervalEndExclusive,
             long recognizedMinutes,
             String sourceStatus,
-            String sourceVersion) {
+            String sourceVersion,
+            String sourceOrigin) {
+
+        public VerifiedOaDocumentFact(
+                String companyId,
+                String oaAttendanceDocumentId,
+                String employeeId,
+                String employeeVersionId,
+                String employmentAssignmentId,
+                String organizationId,
+                String organizationVersionId,
+                String documentType,
+                String leaveTypeCode,
+                OaTemporalShape temporalShape,
+                Instant pointInstant,
+                Instant intervalStart,
+                Instant intervalEndExclusive,
+                long recognizedMinutes,
+                String sourceStatus,
+                String sourceVersion) {
+            this(
+                    companyId,
+                    oaAttendanceDocumentId,
+                    employeeId,
+                    employeeVersionId,
+                    employmentAssignmentId,
+                    organizationId,
+                    organizationVersionId,
+                    documentType,
+                    leaveTypeCode,
+                    temporalShape,
+                    pointInstant,
+                    intervalStart,
+                    intervalEndExclusive,
+                    recognizedMinutes,
+                    sourceStatus,
+                    sourceVersion,
+                    "OA");
+        }
 
         public VerifiedOaDocumentFact {
             companyId = databaseId(companyId, "companyId");
@@ -171,13 +209,19 @@ public final class AttendanceReportPublicationModels {
             unsignedInt(recognizedMinutes, "recognizedMinutes");
             sourceStatus = exactCode(
                     sourceStatus, "sourceStatus", OA_SOURCE_STATUSES);
-            if (!Set.of("APPROVED", "MODIFIED", "SUPPLEMENTED")
+            if (!Set.of("APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN")
                             .contains(sourceStatus)
                     && recognizedMinutes != 0) {
                 throw new IllegalArgumentException(
                         "non-effective OA fact cannot recognize minutes");
             }
             sourceVersion = version(sourceVersion, "sourceVersion");
+            sourceOrigin = sourceOrigin == null || sourceOrigin.isBlank()
+                    ? "OA"
+                    : sourceOrigin;
+            if (!Set.of("OA", "PAPER").contains(sourceOrigin)) {
+                throw new IllegalArgumentException("sourceOrigin is invalid");
+            }
         }
     }
 
@@ -215,7 +259,7 @@ public final class AttendanceReportPublicationModels {
             organizationVersionId = databaseId(
                     organizationVersionId, "organizationVersionId");
             Objects.requireNonNull(accountType, "accountType");
-            openingHours = decimal(openingHours, "openingHours");
+            openingHours = signedDecimal(openingHours, "openingHours");
             grantedHours = decimal(grantedHours, "grantedHours");
             overtimeCreditHours = decimal(
                     overtimeCreditHours, "overtimeCreditHours");
@@ -353,26 +397,34 @@ public final class AttendanceReportPublicationModels {
 
     static BigDecimal decimal(BigDecimal value, String field) {
         Objects.requireNonNull(value, field);
-        BigDecimal scaled;
-        try {
-            scaled = value.setScale(2, RoundingMode.UNNECESSARY);
-        } catch (ArithmeticException exception) {
-            throw new IllegalArgumentException(
-                    field + " must have at most two decimals");
-        }
+        BigDecimal scaled = scaledHours(value, field);
         if (scaled.signum() < 0 || scaled.precision() > 16) {
             throw new IllegalArgumentException(field + " is out of range");
         }
         return scaled;
     }
 
+    static BigDecimal signedDecimal(BigDecimal value, String field) {
+        Objects.requireNonNull(value, field);
+        BigDecimal scaled = scaledHours(value, field);
+        if (scaled.precision() > 16) {
+            throw new IllegalArgumentException(field + " is out of range");
+        }
+        return scaled;
+    }
+
+    private static BigDecimal scaledHours(BigDecimal value, String field) {
+        try {
+            return value.setScale(2, RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException(
+                    field + " must have at most two decimals");
+        }
+    }
+
     static Instant databaseInstant(Instant value, String field) {
         Objects.requireNonNull(value, field);
-        if (!value.equals(value.truncatedTo(ChronoUnit.MICROS))) {
-            throw new IllegalArgumentException(
-                    field + " exceeds database microsecond precision");
-        }
-        return value;
+        return value.truncatedTo(ChronoUnit.MICROS);
     }
 
     private static String optionalCode(String value, String field) {

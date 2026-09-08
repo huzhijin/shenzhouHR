@@ -131,7 +131,9 @@ class OaEnumShowValueCatalogTest {
                 "WORK_INJURY_LEAVE",
                 "NURSING_LEAVE",
                 "BREASTFEEDING_TIME",
-                "PRENATAL_EXAM_TIME");
+                "PRENATAL_EXAM_TIME",
+                "FAMILY_PLANNING_LEAVE",
+                "OTHER_LEAVE");
         for (String code : paid) {
             assertThat(OaLeaveTypeShowValueCatalog.isPaidAttendance(code))
                     .as("%s 应计入带薪出勤", code)

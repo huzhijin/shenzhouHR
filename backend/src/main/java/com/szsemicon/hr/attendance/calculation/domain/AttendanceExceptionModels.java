@@ -33,6 +33,9 @@ public final class AttendanceExceptionModels {
         AMBIGUOUS_PUNCH_MATCH(true),
         CROSS_MIDNIGHT_REVIEW_REQUIRED(true),
         OVERTIME_DOCUMENT_MISSING_OR_LATE(false),
+        OVERTIME_FORM_BEYOND_LAST_PUNCH(false),
+        LONG_PUNCH_SPAN_REVIEW(false),
+        FAKE_OVERTIME(true),
         EARLY_RETURN_CANDIDATE(false),
         /**
          * An approved outing or trip ran past the last scheduled off-time and
@@ -45,7 +48,10 @@ public final class AttendanceExceptionModels {
          */
         OUTING_OVERTIME_UNDECLARED(false),
         POST_CLOSE_SOURCE_CHANGE(true),
-        INPUT_INTEGRITY_ERROR(true);
+        INPUT_INTEGRITY_ERROR(true),
+        NEGATIVE_LEAVE_BALANCE(false),
+        NEGATIVE_ANNUAL_LEAVE_BALANCE(false),
+        NEGATIVE_TIME_OFF_BALANCE(false);
 
         private final boolean blockingClose;
 

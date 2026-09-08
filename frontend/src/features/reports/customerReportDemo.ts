@@ -1,14 +1,20 @@
 import {
   defaultCustomerReportDataScope,
+  departmentMatchesFilter,
   isCustomerReportQueryWithinScope,
   isWithinCustomerReportScope,
   type CustomerReportDataScope,
 } from './customerReportAccess';
+import { joinDepartmentSegments } from './departmentPath';
+import { isoWeekdayBucket, overtimeTreatmentFromHours } from './financeOvertimeLayout';
 
 export type CustomerReportKey =
   | 'attendance-detail'
   | 'leave'
   | 'overtime'
+  | 'overtime-daily'
+  | 'finance-overtime'
+  | 'daily-journal'
   | 'work-hours'
   | 'exceptions'
   | 'late'
@@ -27,6 +33,15 @@ export type AttendanceStatusKey =
   | 'personal-leave'
   | 'sick-leave'
   | 'annual-leave'
+  | 'marriage-leave'
+  | 'maternity-leave'
+  | 'paternity-leave'
+  | 'bereavement-leave'
+  | 'work-injury-leave'
+  | 'nursing-leave'
+  | 'breastfeeding-leave'
+  | 'prenatal-exam-leave'
+  | 'family-planning-leave'
   | 'rest-day'
   | 'corrected';
 
@@ -38,12 +53,14 @@ export interface CustomerReportFilters {
   organizationId?: string;
   /** Stable formal-report identity; demo and legacy callers continue to use labels. */
   employeeId?: string;
+  fromDate?: string;
+  toDate?: string;
 }
 
 export interface CustomerReportSpecificFilters {
   attendanceStatus: '全部状态' | AttendanceStatusKey;
   leaveType: string;
-  overtimeType: '全部类型' | '计薪加班' | '转调休加班' | '义务加班';
+  overtimeType: '全部类型' | '计薪加班' | '转调休加班' | '义务加班' | '加班费' | '转调休';
   overtimeDay: string;
   employmentStatus: '全部状态' | '在职' | '本月入职' | '本月离职';
   exceptionType: '全部异常' | AttendanceExceptionType;
@@ -64,6 +81,11 @@ export interface AttendanceDayCell {
   primary: string;
   secondary: string;
   status?: AttendanceStatusKey;
+  primaryStatus?: AttendanceStatusKey;
+  secondaryStatus?: AttendanceStatusKey;
+  merged?: boolean;
+  mergedLabel?: string;
+  mergedStatus?: AttendanceStatusKey;
   note?: string;
 }
 
@@ -83,6 +105,57 @@ export interface AttendanceDetailRow extends CustomerReportRowIdentity {
   days: AttendanceDayCell[];
 }
 
+export interface DailyJournalReportRow extends CustomerReportRowIdentity {
+  sequence: number;
+  employeeNo: string;
+  department: string;
+  employee: string;
+  businessDate: string;
+  shiftLabel: string;
+  onDuty: string;
+  offDuty: string;
+  lateHours: string | number;
+  earlyHours: string | number;
+  absenceHours: string | number;
+  leaveType: string;
+  overtimeHours: string | number;
+  remark: string;
+}
+
+export interface OvertimeDailyReportRow extends CustomerReportRowIdentity {
+  employeeNo: string;
+  department: string;
+  employee: string;
+  businessDate: string;
+  weekdayOvertimeHours: number;
+  weekendOvertimeHours: number;
+  holidayOvertimeHours: number;
+  paidOvertimeHours?: number;
+  compensatoryOvertimeHours?: number;
+  voluntaryOvertimeHours?: number;
+}
+
+export interface FinanceOvertimeReportRow extends CustomerReportRowIdentity {
+  employeeNo: string;
+  department: string;
+  employee: string;
+  weekdayOvertimeHours: number;
+  weekendOvertimeHours: number;
+  holidayOvertimeHours: number;
+  paidOvertimeHours?: number;
+  compensatoryOvertimeHours?: number;
+  voluntaryOvertimeHours?: number;
+  days: Array<{
+    date: string;
+    hours: number;
+    dayType?: string;
+    treatment?: string;
+    paidHours?: number;
+    compensatoryHours?: number;
+    voluntaryHours?: number;
+  }>;
+}
+
 export interface LeaveReportRow extends CustomerReportRowIdentity {
   id: number;
   employee: string;
@@ -96,18 +169,21 @@ export interface LeaveReportRow extends CustomerReportRowIdentity {
 
 export interface OvertimeReportRow extends CustomerReportRowIdentity {
   employee: string;
+  employeeNo?: string;
   department: string;
-  /** Missing means the legacy API did not publish business classification. */
+  overtimeType: string;
+  hours: number;
+  period: string;
+  overtimeDate?: string;
+  approvalState: string;
+  source: string;
+  reason?: string;
+  /** Derived from overtimeType so overview cards can still sum classifications. */
   paidHours?: number;
-  /** Missing means the legacy API did not publish business classification. */
   compensatoryHours?: number;
-  /** Missing means the legacy API did not publish business classification. */
   voluntaryHours?: number;
-  /** May fall back to legacy recognized overtime, but never to a typed bucket. */
   totalHours?: number;
   classificationAvailable: boolean;
-  exchangedHours?: number;
-  dailyHours?: number[];
 }
 
 export interface WorkHoursReportRow extends CustomerReportRowIdentity {
@@ -115,9 +191,11 @@ export interface WorkHoursReportRow extends CustomerReportRowIdentity {
   department: string;
   plannedHours: number;
   overtimeHours: number;
+  voluntaryOvertimeHours?: number;
   leaveHours: number;
   annualLeaveHours?: number;
   exchangedHours?: number;
+  usedTimeOffHours?: number;
   actualHours: number;
   note?: string;
 }
@@ -147,6 +225,10 @@ export type AttendanceExceptionType =
   | '排班缺失'
   | '请假与打卡冲突'
   | '加班未审批'
+  | '未报加班'
+  | '加班结束晚于打卡'
+  | '长时在岗待审'
+  | '加班异常'
   | '证据冲突'
   | '外出出差不完整'
   | 'OA审批状态未知'
@@ -162,6 +244,9 @@ export type AttendanceExceptionType =
   | '提前返回待确认'
   | '月结后来源变更'
   | '输入完整性错误'
+  | '假期余额为负'
+  | '年假余额为负'
+  | '调休余额为负'
   // 后端新增取值时的显式兜底，避免把未知类型伪装成某个已知类别。
   | '未识别异常类型';
 
@@ -186,7 +271,8 @@ export interface AttendanceExceptionReportRow extends CustomerReportRowIdentity 
   scheduledWindow?: string;
   punchSummary?: string;
   exceptionMinutes?: number;
-  evidenceSummary: string;
+  details: string;
+  evidenceSummary?: string;
   state: AttendanceExceptionState;
   owner?: string;
   dueAt?: string;
@@ -237,8 +323,13 @@ export interface CustomerReportDemo {
     /** Exact committed source/configuration version identifiers used by the calculation. */
     sourceVersions?: readonly string[];
     truncated?: boolean;
+    allowedActions?: readonly string[];
+    sourcesNewerThanPin?: boolean;
   };
   attendanceRows: AttendanceDetailRow[];
+  dailyJournalRows: DailyJournalReportRow[];
+  overtimeDailyRows: OvertimeDailyReportRow[];
+  financeOvertimeRows: FinanceOvertimeReportRow[];
   leaveRows: LeaveReportRow[];
   overtimeRows: OvertimeReportRow[];
   workHoursRows: WorkHoursReportRow[];
@@ -256,7 +347,10 @@ export const customerReportTabs: ReadonlyArray<{
 }> = [
   { key: 'attendance-detail', label: '月度考勤明细矩阵', shortLabel: '考勤明细' },
   { key: 'leave', label: '请假统计', shortLabel: '请假统计' },
-  { key: 'overtime', label: '加班汇总与每日加班', shortLabel: '加班统计' },
+  { key: 'overtime', label: '加班单据明细', shortLabel: '加班统计' },
+  { key: 'overtime-daily', label: '加班日报', shortLabel: '加班日报' },
+  { key: 'finance-overtime', label: '每日加班', shortLabel: '每日加班' },
+  { key: 'daily-journal', label: '考勤日报', shortLabel: '考勤日报' },
   { key: 'work-hours', label: '个人月度工时', shortLabel: '月度工时' },
   { key: 'exceptions', label: '考勤异常总览', shortLabel: '异常总览' },
   { key: 'late', label: '迟到统计', shortLabel: '迟到统计' },
@@ -264,6 +358,31 @@ export const customerReportTabs: ReadonlyArray<{
   { key: 'attendance-rate', label: '出勤率统计', shortLabel: '出勤率' },
   { key: 'annual-leave', label: '年休假汇总', shortLabel: '年休假' },
 ] as const;
+
+/** Daytime legend fills shared with Excel export and night theme. */
+export const REPORT_BADGE_COLORS: Readonly<Record<string, string>> = {
+  LATE: '#ff8578',
+  EARLY_DEPARTURE: '#5aa3ea',
+  MISSING_PUNCH: '#be6cbb',
+  RECOGNIZED_OVERTIME: '#3f8850',
+  TIME_OFF: '#f1b83d',
+  OUTING: '#43d4d0',
+  TRIP: '#02aa92',
+  PERSONAL_LEAVE: '#d8ef00',
+  SICK_LEAVE: '#9c2424',
+  ANNUAL_LEAVE: '#7a3434',
+  MARRIAGE_LEAVE: '#e07cc0',
+  MATERNITY_LEAVE: '#c45c9e',
+  PATERNITY_LEAVE: '#8e6cc9',
+  BEREAVEMENT_LEAVE: '#5c5c5c',
+  WORK_INJURY_LEAVE: '#e07a3d',
+  NURSING_LEAVE: '#3d6bb3',
+  BREASTFEEDING_LEAVE: '#f4a6c8',
+  PRENATAL_EXAM_LEAVE: '#7ec8e3',
+  FAMILY_PLANNING_LEAVE: '#6b8f3e',
+  REST_DAY: '#f2efe7',
+  PUNCH_CORRECTION: '#ffffff',
+};
 
 export const attendanceLegend: ReadonlyArray<{
   key: AttendanceStatusKey;
@@ -282,6 +401,15 @@ export const attendanceLegend: ReadonlyArray<{
   { key: 'annual-leave', label: '年假', color: '#7a3434' },
   { key: 'rest-day', label: '休息日', color: '#f2efe7' },
   { key: 'corrected', label: '补签', color: '#ffffff' },
+  { key: 'marriage-leave', label: '婚假', color: '#e07cc0' },
+  { key: 'maternity-leave', label: '产假', color: '#c45c9e' },
+  { key: 'paternity-leave', label: '陪产假', color: '#8e6cc9' },
+  { key: 'bereavement-leave', label: '丧假', color: '#5c5c5c' },
+  { key: 'work-injury-leave', label: '工伤假', color: '#e07a3d' },
+  { key: 'nursing-leave', label: '护理假', color: '#3d6bb3' },
+  { key: 'breastfeeding-leave', label: '哺乳假', color: '#f4a6c8' },
+  { key: 'prenatal-exam-leave', label: '孕检假', color: '#7ec8e3' },
+  { key: 'family-planning-leave', label: '计生假', color: '#6b8f3e' },
 ] as const;
 
 // Generate a rolling 24-month window: 12 months back → current month.
@@ -339,7 +467,7 @@ export const reportSpecificFilterOptions = {
     '事假',
     '调休',
   ],
-  overtimeTypes: ['全部类型', '计薪加班', '转调休加班', '义务加班'],
+  overtimeTypes: ['全部类型', '加班费', '转调休', '义务加班'],
   employmentStatuses: ['全部状态', '在职', '本月入职', '本月离职'],
   exceptionTypes: [
     '全部异常',
@@ -351,6 +479,7 @@ export const reportSpecificFilterOptions = {
     '排班缺失',
     '请假与打卡冲突',
     '加班未审批',
+    '加班异常',
   ],
   exceptionSeverities: ['全部级别', '高', '中', '低'],
   exceptionStates: ['全部状态', '待处理', '待员工说明', '待补签', '处理中', '已处理'],
@@ -486,30 +615,176 @@ const leaveRows: LeaveReportRow[] = staff.map((person, index) => ({
 }));
 
 function buildOvertimeRows(month: string): OvertimeReportRow[] {
-  return staff.map((person, index) => {
-    const dailyHours = Array.from({ length: daysInMonth(month) }, (_, dayIndex) => {
-      const day = dayIndex + 1;
-      if ((day + index * 3) % 13 === 0) return 3;
-      if ((day + index) % 17 === 0) return 2.5;
-      if ((day + index * 2) % 23 === 0) return 3.5;
-      return 0;
-    });
-    const totalHours = roundHours(
-      dailyHours.reduce<number>((total, hours) => total + hours, 0),
-    );
-    const compensatoryHours = index % 3 === 0 ? roundHours(totalHours * 0.25) : 0;
-    const voluntaryHours = index % 5 === 0 ? roundHours(totalHours * 0.1) : 0;
-    const paidHours = roundHours(totalHours - compensatoryHours - voluntaryHours);
+  const first = staff[0]!;
+  const documentDays = [18, 20, 23, 25];
+  const firstPersonRows = documentDays.map((day, index) => overtimeDocument(
+    first,
+    month,
+    day,
+    index % 2 === 0 ? '调休' : '加班费',
+    2.5,
+    index === 0 ? '纸质' : 'OA',
+  ));
+  const otherRows = staff.slice(1).flatMap((person, index) => {
+    const day = 4 + index * 3;
+    return [overtimeDocument(
+      person,
+      month,
+      day,
+      index % 3 === 0 ? '调休' : index % 3 === 1 ? '义务加班' : '加班费',
+      index % 2 === 0 ? 3 : 2.5,
+      'OA',
+    )];
+  });
+  return [...firstPersonRows, ...otherRows];
+}
+
+function overtimeDocument(
+  person: (typeof staff)[number],
+  month: string,
+  day: number,
+  overtimeType: string,
+  hours: number,
+  source: string,
+): OvertimeReportRow {
+  const date = `${month}-${String(day).padStart(2, '0')}`;
+  return {
+    employee: person.employee,
+    employeeNo: person.no,
+    department: person.department,
+    overtimeType,
+    hours,
+    period: `${date} 17:40 ~ ${date} 22:00`,
+    overtimeDate: date,
+    approvalState: '已通过',
+    source,
+    paidHours: overtimeType === '加班费' ? hours : 0,
+    compensatoryHours: overtimeType === '调休' ? hours : 0,
+    voluntaryHours: overtimeType === '义务加班' ? hours : 0,
+    totalHours: hours,
+    classificationAvailable: true,
+  };
+}
+
+function overtimeTreatmentOf(overtimeType: string): 'PAID' | 'COMPENSATORY' | 'VOLUNTARY' {
+  if (overtimeType === '加班费') return 'PAID';
+  if (overtimeType === '调休') return 'COMPENSATORY';
+  return 'VOLUNTARY';
+}
+
+function applyOvertimeHours(
+  day: FinanceOvertimeReportRow['days'][number],
+  overtimeType: string,
+  hours: number,
+) {
+  if (overtimeType === '加班费') {
+    day.paidHours = (day.paidHours ?? 0) + hours;
+  } else if (overtimeType === '调休') {
+    day.compensatoryHours = (day.compensatoryHours ?? 0) + hours;
+  } else {
+    day.voluntaryHours = (day.voluntaryHours ?? 0) + hours;
+  }
+  const paid = day.paidHours ?? 0;
+  const compensatory = day.compensatoryHours ?? 0;
+  const voluntary = day.voluntaryHours ?? 0;
+  const fee = paid + compensatory;
+  day.hours = fee > 0 ? fee : voluntary;
+  day.treatment = overtimeTreatmentFromHours(paid, compensatory, voluntary)
+    || overtimeTreatmentOf(overtimeType);
+}
+
+function buildFinanceOvertimeRows(
+  overtimeRows: OvertimeReportRow[],
+): FinanceOvertimeReportRow[] {
+  const grouped = new Map<string, FinanceOvertimeReportRow>();
+  overtimeRows.forEach((row) => {
+    const key = row.employeeNo ?? row.employee;
+    const date = row.overtimeDate ?? '';
+    const hours = row.hours;
+    const bucket = date ? isoWeekdayBucket(date) : 'weekday';
+    const existing = grouped.get(key);
+    if (!existing) {
+      const day = date
+        ? {
+          date,
+          hours: 0,
+          dayType: bucket === 'weekend' ? 'SATURDAY' : 'WEEKDAY',
+          paidHours: 0,
+          compensatoryHours: 0,
+          voluntaryHours: 0,
+        }
+        : undefined;
+      if (day) applyOvertimeHours(day, row.overtimeType, hours);
+      const paidHours = row.paidHours ?? (row.overtimeType === '加班费' ? hours : 0);
+      const compensatoryHours = row.compensatoryHours ?? (row.overtimeType === '调休' ? hours : 0);
+      const voluntaryHours = row.voluntaryHours ?? (row.overtimeType === '义务加班' ? hours : 0);
+      const feeHours = paidHours + compensatoryHours;
+      const bucketHours = feeHours > 0 ? feeHours : voluntaryHours;
+      grouped.set(key, {
+        employeeNo: row.employeeNo ?? '',
+        department: row.department,
+        employee: row.employee,
+        weekdayOvertimeHours: bucket === 'weekday' ? bucketHours : 0,
+        weekendOvertimeHours: bucket === 'weekend' ? bucketHours : 0,
+        holidayOvertimeHours: 0,
+        paidOvertimeHours: paidHours,
+        compensatoryOvertimeHours: compensatoryHours,
+        voluntaryOvertimeHours: voluntaryHours,
+        days: day ? [day] : [],
+      });
+      return;
+    }
+    const paidAdd = row.paidHours ?? (row.overtimeType === '加班费' ? hours : 0);
+    const compensatoryAdd = row.compensatoryHours ?? (row.overtimeType === '调休' ? hours : 0);
+    const voluntaryAdd = row.voluntaryHours ?? (row.overtimeType === '义务加班' ? hours : 0);
+    const bucketAdd = paidAdd + compensatoryAdd > 0 ? paidAdd + compensatoryAdd : voluntaryAdd;
+    if (bucket === 'weekend') {
+      existing.weekendOvertimeHours += bucketAdd;
+    } else {
+      existing.weekdayOvertimeHours += bucketAdd;
+    }
+    existing.paidOvertimeHours = (existing.paidOvertimeHours ?? 0) + paidAdd;
+    existing.compensatoryOvertimeHours = (existing.compensatoryOvertimeHours ?? 0) + compensatoryAdd;
+    existing.voluntaryOvertimeHours = (existing.voluntaryOvertimeHours ?? 0) + voluntaryAdd;
+    if (date) {
+      const same = existing.days.find((item) => item.date === date);
+      if (same) {
+        applyOvertimeHours(same, row.overtimeType, hours);
+      } else {
+        const day = {
+          date,
+          hours: 0,
+          dayType: bucket === 'weekend' ? 'SATURDAY' : 'WEEKDAY',
+          paidHours: 0,
+          compensatoryHours: 0,
+          voluntaryHours: 0,
+        };
+        applyOvertimeHours(day, row.overtimeType, hours);
+        existing.days.push(day);
+      }
+    }
+  });
+  return [...grouped.values()].map((row) => {
+    const mixed = row.days.find((day) => day.date.slice(8, 10) === '18'
+      && (day.compensatoryHours ?? 0) > 0);
+    if (!mixed) {
+      return row;
+    }
+    mixed.paidHours = (mixed.paidHours ?? 0) + 1;
+    const paid = mixed.paidHours ?? 0;
+    const compensatory = mixed.compensatoryHours ?? 0;
+    const voluntary = mixed.voluntaryHours ?? 0;
+    mixed.hours = paid + compensatory > 0 ? paid + compensatory : voluntary;
+    mixed.treatment = overtimeTreatmentFromHours(paid, compensatory, voluntary) || mixed.treatment;
     return {
-      employee: person.employee,
-      department: person.department,
-      paidHours,
-      compensatoryHours,
-      voluntaryHours,
-      totalHours,
-      classificationAvailable: true,
-      exchangedHours: index === 4 ? 10.5 : 0,
-      dailyHours,
+      ...row,
+      weekdayOvertimeHours: isoWeekdayBucket(mixed.date) === 'weekday'
+        ? row.weekdayOvertimeHours + 1
+        : row.weekdayOvertimeHours,
+      weekendOvertimeHours: isoWeekdayBucket(mixed.date) === 'weekend'
+        ? row.weekendOvertimeHours + 1
+        : row.weekendOvertimeHours,
+      paidOvertimeHours: (row.paidOvertimeHours ?? 0) + 1,
     };
   });
 }
@@ -523,7 +798,11 @@ function buildWorkHoursRows(
     const leaveHours = [0, 8, 16, 0, 8, 16, 0, 4][index]!;
     const annualLeaveHours = [0, 0, 4.5, 0, 8, 0, 0, 0][index]!;
     const exchangedHours = index === 4 ? 44.5 : index === 6 ? 10.5 : 0;
-    const overtimeHours = monthlyOvertimeRows[index]!.totalHours ?? 0;
+    const overtimeHours = roundHours(
+      monthlyOvertimeRows
+        .filter((row) => row.employee === person.employee)
+        .reduce((total, row) => total + (row.totalHours ?? row.hours), 0),
+    );
     const plannedHours = index === 0 ? 120 : index === 4 ? 80 : index === 7 ? 88 : 168;
     const noteTemplate = [
       '22日离职',
@@ -544,8 +823,10 @@ function buildWorkHoursRows(
       annualLeaveHours,
       exchangedHours,
       actualHours: roundHours(
-        plannedHours + overtimeHours - leaveHours - annualLeaveHours - exchangedHours,
+        plannedHours + overtimeHours - leaveHours - annualLeaveHours
+          + exchangedHours - (index === 4 ? 8 : 0),
       ),
+      usedTimeOffHours: index === 4 ? 8 : 0,
       note: noteTemplate === '全月出勤' ? noteTemplate : `${monthNumber}月${noteTemplate}`,
     };
   });
@@ -581,11 +862,6 @@ function monthlyAttendanceExceptionRows(
   }));
 }
 
-function daysInMonth(month: string): number {
-  const [year, monthNumber] = month.split('-').map(Number);
-  return new Date(year!, monthNumber!, 0).getDate();
-}
-
 const lateRows: ExceptionReportRow[] = [
   { id: 1, employee: '陈思远', department: '制造中心', count: 2, details: '06月01日 09:06、06月15日 08:36', reviewer: '徐丽丽', state: '已复核', lateMinutes: 36 },
   { id: 2, employee: '周晴', department: '制造中心', count: 3, details: '06月18日 08:34、06月29日 08:38、06月30日 08:35', reviewer: '吴芸', state: '已复核', lateMinutes: 8 },
@@ -612,6 +888,7 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
     scheduledWindow: '08:30–17:30',
     punchSummary: '09:06 / 18:18',
     exceptionMinutes: 36,
+    details: '上班 09:06，计罚 36 分钟',
     evidenceSummary: '设备卡 · 月度宽限已使用',
     state: '已处理',
     owner: '徐丽丽',
@@ -629,6 +906,7 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
     scheduledWindow: '08:30–17:30',
     punchSummary: '08:24 / 16:42',
     exceptionMinutes: 48,
+    details: '下班 16:42，早退 48 分钟',
     evidenceSummary: '设备卡 · 无匹配审批单',
     state: '待员工说明',
     owner: '吴芸',
@@ -645,6 +923,7 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
     shiftLabel: '研发弹性班',
     scheduledWindow: '09:00–18:00',
     punchSummary: '— / 18:26',
+    details: '无上班卡，下班 18:26',
     evidenceSummary: '仅有下班卡 · 补签未提交',
     state: '待补签',
     owner: '徐丽丽',
@@ -661,6 +940,7 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
     shiftLabel: '生产长白班',
     scheduledWindow: '08:00–20:00',
     punchSummary: '07:52 / —',
+    details: '上班 07:52，无下班卡',
     evidenceSummary: '仅有上班卡 · OA 无补签单',
     state: '待补签',
     owner: '吴芸',
@@ -678,6 +958,7 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
     scheduledWindow: '09:00–18:00',
     punchSummary: '无有效打卡',
     exceptionMinutes: 480,
+    details: '应出勤，无打卡无单据',
     evidenceSummary: '无打卡 · 无已审批考勤单据',
     state: '处理中',
     owner: '吴芸',
@@ -694,6 +975,7 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
     shiftLabel: '未解析',
     scheduledWindow: '—',
     punchSummary: '08:28 / 17:46',
+    details: '存在设备卡 · 当日无有效班次版本',
     evidenceSummary: '存在设备卡 · 当日无有效班次版本',
     state: '待处理',
     owner: '系统待分派',
@@ -710,6 +992,7 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
     shiftLabel: '研发弹性班',
     scheduledWindow: '09:00–18:00',
     punchSummary: '08:55 / 18:21',
+    details: '请假时段与打卡重叠',
     evidenceSummary: '已审批请假单 · 假因已脱敏',
     state: '待处理',
     owner: '徐丽丽',
@@ -727,6 +1010,7 @@ const attendanceExceptionRows: AttendanceExceptionReportRow[] = [
     scheduledWindow: '08:30–17:30',
     punchSummary: '08:19 / 21:06',
     exceptionMinutes: 186,
+    details: '加班时段盖住未请假的上班时段',
     evidenceSummary: '存在延时打卡 · 无已审批加班单',
     state: '待员工说明',
     owner: '徐丽丽',
@@ -756,7 +1040,10 @@ const annualLeaveRows: AnnualLeaveReportRow[] = staff.map((person, index) => {
     id: index + 1,
     departmentLevelOne: person.department,
     departmentLevelTwo: person.department === '制造中心' ? '晶圆制造部' : person.department === '研发中心' ? '产品研发部' : '综合管理部',
-    department: person.department,
+    department: joinDepartmentSegments([
+      person.department,
+      person.department === '制造中心' ? '晶圆制造部' : person.department === '研发中心' ? '产品研发部' : '综合管理部',
+    ]),
     employee: person.employee,
     joinedOn: [`2009/09/09`, `2013/04/18`, `2018/07/02`, `2026/04/01`, `2015/11/23`, `2021/03/15`, `2023/08/08`, `2026/06/15`][index]!,
     companySeniority: [16.9, 13.2, 8, 0.3, 10.6, 5.3, 2.9, 0.1][index]!,
@@ -774,6 +1061,36 @@ const annualLeaveRows: AnnualLeaveReportRow[] = staff.map((person, index) => {
   };
 });
 
+function buildDailyJournalRows(
+  attendanceRows: AttendanceDetailRow[],
+  month: string,
+): DailyJournalReportRow[] {
+  const rows: DailyJournalReportRow[] = [];
+  attendanceRows.forEach((row) => {
+    row.days.forEach((day) => {
+      rows.push({
+        sequence: rows.length + 1,
+        employeeNo: row.employeeNo,
+        department: row.department,
+        employee: row.employee,
+        businessDate: `${month}-${String(day.day).padStart(2, '0')}`,
+        shiftLabel: row.position ?? '',
+        onDuty: day.primary,
+        offDuty: day.secondary,
+        lateHours: day.primaryStatus === 'late' || day.status === 'late' ? 0.5 : '',
+        earlyHours: day.secondaryStatus === 'early' || day.status === 'early' ? 0.5 : '',
+        absenceHours: '',
+        leaveType: '',
+        overtimeHours: day.primaryStatus === 'overtime' || day.secondaryStatus === 'overtime' || day.status === 'overtime'
+          ? 2.5
+          : '',
+        remark: day.primary === '漏刷' || day.secondary === '漏刷' ? '漏刷' : '',
+      });
+    });
+  });
+  return rows;
+}
+
 export function getCustomerReportDemo(
   filters: CustomerReportFilters,
   dataScope: CustomerReportDataScope = defaultCustomerReportDataScope,
@@ -785,7 +1102,12 @@ export function getCustomerReportDemo(
       department: person.department,
       employee: person.employee,
       position: person.position,
-      days: buildAttendanceDays(filters.month, index),
+      days: buildAttendanceDays(filters.month, index).filter((day) => (
+        inSelectedRange(
+          `${filters.month}-${String(day.day).padStart(2, '0')}`,
+          filters,
+        )
+      )),
     })),
     filters,
     dataScope,
@@ -795,7 +1117,8 @@ export function getCustomerReportDemo(
     filters,
     dataScope,
   );
-  const filteredOvertimeRows = filterPeople(monthlyOvertimeRows, filters, dataScope);
+  const filteredOvertimeRows = filterPeople(monthlyOvertimeRows, filters, dataScope)
+    .filter((row) => inSelectedRange(row.overtimeDate, filters));
   const filteredWorkHoursRows = filterPeople(
     buildWorkHoursRows(filters.month, monthlyOvertimeRows),
     filters,
@@ -831,6 +1154,24 @@ export function getCustomerReportDemo(
       dataScope,
     },
     attendanceRows,
+    dailyJournalRows: buildDailyJournalRows(attendanceRows, filters.month),
+    overtimeDailyRows: filteredOvertimeRows.map((row) => {
+      const date = row.overtimeDate ?? `${filters.month}-01`;
+      const bucket = isoWeekdayBucket(date);
+      return {
+        employeeNo: row.employeeNo ?? '',
+        department: row.department,
+        employee: row.employee,
+        businessDate: date,
+        weekdayOvertimeHours: bucket === 'weekday' ? row.hours : 0,
+        weekendOvertimeHours: bucket === 'weekend' ? row.hours : 0,
+        holidayOvertimeHours: 0,
+        paidOvertimeHours: row.paidHours ?? 0,
+        compensatoryOvertimeHours: row.compensatoryHours ?? 0,
+        voluntaryOvertimeHours: row.voluntaryHours ?? 0,
+      };
+    }),
+    financeOvertimeRows: buildFinanceOvertimeRows(filteredOvertimeRows),
     leaveRows: filteredLeaveRows,
     overtimeRows: filteredOvertimeRows,
     workHoursRows: filteredWorkHoursRows,
@@ -854,7 +1195,12 @@ export function applyCustomerReportSpecificFilters(
         attendanceRows: filters.attendanceStatus === '全部状态'
           ? report.attendanceRows
           : report.attendanceRows.filter((row) => (
-            row.days.some((day) => day.status === filters.attendanceStatus)
+            row.days.some((day) => (
+              day.status === filters.attendanceStatus
+              || day.primaryStatus === filters.attendanceStatus
+              || day.secondaryStatus === filters.attendanceStatus
+              || day.mergedStatus === filters.attendanceStatus
+            ))
           )),
       };
     case 'leave':
@@ -872,7 +1218,42 @@ export function applyCustomerReportSpecificFilters(
         ...report,
         overtimeRows: report.overtimeRows.filter((row) => (
           matchesOvertimeType(row, filters.overtimeType)
-          && (selectedDay === undefined || ((row.dailyHours ?? [])[selectedDay - 1] ?? 0) > 0)
+          && (selectedDay === undefined
+            || Number(row.overtimeDate?.slice(8, 10)) === selectedDay)
+        )),
+      };
+    }
+    case 'overtime-daily': {
+      const selectedDay = filters.overtimeDay === '全部日期'
+        ? undefined
+        : Number(filters.overtimeDay);
+      return {
+        ...report,
+        overtimeDailyRows: report.overtimeDailyRows.filter((row) => (
+          matchesDailyOvertimeTreatment(row, filters.overtimeType)
+          && (selectedDay === undefined
+            || Number(row.businessDate.slice(8, 10)) === selectedDay)
+        )),
+      };
+    }
+    case 'finance-overtime': {
+      const selectedDay = filters.overtimeDay === '全部日期'
+        ? undefined
+        : Number(filters.overtimeDay);
+      return {
+        ...report,
+        financeOvertimeRows: report.financeOvertimeRows.filter((row) => (
+          matchesFinanceOvertimeTreatment(row, filters.overtimeType)
+          && (selectedDay === undefined
+            || row.days.some((day) => Number(day.date.slice(8, 10)) === selectedDay))
+        )).map((row) => projectFinanceOvertimeRow(
+          selectedDay === undefined
+            ? row
+            : {
+              ...row,
+              days: row.days.filter((day) => Number(day.date.slice(8, 10)) === selectedDay),
+            },
+          filters.overtimeType,
         )),
       };
     }
@@ -953,12 +1334,441 @@ export function applyCustomerReportSpecificFilters(
         )),
       };
     }
+    case 'overtime-daily':
+    case 'finance-overtime':
+    case 'daily-journal':
+      return report;
   }
+}
+
+export interface CustomerReportOverviewCard {
+  label: string;
+  value: string | number;
+  unit: string;
+  hint: string;
+  tone?: 'default' | 'warning';
+}
+
+const EXCEPTION_DAY_STATUSES: ReadonlySet<AttendanceStatusKey> = new Set([
+  'late',
+  'early',
+  'missed',
+]);
+const LEAVE_DAY_STATUSES: ReadonlySet<AttendanceStatusKey> = new Set([
+  'personal-leave',
+  'sick-leave',
+  'annual-leave',
+  'time-off',
+  'marriage-leave',
+  'maternity-leave',
+  'paternity-leave',
+  'bereavement-leave',
+  'work-injury-leave',
+  'nursing-leave',
+  'breastfeeding-leave',
+  'prenatal-exam-leave',
+  'family-planning-leave',
+  'out',
+  'trip',
+]);
+
+/**
+ * Overview cards must come from the sheet currently on screen. Live mode only
+ * loads that one report type, so reading leave/overtime/exception arrays while
+ * the operator is on 工时 or 出勤率 leaves the cards at zero after a department
+ * filter.
+ */
+export function overviewCards(
+  report: CustomerReportDemo,
+  reportKey: CustomerReportKey,
+): CustomerReportOverviewCard[] {
+  switch (reportKey) {
+    case 'attendance-detail': {
+      const rows = report.attendanceRows;
+      let exceptionDays = 0;
+      let leaveDays = 0;
+      let workedDays = 0;
+      for (const row of rows) {
+        for (const day of row.days) {
+          const statuses = [
+            day.status,
+            day.primaryStatus,
+            day.secondaryStatus,
+            day.mergedStatus,
+          ].filter((status): status is AttendanceStatusKey => status !== undefined);
+          if (statuses.some((status) => EXCEPTION_DAY_STATUSES.has(status))) {
+            exceptionDays += 1;
+          }
+          if (statuses.some((status) => LEAVE_DAY_STATUSES.has(status))) {
+            leaveDays += 1;
+          }
+          if (statuses.some((status) => status !== 'rest-day')) {
+            workedDays += 1;
+          }
+        }
+      }
+      return [
+        peopleCard(rows, '筛选范围内在册人员'),
+        {
+          label: '出勤人日',
+          value: workedDays,
+          unit: '日',
+          hint: '不含纯休息日的格子',
+        },
+        {
+          label: '异常人日',
+          value: exceptionDays,
+          unit: '日',
+          hint: '迟到、早退或漏刷',
+        },
+        {
+          label: '休假人日',
+          value: leaveDays,
+          unit: '日',
+          hint: '请假、调休、外出或出差',
+        },
+      ];
+    }
+    case 'leave': {
+      const rows = report.leaveRows;
+      const hours = sumNumbers(rows.map((row) => row.hours));
+      return [
+        peopleCard(rows, '当前请假名单人数'),
+        {
+          label: '请假总时长',
+          value: formatHours(hours),
+          unit: '小时',
+          hint: `${rows.length} 条已审批记录`,
+        },
+        {
+          label: '请假记录',
+          value: rows.length,
+          unit: '条',
+          hint: '当前筛选条件下的单据',
+        },
+        {
+          label: '人均请假',
+          value: formatHours(average(hours, uniquePeople(rows))),
+          unit: '小时',
+          hint: '总时长 ÷ 人数',
+        },
+      ];
+    }
+    case 'overtime': {
+      const rows = report.overtimeRows;
+      const total = sumNumbers(rows.map((row) => row.totalHours ?? 0));
+      const paid = sumNumbers(rows.map((row) => row.paidHours ?? 0));
+      const compensatory = sumNumbers(rows.map((row) => row.compensatoryHours ?? 0));
+      return [
+        peopleCard(rows, '当前加班名单人数'),
+        {
+          label: '加班总时长',
+          value: formatHours(total),
+          unit: '小时',
+          hint: '计薪、转调休与义务加班汇总',
+        },
+        {
+          label: '计薪加班',
+          value: formatHours(paid),
+          unit: '小时',
+          hint: '当前部门范围内',
+        },
+        {
+          label: '转调休加班',
+          value: formatHours(compensatory),
+          unit: '小时',
+          hint: '当前部门范围内',
+        },
+      ];
+    }
+    case 'work-hours': {
+      const rows = report.workHoursRows;
+      return [
+        peopleCard(rows, '筛选范围内在册人员'),
+        {
+          label: '应出勤工时',
+          value: formatHours(sumNumbers(rows.map((row) => row.plannedHours))),
+          unit: '小时',
+          hint: '当前部门应出勤合计',
+        },
+        {
+          label: '加班总时长',
+          value: formatHours(sumNumbers(rows.map((row) => row.overtimeHours))),
+          unit: '小时',
+          hint: '当前部门加班合计',
+        },
+        {
+          label: '实际出勤工时',
+          value: formatHours(sumNumbers(rows.map((row) => row.actualHours))),
+          unit: '小时',
+          hint: '当前部门实际出勤合计',
+        },
+      ];
+    }
+    case 'exceptions': {
+      const rows = report.attendanceExceptionRows;
+      const open = rows.filter((row) => row.state !== '已处理').length;
+      const high = rows.filter((row) => row.severity === '高').length;
+      return [
+        peopleCard(rows, '当前异常涉及员工'),
+        {
+          label: '异常总数',
+          value: rows.length,
+          unit: '项',
+          hint: '当前筛选条件下的异常',
+        },
+        {
+          label: '待处理异常',
+          value: open,
+          unit: '项',
+          hint: '可在考勤异常总览中分级处理',
+          tone: 'warning',
+        },
+        {
+          label: '高风险',
+          value: high,
+          unit: '项',
+          hint: '错误级别，建议优先处理',
+          tone: high > 0 ? 'warning' : 'default',
+        },
+      ];
+    }
+    case 'late': {
+      const rows = report.lateRows;
+      const events = sumNumbers(rows.map((row) => row.count));
+      const minutes = sumNumbers(rows.map((row) => row.lateMinutes ?? 0));
+      return [
+        peopleCard(rows, '当前迟到名单人数'),
+        {
+          label: '迟到人次',
+          value: events,
+          unit: '次',
+          hint: '当前部门累计迟到次数',
+        },
+        {
+          label: '累计分钟',
+          value: minutes,
+          unit: '分钟',
+          hint: '有分钟数的迟到合计',
+        },
+        {
+          label: '人均次数',
+          value: formatHours(average(events, uniquePeople(rows))),
+          unit: '次',
+          hint: '迟到次数 ÷ 人数',
+        },
+      ];
+    }
+    case 'missed-punch': {
+      const rows = report.missedPunchRows;
+      const events = sumNumbers(rows.map((row) => row.count));
+      return [
+        peopleCard(rows, '当前缺卡名单人数'),
+        {
+          label: '缺卡人次',
+          value: events,
+          unit: '次',
+          hint: '当前部门累计缺卡',
+        },
+        {
+          label: '缺卡记录',
+          value: rows.length,
+          unit: '人',
+          hint: '有缺卡的员工数',
+        },
+        {
+          label: '人均缺卡',
+          value: formatHours(average(events, uniquePeople(rows))),
+          unit: '次',
+          hint: '缺卡次数 ÷ 人数',
+        },
+      ];
+    }
+    case 'attendance-rate': {
+      const rows = report.attendanceRateRows;
+      const scheduled = rows.filter((row) => (row.scheduledDays ?? 0) > 0);
+      const actual = rows.filter((row) => (row.actualDays ?? 0) > 0);
+      const rates = rows
+        .map((row) => parsePercent(row.rate))
+        .filter((value): value is number => value !== undefined);
+      const hours = rows
+        .map((row) => row.hours)
+        .filter((value): value is number => value !== undefined);
+      return [
+        {
+          label: '应出勤人数',
+          value: scheduled.length > 0 ? scheduled.length : uniquePeople(rows),
+          unit: '人',
+          hint: '当前部门应出勤人员',
+        },
+        {
+          label: '实际出勤人数',
+          value: actual.length > 0 ? actual.length : uniquePeople(rows),
+          unit: '人',
+          hint: '当前部门有实际出勤的人员',
+        },
+        {
+          label: '平均出勤率',
+          value: rates.length > 0
+            ? `${average(sumNumbers(rates), rates.length).toFixed(1)}%`
+            : '—',
+          unit: '',
+          hint: '按当前部门人员平均',
+        },
+        {
+          label: '平均工时',
+          value: hours.length > 0
+            ? formatHours(average(sumNumbers(hours), hours.length))
+            : formatHours(average(
+              sumNumbers(rows.map((row) => row.actualDays ?? 0)),
+              uniquePeople(rows),
+            )),
+          unit: hours.length > 0 ? '小时' : '天',
+          hint: '当前部门人均',
+        },
+      ];
+    }
+    case 'annual-leave': {
+      const rows = report.annualLeaveRows;
+      const available = sumNumbers(rows.map((row) => row.availableDays));
+      const used = sumNumbers(rows.flatMap((row) => row.monthlyUsedDays ?? []));
+      const remaining = sumNumbers(rows.map((row) => row.remainingDays));
+      return [
+        peopleCard(rows, '当前年假名单人数'),
+        {
+          label: '可休总额',
+          value: formatHours(available),
+          unit: '天',
+          hint: '当前部门可休年假',
+        },
+        {
+          label: '已使用',
+          value: formatHours(used),
+          unit: '天',
+          hint: '当前部门已休年假',
+        },
+        {
+          label: '剩余',
+          value: formatHours(remaining),
+          unit: '天',
+          hint: '当前部门剩余年假',
+        },
+      ];
+    }
+    case 'finance-overtime': {
+      const rows = report.financeOvertimeRows;
+      return [
+        peopleCard(rows, '有加班记录的人数'),
+        {
+          label: '平时加班',
+          value: formatHours(sumNumbers(rows.map((row) => row.weekdayOvertimeHours))),
+          unit: '小时',
+          hint: '工作日合计',
+        },
+        {
+          label: '周末加班',
+          value: formatHours(sumNumbers(rows.map((row) => row.weekendOvertimeHours))),
+          unit: '小时',
+          hint: '周六日合计',
+        },
+        {
+          label: '节假日加班',
+          value: formatHours(sumNumbers(rows.map((row) => row.holidayOvertimeHours))),
+          unit: '小时',
+          hint: '法定节假日合计',
+        },
+      ];
+    }
+    case 'overtime-daily': {
+      const rows = report.overtimeDailyRows;
+      return [
+        peopleCard(rows, '有加班记录的人数'),
+        {
+          label: '工作日加班',
+          value: formatHours(sumNumbers(rows.map((row) => row.weekdayOvertimeHours))),
+          unit: '小时',
+          hint: '当前窗口合计',
+        },
+        {
+          label: '周末加班',
+          value: formatHours(sumNumbers(rows.map((row) => row.weekendOvertimeHours))),
+          unit: '小时',
+          hint: '当前窗口合计',
+        },
+        {
+          label: '节假日加班',
+          value: formatHours(sumNumbers(rows.map((row) => row.holidayOvertimeHours))),
+          unit: '小时',
+          hint: '当前窗口合计',
+        },
+      ];
+    }
+    case 'daily-journal':
+      return [
+        peopleCard(report.dailyJournalRows, '日报覆盖人数'),
+        {
+          label: '人日',
+          value: report.dailyJournalRows.length,
+          unit: '行',
+          hint: '一人一日一行',
+        },
+      ];
+  }
+}
+
+function peopleCard(
+  rows: ReadonlyArray<{ employeeId?: string; employee?: string; rowKey?: string }>,
+  hint: string,
+): CustomerReportOverviewCard {
+  return {
+    label: '范围员工',
+    value: uniquePeople(rows),
+    unit: '人',
+    hint,
+  };
+}
+
+function uniquePeople(
+  rows: ReadonlyArray<{ employeeId?: string; employee?: string; rowKey?: string }>,
+): number {
+  const identities = new Set<string>();
+  for (const row of rows) {
+    const key = row.employeeId || row.employee || row.rowKey || '';
+    if (key !== '' && key !== '—') identities.add(key);
+  }
+  return identities.size;
+}
+
+function sumNumbers(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function average(total: number, count: number): number {
+  return count > 0 ? total / count : 0;
+}
+
+function formatHours(value: number): string {
+  return value.toFixed(1);
+}
+
+function parsePercent(value: string): number | undefined {
+  const parsed = Number(value.replace('%', '').trim());
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export function formatMonth(month: string): string {
   const [year, monthNumber] = month.split('-');
   return `${year}年${monthNumber}月`;
+}
+
+function inSelectedRange(
+  date: string | undefined,
+  filters: CustomerReportFilters,
+): boolean {
+  if (!filters.fromDate || !filters.toDate || !date) {
+    return true;
+  }
+  return date >= filters.fromDate && date <= filters.toDate;
 }
 
 function filterPeople<T extends { department: string; employee: string }>(
@@ -975,7 +1785,7 @@ function filterPeople<T extends { department: string; employee: string }>(
   }
   return rows.filter((row) => (
     isWithinCustomerReportScope(row, dataScope)
-    && (filters.department === '全部部门' || row.department === filters.department)
+    && (filters.department === '全部部门' || departmentMatchesFilter(row.department, filters.department))
     && (filters.employee === '全部员工' || row.employee === filters.employee)
   ));
 }
@@ -1006,21 +1816,93 @@ function applyAttendanceStatus(
   status: AttendanceStatusKey | undefined,
 ): AttendanceDayCell {
   if (!status) return cell;
-  const values: Record<AttendanceStatusKey, Pick<AttendanceDayCell, 'primary' | 'secondary' | 'note'>> = {
-    late: { primary: '09:06 迟到', secondary: cell.secondary, note: '迟到 36 分钟' },
-    early: { primary: cell.primary, secondary: '17:15 早退', note: '早退 45 分钟' },
-    missed: { primary: cell.primary, secondary: '漏刷', note: '缺少下班卡' },
-    overtime: { primary: cell.primary, secondary: '21:10 加班', note: '加班 3 小时' },
-    'time-off': { primary: '调休', secondary: '8.0小时', note: '调休 1 天' },
-    out: { primary: '外出', secondary: '客户现场', note: '外出已审批' },
-    trip: { primary: '出差', secondary: '苏州', note: '出差已审批' },
-    'personal-leave': { primary: '事假', secondary: '8.0小时', note: '事假已审批' },
-    'sick-leave': { primary: '病假', secondary: '8.0小时', note: '病假已审批' },
-    'annual-leave': { primary: '年假', secondary: '8.0小时', note: '年假已审批' },
-    'rest-day': { primary: '休息日', secondary: '—', note: '非工作日' },
-    corrected: { primary: '补签 08:18', secondary: cell.secondary, note: '补签已通过' },
+  const leaveLabels: Partial<Record<AttendanceStatusKey, string>> = {
+    'time-off': '调休',
+    out: '外出',
+    trip: '出差',
+    'personal-leave': '事假',
+    'sick-leave': '病假',
+    'annual-leave': '年假',
+    'marriage-leave': '婚假',
+    'maternity-leave': '产假',
+    'paternity-leave': '陪产假',
+    'bereavement-leave': '丧假',
+    'work-injury-leave': '工伤假',
+    'nursing-leave': '护理假',
+    'breastfeeding-leave': '哺乳假',
+    'prenatal-exam-leave': '孕检假',
+    'family-planning-leave': '计生假',
   };
-  return { ...cell, ...values[status], status };
+  const leaveLabel = leaveLabels[status];
+  if (leaveLabel !== undefined) {
+    return {
+      ...cell,
+      primary: leaveLabel,
+      secondary: leaveLabel,
+      status,
+      primaryStatus: status,
+      secondaryStatus: status,
+      merged: true,
+      mergedLabel: leaveLabel,
+      mergedStatus: status,
+      note: `${leaveLabel}已审批`,
+    };
+  }
+  if (status === 'late') {
+    return {
+      ...cell,
+      primary: '09:06 迟到',
+      primaryStatus: 'late',
+      status: 'late',
+      note: '迟到 36 分钟',
+    };
+  }
+  if (status === 'early') {
+    return {
+      ...cell,
+      secondary: '17:15 早退',
+      secondaryStatus: 'early',
+      status: 'early',
+      note: '早退 45 分钟',
+    };
+  }
+  if (status === 'missed') {
+    return {
+      ...cell,
+      secondary: '漏刷',
+      secondaryStatus: 'missed',
+      status: 'missed',
+      note: '缺少下班卡',
+    };
+  }
+  if (status === 'overtime') {
+    return {
+      ...cell,
+      secondary: '21:10',
+      primaryStatus: 'overtime',
+      secondaryStatus: 'overtime',
+      status: 'overtime',
+      note: `${cell.primary}\n21:10\n加班`,
+    };
+  }
+  if (status === 'rest-day') {
+    return {
+      ...cell,
+      primary: '',
+      secondary: '',
+      primaryStatus: 'rest-day',
+      secondaryStatus: 'rest-day',
+      status: 'rest-day',
+      note: '非工作日',
+    };
+  }
+  return {
+    ...cell,
+    primary: '补签08:18',
+    primaryStatus: 'corrected',
+    status: 'corrected',
+    note: '补签已通过',
+  };
 }
 
 function roundHours(value: number): number {
@@ -1031,10 +1913,81 @@ function matchesOvertimeType(
   row: OvertimeReportRow,
   type: CustomerReportSpecificFilters['overtimeType'],
 ): boolean {
-  if (type === '计薪加班') return (row.paidHours ?? 0) > 0;
-  if (type === '转调休加班') return (row.compensatoryHours ?? 0) > 0;
-  if (type === '义务加班') return (row.voluntaryHours ?? 0) > 0;
+  if (type === '全部类型') return true;
+  if (type === '计薪加班' || type === '加班费') {
+    return row.overtimeType === '加班费' || (row.paidHours ?? 0) > 0;
+  }
+  if (type === '转调休加班' || type === '转调休') {
+    return row.overtimeType === '调休' || (row.compensatoryHours ?? 0) > 0;
+  }
+  if (type === '义务加班') return row.overtimeType === '义务加班' || (row.voluntaryHours ?? 0) > 0;
   return true;
+}
+
+function matchesDailyOvertimeTreatment(
+  row: OvertimeDailyReportRow,
+  type: CustomerReportSpecificFilters['overtimeType'],
+): boolean {
+  if (type === '全部类型') return true;
+  if (type === '计薪加班' || type === '加班费') return (row.paidOvertimeHours ?? 0) > 0;
+  if (type === '转调休加班' || type === '转调休') return (row.compensatoryOvertimeHours ?? 0) > 0;
+  if (type === '义务加班') return (row.voluntaryOvertimeHours ?? 0) > 0;
+  return true;
+}
+
+function matchesFinanceOvertimeTreatment(
+  row: FinanceOvertimeReportRow,
+  type: CustomerReportSpecificFilters['overtimeType'],
+): boolean {
+  if (type === '全部类型') return true;
+  if (type === '计薪加班' || type === '加班费') return (row.paidOvertimeHours ?? 0) > 0;
+  if (type === '转调休加班' || type === '转调休') return (row.compensatoryOvertimeHours ?? 0) > 0;
+  if (type === '义务加班') {
+    return (row.voluntaryOvertimeHours ?? 0) > 0
+      || row.days.some((day) => day.treatment === 'VOLUNTARY' || (day.voluntaryHours ?? 0) > 0);
+  }
+  return true;
+}
+
+function projectFinanceOvertimeRow(
+  row: FinanceOvertimeReportRow,
+  type: CustomerReportSpecificFilters['overtimeType'],
+): FinanceOvertimeReportRow {
+  if (type === '全部类型') return row;
+  const days = row.days.map((day) => {
+    const paidHours = day.paidHours ?? 0;
+    const compensatoryHours = day.compensatoryHours ?? 0;
+    const voluntaryHours = day.voluntaryHours ?? 0;
+    const hours = type === '义务加班'
+      ? voluntaryHours
+      : (type === '转调休' || type === '转调休加班')
+        ? compensatoryHours
+        : paidHours;
+    return {
+      ...day,
+      hours,
+      treatment: type === '义务加班'
+        ? 'VOLUNTARY'
+        : (type === '转调休' || type === '转调休加班')
+          ? 'COMPENSATORY'
+          : 'PAID',
+    };
+  }).filter((day) => day.hours > 0);
+  let weekdayOvertimeHours = 0;
+  let weekendOvertimeHours = 0;
+  days.forEach((day) => {
+    if (isoWeekdayBucket(day.date) === 'weekend') {
+      weekendOvertimeHours += day.hours;
+    } else {
+      weekdayOvertimeHours += day.hours;
+    }
+  });
+  return {
+    ...row,
+    days,
+    weekdayOvertimeHours,
+    weekendOvertimeHours,
+  };
 }
 
 function matchesLateCount(
