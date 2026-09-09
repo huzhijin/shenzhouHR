@@ -4,6 +4,8 @@
 
 发布包：`release-candidates/shenzhouhr-release-20260909-browser-compat.tar.gz`
 
+SHA256：`f0d295429ab6bfcd560081ecaae7d4cab08450e6fd79fcae97f6371ed3df9f66`
+
 升级脚本：`docs/deployment/2026-09-09-browser-compat-upgrade.sh`
 
 ## 改了什么
@@ -17,6 +19,8 @@
 
 ```bash
 sha256sum /root/shenzhouhr-release-20260909-browser-compat.tar.gz
+# 必须是
+# f0d295429ab6bfcd560081ecaae7d4cab08450e6fd79fcae97f6371ed3df9f66
 chmod +x /root/upgrade-browser-compat.sh
 bash /root/upgrade-browser-compat.sh
 ```
