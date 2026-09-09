@@ -481,7 +481,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
             className="employment-timeline"
             items={Array.from(periods, (period) => ({
               color: period.endExclusive ? 'var(--color-text-muted)' : 'var(--color-brand-primary)',
-              icon: <IconBriefcase aria-hidden="true" stroke={2} size="var(--size-icon-md)" />,
+              icon: <IconBriefcase aria-hidden="true" stroke={2} size={20} />,
               content: (
                 <article className="employment-period">
                   <div className="section-heading">

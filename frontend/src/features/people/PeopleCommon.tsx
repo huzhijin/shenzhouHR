@@ -33,7 +33,7 @@ export function SourceAuthority({ authority }: { authority: 'INITIAL_EXCEL' | 'L
   const { t } = useTranslation();
   return (
     <span className={`source-authority source-authority--${authority.toLowerCase()}`}>
-      <IconDatabase aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
+      <IconDatabase aria-hidden="true" stroke={2} size={20} />
       {authority === 'LOCAL' ? t('people.source.local') : t('people.source.initialExcel')}
     </span>
   );
@@ -105,7 +105,7 @@ export function VersionAuditPanel({ versions, resourceType, resourceId, canReadA
           key: 'versions',
           label: (
             <span className="tab-label">
-              <IconHistory aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
+              <IconHistory aria-hidden="true" stroke={2} size={20} />
               {t('people.versions')}
             </span>
           ),
@@ -129,7 +129,7 @@ export function VersionAuditPanel({ versions, resourceType, resourceId, canReadA
           key: 'audit',
           label: (
             <span className="tab-label">
-              <IconClock aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
+              <IconClock aria-hidden="true" stroke={2} size={20} />
               {t('people.audit')}
             </span>
           ),

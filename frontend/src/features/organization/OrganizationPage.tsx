@@ -303,7 +303,7 @@ export default OrganizationPage;
 function OrganizationTreeTitle({ node }: { node: OrganizationTreeDataNode }) {
   return (
     <span className="organization-node">
-      <IconBuilding aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
+      <IconBuilding aria-hidden="true" stroke={2} size={20} />
       <strong>{node.unit.name}</strong>
       <StatusBadge status={node.unit.status} />
     </span>

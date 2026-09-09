@@ -206,7 +206,7 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
       </Sider>
       <Layout className="app-workspace">
         <Header className="app-topbar">
-          <AccessibleButton className="mobile-menu-trigger" type="text" label={translate('app.openNavigation')} iconOnly icon={<IconMenu2 aria-hidden="true" stroke={2} size="var(--size-icon-md)" />} onClick={() => setMobileMenuOpen(true)} />
+          <AccessibleButton className="mobile-menu-trigger" type="text" label={translate('app.openNavigation')} iconOnly icon={<IconMenu2 aria-hidden="true" stroke={2} size={20} />} onClick={() => setMobileMenuOpen(true)} />
           <span id="mobile-menu-trigger-label" className="sr-only">
             {translate('app.openNavigation')}
           </span>
@@ -300,7 +300,7 @@ export function ResponsiveNavigation({ menu, selectedKey, onOpen, theme = 'dark'
       const Icon = menuIcons[item.key as keyof typeof menuIcons] ?? IconBuildingCommunity;
       return {
         key: item.key,
-        icon: <Icon aria-hidden="true" stroke={2} size="var(--size-icon-md)" />,
+        icon: <Icon aria-hidden="true" stroke={2} size={20} />,
         label: item.label,
       };
     };

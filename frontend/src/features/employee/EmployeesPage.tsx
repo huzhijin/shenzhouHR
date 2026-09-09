@@ -453,7 +453,7 @@ function EmployeeDirectoryTreeTitle({
       : IconBuildingCommunity;
   return (
     <span className="employee-directory-node">
-      <Icon aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
+      <Icon aria-hidden="true" stroke={2} size={20} />
       <span>{node.title}</span>
     </span>
   );

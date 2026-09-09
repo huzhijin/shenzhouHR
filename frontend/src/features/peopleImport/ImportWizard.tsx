@@ -392,7 +392,7 @@ function StepContent({
           beforeUpload={acceptSelectedFile}
           onRemove={removeSelectedFile}
         >
-          <IconUpload aria-hidden="true" stroke={2} size="var(--size-icon-lg)" />
+          <IconUpload aria-hidden="true" stroke={2} size={32} />
           <p className="upload-title">{t('peopleImport.chooseFile')}</p>
           <p>{t('peopleImport.fileHelp')}</p>
         </Upload.Dragger>
