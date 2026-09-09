@@ -15,8 +15,9 @@ if grep -q "frame-ancestors" /root/shenzhouhr-release-20260909-browser-compat/we
   echo '失败：index.html 仍含 frame-ancestors'
   exit 1
 fi
-if grep -R -q 'var(--size-icon' /root/shenzhouhr-release-20260909-browser-compat/web/assets; then
-  echo '失败：前端包仍含 var(--size-icon'
+if grep -R --include='*.js' -q 'size:"var(--size-icon' \
+    /root/shenzhouhr-release-20260909-browser-compat/web/assets; then
+  echo '失败：JS 仍把 CSS 变量写进 SVG size'
   exit 1
 fi
 
