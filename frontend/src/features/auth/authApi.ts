@@ -1,6 +1,12 @@
-import { requestJson } from '../../shared/api/apiClient';
+import { ApiRequestError, requestJson } from '../../shared/api/apiClient';
 import { isDemoMode } from '../../shared/config/runtimeMode';
-import type { SessionView } from '../session/sessionApi';
+import {
+  authenticateDemo,
+} from '../session/demoAuthSession';
+import {
+  getCurrentSession,
+  type SessionView,
+} from '../session/sessionApi';
 
 export type LoginResult =
   | SessionView
@@ -8,19 +14,13 @@ export type LoginResult =
 
 export async function login(username: string, password: string): Promise<LoginResult> {
   if (isDemoMode()) {
-    return {
-      sessionId: 'demo-session',
-      accountId: 'demo-account',
-      username,
-      displayName: '合成系统管理员',
-      status: 'ACTIVE',
-      firstPasswordChangeRequired: false,
-      issuedAt: '2026-07-24T00:00:00Z',
-      idleExpiresAt: '2026-07-24T08:00:00Z',
-      absoluteExpiresAt: '2026-07-25T00:00:00Z',
-      capabilities: ['POLICY:READ', 'ACCOUNT:READ', 'ROLE:READ', 'AUDIT:READ'],
-      menu: [],
-    };
+    if (!authenticateDemo(username, password)) {
+      throw new ApiRequestError(401, {
+        code: 'INVALID_CREDENTIALS',
+        retryable: false,
+      });
+    }
+    return getCurrentSession();
   }
   return requestJson<LoginResult>('/api/v1/auth/login', {
     method: 'POST',

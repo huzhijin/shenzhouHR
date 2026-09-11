@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeMapper">
+
+    <insert id="insertBatch">
+        INSERT INTO paper_overtime_batch (
+            paper_overtime_batch_id, company_id, status, created_by, created_at
+        ) VALUES (
+            #{batchId}, #{companyId}, 'DRAFT', #{principalId}, #{createdAt}
+        )
+    </insert>
+
+    <update id="markSaved">
+        UPDATE paper_overtime_batch
+        SET status = 'SAVED', saved_at = #{savedAt}
+        WHERE paper_overtime_batch_id = #{batchId}
+    </update>
+
+    <insert id="insertAttachment">
+        INSERT INTO paper_overtime_attachment (
+            paper_overtime_attachment_id, paper_overtime_batch_id,
+            file_name, content_type, content, ocr_text, created_at
+        ) VALUES (
+            #{attachmentId}, #{batchId}, #{fileName}, #{contentType},
+            #{content}, #{ocrText}, #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertLine">
+        INSERT INTO paper_overtime_line (
+            paper_overtime_line_id, paper_overtime_batch_id, employee_id,
+            ocr_name, ocr_department, overtime_date, start_at, end_at,
+            overtime_type, reason, created_at
+        ) VALUES (
+            #{lineId}, #{batchId}, #{employeeId}, #{ocrName}, #{ocrDepartment},
+            #{overtimeDate}, #{startAt}, #{endAt}, #{overtimeType}, #{reason},
+            #{createdAt}
+        )
+    </insert>
+
+    <update id="updateLineDocument">
+        UPDATE paper_overtime_line
+        SET oa_attendance_document_id = #{documentId}
+        WHERE paper_overtime_line_id = #{lineId}
+    </update>
+
+    <select id="findPaperSourceId" resultType="string">
+        SELECT attendance_source_id
+        FROM attendance_source
+        WHERE company_id = #{companyId}
+          AND source_type = 'PAPER_OVERTIME'
+          AND status = 'ACTIVE'
+        LIMIT 1
+    </select>
+
+    <insert id="insertPaperSource">
+        INSERT INTO attendance_source (
+            attendance_source_id, company_id, source_code, source_type,
+            display_name, status, row_version, created_by, created_at
+        ) VALUES (
+            #{sourceId}, #{companyId}, 'PAPER_OVERTIME', 'PAPER_OVERTIME',
+            '纸质加班单', 'ACTIVE', 0, 'SYSTEM', #{createdAt}
+        )
+    </insert>
+
+    <select id="suggestEmployees"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeRows$EmployeeCandidateRow">
+        SELECT employee.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS displayName,
+               employment.organization_id AS organizationId,
+               organization_version.name AS departmentName,
+               employee_version.status AS employmentStatus
+        FROM employee employee
+        JOIN employee_version employee_version
+          ON employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= #{asOf}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{asOf}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND DATE(employment.effective_from) &lt;= #{asOf}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{asOf}
+         )
+        JOIN organization_version organization_version
+          ON organization_version.organization_id = employment.organization_id
+         AND DATE(organization_version.effective_from) &lt;= #{asOf}
+         AND (
+                organization_version.effective_to IS NULL
+                OR DATE(organization_version.effective_to) &gt; #{asOf}
+         )
+        WHERE employee.company_id = #{companyId}
+          AND (
+                #{name} IS NULL
+                OR #{name} = ''
+                OR employee_version.display_name LIKE CONCAT('%', #{name}, '%')
+                OR employee_version.employee_number LIKE CONCAT('%', #{name}, '%')
+          )
+        ORDER BY
+            CASE WHEN employee_version.display_name = #{name} THEN 0 ELSE 1 END,
+            CASE WHEN organization_version.name LIKE CONCAT('%', #{department}, '%')
+                 THEN 0 ELSE 1 END,
+            employee_version.employee_number
+        LIMIT 20
+    </select>
+
+    <select id="findEmployee"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeRows$EmployeeCandidateRow">
+        SELECT employee.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS displayName,
+               employment.organization_id AS organizationId,
+               organization_version.name AS departmentName,
+               employee_version.status AS employmentStatus
+        FROM employee employee
+        JOIN employee_version employee_version
+          ON employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= #{asOf}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{asOf}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+        JOIN organization_version organization_version
+          ON organization_version.organization_id = employment.organization_id
+        WHERE employee.company_id = #{companyId}
+          AND employee.employee_id = #{employeeId}
+        LIMIT 1
+    </select>
+
+    <select id="listApprovedOvertime"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeRows$ExistingOvertimeRow">
+        SELECT document.oa_attendance_document_id AS documentId,
+               document.source_business_key AS sourceBusinessKey,
+               normalized.interval_start AS intervalStart,
+               normalized.interval_end AS intervalEnd
+        FROM oa_attendance_document document
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             document.normalized_attendance_record_id
+        JOIN employee_match_decision match_decision
+          ON match_decision.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+        WHERE match_decision.employee_id = #{employeeId}
+          AND match_decision.match_status = 'MATCHED'
+          AND document.document_type = 'OVERTIME'
+          AND document.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
+          AND normalized.interval_start IS NOT NULL
+          AND normalized.interval_end IS NOT NULL
+    </select>
+
+    <select id="listSavedLines"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeRows$SavedLineRow">
+        SELECT line.paper_overtime_line_id AS lineId,
+               line.paper_overtime_batch_id AS batchId,
+               line.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               organization_version.name AS departmentName,
+               line.overtime_date AS overtimeDate,
+               line.start_at AS startAt,
+               line.end_at AS endAt,
+               line.overtime_type AS overtimeType,
+               line.reason AS reason,
+               line.oa_attendance_document_id AS documentId
+        FROM paper_overtime_line line
+        JOIN paper_overtime_batch batch
+          ON batch.paper_overtime_batch_id = line.paper_overtime_batch_id
+        LEFT JOIN employee_version employee_version
+          ON employee_version.employee_id = line.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= COALESCE(line.overtime_date, CURRENT_DATE)
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; COALESCE(line.overtime_date, CURRENT_DATE)
+         )
+        LEFT JOIN employment_assignment employment
+          ON employment.employee_id = line.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+        LEFT JOIN organization_version organization_version
+          ON organization_version.organization_id = employment.organization_id
+         AND DATE(organization_version.effective_from) &lt;= COALESCE(line.overtime_date, CURRENT_DATE)
+         AND (
+                organization_version.effective_to IS NULL
+                OR DATE(organization_version.effective_to) &gt; COALESCE(line.overtime_date, CURRENT_DATE)
+         )
+        WHERE batch.company_id = #{companyId}
+          AND batch.status = 'SAVED'
+          AND (
+                #{fromDate} IS NULL
+                OR line.overtime_date IS NULL
+                OR line.overtime_date &gt;= #{fromDate}
+          )
+          AND (
+                #{toDate} IS NULL
+                OR line.overtime_date IS NULL
+                OR line.overtime_date &lt;= #{toDate}
+          )
+        ORDER BY line.overtime_date, employee_version.employee_number,
+                 line.paper_overtime_line_id
+    </select>
+</mapper>

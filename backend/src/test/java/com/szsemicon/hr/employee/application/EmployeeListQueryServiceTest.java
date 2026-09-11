@@ -64,4 +64,103 @@ class EmployeeListQueryServiceTest {
         assertThatThrownBy(() -> service.query(0, 101))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void passesOptionalCompanyFilterWithoutChangingTheExistingAuthorizationInputs() {
+        CurrentPrincipalProvider principalProvider = () -> "principal-1";
+        CurrentCapabilityService capabilityService = new CurrentCapabilityService(
+                principalProvider,
+                (principalId, at) -> Set.of(CapabilityCodes.MASTER_DATA_READ),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        AtomicReference<String> capturedCompanyId = new AtomicReference<>();
+        EmployeeReadRepository repository = new EmployeeReadRepository() {
+            @Override
+            public EmployeePage findVisibleTo(
+                    String principalId,
+                    String capabilityCode,
+                    Instant at,
+                    int page,
+                    int size) {
+                throw new AssertionError("filtered repository overload must be called");
+            }
+
+            @Override
+            public EmployeePage findVisibleTo(
+                    String principalId,
+                    String capabilityCode,
+                    Instant at,
+                    String query,
+                    String organizationId,
+                    String companyId,
+                    String status,
+                    String sort,
+                    int page,
+                    int size) {
+                assertThat(principalId).isEqualTo("principal-1");
+                assertThat(capabilityCode).isEqualTo(CapabilityCodes.MASTER_DATA_READ);
+                capturedCompanyId.set(companyId);
+                return new EmployeePage(List.of(), 0, page, size);
+            }
+        };
+        EmployeeListQueryService service = new EmployeeListQueryService(
+                capabilityService,
+                principalProvider,
+                repository,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        service.query(
+                0, 50, null, null, "company-1", null, null, null);
+
+        assertThat(capturedCompanyId).hasValue("company-1");
+    }
+
+    @Test
+    void forwardsTheExplicitOrganizationDescendantFilter() {
+        CurrentPrincipalProvider principalProvider = () -> "principal-1";
+        CurrentCapabilityService capabilityService = new CurrentCapabilityService(
+                principalProvider,
+                (principalId, at) -> Set.of(CapabilityCodes.MASTER_DATA_READ),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        AtomicReference<Boolean> capturedIncludeDescendants = new AtomicReference<>();
+        EmployeeReadRepository repository = new EmployeeReadRepository() {
+            @Override
+            public EmployeePage findVisibleTo(
+                    String principalId,
+                    String capabilityCode,
+                    Instant at,
+                    int page,
+                    int size) {
+                throw new AssertionError("filtered repository overload must be called");
+            }
+
+            @Override
+            public EmployeePage findVisibleTo(
+                    String principalId,
+                    String capabilityCode,
+                    Instant at,
+                    String query,
+                    String organizationId,
+                    boolean includeDescendants,
+                    String companyId,
+                    String status,
+                    String sort,
+                    int page,
+                    int size) {
+                assertThat(organizationId).isEqualTo("organization-1");
+                capturedIncludeDescendants.set(includeDescendants);
+                return new EmployeePage(List.of(), 0, page, size);
+            }
+        };
+        EmployeeListQueryService service = new EmployeeListQueryService(
+                capabilityService,
+                principalProvider,
+                repository,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        service.query(
+                0, 50, null, "organization-1", true,
+                null, null, null, null);
+
+        assertThat(capturedIncludeDescendants).hasValue(true);
+    }
 }

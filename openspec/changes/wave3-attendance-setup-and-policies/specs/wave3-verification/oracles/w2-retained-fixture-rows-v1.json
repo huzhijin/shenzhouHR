@@ -1,0 +1,170 @@
+{
+  "authority": "Review-owned W2 V6 retained non-empty fixed fixture rows; independent of capture output",
+  "finalHash": "822a591e4eb685d7742a048bec6aad5984bcae89b6a4f98c1fb8f0b08086838e",
+  "fixtureSqlSha256": "41bfe9b0ee7f2d4a1cca26dfdfb0c8c243f06e3fc606c66ab129d9fdd2193f3b",
+  "registrySha256": "1c83b61186c907eb020e26ef213a503f8f4fd9116edad6fef823672445fa0b06",
+  "rowCounts": {
+    "audit_event": 1,
+    "policy_publication_record": 1,
+    "policy_rollback_record": 1,
+    "policy_scope_binding": 1,
+    "policy_template": 1,
+    "policy_version": 2
+  },
+  "sourceRows": [
+    {
+      "table": "policy_template",
+      "values": {
+        "created_at": "2020-01-02T03:04:05.123456Z",
+        "created_by": "20000000-0000-0000-0000-000000000001",
+        "description": "W3 独立 retained 非空夹具",
+        "field_definitions_json": {
+          "enabled": {
+            "type": "BOOLEAN"
+          }
+        },
+        "name": "W3 retained 通用策略",
+        "row_version": 7,
+        "status": "ACTIVE",
+        "template_code": "W3_RETAINED_W2_POLICY",
+        "template_id": "24400000-0000-0000-0000-000000000001",
+        "updated_at": "2020-01-02T03:04:06.123456Z",
+        "updated_by": "20000000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "table": "policy_version",
+      "values": {
+        "change_reason": "初始发布",
+        "created_at": "2020-01-02T03:04:07.123456Z",
+        "created_by": "20000000-0000-0000-0000-000000000001",
+        "effective_from": "2020-01-01",
+        "effective_to": "2020-12-31",
+        "parameters_json": {
+          "enabled": true
+        },
+        "published_at": "2020-01-02T03:04:08.123456Z",
+        "rollback_of_version_id": null,
+        "row_version": 11,
+        "snapshot_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "snapshot_json": {
+          "parameters": {
+            "enabled": true
+          },
+          "versionNumber": 1
+        },
+        "status": "PUBLISHED",
+        "template_id": "24400000-0000-0000-0000-000000000001",
+        "updated_at": "2020-01-02T03:04:09.123456Z",
+        "updated_by": "20000000-0000-0000-0000-000000000001",
+        "validation_json": {
+          "issues": [],
+          "valid": true
+        },
+        "version_id": "24410000-0000-0000-0000-000000000001",
+        "version_number": 1
+      }
+    },
+    {
+      "table": "policy_version",
+      "values": {
+        "change_reason": "回滚留痕",
+        "created_at": "2020-12-02T03:04:07.123456Z",
+        "created_by": "20000000-0000-0000-0000-000000000001",
+        "effective_from": "2021-01-01",
+        "effective_to": null,
+        "parameters_json": {
+          "enabled": false
+        },
+        "published_at": null,
+        "rollback_of_version_id": "24410000-0000-0000-0000-000000000001",
+        "row_version": 12,
+        "snapshot_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "snapshot_json": {
+          "parameters": {
+            "enabled": false
+          },
+          "versionNumber": 2
+        },
+        "status": "INACTIVE",
+        "template_id": "24400000-0000-0000-0000-000000000001",
+        "updated_at": "2020-12-02T03:04:09.123456Z",
+        "updated_by": "20000000-0000-0000-0000-000000000001",
+        "validation_json": {
+          "issues": [],
+          "valid": true
+        },
+        "version_id": "24410000-0000-0000-0000-000000000002",
+        "version_number": 2
+      }
+    },
+    {
+      "table": "policy_scope_binding",
+      "values": {
+        "binding_id": "24420000-0000-0000-0000-000000000001",
+        "effective_from": "2020-01-01",
+        "effective_to": "2020-12-31",
+        "priority": 100,
+        "row_version": 3,
+        "scope_resource_id": "30000000-0000-0000-0000-000000000001",
+        "scope_type": "COMPANY",
+        "version_id": "24410000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "table": "policy_publication_record",
+      "values": {
+        "action": "PUBLISH",
+        "actor_id": "20000000-0000-0000-0000-000000000001",
+        "occurred_at": "2020-01-02T03:04:08.123456Z",
+        "publication_id": "24430000-0000-0000-0000-000000000001",
+        "reason": "固定 retained 发布",
+        "request_id": "w3-retained-publication",
+        "result": "SUCCESS",
+        "snapshot_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "template_id": "24400000-0000-0000-0000-000000000001",
+        "version_id": "24410000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "table": "policy_rollback_record",
+      "values": {
+        "actor_id": "20000000-0000-0000-0000-000000000001",
+        "created_version_id": "24410000-0000-0000-0000-000000000002",
+        "occurred_at": "2020-12-02T03:04:10.123456Z",
+        "reason": "固定 retained 回滚",
+        "request_id": "w3-retained-rollback",
+        "result": "SUCCESS",
+        "rollback_id": "24440000-0000-0000-0000-000000000001",
+        "source_version_id": "24410000-0000-0000-0000-000000000002",
+        "target_version_id": "24410000-0000-0000-0000-000000000001",
+        "template_id": "24400000-0000-0000-0000-000000000001"
+      }
+    },
+    {
+      "table": "audit_event",
+      "values": {
+        "action_code": "W3_RETAINED_W2_FIXTURE",
+        "actor_id_ref": "20000000-0000-0000-0000-000000000001",
+        "actor_type": "SYSTEM",
+        "after_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+        "anchor_ref": "W3-RETAINED",
+        "before_digest": null,
+        "correlation_id": "w3-retained-correlation",
+        "event_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+        "event_id": "24450000-0000-0000-0000-000000000001",
+        "occurred_at": "2020-12-02T03:04:11.123456Z",
+        "policy_version": "W2-V4",
+        "previous_hash": null,
+        "purpose_code": "VERIFICATION",
+        "reason_code": "FIXED_FIXTURE",
+        "request_id": "w3-retained-request",
+        "resource_id_ref": "24400000-0000-0000-0000-000000000001",
+        "resource_type": "POLICY_TEMPLATE",
+        "result_code": "SUCCESS",
+        "scope_digest": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    }
+  ],
+  "version": 1
+}

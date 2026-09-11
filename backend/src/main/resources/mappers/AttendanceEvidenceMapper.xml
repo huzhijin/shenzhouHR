@@ -1,0 +1,417 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceEvidenceMapper">
+
+    <insert id="insertSubjectLock">
+        INSERT INTO attendance_evidence_subject_lock (
+            company_id, employee_id, touched_at
+        ) VALUES (
+            #{companyId}, #{employeeId}, #{touchedAt}
+        )
+        ON DUPLICATE KEY UPDATE touched_at = VALUES(touched_at)
+    </insert>
+
+    <select id="lockSubject" resultType="string">
+        SELECT employee_id
+        FROM attendance_evidence_subject_lock
+        WHERE company_id = #{companyId}
+          AND employee_id = #{employeeId}
+        FOR UPDATE
+    </select>
+
+    <select id="findRawBySourceIdentity"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$RawFactRow">
+        SELECT raw_attendance_fact_id, attendance_source_id, company_id,
+               fact_kind, source_business_key, source_version,
+               stable_fingerprint, source_time_text, source_time_zone,
+               source_instant, interval_start, interval_end,
+               canonical_payload_digest, raw_object_ref, request_id,
+               received_at, created_by
+        FROM raw_attendance_fact
+        WHERE attendance_source_id = #{sourceId}
+          AND source_business_key = #{sourceBusinessKey}
+          AND source_version = #{sourceVersion}
+    </select>
+
+    <select id="findReplayStateBySourceIdentity"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$ReplayStateRow">
+        SELECT raw.raw_attendance_fact_id,
+               normalized.normalized_attendance_record_id,
+               normalized.normalization_revision,
+               normalized.validation_status,
+               normalized.issue_code,
+               matched.match_status,
+               matched.match_reason,
+               matched.employee_id AS match_employee_id,
+               matched.employment_period_id,
+               event.effective_attendance_event_id,
+               event.employee_id AS event_employee_id
+        FROM raw_attendance_fact raw
+        LEFT JOIN normalized_attendance_record normalized
+          ON normalized.raw_attendance_fact_id = raw.raw_attendance_fact_id
+         AND normalized.normalization_revision = (
+                SELECT MAX(latest.normalization_revision)
+                FROM normalized_attendance_record latest
+                WHERE latest.raw_attendance_fact_id = raw.raw_attendance_fact_id
+         )
+        LEFT JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+        LEFT JOIN evidence_link link
+          ON link.raw_attendance_fact_id = raw.raw_attendance_fact_id
+         AND link.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+        LEFT JOIN effective_attendance_event event
+          ON event.effective_attendance_event_id =
+             link.effective_attendance_event_id
+         AND (
+                SELECT lifecycle.lifecycle_type
+                FROM effective_event_lifecycle_fact lifecycle
+                WHERE lifecycle.effective_attendance_event_id =
+                      event.effective_attendance_event_id
+                ORDER BY lifecycle.knowledge_at DESC,
+                         lifecycle.effective_event_lifecycle_fact_id DESC
+                LIMIT 1
+         ) = 'ACTIVATED'
+        WHERE raw.attendance_source_id = #{sourceId}
+          AND raw.source_business_key = #{sourceBusinessKey}
+          AND raw.source_version = #{sourceVersion}
+        ORDER BY CASE link.link_type WHEN 'PRIMARY' THEN 0 ELSE 1 END,
+                 link.evidence_link_id
+        LIMIT 1
+    </select>
+
+    <select id="findRawByFingerprint"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$RawFactRow">
+        SELECT raw_attendance_fact_id, attendance_source_id, company_id,
+               fact_kind, source_business_key, source_version,
+               stable_fingerprint, source_time_text, source_time_zone,
+               source_instant, interval_start, interval_end,
+               canonical_payload_digest, raw_object_ref, request_id,
+               received_at, created_by
+        FROM raw_attendance_fact
+        WHERE attendance_source_id = #{sourceId}
+          AND stable_fingerprint = #{stableFingerprint}
+    </select>
+
+    <insert id="insertRawFact">
+        INSERT INTO raw_attendance_fact (
+            raw_attendance_fact_id, attendance_source_id, company_id,
+            fact_kind, source_business_key, source_version,
+            stable_fingerprint, source_time_text, source_time_zone,
+            source_instant, interval_start, interval_end,
+            canonical_payload_digest, raw_object_ref, request_id,
+            received_at, created_by
+        ) VALUES (
+            #{rawAttendanceFactId}, #{attendanceSourceId}, #{companyId},
+            #{factKind}, #{sourceBusinessKey}, #{sourceVersion},
+            #{stableFingerprint}, #{sourceTimeText}, #{sourceTimeZone},
+            #{sourceInstant}, #{intervalStart}, #{intervalEnd},
+            #{canonicalPayloadDigest}, #{rawObjectRef}, #{requestId},
+            #{receivedAt}, #{createdBy}
+        )
+    </insert>
+
+    <insert id="insertNormalizedRecord">
+        INSERT INTO normalized_attendance_record (
+            normalized_attendance_record_id, raw_attendance_fact_id,
+            normalization_revision, schema_version, record_kind,
+            normalized_direction, point_instant, interval_start, interval_end,
+            validation_status, issue_code, canonical_digest,
+            supersedes_normalized_record_id, created_at
+        ) VALUES (
+            #{normalizedAttendanceRecordId}, #{rawAttendanceFactId},
+            #{normalizationRevision}, #{schemaVersion}, #{recordKind},
+            #{normalizedDirection}, #{pointInstant}, #{intervalStart},
+            #{intervalEnd}, #{validationStatus}, #{issueCode},
+            #{canonicalDigest}, #{supersedesNormalizedRecordId}, #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertMatchDecision">
+        INSERT INTO employee_match_decision (
+            employee_match_decision_id, normalized_attendance_record_id,
+            match_status, match_reason, employee_id, employment_period_id,
+            device_person_binding_id, resolver_snapshot_digest, created_at
+        ) VALUES (
+            #{employeeMatchDecisionId}, #{normalizedAttendanceRecordId},
+            #{matchStatus}, #{matchReason}, #{employeeId},
+            #{employmentPeriodId}, #{devicePersonBindingId},
+            #{resolverSnapshotDigest}, #{createdAt}
+        )
+    </insert>
+
+    <select id="findExactEvents"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$EffectiveEventRow">
+        SELECT event.effective_attendance_event_id,
+               event.company_id, event.employee_id, event.event_kind,
+               event.normalized_direction, event.point_instant,
+               event.interval_start, event.interval_end,
+               event.canonical_digest, event.created_at
+        FROM effective_attendance_event event
+        WHERE event.company_id = #{companyId}
+          AND event.employee_id = #{employeeId}
+          AND event.point_instant = #{pointInstant}
+          AND event.normalized_direction = #{normalizedDirection}
+          AND (
+              SELECT lifecycle.lifecycle_type
+              FROM effective_event_lifecycle_fact lifecycle
+              WHERE lifecycle.effective_attendance_event_id =
+                    event.effective_attendance_event_id
+              ORDER BY lifecycle.knowledge_at DESC,
+                       lifecycle.effective_event_lifecycle_fact_id DESC
+              LIMIT 1
+          ) = 'ACTIVATED'
+        ORDER BY event.effective_attendance_event_id
+    </select>
+
+    <select id="findNearEvents"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$EffectiveEventRow">
+        SELECT event.effective_attendance_event_id,
+               event.company_id, event.employee_id, event.event_kind,
+               event.normalized_direction, event.point_instant,
+               event.interval_start, event.interval_end,
+               event.canonical_digest, event.created_at
+        FROM effective_attendance_event event
+        WHERE event.company_id = #{companyId}
+          AND event.employee_id = #{employeeId}
+          AND event.point_instant BETWEEN #{windowStart} AND #{windowEnd}
+          AND event.normalized_direction = #{normalizedDirection}
+        ORDER BY event.point_instant, event.effective_attendance_event_id
+    </select>
+
+    <insert id="insertEffectiveEvent">
+        INSERT INTO effective_attendance_event (
+            effective_attendance_event_id, company_id, employee_id,
+            event_kind, normalized_direction, point_instant,
+            interval_start, interval_end, canonical_digest, created_at
+        ) VALUES (
+            #{effectiveAttendanceEventId}, #{companyId}, #{employeeId},
+            #{eventKind}, #{normalizedDirection}, #{pointInstant},
+            #{intervalStart}, #{intervalEnd}, #{canonicalDigest}, #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertLifecycleFact">
+        INSERT INTO effective_event_lifecycle_fact (
+            effective_event_lifecycle_fact_id, effective_attendance_event_id,
+            lifecycle_type, related_event_id, source_reversal_record_id,
+            knowledge_at, actor_id, request_id, change_reason, fact_digest
+        ) VALUES (
+            #{effectiveEventLifecycleFactId}, #{effectiveAttendanceEventId},
+            #{lifecycleType}, #{relatedEventId}, #{sourceReversalRecordId},
+            #{knowledgeAt}, #{actorId}, #{requestId}, #{changeReason},
+            #{factDigest}
+        )
+    </insert>
+
+    <insert id="insertEvidenceLink">
+        INSERT INTO evidence_link (
+            evidence_link_id, effective_attendance_event_id,
+            raw_attendance_fact_id, normalized_attendance_record_id,
+            employee_match_decision_id, link_type, created_at
+        ) VALUES (
+            #{evidenceLinkId}, #{effectiveAttendanceEventId},
+            #{rawAttendanceFactId}, #{normalizedAttendanceRecordId},
+            #{employeeMatchDecisionId}, #{linkType}, #{createdAt}
+        )
+    </insert>
+
+    <select id="countEvidenceLink" resultType="int">
+        SELECT COUNT(*)
+        FROM evidence_link
+        WHERE effective_attendance_event_id = #{effectiveAttendanceEventId}
+          AND raw_attendance_fact_id = #{rawAttendanceFactId}
+    </select>
+
+    <insert id="insertRecalculationIntent">
+        INSERT INTO attendance_recalculation_intent (
+            attendance_recalculation_intent_id, company_id, employee_id,
+            business_date, reason_code, effective_attendance_event_id,
+            resolver_snapshot_digest, period_version, request_id,
+            intent_digest, created_at
+        ) VALUES (
+            #{attendanceRecalculationIntentId}, #{companyId}, #{employeeId},
+            #{businessDate}, #{reasonCode}, #{effectiveAttendanceEventId},
+            #{resolverSnapshotDigest}, #{periodVersion}, #{requestId},
+            #{intentDigest}, #{createdAt}
+        )
+    </insert>
+
+    <select id="evidenceTrace"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$EvidenceTraceRow">
+        SELECT event.effective_attendance_event_id,
+               lifecycle.lifecycle_type, lifecycle.knowledge_at,
+               link.evidence_link_id, raw.raw_attendance_fact_id,
+               raw.attendance_source_id, raw.fact_kind,
+               raw.source_business_key, raw.source_version,
+               raw.canonical_payload_digest,
+               normalized.normalized_attendance_record_id,
+               normalized.validation_status AS normalization_status,
+               matched.employee_match_decision_id,
+               matched.match_status, matched.match_reason
+        FROM effective_attendance_event event
+        JOIN effective_event_lifecycle_fact lifecycle
+          ON lifecycle.effective_attendance_event_id =
+             event.effective_attendance_event_id
+        JOIN evidence_link link
+          ON link.effective_attendance_event_id =
+             event.effective_attendance_event_id
+        JOIN raw_attendance_fact raw
+          ON raw.raw_attendance_fact_id = link.raw_attendance_fact_id
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             link.normalized_attendance_record_id
+        JOIN employee_match_decision matched
+          ON matched.employee_match_decision_id =
+             link.employee_match_decision_id
+        WHERE event.company_id = #{companyId}
+          AND event.effective_attendance_event_id = #{eventId}
+        ORDER BY lifecycle.knowledge_at,
+                 lifecycle.effective_event_lifecycle_fact_id,
+                 link.evidence_link_id
+    </select>
+
+    <!-- OA document identity lookup — mirrors findRawBySourceIdentity -->
+    <select id="findRawOaBySourceIdentity"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$RawFactRow">
+        SELECT raw.raw_attendance_fact_id,
+               raw.attendance_source_id,
+               raw.company_id,
+               raw.fact_kind,
+               raw.source_business_key,
+               raw.source_version,
+               raw.stable_fingerprint,
+               raw.source_time_text,
+               raw.source_time_zone,
+               raw.source_instant,
+               raw.interval_start,
+               raw.interval_end,
+               raw.canonical_payload_digest,
+               raw.raw_object_ref,
+               raw.request_id,
+               raw.received_at,
+               raw.created_by
+        FROM raw_attendance_fact raw
+        JOIN oa_attendance_document oa
+          ON oa.normalized_attendance_record_id IN (
+                SELECT nm.normalized_attendance_record_id
+                FROM normalized_attendance_record nm
+                WHERE nm.raw_attendance_fact_id = raw.raw_attendance_fact_id
+          )
+        WHERE raw.attendance_source_id = #{sourceId}
+          AND raw.source_business_key = #{sourceBusinessKey}
+          AND raw.source_version = #{sourceVersion}
+        LIMIT 1
+    </select>
+
+    <!--
+      Context rows are authorized only by the newest PUBLISHED runtime
+      contract belonging to the same OA attendance source. A missing row is
+      handled fail-closed by OaDocumentPageTransaction before evidence writes.
+    -->
+    <select id="findLatestPublishedOaRuntimeContractRevisionId"
+            resultType="string">
+        SELECT contract.oa_runtime_contract_revision_id
+        FROM oa_runtime_contract_revision contract
+        WHERE contract.attendance_source_id = #{sourceId}
+          AND contract.contract_status = 'PUBLISHED'
+        ORDER BY contract.revision_number DESC
+        LIMIT 1
+    </select>
+
+    <select id="findOaAttendanceDocumentId" resultType="string">
+        SELECT document.oa_attendance_document_id
+        FROM oa_attendance_document document
+        WHERE document.attendance_source_id = #{sourceId}
+          AND document.source_business_key = #{sourceBusinessKey}
+          AND document.source_version = #{sourceVersion}
+        LIMIT 1
+    </select>
+
+    <select id="countOaAttendanceDocumentContext" resultType="int">
+        SELECT COUNT(*)
+        FROM oa_attendance_document_context context
+        WHERE context.oa_attendance_document_id = #{oaAttendanceDocumentId}
+    </select>
+
+    <!-- Insert one row into oa_attendance_document.
+         knowledge_rank uses the sequence generated by the INSERT itself
+         via the current max + 1 so that newer versions are always higher. -->
+    <insert id="insertOaAttendanceDocument">
+        INSERT INTO oa_attendance_document (
+            oa_attendance_document_id,
+            attendance_source_id,
+            source_business_key,
+            source_version,
+            document_type,
+            leave_type,
+            leave_serial,
+            original_leave_serial,
+            source_status,
+            normalized_attendance_record_id,
+            knowledge_rank,
+            supersedes_document_id,
+            first_submitted_at,
+            approved_at,
+            modified_at,
+            revoked_at,
+            created_at
+        ) VALUES (
+            #{oaAttendanceDocumentId},
+            #{attendanceSourceId},
+            #{sourceBusinessKey},
+            #{sourceVersion},
+            #{documentType},
+            #{leaveType},
+            #{leaveSerial},
+            #{originalLeaveSerial},
+            #{sourceStatus},
+            #{normalizedAttendanceRecordId},
+            #{knowledgeRank},
+            #{supersedesDocumentId},
+            #{firstSubmittedAt},
+            #{approvedAt},
+            #{modifiedAt},
+            #{revokedAt},
+            #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertOaAttendanceDocumentContext">
+        INSERT INTO oa_attendance_document_context (
+            oa_attendance_document_context_id,
+            oa_attendance_document_id,
+            oa_runtime_contract_revision_id,
+            attendance_group_revision_id,
+            activation_decision,
+            raw_status_value,
+            overtime_treatment,
+            overtime_type,
+            recognized_work_minutes,
+            payroll_credit_minutes,
+            time_off_credit_minutes,
+            authorized_context_json,
+            context_digest,
+            created_at
+        ) VALUES (
+            #{oaAttendanceDocumentContextId},
+            #{oaAttendanceDocumentId},
+            #{oaRuntimeContractRevisionId},
+            #{attendanceGroupRevisionId},
+            #{activationDecision},
+            #{rawStatusValue},
+            #{overtimeTreatment},
+            #{overtimeType},
+            #{recognizedWorkMinutes},
+            #{payrollCreditMinutes},
+            #{timeOffCreditMinutes},
+            #{authorizedContextJson},
+            #{contextDigest},
+            #{createdAt}
+        )
+    </insert>
+
+</mapper>

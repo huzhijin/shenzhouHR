@@ -1,0 +1,357 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.SelfAttendanceDashboardMapper">
+
+    <sql id="selfProjectionVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN employee self_employee
+              ON self_employee.employee_id = principal.employee_id
+             AND self_employee.company_id = projection.company_id
+            JOIN employee_current_projection employee_projection
+              ON employee_projection.employee_id =
+                 self_employee.employee_id
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id =
+                 employee_projection.current_version_id
+             AND employee_version.employee_id =
+                 self_employee.employee_id
+             AND employee_version.status = 'ACTIVE'
+             AND employee_version.effective_from &lt;=
+                 #{businessDate}
+             AND (
+                    employee_version.effective_to IS NULL
+                    OR employee_version.effective_to &gt;
+                        #{businessDate}
+             )
+            JOIN auth_principal_role_assignment role_assignment
+              ON role_assignment.principal_id = principal.principal_id
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id =
+                 role_capability.capability_id
+             AND capability.capability_code = #{capabilityCode}
+             AND capability.capability_code =
+                'ATTENDANCE_SELF:READ'
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+             AND data_scope.scope_type = 'SELF'
+             AND data_scope.organization_id IS NULL
+             AND (
+                    data_scope.company_id IS NULL
+                    OR data_scope.company_id = self_employee.company_id
+             )
+            WHERE principal.principal_id = #{principalId}
+              AND principal.status = 'ACTIVE'
+              AND principal.employee_id IS NOT NULL
+              AND role_assignment.valid_from &lt;=
+                  #{authorizationTime}
+              AND (
+                    role_assignment.valid_to IS NULL
+                    OR role_assignment.valid_to &gt;
+                        #{authorizationTime}
+              )
+              AND data_scope.valid_from &lt;= #{authorizationTime}
+              AND (
+                    data_scope.valid_to IS NULL
+                    OR data_scope.valid_to &gt; #{authorizationTime}
+              )
+        )
+    </sql>
+
+    <sql id="selfFactVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN employee self_employee
+              ON self_employee.employee_id = principal.employee_id
+             AND self_employee.employee_id = fact.employee_id
+             AND self_employee.company_id = fact.company_id
+            JOIN employee_current_projection employee_projection
+              ON employee_projection.employee_id =
+                 self_employee.employee_id
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id =
+                 employee_projection.current_version_id
+             AND employee_version.employee_id =
+                 self_employee.employee_id
+             AND employee_version.status = 'ACTIVE'
+             AND employee_version.effective_from &lt;=
+                 #{businessDate}
+             AND (
+                    employee_version.effective_to IS NULL
+                    OR employee_version.effective_to &gt;
+                        #{businessDate}
+             )
+            JOIN auth_principal_role_assignment role_assignment
+              ON role_assignment.principal_id = principal.principal_id
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id =
+                 role_capability.capability_id
+             AND capability.capability_code = #{capabilityCode}
+             AND capability.capability_code =
+                'ATTENDANCE_SELF:READ'
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+             AND data_scope.scope_type = 'SELF'
+             AND data_scope.organization_id IS NULL
+             AND (
+                    data_scope.company_id IS NULL
+                    OR data_scope.company_id = self_employee.company_id
+             )
+            WHERE principal.principal_id = #{principalId}
+              AND principal.status = 'ACTIVE'
+              AND principal.employee_id IS NOT NULL
+              AND principal.employee_id = fact.employee_id
+              AND projection.attendance_report_projection_id =
+                  fact.attendance_report_projection_id
+              AND projection.company_id = fact.company_id
+              AND projection.status = 'PUBLISHED'
+              AND role_assignment.valid_from &lt;=
+                  #{authorizationTime}
+              AND (
+                    role_assignment.valid_to IS NULL
+                    OR role_assignment.valid_to &gt;
+                        #{authorizationTime}
+              )
+              AND data_scope.valid_from &lt;= #{authorizationTime}
+              AND (
+                    data_scope.valid_to IS NULL
+                    OR data_scope.valid_to &gt; #{authorizationTime}
+              )
+        )
+    </sql>
+
+    <select id="resolveAuthorizedSelf"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.SelfDashboardRows$AuthorizationRow">
+        SELECT DISTINCT principal.employee_id,
+               self_employee.company_id
+        FROM auth_principal principal
+        JOIN employee self_employee
+          ON self_employee.employee_id = principal.employee_id
+        JOIN company company
+          ON company.company_id = self_employee.company_id
+         AND company.status = 'ACTIVE'
+        JOIN employee_current_projection employee_projection
+          ON employee_projection.employee_id =
+             self_employee.employee_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id =
+             employee_projection.current_version_id
+         AND employee_version.employee_id =
+             self_employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;=
+             #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+        JOIN auth_principal_role_assignment role_assignment
+          ON role_assignment.principal_id = principal.principal_id
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = role_assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capabilityCode}
+         AND capability.capability_code = 'ATTENDANCE_SELF:READ'
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = role_assignment.data_scope_id
+         AND data_scope.scope_type = 'SELF'
+         AND data_scope.organization_id IS NULL
+         AND (
+                data_scope.company_id IS NULL
+                OR data_scope.company_id = self_employee.company_id
+         )
+        WHERE principal.principal_id = #{principalId}
+          AND principal.status = 'ACTIVE'
+          AND principal.employee_id IS NOT NULL
+          AND role_assignment.valid_from &lt;= #{authorizationTime}
+          AND (
+                role_assignment.valid_to IS NULL
+                OR role_assignment.valid_to &gt; #{authorizationTime}
+          )
+          AND data_scope.valid_from &lt;= #{authorizationTime}
+          AND (
+                data_scope.valid_to IS NULL
+                OR data_scope.valid_to &gt; #{authorizationTime}
+          )
+        ORDER BY principal.employee_id, self_employee.company_id
+        LIMIT 2
+    </select>
+
+    <select id="listLatestPublishedSelfProjection"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.SelfDashboardRows$ProjectionRow">
+        SELECT projection.attendance_report_projection_id
+                   AS projection_id,
+               projection.company_id,
+               projection.projection_version,
+               projection.source_versions_json,
+               projection.data_as_of,
+               projection.period_state
+        FROM attendance_report_projection projection
+        WHERE projection.company_id = #{companyId}
+          AND projection.period_start = #{periodStart}
+          AND projection.period_end_exclusive =
+              #{periodEndExclusive}
+          AND projection.status = 'PUBLISHED'
+          AND projection.published_at &lt;= #{authorizationTime}
+          AND <include refid="selfProjectionVisibility"/>
+          AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_report_projection newer_projection
+                WHERE newer_projection.company_id =
+                    projection.company_id
+                  AND newer_projection.period_start = #{periodStart}
+                  AND newer_projection.period_end_exclusive =
+                    #{periodEndExclusive}
+                  AND newer_projection.status = 'PUBLISHED'
+                  AND newer_projection.published_at &lt;=
+                      #{authorizationTime}
+                  AND (
+                        newer_projection.published_at &gt;
+                            projection.published_at
+                        OR (
+                            newer_projection.published_at =
+                                projection.published_at
+                            AND
+                            newer_projection
+                                    .attendance_report_projection_id
+                                &gt;
+                                projection
+                                    .attendance_report_projection_id
+                        )
+                  )
+          )
+        ORDER BY projection.published_at DESC,
+                 projection.attendance_report_projection_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="listSelfDailyFacts"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.SelfDashboardRows$DailyRow">
+        SELECT fact.business_date,
+               fact.shift_label,
+               fact.scheduled_minutes,
+               fact.confirmed_scheduled_work_minutes
+                   AS confirmed_minutes,
+               fact.recognized_overtime_minutes,
+               fact.leave_or_time_off_minutes AS leave_minutes,
+               fact.first_punch_at,
+               fact.last_punch_at
+        FROM attendance_report_daily_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt;= #{businessDate}
+          AND <include refid="selfFactVisibility"/>
+        ORDER BY fact.business_date
+    </select>
+
+    <select id="listSelfDailyIssueCounts"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.SelfDashboardRows$DailyIssueCountRow">
+        SELECT fact.business_date,
+               COUNT(*) AS issue_count
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date &gt;= #{trendStart}
+          AND fact.business_date &lt;= #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="selfFactVisibility"/>
+        GROUP BY fact.business_date
+        ORDER BY fact.business_date
+    </select>
+
+    <select id="listSelfTodayIssueLabels"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.SelfDashboardRows$TodayIssueLabelRow">
+        SELECT DISTINCT fact.exception_type AS issue_label
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date = #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="selfFactVisibility"/>
+        ORDER BY fact.exception_type
+    </select>
+
+    <select id="listSelfExceptionTypeDistribution"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.SelfDashboardRows$ExceptionTypeCountRow">
+        SELECT fact.exception_type AS type,
+               COUNT(*) AS count
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt;= #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="selfFactVisibility"/>
+        GROUP BY fact.exception_type
+        ORDER BY count DESC, fact.exception_type
+    </select>
+
+    <select id="listSelfRecentExceptions"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.SelfDashboardRows$RecentExceptionRow">
+        SELECT fact.business_date,
+               fact.exception_type AS type,
+               fact.severity,
+               fact.state,
+               fact.exception_minutes AS minutes,
+               fact.safe_evidence_summary
+        FROM attendance_report_exception_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND fact.business_date &gt;= #{periodStart}
+          AND fact.business_date &lt;= #{businessDate}
+          AND fact.state IN (
+                'OPEN', 'PENDING_EVIDENCE', 'PENDING_REVIEW'
+          )
+          AND <include refid="selfFactVisibility"/>
+        ORDER BY fact.business_date DESC,
+                 CASE fact.severity
+                     WHEN 'ERROR' THEN 0
+                     WHEN 'WARNING' THEN 1
+                     ELSE 2
+                 END,
+                 CASE fact.state
+                     WHEN 'OPEN' THEN 0
+                     WHEN 'PENDING_REVIEW' THEN 1
+                     ELSE 2
+                 END,
+                 fact.exception_type,
+                 fact.exception_case_id
+        LIMIT 10
+    </select>
+</mapper>

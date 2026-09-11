@@ -40,20 +40,20 @@ public class AttendancePolicyLifecycleController {
     @GetMapping("/{templateId}/versions")
     ResponseEntity<AttendancePolicyLifecycleDtos.VersionPage> listVersions(
             @PathVariable String templateId,
-            @RequestParam String legalEntityId,
+            @RequestParam String companyId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return noStore(AttendancePolicyLifecycleDtos.page(
-                service.listVersions(templateId, legalEntityId, page, size)));
+                service.listVersions(templateId, companyId, page, size)));
     }
 
     @GetMapping("/{templateId}/versions/{versionId}")
     ResponseEntity<AttendancePolicyLifecycleDtos.VersionView> getVersion(
             @PathVariable String templateId,
             @PathVariable String versionId,
-            @RequestParam String legalEntityId) {
+            @RequestParam String companyId) {
         return versioned(service.getVersion(
-                templateId, versionId, legalEntityId));
+                templateId, versionId, companyId));
     }
 
     @GetMapping("/versions/{versionId}/context")
@@ -65,14 +65,14 @@ public class AttendancePolicyLifecycleController {
     @PostMapping("/{templateId}/versions")
     ResponseEntity<AttendancePolicyLifecycleDtos.VersionView> createDraft(
             @PathVariable String templateId,
-            @RequestParam String legalEntityId,
+            @RequestParam String companyId,
             @Valid @RequestBody DraftRequest request,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason,
             HttpServletRequest servletRequest) {
         var result = service.createDraft(
                 templateId,
-                legalEntityId,
+                companyId,
                 request.basedOnVersionId(),
                 request.effectiveFrom(),
                 request.effectiveTo(),
@@ -89,7 +89,7 @@ public class AttendancePolicyLifecycleController {
     ResponseEntity<AttendancePolicyLifecycleDtos.VersionView> updateDraft(
             @PathVariable String templateId,
             @PathVariable String versionId,
-            @RequestParam String legalEntityId,
+            @RequestParam String companyId,
             @Valid @RequestBody UpdateRequest request,
             @RequestHeader("If-Match") String ifMatch,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -101,7 +101,7 @@ public class AttendancePolicyLifecycleController {
         var result = service.updateDraft(
                 templateId,
                 versionId,
-                legalEntityId,
+                companyId,
                 parameters,
                 request.effectiveFrom(),
                 request.effectiveTo(),
@@ -116,7 +116,7 @@ public class AttendancePolicyLifecycleController {
     ResponseEntity<AttendancePolicyLifecycleDtos.ValidationView> validate(
             @PathVariable String templateId,
             @PathVariable String versionId,
-            @RequestParam String legalEntityId,
+            @RequestParam String companyId,
             @RequestHeader("If-Match") String ifMatch,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason,
@@ -126,7 +126,7 @@ public class AttendancePolicyLifecycleController {
         var result = service.validate(
                 templateId,
                 versionId,
-                legalEntityId,
+                companyId,
                 expectedVersion,
                 reason,
                 idempotencyKey,
@@ -144,7 +144,7 @@ public class AttendancePolicyLifecycleController {
     ResponseEntity<AttendancePolicyLifecycleDtos.VersionView> publish(
             @PathVariable String templateId,
             @PathVariable String versionId,
-            @RequestParam String legalEntityId,
+            @RequestParam String companyId,
             @Valid @RequestBody ReasonRequest request,
             @RequestHeader("If-Match") String ifMatch,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -153,7 +153,7 @@ public class AttendancePolicyLifecycleController {
         return versioned(service.publish(
                 templateId,
                 versionId,
-                legalEntityId,
+                companyId,
                 reason(changeReason, request.reason()),
                 StrongEtag.parseVersion(ifMatch),
                 idempotencyKey,
@@ -164,7 +164,7 @@ public class AttendancePolicyLifecycleController {
     ResponseEntity<AttendancePolicyLifecycleDtos.VersionView> deactivate(
             @PathVariable String templateId,
             @PathVariable String versionId,
-            @RequestParam String legalEntityId,
+            @RequestParam String companyId,
             @Valid @RequestBody DeactivateRequest request,
             @RequestHeader("If-Match") String ifMatch,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -173,7 +173,7 @@ public class AttendancePolicyLifecycleController {
         return versioned(service.deactivate(
                 templateId,
                 versionId,
-                legalEntityId,
+                companyId,
                 request.effectiveFrom(),
                 reason(changeReason, request.reason()),
                 StrongEtag.parseVersion(ifMatch),
@@ -185,7 +185,7 @@ public class AttendancePolicyLifecycleController {
     ResponseEntity<AttendancePolicyLifecycleDtos.VersionView> rollback(
             @PathVariable String templateId,
             @PathVariable String versionId,
-            @RequestParam String legalEntityId,
+            @RequestParam String companyId,
             @Valid @RequestBody RollbackRequest request,
             @RequestHeader("If-Match") String ifMatch,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -194,7 +194,7 @@ public class AttendancePolicyLifecycleController {
         var result = service.rollback(
                 templateId,
                 versionId,
-                legalEntityId,
+                companyId,
                 request.targetVersionId(),
                 request.effectiveFrom(),
                 reason(changeReason, request.reason()),

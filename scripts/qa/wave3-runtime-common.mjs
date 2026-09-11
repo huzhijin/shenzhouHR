@@ -29,7 +29,6 @@ import {
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const EXPECTED_REPOSITORY_ROOT = '/Users/huzhijin/Downloads/shenzhouHR';
 export const EVIDENCE_ID_NORMAL_BROWSER = 'W3-VER-NORMAL-BROWSER';
 export const EVIDENCE_ID_W2_CURRENT_SMOKE = 'W3-VER-W2-CURRENT-SMOKE';
 export const EVIDENCE_ID_DEMO_ISOLATION = 'W3-VER-DEMO-ISOLATION';
@@ -39,7 +38,7 @@ export const W2_CURRENT_SMOKE_MARKER = 'W3_W2_CURRENT_SMOKE=PASS';
 export const DEMO_ISOLATION_MARKER =
   'W3_DEMO_ISOLATION=PASS businessRequests=0 mysqlConnections=0';
 export const CONTEXT_PREFIX = 'W3_EVIDENCE_CONTEXT=PASS';
-export const LEGAL_ENTITY_ID = '30000000-0000-0000-0000-000000000001';
+export const COMPANY_ID = '30000000-0000-0000-0000-000000000001';
 export const RUNTIME_DATABASE = 'shenzhou_hr_test';
 export const MYSQL_HOST = '127.0.0.1';
 export const MYSQL_PORT = '13306';
@@ -59,6 +58,7 @@ export const RUNTIME_PROVENANCE_PREFIX = 'W3_RUNTIME_PROVENANCE_JSON=';
 
 const scriptPath = fileURLToPath(import.meta.url);
 export const repositoryRoot = resolve(dirname(scriptPath), '../..');
+export const EXPECTED_REPOSITORY_ROOT = repositoryRoot;
 
 assert(
   process.cwd() === EXPECTED_REPOSITORY_ROOT
@@ -508,7 +508,7 @@ export function createDatabaseBinding(runtimeEnvironment) {
       runtimeEnvironment,
       appDefaults,
       [
-        `SELECT COUNT(*) FROM legal_entity WHERE legal_entity_id = '${LEGAL_ENTITY_ID}';`,
+        `SELECT COUNT(*) FROM company WHERE company_id = '${COMPANY_ID}';`,
         'SELECT COUNT(*) FROM attendance_policy_template;',
         'SELECT COUNT(*) FROM attendance_policy_scoped_version;',
         'SELECT COUNT(*) FROM attendance_group_revision;',
@@ -521,9 +521,9 @@ export function createDatabaseBinding(runtimeEnvironment) {
       ].join('\n'),
     ).trim().split(/\r?\n/);
     assert(appMarkerRows.length === 10, 'application DB marker query is incomplete');
-    assert(appMarkerRows[0] === '1', 'fixed legal entity is missing from the approved local DB');
+    assert(appMarkerRows[0] === '1', 'fixed company is missing from the approved local DB');
     const counts = {
-      legalEntity: Number(appMarkerRows[0]),
+      company: Number(appMarkerRows[0]),
       policyTemplates: Number(appMarkerRows[1]),
       policyVersions: Number(appMarkerRows[2]),
       groupRevisions: Number(appMarkerRows[3]),
@@ -769,8 +769,8 @@ export async function provisionRolePrincipals({
             temporaryPassword: secrets.temporaryPassword,
             roleAssignments: [{
               roleId: role.roleId,
-              scopeType: 'LEGAL_ENTITY',
-              scopeResourceId: LEGAL_ENTITY_ID,
+              scopeType: 'COMPANY',
+              scopeResourceId: COMPANY_ID,
               validFrom: '2000-01-01T00:00:00Z',
               validTo: null,
             }],
@@ -791,8 +791,8 @@ export async function provisionRolePrincipals({
     if (
       assignedRoleCodes.length !== 1
       || assignedRoleCodes[0] !== roleCode
-      || account.roles[0].scopeType !== 'LEGAL_ENTITY'
-      || account.roles[0].scopeResourceId !== LEGAL_ENTITY_ID
+      || account.roles[0].scopeType !== 'COMPANY'
+      || account.roles[0].scopeResourceId !== COMPANY_ID
     ) {
       account = (await admin.request(
         `repair-${roleCode.toLowerCase()}-role-assignment`,
@@ -802,8 +802,8 @@ export async function provisionRolePrincipals({
           body: {
             assignments: [{
               roleId: role.roleId,
-              scopeType: 'LEGAL_ENTITY',
-              scopeResourceId: LEGAL_ENTITY_ID,
+              scopeType: 'COMPANY',
+              scopeResourceId: COMPANY_ID,
               validFrom: '2000-01-01T00:00:00Z',
               validTo: null,
             }],

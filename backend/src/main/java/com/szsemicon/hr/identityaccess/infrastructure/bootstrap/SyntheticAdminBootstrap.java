@@ -2,7 +2,7 @@ package com.szsemicon.hr.identityaccess.infrastructure.bootstrap;
 
 import com.szsemicon.hr.identityaccess.application.AccountPersistence;
 import com.szsemicon.hr.identityaccess.application.AuthenticationPersistence;
-import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
+import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.ResolvedRoleAssignmentInput;
 import com.szsemicon.hr.shared.security.PasswordCodec;
 import java.sql.Date;
 import java.sql.Timestamp;
@@ -26,10 +26,14 @@ import org.springframework.transaction.annotation.Transactional;
         havingValue = "true")
 public class SyntheticAdminBootstrap implements ApplicationRunner {
 
-    static final String SYNTHETIC_LEGAL_ENTITY_ID =
+    static final String SYNTHETIC_COMPANY_ID =
             "30000000-0000-0000-0000-000000000001";
     static final String SYSTEM_ADMIN_ROLE_ID =
             "10000000-0000-0000-0000-000000000002";
+    static final String HR_ADMIN_ROLE_ID =
+            "10000000-0000-0000-0000-000000000001";
+    static final String SYNTHETIC_COMPANY_SCOPE_ID =
+            "39000000-0000-0000-0000-000000000001";
     static final String SYNTHETIC_POLICY_TEMPLATE_ID =
             "31000000-0000-0000-0000-000000000001";
     static final String SYNTHETIC_PUBLISHED_VERSION_ID =
@@ -72,39 +76,43 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
                 normalizedUsername);
         if (existing.isPresent()) {
             var account = existing.orElseThrow();
-            authenticationPersistence.replaceCredential(
-                    account.accountId(),
-                    credentialHash,
-                    false,
-                    account.principalId(),
-                    now);
-            authenticationPersistence.revokeAllSessions(
-                    account.accountId(),
-                    account.principalId(),
-                    "DEV_SYNTHETIC_BOOTSTRAP_RESET",
-                    "dev-bootstrap",
-                    now);
+            /*
+             * Bootstrap credentials are creation-only. Replacing an existing
+             * credential here would silently undo the mandatory first-login
+             * password change every time the development service restarts.
+             * Password resets remain an explicit administrator action.
+             */
+            ensureSyntheticCompany();
+            ensureSyntheticCompanyScope(now);
+            ensureSyntheticRoleAssignments(account.principalId(), now);
             ensureSyntheticPolicyData(account.principalId(), now);
             return;
         }
 
-        ensureSyntheticLegalEntity();
+        ensureSyntheticCompany();
         String accountId = accountPersistence.createAccount(
                 username,
                 normalizedUsername,
                 "WAVE-1 本地合成管理员",
+                null,
                 credentialHash,
                 "DEV_SYNTHETIC_BOOTSTRAP",
                 now);
+        ensureSyntheticCompanyScope(now);
         accountPersistence.replaceRoleAssignments(
                 accountId,
                 0,
-                List.of(new RoleAssignmentInput(
-                        SYSTEM_ADMIN_ROLE_ID,
-                        "LEGAL_ENTITY",
-                        SYNTHETIC_LEGAL_ENTITY_ID,
-                        now,
-                        null)),
+                List.of(
+                        new ResolvedRoleAssignmentInput(
+                                SYSTEM_ADMIN_ROLE_ID,
+                                SYNTHETIC_COMPANY_SCOPE_ID,
+                                now,
+                                null),
+                        new ResolvedRoleAssignmentInput(
+                                HR_ADMIN_ROLE_ID,
+                                SYNTHETIC_COMPANY_SCOPE_ID,
+                                now,
+                                null)),
                 "DEV_SYNTHETIC_BOOTSTRAP",
                 "WAVE-1 synthetic local administrator",
                 now);
@@ -115,19 +123,92 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
         ensureSyntheticPolicyData(principalId, now);
     }
 
-    private void ensureSyntheticLegalEntity() {
+    private void ensureSyntheticCompany() {
         jdbc.update(
                 """
-                INSERT INTO legal_entity (
-                    legal_entity_id, code, name, status
+                INSERT INTO company (
+                    company_id, code, name, status
                 )
-                SELECT ?, 'WAVE1_SYNTHETIC', 'WAVE-1 合成开发法人', 'ACTIVE'
+                SELECT ?, 'WAVE1_SYNTHETIC', 'WAVE-1 合成开发公司', 'ACTIVE'
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM legal_entity WHERE legal_entity_id = ?
+                    SELECT 1 FROM company WHERE company_id = ?
                 )
                 """,
-                SYNTHETIC_LEGAL_ENTITY_ID,
-                SYNTHETIC_LEGAL_ENTITY_ID);
+                SYNTHETIC_COMPANY_ID,
+                SYNTHETIC_COMPANY_ID);
+    }
+
+    private void ensureSyntheticCompanyScope(Instant now) {
+        jdbc.update(
+                """
+                INSERT INTO auth_data_scope (
+                    scope_id, scope_type, company_id, organization_id,
+                    include_descendants, valid_from, valid_to
+                )
+                SELECT ?, 'COMPANY', ?, NULL, TRUE, ?, NULL
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM auth_data_scope WHERE scope_id = ?
+                )
+                """,
+                SYNTHETIC_COMPANY_SCOPE_ID,
+                SYNTHETIC_COMPANY_ID,
+                Timestamp.from(now),
+                SYNTHETIC_COMPANY_SCOPE_ID);
+    }
+
+    private void ensureSyntheticRoleAssignments(String principalId, Instant now) {
+        /*
+         * The local bootstrap account needs both platform administration and
+         * HR administration: SYSTEM_ADMIN owns accounts and permissions, while
+         * HR_ADMIN owns the attendance workbench and reports. Keeping these as
+         * ordinary role assignments preserves the same capability checks used
+         * by every other account.
+         */
+        ensureSyntheticRoleAssignment(
+                "38000000-0000-0000-0000-000000000001",
+                principalId,
+                SYSTEM_ADMIN_ROLE_ID,
+                now);
+        ensureSyntheticRoleAssignment(
+                "38000000-0000-0000-0000-000000000002",
+                principalId,
+                HR_ADMIN_ROLE_ID,
+                now);
+    }
+
+    private void ensureSyntheticRoleAssignment(
+            String assignmentId,
+            String principalId,
+            String roleId,
+            Instant now) {
+        jdbc.update(
+                """
+                INSERT INTO auth_principal_role_assignment (
+                    assignment_id, principal_id, role_id, data_scope_id,
+                    valid_from, valid_to, assigned_by, reason
+                )
+                SELECT ?, ?, ?, ?, ?, NULL, ?, 'DEV_SYNTHETIC_BOOTSTRAP'
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM auth_principal_role_assignment
+                    WHERE principal_id = ?
+                      AND role_id = ?
+                      AND data_scope_id = ?
+                      AND valid_from <= ?
+                      AND (valid_to IS NULL OR valid_to > ?)
+                )
+                """,
+                assignmentId,
+                principalId,
+                roleId,
+                SYNTHETIC_COMPANY_SCOPE_ID,
+                Timestamp.from(now),
+                principalId,
+                principalId,
+                roleId,
+                SYNTHETIC_COMPANY_SCOPE_ID,
+                Timestamp.from(now),
+                Timestamp.from(now));
     }
 
     private void ensureSyntheticPolicyData(String principalId, Instant now) {
@@ -282,7 +363,7 @@ public class SyntheticAdminBootstrap implements ApplicationRunner {
                 """,
                 bindingId,
                 versionId,
-                SYNTHETIC_LEGAL_ENTITY_ID,
+                SYNTHETIC_COMPANY_ID,
                 Date.valueOf(effectiveFrom),
                 effectiveTo == null ? null : Date.valueOf(effectiveTo),
                 bindingId);

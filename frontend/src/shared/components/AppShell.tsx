@@ -9,10 +9,15 @@ import {
   IconMenu2,
   IconShieldLock,
   IconShieldCheck,
+  IconFileSpreadsheet,
+  IconServer,
+  IconRefresh,
+  IconFileDescription,
   IconUsers,
   IconUsersGroup,
+  IconUser,
 } from '@tabler/icons-react';
-import { Drawer, Form, Input, Layout, Menu, Modal, message } from 'antd';
+import { Drawer, Form, Input, Layout, Menu, Modal, message, type MenuProps } from 'antd';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -21,10 +26,12 @@ import type { MenuItem } from '../../features/session/sessionApi';
 import { logout } from '../../features/session/sessionApi';
 import { changePassword } from '../../features/auth/authApi';
 import { selectedMenuKey } from '../../app/routeAuthorization';
+import { AppearanceToggle } from '../appearance/AppearanceToggle';
 import { BrandLogo } from './BrandLogo';
 import { AccessibleButton } from './AccessibleButton';
 import { isDemoMode } from '../config/runtimeMode';
 import { translate } from '../i18n/messages';
+import { passwordMeetsPolicy } from '../security/passwordPolicy';
 
 const { Header, Sider, Content } = Layout;
 
@@ -46,7 +53,80 @@ const menuIcons = {
   'attendance-shifts': IconClock,
   'attendance-calendars': IconCalendar,
   'attendance-policies': IconShieldCheck,
+  'attendance-sources-online': IconServer,
+  'attendance-sources-oa': IconFileDescription,
+  'paper-overtime': IconFileDescription,
+  'attendance-source-jobs': IconRefresh,
+  'attendance-punch-imports': IconFileSpreadsheet,
+  workbench: IconFileAnalytics,
+  'personal-workbench': IconUser,
+  'my-attendance': IconClock,
+  'my-leave': IconCalendar,
+  'attendance-feedback': IconFileAnalytics,
+  'attendance-screen': IconFileAnalytics,
+  'attendance-reports': IconFileAnalytics,
+  'attendance-query-exceptions': IconFileAnalytics,
+  'attendance-query-leave': IconFileAnalytics,
+  'attendance-query-overtime': IconFileAnalytics,
+  'attendance-query-work-hours': IconFileAnalytics,
+  'attendance-query-absence-stat': IconFileAnalytics,
+  'attendance-query-leave-stat': IconFileAnalytics,
+  'attendance-query-late': IconFileAnalytics,
+  'attendance-query-missed-punch': IconFileAnalytics,
+  'attendance-query-missed-punch-stat': IconFileAnalytics,
+  'attendance-query-attendance-rate': IconFileAnalytics,
+  'attendance-query-annual-leave': IconFileAnalytics,
+  'attendance-query-annual-leave-stat': IconFileAnalytics,
+  'attendance-query-time-off': IconFileAnalytics,
+  'attendance-query-time-off-stat': IconFileAnalytics,
+  'attendance-query-matrix': IconFileAnalytics,
+  'self-today': IconClock,
+  'self-records': IconCalendar,
+  'self-leave': IconCalendar,
+  'self-feedback': IconFileAnalytics,
+  'people-import': IconFileSpreadsheet,
+  'people-organization': IconBuildingCommunity,
+  'people-employees': IconUsers,
 };
+
+const navigationGroups = [
+  {
+    key: 'workspace',
+    label: 'navigation.workspace',
+    matches: (item: MenuItem) => ![
+      '/people/',
+      '/rules',
+      '/sources/',
+      '/access/',
+      '/attendance/queries/',
+    ].some((prefix) => item.path.startsWith(prefix)),
+  },
+  {
+    key: 'report-queries',
+    label: 'navigation.reportQueries',
+    matches: (item: MenuItem) => item.path.startsWith('/attendance/queries/'),
+  },
+  {
+    key: 'people',
+    label: 'navigation.people',
+    matches: (item: MenuItem) => item.path.startsWith('/people/'),
+  },
+  {
+    key: 'attendance',
+    label: 'navigation.attendance',
+    matches: (item: MenuItem) => item.path === '/rules' || item.path.startsWith('/rules/'),
+  },
+  {
+    key: 'sources',
+    label: 'navigation.sources',
+    matches: (item: MenuItem) => item.path.startsWith('/sources/'),
+  },
+  {
+    key: 'administration',
+    label: 'navigation.administration',
+    matches: (item: MenuItem) => item.path.startsWith('/access/'),
+  },
+] as const;
 
 export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
   const { t } = useTranslation();
@@ -99,11 +179,12 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
       menu={menu}
       selectedKey={selectedKey}
       onOpen={openMenuItem}
+      theme={demoMode ? 'light' : 'dark'}
     />
   );
 
   return (
-    <Layout className="app-layout">
+    <Layout className={`app-layout${demoMode ? ' app-layout--demo-open-design' : ''}`}>
       <a
         className="skip-link"
         href="#main-content"
@@ -125,14 +206,17 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
       </Sider>
       <Layout className="app-workspace">
         <Header className="app-topbar">
-          <AccessibleButton className="mobile-menu-trigger" type="text" label={translate('app.openNavigation')} iconOnly icon={<IconMenu2 aria-hidden="true" stroke={2} size="var(--size-icon-md)" />} onClick={() => setMobileMenuOpen(true)} />
+          <AccessibleButton className="mobile-menu-trigger" type="text" label={translate('app.openNavigation')} iconOnly icon={<IconMenu2 aria-hidden="true" stroke={2} size={20} />} onClick={() => setMobileMenuOpen(true)} />
           <span id="mobile-menu-trigger-label" className="sr-only">
             {translate('app.openNavigation')}
           </span>
-          <span className="app-topbar__title">{translate('app.companyName')}</span>
-          <span className={`app-environment${demoMode ? ' app-environment--demo' : ''}`}>
-            {demoMode ? translate('app.demoEnvironment') : t('app.localDevelopment')}
-          </span>
+          <span className="app-topbar__spacer" aria-hidden="true" />
+          <AppearanceToggle />
+          {demoMode ? (
+            <span className="app-environment app-environment--demo">
+              {translate('app.demoEnvironment')}
+            </span>
+          ) : null}
           <AccessibleButton
             type="text"
             label={t('app.changePassword')}
@@ -173,7 +257,23 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
       >
         <Form form={passwordForm} layout="vertical" onFinish={(values) => void submitPasswordChange(values)}>
           <Form.Item label={t('app.currentPassword')} name="currentPassword" rules={[{ required: true, message: t('app.currentPasswordRequired') }]}><Input.Password autoComplete="current-password" /></Form.Item>
-          <Form.Item label={t('app.newPassword')} name="newPassword" rules={[{ required: true, min: 12, message: t('app.newPasswordLength') }]}><Input.Password autoComplete="new-password" /></Form.Item>
+          <Form.Item
+            label={t('app.newPassword')}
+            name="newPassword"
+            extra={t('app.newPasswordPolicy')}
+            rules={[
+              { required: true, message: t('app.newPasswordPolicy') },
+              {
+                validator: (_rule, value) => (
+                  value === undefined || passwordMeetsPolicy(value)
+                    ? Promise.resolve()
+                    : Promise.reject(new Error(t('app.newPasswordPolicy')))
+                ),
+              },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
           <Form.Item
             label={t('app.confirmPassword')}
             name="confirmation"
@@ -189,25 +289,34 @@ export function AppShell({ menu, children, onSessionChanged }: AppShellProps) {
   );
 }
 
-export function ResponsiveNavigation({ menu, selectedKey, onOpen }: {
+export function ResponsiveNavigation({ menu, selectedKey, onOpen, theme = 'dark' }: {
   menu: MenuItem[];
   selectedKey?: string;
   onOpen: (value: { key: string }) => void;
+  theme?: 'light' | 'dark';
 }) {
-  const items = useMemo(() => {
-    return menu.map((item) => {
+  const items = useMemo<MenuProps['items']>(() => {
+    const menuItem = (item: MenuItem) => {
       const Icon = menuIcons[item.key as keyof typeof menuIcons] ?? IconBuildingCommunity;
       return {
         key: item.key,
-        icon: <Icon aria-hidden="true" stroke={2} size="var(--size-icon-md)" />,
+        icon: <Icon aria-hidden="true" stroke={2} size={20} />,
         label: item.label,
       };
-    });
+    };
+    return navigationGroups
+      .map((group) => ({
+        type: 'group' as const,
+        key: `navigation-${group.key}`,
+        label: translate(group.label),
+        children: menu.filter(group.matches).map(menuItem),
+      }))
+      .filter((group) => group.children.length > 0);
   }, [menu]);
   return (
     <Menu
       mode="inline"
-      theme="dark"
+      theme={theme}
       items={items}
       selectedKeys={selectedKey ? [selectedKey] : []}
       onClick={onOpen}

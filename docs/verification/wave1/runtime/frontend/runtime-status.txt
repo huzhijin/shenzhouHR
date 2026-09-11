@@ -1,0 +1,5 @@
+frontend_url=http://127.0.0.1:5173
+api_proxy_target=http://127.0.0.1:8080
+proxy_proof_status=401
+proxy_proof_code=INVALID_CREDENTIALS
+proxy_proof_correlation_id=wave1-proxy-proof

@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "logicalTypes": {
+    "id": "ASCII_UUID36",
+    "code": "ASCII_VARCHAR",
+    "text": "UTF8_TEXT",
+    "uint": "UNSIGNED_INTEGER",
+    "date": "DATE",
+    "instant": "UTC_INSTANT_MICROS",
+    "json": "RFC8785_JSON",
+    "digest": "LOWER_HEX_SHA256",
+    "bool": "BOOLEAN"
+  },
+  "tables": [
+    {"table":"location","pk":["location_id"],"columns":["location_id:id","legal_entity_id:id","location_code:code","row_version:uint","created_by:id","created_at:instant"]},
+    {"table":"location_revision","pk":["location_revision_id"],"columns":["location_revision_id:id","location_id:id","revision_number:uint","location_name:text","time_zone:code","effective_from:date","supersedes_location_revision_id:id?","snapshot_digest:digest","change_reason:text","created_by:id","created_at:instant"]},
+    {"table":"location_timeline","pk":["location_timeline_id"],"columns":["location_timeline_id:id","location_id:id","location_revision_id:id","event_sequence:uint","state:code","business_effective_from:date","predecessor_timeline_id:id?","recorded_at:instant","actor_id:id","request_id:code"]},
+    {"table":"shift_template","pk":["shift_template_id"],"columns":["shift_template_id:id","legal_entity_id:id","location_id:id","template_code:code","created_by:id","created_at:instant"]},
+    {"table":"shift_version","pk":["shift_version_id"],"columns":["shift_version_id:id","shift_template_id:id","version_number:uint","effective_from:date","time_zone_snapshot:code","segments_json:json","supersedes_shift_version_id:id?","snapshot_digest:digest","change_reason:text","created_by:id","created_at:instant"]},
+    {"table":"shift_publication_timeline","pk":["shift_publication_timeline_id"],"columns":["shift_publication_timeline_id:id","shift_template_id:id","shift_version_id:id","event_sequence:uint","state:code","business_effective_from:date","predecessor_timeline_id:id?","recorded_at:instant","actor_id:id","request_id:code"]},
+    {"table":"work_calendar","pk":["work_calendar_id"],"columns":["work_calendar_id:id","legal_entity_id:id","location_id:id","calendar_code:code","created_by:id","created_at:instant"]},
+    {"table":"work_calendar_version","pk":["work_calendar_version_id"],"columns":["work_calendar_version_id:id","work_calendar_id:id","version_number:uint","calendar_name:text","calendar_year:uint","time_zone_snapshot:code","effective_from:date","effective_to:date","supersedes_work_calendar_version_id:id?","snapshot_digest:digest","change_reason:text","created_by:id","created_at:instant"]},
+    {"table":"calendar_publication_timeline","pk":["calendar_publication_timeline_id"],"columns":["calendar_publication_timeline_id:id","work_calendar_id:id","work_calendar_version_id:id","event_sequence:uint","state:code","business_effective_from:date","predecessor_timeline_id:id?","recorded_at:instant","actor_id:id","request_id:code"]},
+    {"table":"work_calendar_day","pk":["work_calendar_day_id"],"columns":["work_calendar_day_id:id","work_calendar_version_id:id","business_date:date","day_type:code","shift_version_override_id:id?","snapshot_digest:digest","created_by:id","created_at:instant"]},
+    {"table":"attendance_group","pk":["attendance_group_id"],"columns":["attendance_group_id:id","legal_entity_id:id","group_code:code","created_by:id","created_at:instant"]},
+    {"table":"attendance_group_revision","pk":["attendance_group_revision_id"],"columns":["attendance_group_revision_id:id","attendance_group_id:id","revision_number:uint","group_name:text","location_revision_id:id","work_calendar_id:id","shift_template_id:id","effective_from:date","supersedes_attendance_group_revision_id:id?","snapshot_digest:digest","change_reason:text","created_by:id","created_at:instant"]},
+    {"table":"attendance_group_timeline","pk":["attendance_group_timeline_id"],"columns":["attendance_group_timeline_id:id","attendance_group_id:id","attendance_group_revision_id:id","event_sequence:uint","state:code","business_effective_from:date","predecessor_timeline_id:id?","recorded_at:instant","actor_id:id","request_id:code"]},
+    {"table":"attendance_group_assignment","pk":["attendance_group_assignment_id"],"columns":["attendance_group_assignment_id:id","employee_id:id","attendance_group_revision_id:id","effective_from:date","supersedes_assignment_id:id?","snapshot_digest:digest","change_reason:text","created_by:id","created_at:instant"]},
+    {"table":"attendance_assignment_timeline","pk":["attendance_assignment_timeline_id"],"columns":["attendance_assignment_timeline_id:id","attendance_group_assignment_id:id","employee_id:id","event_sequence:uint","state:code","business_effective_from:date","predecessor_timeline_id:id?","recorded_at:instant","actor_id:id","request_id:code"]},
+    {"table":"attendance_policy_template","pk":["policy_template_id"],"columns":["policy_template_id:id","template_code:code","name:text","description:text","field_definitions_json:json","created_by:id","created_at:instant"]},
+    {"table":"attendance_policy_scope","pk":["scope_id"],"columns":["scope_id:id","policy_template_id:id","legal_entity_id:id","row_version:uint","created_by:id","created_at:instant"]},
+    {"table":"attendance_policy_scoped_version","pk":["scoped_version_id"],"columns":["scoped_version_id:id","scope_id:id","version_number:uint","parameters_json:json","effective_from:date","effective_to:date?","validation_json:json?","snapshot_json:json","snapshot_digest:digest","rollback_of_scoped_version_id:id?","row_version:uint","change_reason:text","created_by:id","created_at:instant"]},
+    {"table":"attendance_policy_lifecycle_event","pk":["lifecycle_event_id"],"columns":["lifecycle_event_id:id","scope_id:id","scoped_version_id:id","event_sequence:uint","action:code","business_effective_from:date","predecessor_event_id:id?","reason:text","actor_id:id","request_id:code","recorded_at:instant"]},
+    {"table":"attendance_policy_binding_family","pk":["binding_family_id"],"columns":["binding_family_id:id","attendance_group_id:id","policy_kind:code","created_by:id","created_at:instant"]},
+    {"table":"attendance_policy_binding_revision","pk":["binding_revision_id"],"columns":["binding_revision_id:id","binding_family_id:id","attendance_group_revision_id:id","attendance_policy_scoped_version_id:id","revision_number:uint","effective_from:date","supersedes_binding_revision_id:id?","snapshot_digest:digest","change_reason:text","created_by:id","created_at:instant"]},
+    {"table":"attendance_setup_idempotency","pk":["attendance_setup_idempotency_id"],"columns":["attendance_setup_idempotency_id:id","actor_id:id","operation_code:code","resource_type:code","resource_id:id","idempotency_key:code","request_digest:digest","state:code","response_status:uint?","response_headers_json:json?","response_body_json:json?","created_at:instant","completed_at:instant?"]}
+  ]
+}

@@ -42,6 +42,7 @@ interface CalendarMapper {
     List<CalendarRows.CalendarRow> listCalendars(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
+            @Param("companyId") String companyId,
             @Param("year") Integer year,
             @Param("limit") int limit,
             @Param("offset") int offset,
@@ -50,6 +51,7 @@ interface CalendarMapper {
     long countCalendars(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
+            @Param("companyId") String companyId,
             @Param("year") Integer year,
             @Param("at") Instant at);
 

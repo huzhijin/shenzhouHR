@@ -54,9 +54,9 @@ public class MyBatisPeopleRepository implements PeopleRepository {
     }
 
     @Override
-    public boolean canAccessLegalEntity(
-            String principalId, String capability, String legalEntityId, Instant at) {
-        return mapper.canAccessLegalEntity(principalId, capability, legalEntityId, at);
+    public boolean canAccessCompany(
+            String principalId, String capability, String companyId, Instant at) {
+        return mapper.canAccessCompany(principalId, capability, companyId, at);
     }
 
     @Override
@@ -72,13 +72,13 @@ public class MyBatisPeopleRepository implements PeopleRepository {
     }
 
     @Override
-    public boolean legalEntityExists(String legalEntityId) {
-        return mapper.legalEntityExists(legalEntityId);
+    public boolean companyExists(String companyId) {
+        return mapper.companyExists(companyId);
     }
 
     @Override
-    public void lockLegalEntity(String legalEntityId) {
-        if (mapper.lockLegalEntity(legalEntityId) == null) {
+    public void lockCompany(String companyId) {
+        if (mapper.lockCompany(companyId) == null) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
     }
@@ -232,12 +232,12 @@ public class MyBatisPeopleRepository implements PeopleRepository {
 
     @Override
     public Optional<Publication> findPublicationByFileHash(
-            String legalEntityId,
+            String companyId,
             String templateType,
             String templateVersion,
             String fileSha256) {
         return Optional.ofNullable(mapper.findPublicationByFileHash(
-                        legalEntityId, templateType, templateVersion, fileSha256))
+                        companyId, templateType, templateVersion, fileSha256))
                 .map(row -> toPublication(row, false, null));
     }
 
@@ -247,7 +247,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
         mapper.insertPublication(new PeopleRows.PublicationRow(
                 publication.publicationId(),
                 publication.batchId(),
-                publication.legalEntityId(),
+                publication.companyId(),
                 publication.templateType().name(),
                 publication.templateVersion(),
                 publication.fileSha256(),
@@ -322,8 +322,8 @@ public class MyBatisPeopleRepository implements PeopleRepository {
 
     @Override
     public Optional<OrganizationVersion> findOrganizationByCode(
-            String legalEntityId, String code) {
-        return Optional.ofNullable(mapper.findOrganizationByCode(legalEntityId, code))
+            String companyId, String code) {
+        return Optional.ofNullable(mapper.findOrganizationByCode(companyId, code))
                 .map(MyBatisPeopleRepository::toOrganization);
     }
 
@@ -342,8 +342,8 @@ public class MyBatisPeopleRepository implements PeopleRepository {
 
     @Override
     public boolean organizationCodeExists(
-            String legalEntityId, String code, String excludeOrganizationId) {
-        return mapper.organizationCodeExists(legalEntityId, code, excludeOrganizationId);
+            String companyId, String code, String excludeOrganizationId) {
+        return mapper.organizationCodeExists(companyId, code, excludeOrganizationId);
     }
 
     @Override
@@ -354,8 +354,8 @@ public class MyBatisPeopleRepository implements PeopleRepository {
 
     @Override
     public String createOrganizationIdentity(
-            String organizationId, String legalEntityId, String status, Instant at) {
-        mapper.insertOrganizationIdentity(organizationId, legalEntityId, status, at);
+            String organizationId, String companyId, String status, Instant at) {
+        mapper.insertOrganizationIdentity(organizationId, companyId, status, at);
         return organizationId;
     }
 
@@ -416,15 +416,15 @@ public class MyBatisPeopleRepository implements PeopleRepository {
 
     @Override
     public Optional<EmployeeVersion> findEmployeeByNumber(
-            String legalEntityId, String employeeNumber) {
-        return Optional.ofNullable(mapper.findEmployeeByNumber(legalEntityId, employeeNumber))
+            String companyId, String employeeNumber) {
+        return Optional.ofNullable(mapper.findEmployeeByNumber(companyId, employeeNumber))
                 .map(MyBatisPeopleRepository::toEmployee);
     }
 
     @Override
     public List<EmployeeVersion> findEmployeesByExternalId(
-            String legalEntityId, String externalEmployeeId) {
-        return mapper.findEmployeesByExternalId(legalEntityId, externalEmployeeId).stream()
+            String companyId, String externalEmployeeId) {
+        return mapper.findEmployeesByExternalId(companyId, externalEmployeeId).stream()
                 .map(MyBatisPeopleRepository::toEmployee)
                 .toList();
     }
@@ -444,16 +444,16 @@ public class MyBatisPeopleRepository implements PeopleRepository {
 
     @Override
     public boolean employeeNumberExists(
-            String legalEntityId, String employeeNumber, String excludeEmployeeId) {
-        return mapper.employeeNumberExists(legalEntityId, employeeNumber, excludeEmployeeId);
+            String companyId, String employeeNumber, String excludeEmployeeId) {
+        return mapper.employeeNumberExists(companyId, employeeNumber, excludeEmployeeId);
     }
 
     @Override
     public void createEmployeeIdentity(
-            String employeeId, String legalEntityId, String employeeNumber, String displayName,
+            String employeeId, String companyId, String employeeNumber, String displayName,
             String status, LocalDate onboardDate, Instant at) {
         mapper.insertEmployeeIdentity(
-                employeeId, legalEntityId, employeeNumber, displayName,
+                employeeId, companyId, employeeNumber, displayName,
                 status, onboardDate, at);
     }
 
@@ -463,6 +463,27 @@ public class MyBatisPeopleRepository implements PeopleRepository {
             long expectedVersion, Instant at) {
         if (mapper.updateEmployeeIdentity(
                 employeeId, employeeNumber, displayName, status, expectedVersion, at) != 1) {
+            throw new OptimisticLockingFailureException("employee version conflict");
+        }
+    }
+
+    @Override
+    public void correctCurrentEmployeeVersion(
+            String employeeId,
+            String employeeNumber,
+            String displayName,
+            String status,
+            LocalDate effectiveTo,
+            String changeReason,
+            long expectedVersion) {
+        if (mapper.correctCurrentEmployeeVersion(
+                employeeId,
+                employeeNumber,
+                displayName,
+                status,
+                effectiveTo,
+                changeReason,
+                expectedVersion) != 1) {
             throw new OptimisticLockingFailureException("employee version conflict");
         }
     }
@@ -563,8 +584,14 @@ public class MyBatisPeopleRepository implements PeopleRepository {
     }
 
     @Override
+    @Transactional
     public void saveEmploymentPeriodVersion(EmploymentPeriod period, boolean newIdentity) {
-        mapper.insertEmploymentPeriodVersion(toEmploymentRow(period), newIdentity);
+        PeopleRows.EmploymentRow row = toEmploymentRow(period);
+        if (newIdentity && mapper.insertEmploymentPeriodIdentity(row) != 1) {
+            throw new IllegalStateException(
+                    "employment period identity employee is unavailable");
+        }
+        mapper.insertEmploymentPeriodVersion(row);
     }
 
     @Override
@@ -618,7 +645,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
         ImportFile file = batch.file();
         return new PeopleRows.BatchRow(
                 batch.batchId(),
-                batch.legalEntityId(),
+                batch.companyId(),
                 batch.templateType().name(),
                 batch.templateVersion(),
                 batch.status().name(),
@@ -663,7 +690,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
                 row.uploadedAt());
         return new ImportBatch(
                 row.batchId(),
-                row.legalEntityId(),
+                row.companyId(),
                 TemplateType.valueOf(row.templateType()),
                 row.templateVersion(),
                 BatchStatus.valueOf(row.status()),
@@ -722,7 +749,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
         return new Publication(
                 row.publicationId(),
                 row.batchId(),
-                row.legalEntityId() == null ? batch.legalEntityId() : row.legalEntityId(),
+                row.companyId() == null ? batch.companyId() : row.companyId(),
                 TemplateType.valueOf(
                         row.templateType() == null ? batch.templateType() : row.templateType()),
                 row.templateVersion() == null
@@ -742,7 +769,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
         return new OrganizationVersion(
                 row.organizationVersionId(),
                 row.organizationId(),
-                row.legalEntityId(),
+                row.companyId(),
                 row.parentOrganizationId(),
                 row.code(),
                 row.name(),
@@ -763,7 +790,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
         return new PeopleRows.OrganizationRow(
                 version.organizationVersionId(),
                 version.organizationId(),
-                version.legalEntityId(),
+                version.companyId(),
                 version.parentOrganizationId(),
                 version.code(),
                 version.name(),
@@ -784,7 +811,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
         return new EmployeeVersion(
                 row.employeeVersionId(),
                 row.employeeId(),
-                row.legalEntityId(),
+                row.companyId(),
                 row.employeeNumber(),
                 row.displayName(),
                 row.status(),
@@ -803,7 +830,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
         return new PeopleRows.EmployeeRow(
                 version.employeeVersionId(),
                 version.employeeId(),
-                version.legalEntityId(),
+                version.companyId(),
                 version.employeeNumber(),
                 version.displayName(),
                 version.status(),

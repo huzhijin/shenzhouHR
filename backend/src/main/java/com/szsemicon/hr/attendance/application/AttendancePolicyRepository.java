@@ -14,23 +14,47 @@ public interface AttendancePolicyRepository {
     Optional<PolicyBinding> findBindingRevision(String bindingRevisionId);
 
     List<String> findPublishedVersionIdsByKind(
-            String legalEntityId,
+            String companyId,
             PolicyKind policyKind,
             LocalDate effectiveFrom,
             LocalDate effectiveTo);
 
-    List<PolicyBinding> listBindings(
+    default List<PolicyBinding> listBindings(
             String principalId,
             String capability,
             String groupId,
             LocalDate asOf,
             int limit,
             int offset,
+            Instant at) {
+        return listBindings(
+                principalId, capability, null, groupId, asOf, limit, offset, at);
+    }
+
+    List<PolicyBinding> listBindings(
+            String principalId,
+            String capability,
+            String companyId,
+            String groupId,
+            LocalDate asOf,
+            int limit,
+            int offset,
             Instant at);
+
+    default long countBindings(
+            String principalId,
+            String capability,
+            String groupId,
+            LocalDate asOf,
+            Instant at) {
+        return countBindings(
+                principalId, capability, null, groupId, asOf, at);
+    }
 
     long countBindings(
             String principalId,
             String capability,
+            String companyId,
             String groupId,
             LocalDate asOf,
             Instant at);
@@ -45,7 +69,7 @@ public interface AttendancePolicyRepository {
     boolean updateBinding(PolicyBinding binding, long expectedVersion);
 
     boolean publishedVersionMatchesKind(
-            String legalEntityId,
+            String companyId,
             String policyVersionId,
             PolicyKind policyKind,
             LocalDate effectiveFrom,

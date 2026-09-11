@@ -1,0 +1,10 @@
+health_status=200
+backend_url=http://127.0.0.1:8080
+profile=dev
+flyway_enabled=false
+bootstrap_enabled=false
+application_database_user=shenzhou_hr_dev_app
+database=shenzhou_hr_dev
+synthetic_admin_username=synthetic.local.admin
+login_password_file=/Users/huzhijin/.config/shenzhouhr/wave1-login.env
+login_password_file_mode=0600

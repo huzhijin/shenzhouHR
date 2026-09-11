@@ -59,7 +59,7 @@ export interface OrganizationVersionPage {
 }
 
 export interface OrganizationCreateRequest {
-  legalEntityId: string;
+  companyId: string;
   parentOrganizationId?: string | null;
   code: string;
   name: string;

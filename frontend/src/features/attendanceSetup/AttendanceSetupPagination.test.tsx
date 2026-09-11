@@ -38,6 +38,8 @@ vi.mock('../../shared/config/runtimeMode', () => ({
   isDemoMode: () => true,
 }));
 
+const demoCompanyId = '9700000000000000001';
+
 describe('attendance setup parent-child pagination', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,7 +85,7 @@ describe('attendance setup parent-child pagination', () => {
 
     goToNextPage(view.container, '班次模板分页');
     await waitFor(() => {
-      expect(listShifts).toHaveBeenCalledWith(1, 20);
+      expect(listShifts).toHaveBeenCalledWith(1, 20, demoCompanyId);
     });
     expect((await screen.findAllByRole('button', { name: 'SHIFT-B 班次 B' })).length)
       .toBeGreaterThan(0);
@@ -137,7 +139,7 @@ describe('attendance setup parent-child pagination', () => {
     expect((await screen.findAllByRole('button', { name: 'GROUP-A 考勤组 A' })).length)
       .toBeGreaterThan(0);
     await waitFor(() => {
-      expect(locationRevisions).toHaveBeenCalledWith(locationA.locationId, 0, 20);
+      expect(locationRevisions).toHaveBeenCalledWith(locationA.sharedLocationId, 0, 20);
       expect(groupRevisions).toHaveBeenCalledWith(groupA.groupId, 0, 20);
       expect(assignments).toHaveBeenCalledWith(groupA.groupId, undefined, 0, 20);
     });
@@ -146,7 +148,7 @@ describe('attendance setup parent-child pagination', () => {
     goToNextPage(view.container, '考勤组修订历史分页');
     goToNextPage(view.container, '人员归属分页');
     await waitFor(() => {
-      expect(locationRevisions).toHaveBeenCalledWith(locationA.locationId, 1, 20);
+      expect(locationRevisions).toHaveBeenCalledWith(locationA.sharedLocationId, 1, 20);
       expect(groupRevisions).toHaveBeenCalledWith(groupA.groupId, 1, 20);
       expect(assignments).toHaveBeenCalledWith(groupA.groupId, undefined, 1, 20);
     });
@@ -161,7 +163,7 @@ describe('attendance setup parent-child pagination', () => {
       expect(screen.getAllByRole('button', { name: 'GROUP-B 考勤组 B' }).length)
         .toBeGreaterThan(0);
     });
-    expect(locationRevisions.mock.calls.some(([id]) => id === locationB.locationId))
+    expect(locationRevisions.mock.calls.some(([id]) => id === locationB.sharedLocationId))
       .toBe(false);
     expect(groupRevisions.mock.calls.some(([id]) => id === groupB.groupId))
       .toBe(false);
@@ -170,7 +172,7 @@ describe('attendance setup parent-child pagination', () => {
     clickFirstButton('LOC-B 地点 B');
     clickFirstButton('GROUP-B 考勤组 B');
     await waitFor(() => {
-      expect(locationRevisions).toHaveBeenCalledWith(locationB.locationId, 0, 20);
+      expect(locationRevisions).toHaveBeenCalledWith(locationB.sharedLocationId, 0, 20);
       expect(groupRevisions).toHaveBeenCalledWith(groupB.groupId, 0, 20);
       expect(assignments).toHaveBeenCalledWith(groupB.groupId, undefined, 0, 20);
     });
@@ -284,7 +286,7 @@ describe('attendance setup parent-child pagination', () => {
 
     goToNextPage(view.container, '工作日历分页');
     await waitFor(() => {
-      expect(listCalendars).toHaveBeenCalledWith(currentYear, 1, 20);
+      expect(listCalendars).toHaveBeenCalledWith(currentYear, 1, 20, demoCompanyId);
     });
     expect((await screen.findAllByRole('button', { name: 'CAL-B 日历 B' })).length)
       .toBeGreaterThan(0);
@@ -343,6 +345,7 @@ describe('attendance setup parent-child pagination', () => {
 
     expect((await screen.findAllByRole('button', { name: 'SHIFT-A 班次 A' })).length)
       .toBeGreaterThan(0);
+    await screen.findByRole('navigation', { name: '班次版本分页' });
     goToNextPage(view.container, '班次版本分页');
     await waitFor(() => {
       expect(listVersions).toHaveBeenCalledWith(shiftA.shiftId, 1, 20);
@@ -351,8 +354,8 @@ describe('attendance setup parent-child pagination', () => {
 
     goToNextPage(view.container, '班次模板分页');
     await waitFor(() => {
-      expect(listShifts).toHaveBeenCalledWith(1, 20);
-      expect(lastCall(listShifts)).toEqual([0, 20]);
+      expect(listShifts).toHaveBeenCalledWith(1, 20, demoCompanyId);
+      expect(lastCall(listShifts)).toEqual([0, 20, demoCompanyId]);
     });
     expect((await screen.findAllByRole('button', { name: 'SHIFT-A 班次 A' })).length)
       .toBeGreaterThan(0);
@@ -493,6 +496,8 @@ function location(
   return {
     ...requiredDemoItem(demoLocations),
     locationId,
+    sharedLocationId: `${locationId}-shared`,
+    companyLocationId: locationId,
     locationRevisionId: `${locationId}-revision`,
     code,
     name,

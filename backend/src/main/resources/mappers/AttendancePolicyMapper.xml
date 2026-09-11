@@ -16,7 +16,7 @@
         family.binding_family_id AS attendance_policy_binding_id,
         revision.binding_revision_id AS attendance_policy_binding_revision_id,
         revision.revision_number,
-        group_identity.legal_entity_id,
+        group_identity.company_id,
         family.policy_kind,
         revision.attendance_policy_scoped_version_id AS policy_version_id,
         family.attendance_group_id,
@@ -53,7 +53,7 @@
         family.binding_family_id AS attendance_policy_binding_id,
         revision.binding_revision_id AS attendance_policy_binding_revision_id,
         revision.revision_number,
-        group_identity.legal_entity_id,
+        group_identity.company_id,
         family.policy_kind,
         revision.attendance_policy_scoped_version_id AS policy_version_id,
         family.attendance_group_id,
@@ -139,7 +139,7 @@
         JOIN attendance_policy_scope scope ON scope.scope_id = version.scope_id
         JOIN attendance_policy_template template
           ON template.policy_template_id = scope.policy_template_id
-        WHERE scope.legal_entity_id = #{legalEntityId}
+        WHERE scope.company_id = #{companyId}
           AND template.template_code = #{policyKind}
           AND version.effective_from &lt;= #{effectiveFrom}
           AND (version.effective_to IS NULL
@@ -162,9 +162,11 @@
          AND capability.capability_code = #{capability}
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
-         AND data_scope.scope_type = 'LEGAL_ENTITY'
-         AND data_scope.legal_entity_id = group_identity.legal_entity_id
-        WHERE (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
+         AND data_scope.scope_type = 'COMPANY'
+         AND data_scope.company_id = group_identity.company_id
+        WHERE (#{companyId} IS NULL
+               OR group_identity.company_id = #{companyId})
+          AND (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
           AND (#{asOf} IS NULL OR revision.effective_from &lt;= #{asOf})
           AND (#{asOf} IS NULL
                OR <include refid="storedBindingEffectiveTo"/> IS NULL
@@ -199,9 +201,11 @@
          AND capability.capability_code = #{capability}
         JOIN auth_data_scope data_scope
           ON data_scope.scope_id = role_assignment.data_scope_id
-         AND data_scope.scope_type = 'LEGAL_ENTITY'
-         AND data_scope.legal_entity_id = group_identity.legal_entity_id
-        WHERE (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
+         AND data_scope.scope_type = 'COMPANY'
+         AND data_scope.company_id = group_identity.company_id
+        WHERE (#{companyId} IS NULL
+               OR group_identity.company_id = #{companyId})
+          AND (#{groupId} IS NULL OR family.attendance_group_id = #{groupId})
           AND (#{asOf} IS NULL OR revision.effective_from &lt;= #{asOf})
           AND (#{asOf} IS NULL
                OR <include refid="storedBindingEffectiveTo"/> IS NULL
@@ -308,7 +312,7 @@
             JOIN attendance_policy_template template
               ON template.policy_template_id = scope.policy_template_id
             WHERE version.scoped_version_id = #{policyVersionId}
-              AND scope.legal_entity_id = #{legalEntityId}
+              AND scope.company_id = #{companyId}
               AND template.template_code = #{policyKind}
               AND version.effective_from &lt;= #{effectiveFrom}
               AND (version.effective_to IS NULL

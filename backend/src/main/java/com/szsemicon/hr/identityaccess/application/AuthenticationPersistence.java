@@ -13,11 +13,17 @@ public interface AuthenticationPersistence {
 
     Optional<AccountRecord> findAccountByNormalizedUsername(String normalizedUsername);
 
+    Optional<AccountRecord> lockAccountByNormalizedUsername(String normalizedUsername);
+
     Optional<AccountRecord> findAccountById(String accountId);
+
+    Optional<AccountRecord> lockAccountById(String accountId);
 
     Optional<AccountRecord> findAccountByPrincipalId(String principalId);
 
     Optional<CredentialRecord> findCredential(String accountId);
+
+    Optional<CredentialRecord> lockCredential(String accountId);
 
     FailureRecord findFailure(String accountId);
 
@@ -26,6 +32,8 @@ public interface AuthenticationPersistence {
     Optional<SessionRecord> findSessionById(String sessionId);
 
     Optional<ResetGrantRecord> findResetGrantByDigest(String digest, Instant at);
+
+    Optional<ResetGrantRecord> lockResetGrantByDigest(String digest, Instant at);
 
     List<String> findCapabilities(String principalId, Instant at);
 
@@ -77,4 +85,6 @@ public interface AuthenticationPersistence {
             String requestId,
             Instant expiresAt,
             Instant now);
+
+    void invalidateUnusedResetGrants(String accountId, Instant at);
 }

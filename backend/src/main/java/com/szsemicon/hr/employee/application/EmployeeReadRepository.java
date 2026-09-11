@@ -23,4 +23,37 @@ public interface EmployeeReadRepository {
             int size) {
         return findVisibleTo(principalId, capabilityCode, at, page, size);
     }
+
+    default EmployeePage findVisibleTo(
+            String principalId,
+            String capabilityCode,
+            Instant at,
+            String query,
+            String organizationId,
+            String companyId,
+            String status,
+            String sort,
+            int page,
+            int size) {
+        return findVisibleTo(
+                principalId, capabilityCode, at, query, organizationId,
+                status, sort, page, size);
+    }
+
+    default EmployeePage findVisibleTo(
+            String principalId,
+            String capabilityCode,
+            Instant at,
+            String query,
+            String organizationId,
+            boolean includeDescendants,
+            String companyId,
+            String status,
+            String sort,
+            int page,
+            int size) {
+        return findVisibleTo(
+                principalId, capabilityCode, at, query, organizationId,
+                companyId, status, sort, page, size);
+    }
 }

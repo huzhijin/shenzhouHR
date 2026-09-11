@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceConfigurationAuthorityMapper">
+
+    <!--
+      This is intentionally one exact company/business-date authority
+      query. LIMIT 2 preserves ambiguity for the adapter to reject instead of
+      selecting an arbitrary employment, assignment, or publication.
+    -->
+    <select id="resolveForBusinessDate"
+            timeout="120"
+            resultType="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceConfigurationAuthorityRow">
+        SELECT
+            #{businessDate} AS business_date,
+            company.company_id,
+            employee.employee_id,
+            employee_version.employee_version_id,
+            employee_version.row_version AS employee_version,
+            employment.employment_period_id,
+            employment.assignment_id AS employment_assignment_id,
+            employment.row_version AS employment_version,
+            employment.organization_id,
+            attendance_assignment.attendance_group_assignment_id,
+            attendance_assignment.snapshot_digest
+                AS assignment_snapshot_digest,
+            attendance_group.attendance_group_id,
+            group_revision.attendance_group_revision_id,
+            group_revision.snapshot_digest AS group_snapshot_digest,
+            location.location_id,
+            location_revision.location_revision_id,
+            location_revision.time_zone AS location_time_zone,
+            location_revision.snapshot_digest
+                AS location_snapshot_digest,
+            work_calendar.work_calendar_id,
+            calendar_version.work_calendar_version_id,
+            calendar_version.time_zone_snapshot AS calendar_time_zone,
+            calendar_version.snapshot_digest AS calendar_snapshot_digest,
+            calendar_day.work_calendar_day_id,
+            calendar_day.day_type,
+            calendar_day.snapshot_digest AS calendar_day_snapshot_digest,
+            group_revision.shift_template_id AS group_shift_template_id,
+            effective_shift_template.shift_template_id,
+            effective_shift.shift_version_id,
+            effective_shift.time_zone_snapshot AS shift_time_zone,
+            effective_shift.snapshot_digest AS shift_snapshot_digest
+        FROM company company
+        JOIN employee employee
+          ON employee.company_id = company.company_id
+         AND employee.employee_id = #{employeeId}
+        JOIN employee_version employee_version
+          ON employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+         AND employee_version.created_at &lt;= #{knowledgeAsOf}
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND DATE(employment.effective_from) &lt;= #{businessDate}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{businessDate}
+         )
+         AND employment.created_at &lt;= #{knowledgeAsOf}
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.company_id = company.company_id
+         AND organization.identity_status = 'ACTIVE'
+        JOIN attendance_group_assignment attendance_assignment
+          ON attendance_assignment.employee_id = employee.employee_id
+         AND attendance_assignment.effective_from &lt;= #{businessDate}
+         AND attendance_assignment.created_at &lt;= #{knowledgeAsOf}
+         AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_group_assignment successor
+                WHERE successor.supersedes_assignment_id =
+                        attendance_assignment.attendance_group_assignment_id
+                  AND successor.effective_from &lt;= #{businessDate}
+                  AND successor.created_at &lt;= #{knowledgeAsOf}
+         )
+        JOIN attendance_assignment_timeline assignment_timeline
+          ON assignment_timeline.attendance_group_assignment_id =
+                attendance_assignment.attendance_group_assignment_id
+         AND assignment_timeline.employee_id = employee.employee_id
+         AND assignment_timeline.state = 'ACTIVE'
+         AND assignment_timeline.business_effective_from
+                &lt;= #{businessDate}
+         AND assignment_timeline.recorded_at &lt;= #{knowledgeAsOf}
+         AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_assignment_timeline newer_assignment
+                WHERE newer_assignment.attendance_group_assignment_id =
+                        assignment_timeline.attendance_group_assignment_id
+                  AND newer_assignment.business_effective_from
+                        &lt;= #{businessDate}
+                  AND newer_assignment.recorded_at &lt;= #{knowledgeAsOf}
+                  AND newer_assignment.event_sequence
+                        &gt; assignment_timeline.event_sequence
+         )
+        JOIN attendance_group_revision group_revision
+          ON group_revision.attendance_group_revision_id =
+                attendance_assignment.attendance_group_revision_id
+        JOIN attendance_group attendance_group
+          ON attendance_group.attendance_group_id =
+                group_revision.attendance_group_id
+         AND attendance_group.company_id =
+                company.company_id
+        JOIN attendance_group_timeline group_timeline
+          ON group_timeline.attendance_group_id =
+                attendance_group.attendance_group_id
+         AND group_timeline.attendance_group_revision_id =
+                group_revision.attendance_group_revision_id
+         AND group_timeline.state = 'ACTIVE'
+         AND group_timeline.business_effective_from &lt;= #{businessDate}
+         AND group_timeline.recorded_at &lt;= #{knowledgeAsOf}
+         AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_group_timeline newer_group
+                WHERE newer_group.attendance_group_id =
+                        group_timeline.attendance_group_id
+                  AND newer_group.business_effective_from
+                        &lt;= #{businessDate}
+                  AND newer_group.recorded_at &lt;= #{knowledgeAsOf}
+                  AND newer_group.event_sequence
+                        &gt; group_timeline.event_sequence
+         )
+        JOIN location_revision location_revision
+          ON location_revision.location_revision_id =
+                group_revision.location_revision_id
+        JOIN location location
+          ON location.location_id = location_revision.location_id
+         AND location.company_id = company.company_id
+        JOIN location_timeline location_timeline
+          ON location_timeline.location_id = location.location_id
+         AND location_timeline.location_revision_id =
+                location_revision.location_revision_id
+         AND location_timeline.state = 'ACTIVE'
+         AND location_timeline.business_effective_from &lt;= #{businessDate}
+         AND location_timeline.recorded_at &lt;= #{knowledgeAsOf}
+         AND NOT EXISTS (
+                SELECT 1
+                FROM location_timeline newer_location
+                WHERE newer_location.location_id =
+                        location_timeline.location_id
+                  AND newer_location.business_effective_from
+                        &lt;= #{businessDate}
+                  AND newer_location.recorded_at &lt;= #{knowledgeAsOf}
+                  AND newer_location.event_sequence
+                        &gt; location_timeline.event_sequence
+         )
+        JOIN work_calendar work_calendar
+          ON work_calendar.work_calendar_id =
+                group_revision.work_calendar_id
+         AND work_calendar.company_id =
+                company.company_id
+         AND work_calendar.location_id = location.location_id
+        JOIN calendar_publication_timeline calendar_publication
+          ON calendar_publication.work_calendar_id =
+                work_calendar.work_calendar_id
+         AND calendar_publication.state = 'PUBLISHED'
+         AND calendar_publication.business_effective_from
+                &lt;= #{businessDate}
+         AND calendar_publication.recorded_at &lt;= #{knowledgeAsOf}
+         AND NOT EXISTS (
+                SELECT 1
+                FROM calendar_publication_timeline newer_calendar
+                WHERE newer_calendar.work_calendar_id =
+                        calendar_publication.work_calendar_id
+                  AND newer_calendar.business_effective_from
+                        &lt;= #{businessDate}
+                  AND newer_calendar.recorded_at &lt;= #{knowledgeAsOf}
+                  AND (
+                        newer_calendar.business_effective_from
+                            &gt; calendar_publication.business_effective_from
+                        OR (
+                            newer_calendar.business_effective_from =
+                                calendar_publication.business_effective_from
+                            AND newer_calendar.event_sequence
+                                &gt; calendar_publication.event_sequence
+                        )
+                  )
+         )
+        JOIN work_calendar_version calendar_version
+          ON calendar_version.work_calendar_version_id =
+                calendar_publication.work_calendar_version_id
+         AND calendar_version.work_calendar_id =
+                work_calendar.work_calendar_id
+         AND calendar_version.effective_from &lt;= #{businessDate}
+         AND calendar_version.effective_to &gt; #{businessDate}
+        JOIN work_calendar_day calendar_day
+          ON calendar_day.work_calendar_version_id =
+                calendar_version.work_calendar_version_id
+         AND calendar_day.business_date = #{businessDate}
+         AND calendar_day.created_at &lt;= #{knowledgeAsOf}
+        JOIN shift_version effective_shift
+          ON (
+                (
+                    calendar_day.shift_version_override_id IS NULL
+                    AND effective_shift.shift_template_id =
+                        group_revision.shift_template_id
+                )
+                OR effective_shift.shift_version_id =
+                    calendar_day.shift_version_override_id
+          )
+         AND effective_shift.effective_from &lt;= #{businessDate}
+         AND effective_shift.created_at &lt;= #{knowledgeAsOf}
+         AND EXISTS (
+                SELECT 1
+                FROM shift_publication_timeline current_shift_pub
+                WHERE current_shift_pub.shift_template_id =
+                        effective_shift.shift_template_id
+                  AND current_shift_pub.shift_version_id =
+                        effective_shift.shift_version_id
+                  AND current_shift_pub.state = 'PUBLISHED'
+                  AND current_shift_pub.business_effective_from
+                        &lt;= #{businessDate}
+                  AND current_shift_pub.recorded_at &lt;= #{knowledgeAsOf}
+         )
+         AND NOT EXISTS (
+                SELECT 1
+                FROM shift_version newer_shift_version
+                WHERE newer_shift_version.shift_template_id =
+                        effective_shift.shift_template_id
+                  AND newer_shift_version.effective_from
+                        &lt;= #{businessDate}
+                  AND newer_shift_version.created_at &lt;= #{knowledgeAsOf}
+                  AND (
+                        newer_shift_version.effective_from
+                            &gt; effective_shift.effective_from
+                        OR (
+                            newer_shift_version.effective_from =
+                                effective_shift.effective_from
+                            AND newer_shift_version.version_number
+                                &gt; effective_shift.version_number
+                        )
+                  )
+                  AND EXISTS (
+                        SELECT 1
+                        FROM shift_publication_timeline newer_shift_pub
+                        WHERE newer_shift_pub.shift_template_id =
+                                newer_shift_version.shift_template_id
+                          AND newer_shift_pub.shift_version_id =
+                                newer_shift_version.shift_version_id
+                          AND newer_shift_pub.state = 'PUBLISHED'
+                          AND newer_shift_pub.business_effective_from
+                                &lt;= #{businessDate}
+                          AND newer_shift_pub.recorded_at
+                                &lt;= #{knowledgeAsOf}
+                  )
+         )
+        JOIN shift_template effective_shift_template
+          ON effective_shift_template.shift_template_id =
+                effective_shift.shift_template_id
+         AND effective_shift_template.company_id =
+                company.company_id
+         AND effective_shift_template.location_id = location.location_id
+        JOIN shift_publication_timeline shift_publication
+          ON shift_publication.shift_template_id =
+                effective_shift.shift_template_id
+         AND shift_publication.shift_version_id =
+                effective_shift.shift_version_id
+         AND shift_publication.state = 'PUBLISHED'
+         AND shift_publication.business_effective_from
+                &lt;= #{businessDate}
+         AND shift_publication.recorded_at &lt;= #{knowledgeAsOf}
+         AND NOT EXISTS (
+                SELECT 1
+                FROM shift_publication_timeline newer_shift
+                WHERE newer_shift.shift_template_id =
+                        shift_publication.shift_template_id
+                  AND newer_shift.business_effective_from
+                        &lt;= #{businessDate}
+                  AND newer_shift.recorded_at &lt;= #{knowledgeAsOf}
+                  AND (
+                        newer_shift.business_effective_from
+                            &gt; shift_publication.business_effective_from
+                        OR (
+                            newer_shift.business_effective_from =
+                                shift_publication.business_effective_from
+                            AND newer_shift.event_sequence
+                                &gt; shift_publication.event_sequence
+                        )
+                  )
+         )
+        JOIN shift_template group_shift_template
+          ON group_shift_template.shift_template_id =
+                group_revision.shift_template_id
+         AND group_shift_template.company_id =
+                company.company_id
+         AND group_shift_template.location_id = location.location_id
+        WHERE company.company_id = #{companyId}
+          AND company.status = 'ACTIVE'
+          AND location_revision.time_zone =
+                calendar_version.time_zone_snapshot
+          AND location_revision.time_zone =
+                effective_shift.time_zone_snapshot
+        ORDER BY employee_version.employee_version_id,
+                 employment.assignment_id,
+                 attendance_assignment.attendance_group_assignment_id,
+                 group_revision.attendance_group_revision_id,
+                 location_revision.location_revision_id,
+                 calendar_version.work_calendar_version_id,
+                 effective_shift.shift_version_id
+        LIMIT 2
+        FOR SHARE
+    </select>
+</mapper>

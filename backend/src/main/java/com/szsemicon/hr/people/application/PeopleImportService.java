@@ -114,12 +114,12 @@ public class PeopleImportService {
             CreateImportBatch command, long expectedVersion, String idempotencyKey) {
         requireExpected(expectedVersion, 0);
         requireReason(command.reason());
-        requireText(command.legalEntityId(), "legalEntityId", 36);
+        requireText(command.companyId(), "companyId", 36);
         requireIdempotencyKey(idempotencyKey);
         if (workbookGateway.getTemplate(command.templateType(), command.templateVersion()) == null) {
             throw problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "模板版本不存在");
         }
-        requireLegalEntity(CapabilityCodes.PEOPLE_IMPORT_CREATE, command.legalEntityId());
+        requireCompany(CapabilityCodes.PEOPLE_IMPORT_CREATE, command.companyId());
         String actor = principalProvider.currentPrincipalId();
         String digest = digest(command);
         IdempotencyRecord existing = existingIdempotency(
@@ -131,7 +131,7 @@ public class PeopleImportService {
         String batchId = UUID.randomUUID().toString();
         ImportBatch batch = new ImportBatch(
                 batchId,
-                command.legalEntityId(),
+                command.companyId(),
                 command.templateType(),
                 command.templateVersion(),
                 BatchStatus.DRAFT,
@@ -429,7 +429,7 @@ public class PeopleImportService {
         if (existing != null) {
             Publication publication = repository.findPublicationByBatch(batchId)
                     .or(() -> repository.findPublicationByFileHash(
-                            batch.legalEntityId(),
+                            batch.companyId(),
                             batch.templateType().name(),
                             batch.templateVersion(),
                             batch.fileSha256()))
@@ -467,10 +467,10 @@ public class PeopleImportService {
             throw conflict("PEOPLE_IMPORT_BLOCKING_ERRORS", "存在阻断错误，禁止发布");
         }
         Instant now = clock.instant();
-        repository.lockLegalEntity(batch.legalEntityId());
+        repository.lockCompany(batch.companyId());
         Publication hashDuplicate = repository
                 .findPublicationByFileHash(
-                        batch.legalEntityId(),
+                        batch.companyId(),
                         batch.templateType().name(),
                         batch.templateVersion(),
                         command.confirmedFileSha256())
@@ -526,7 +526,7 @@ public class PeopleImportService {
         Publication publication = new Publication(
                 UUID.randomUUID().toString(),
                 batchId,
-                batch.legalEntityId(),
+                batch.companyId(),
                 batch.templateType(),
                 batch.templateVersion(),
                 batch.fileSha256(),
@@ -624,7 +624,7 @@ public class PeopleImportService {
         if (repository.findRollbackByPublication(publication.publicationId()).isPresent()) {
             throw conflict("PEOPLE_IMPORT_INVALID_STATE", "发布批次已经撤销");
         }
-        repository.lockLegalEntity(batch.legalEntityId());
+        repository.lockCompany(batch.companyId());
         lockPublicationEmployees(publication);
         Set<String> producedIds = new HashSet<>(publication.localVersionIds());
         List<String> unownedReferences = repository.findDownstreamReferenceIds(batchId).stream()
@@ -767,14 +767,14 @@ public class PeopleImportService {
             case ORGANIZATION -> {
                 String code = value(row, "organizationCode");
                 OrganizationVersion current = repository
-                        .findOrganizationByCode(batch.legalEntityId(), code)
+                        .findOrganizationByCode(batch.companyId(), code)
                         .orElse(null);
                 String parentCode = value(row, "parentOrganizationCode");
                 List<ImportIssue> issues = new ArrayList<>();
                 if (!parentCode.isBlank()
                         && !validationContext.organizationCodes().contains(parentCode)
                         && repository.findOrganizationByCode(
-                                batch.legalEntityId(), parentCode).isEmpty()) {
+                                batch.companyId(), parentCode).isEmpty()) {
                     issues.add(issue(
                             batch.batchId(), rowNumber, "parentOrganizationCode",
                             "ORGANIZATION_PARENT_MISSING",
@@ -796,7 +796,7 @@ public class PeopleImportService {
                 }
                 if (current != null && !parentCode.isBlank()) {
                     OrganizationVersion parent = repository.findOrganizationByCode(
-                            batch.legalEntityId(), parentCode).orElse(null);
+                            batch.companyId(), parentCode).orElse(null);
                     if (parent != null
                             && repository.organizationWouldCycle(
                                     current.organizationId(), parent.organizationId())) {
@@ -823,9 +823,9 @@ public class PeopleImportService {
                 String employeeNumber = value(row, "employeeNumber");
                 String organizationCode = value(row, "organizationCode");
                 EmployeeVersion employee = repository.findEmployeeByNumber(
-                        batch.legalEntityId(), employeeNumber).orElse(null);
+                        batch.companyId(), employeeNumber).orElse(null);
                 OrganizationVersion organization = repository.findOrganizationByCode(
-                        batch.legalEntityId(), organizationCode).orElse(null);
+                        batch.companyId(), organizationCode).orElse(null);
                 List<ImportIssue> issues = new ArrayList<>();
                 if (employee == null) {
                     issues.add(issue(
@@ -866,7 +866,7 @@ public class PeopleImportService {
             case PRIOR_SERVICE -> {
                 String employeeNumber = value(row, "employeeNumber");
                 EmployeeVersion employee = repository.findEmployeeByNumber(
-                        batch.legalEntityId(), employeeNumber).orElse(null);
+                        batch.companyId(), employeeNumber).orElse(null);
                 List<ImportIssue> issues = employee == null
                         ? List.of(issue(
                                 batch.batchId(), rowNumber, "employeeNumber",
@@ -901,10 +901,10 @@ public class PeopleImportService {
         }
         EmployeeVersion byNumber = number.isBlank()
                 ? null
-                : repository.findEmployeeByNumber(batch.legalEntityId(), number).orElse(null);
+                : repository.findEmployeeByNumber(batch.companyId(), number).orElse(null);
         List<EmployeeVersion> byExternal = externalId.isBlank()
                 ? List.of()
-                : repository.findEmployeesByExternalId(batch.legalEntityId(), externalId);
+                : repository.findEmployeesByExternalId(batch.companyId(), externalId);
         Set<String> candidateIds = new HashSet<>();
         if (byNumber != null) {
             candidateIds.add(byNumber.employeeId());
@@ -997,19 +997,19 @@ public class PeopleImportService {
             if (diff.category() == DiffCategory.ADDED) {
                 boolean nowExists = switch (diff.entityType()) {
                     case ORGANIZATION -> repository.findOrganizationByCode(
-                            batch.legalEntityId(),
+                            batch.companyId(),
                             string(diff.proposedValues(), "organizationCode")).isPresent();
                     case EMPLOYEE -> {
-                        String legalEntityId = batch.legalEntityId();
+                        String companyId = batch.companyId();
                         String employeeNumber = string(
                                 diff.proposedValues(), "employeeNumber");
                         String externalId = string(
                                 diff.proposedValues(), "externalEmployeeId");
                         yield repository.findEmployeeByNumber(
-                                        legalEntityId, employeeNumber).isPresent()
+                                        companyId, employeeNumber).isPresent()
                                 || !externalId.isBlank()
                                 && !repository.findEmployeesByExternalId(
-                                        legalEntityId, externalId).isEmpty();
+                                        companyId, externalId).isEmpty();
                     }
                     case EMPLOYMENT, PRIOR_SERVICE -> false;
                 };
@@ -1092,7 +1092,7 @@ public class PeopleImportService {
         String parentCode = string(values, "parentOrganizationCode");
         String parentId = parentCode.isBlank()
                 ? null
-                : repository.findOrganizationByCode(batch.legalEntityId(), parentCode)
+                : repository.findOrganizationByCode(batch.companyId(), parentCode)
                         .orElseThrow(() -> conflict(
                                 "ORGANIZATION_PARENT_CYCLE",
                                 "发布时上级组织不可用"))
@@ -1102,7 +1102,7 @@ public class PeopleImportService {
         if (organizationId == null) {
             organizationId = UUID.randomUUID().toString();
             repository.createOrganizationIdentity(
-                    organizationId, batch.legalEntityId(), "ACTIVE", now);
+                    organizationId, batch.companyId(), "ACTIVE", now);
         } else {
             if (parentId != null
                     && repository.organizationWouldCycle(organizationId, parentId)) {
@@ -1130,7 +1130,7 @@ public class PeopleImportService {
         OrganizationVersion version = new OrganizationVersion(
                 UUID.randomUUID().toString(),
                 organizationId,
-                batch.legalEntityId(),
+                batch.companyId(),
                 parentId,
                 code,
                 string(values, "name"),
@@ -1165,7 +1165,7 @@ public class PeopleImportService {
             employeeId = UUID.randomUUID().toString();
             repository.createEmployeeIdentity(
                     employeeId,
-                    batch.legalEntityId(),
+                    batch.companyId(),
                     string(values, "employeeNumber"),
                     string(values, "displayName"),
                     "ACTIVE",
@@ -1196,7 +1196,7 @@ public class PeopleImportService {
         EmployeeVersion version = new EmployeeVersion(
                 UUID.randomUUID().toString(),
                 employeeId,
-                batch.legalEntityId(),
+                batch.companyId(),
                 string(values, "employeeNumber"),
                 string(values, "displayName"),
                 "ACTIVE",
@@ -1222,11 +1222,11 @@ public class PeopleImportService {
             String actor,
             Instant now) {
         EmployeeVersion employee = repository.findEmployeeByNumber(
-                batch.legalEntityId(), string(values, "employeeNumber"))
+                batch.companyId(), string(values, "employeeNumber"))
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         repository.lockEmployee(employee.employeeId());
         OrganizationVersion organization = repository.findOrganizationByCode(
-                batch.legalEntityId(), string(values, "organizationCode"))
+                batch.companyId(), string(values, "organizationCode"))
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         if (!"ACTIVE".equals(organization.status())) {
             throw conflict(
@@ -1269,7 +1269,7 @@ public class PeopleImportService {
             String actor,
             Instant now) {
         EmployeeVersion employee = repository.findEmployeeByNumber(
-                batch.legalEntityId(), string(values, "employeeNumber"))
+                batch.companyId(), string(values, "employeeNumber"))
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         repository.lockEmployee(employee.employeeId());
         long aggregateVersion =
@@ -1354,7 +1354,7 @@ public class PeopleImportService {
                         ? current.code()
                         : string(previous, "organizationCode");
                 if (repository.organizationCodeExists(
-                        current.legalEntityId(), restoredCode, current.organizationId())) {
+                        current.companyId(), restoredCode, current.organizationId())) {
                     throw conflict(
                             "PEOPLE_IMPORT_ROLLBACK_HAS_REFERENCES",
                             "上一快照的组织编码已被占用，只能前向更正");
@@ -1362,7 +1362,7 @@ public class PeopleImportService {
                 OrganizationVersion restored = new OrganizationVersion(
                         UUID.randomUUID().toString(),
                         current.organizationId(),
-                        current.legalEntityId(),
+                        current.companyId(),
                         createdByImport
                                 ? current.parentOrganizationId()
                                 : emptyToNull(string(previous, "parentOrganizationId")),
@@ -1415,7 +1415,7 @@ public class PeopleImportService {
                         ? current.externalEmployeeId()
                         : emptyToNull(string(previous, "externalEmployeeId"));
                 if (repository.employeeNumberExists(
-                        current.legalEntityId(), restoredNumber, current.employeeId())) {
+                        current.companyId(), restoredNumber, current.employeeId())) {
                     throw conflict(
                             "PEOPLE_IMPORT_ROLLBACK_HAS_REFERENCES",
                             "上一快照的员工编号已被占用，只能前向更正");
@@ -1426,7 +1426,7 @@ public class PeopleImportService {
                 EmployeeVersion restored = new EmployeeVersion(
                         UUID.randomUUID().toString(),
                         current.employeeId(),
-                        current.legalEntityId(),
+                        current.companyId(),
                         restoredNumber,
                         restoredName,
                         restoredStatus,
@@ -1556,10 +1556,10 @@ public class PeopleImportService {
         capabilityService.require(capability);
         ImportBatch batch = repository.findBatch(batchId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        if (!repository.canAccessLegalEntity(
+        if (!repository.canAccessCompany(
                 principalProvider.currentPrincipalId(),
                 capability,
-                batch.legalEntityId(),
+                batch.companyId(),
                 clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -1583,7 +1583,7 @@ public class PeopleImportService {
                         batch.duplicateOfPublicationId())
                 .orElse(null);
         if (original == null
-                || !original.legalEntityId().equals(batch.legalEntityId())
+                || !original.companyId().equals(batch.companyId())
                 || original.templateType() != batch.templateType()
                 || !original.templateVersion().equals(batch.templateVersion())
                 || !original.fileSha256().equals(batch.fileSha256())) {
@@ -1592,13 +1592,13 @@ public class PeopleImportService {
         return deduplicated(original, original.publicationId());
     }
 
-    private void requireLegalEntity(String capability, String legalEntityId) {
+    private void requireCompany(String capability, String companyId) {
         capabilityService.require(capability);
-        if (!repository.legalEntityExists(legalEntityId)
-                || !repository.canAccessLegalEntity(
+        if (!repository.companyExists(companyId)
+                || !repository.canAccessCompany(
                         principalProvider.currentPrincipalId(),
                         capability,
-                        legalEntityId,
+                        companyId,
                         clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -1747,7 +1747,7 @@ public class PeopleImportService {
         for (Map.Entry<String, List<Map<String, Object>>> entry
                 : byEmployeeNumber.entrySet()) {
             EmployeeVersion employee = repository.findEmployeeByNumber(
-                            batch.legalEntityId(), entry.getKey())
+                            batch.companyId(), entry.getKey())
                     .orElse(null);
             if (employee == null) {
                 continue;
@@ -2195,7 +2195,7 @@ public class PeopleImportService {
         return new Publication(
                 source.publicationId(),
                 source.batchId(),
-                source.legalEntityId(),
+                source.companyId(),
                 source.templateType(),
                 source.templateVersion(),
                 source.fileSha256(),

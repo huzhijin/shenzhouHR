@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceDashboardWorkbenchMapper">
+
+    <select id="listRoster"
+            timeout="15"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows$RosterRow">
+        SELECT employee.employee_id,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               organization.organization_id,
+               organization_version.name AS organization_name
+        FROM employee employee
+        JOIN employee_current_projection employee_projection
+          ON employee_projection.employee_id = employee.employee_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id =
+             employee_projection.current_version_id
+         AND employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND employment.effective_from &lt; DATE_ADD(#{businessDate}, INTERVAL 1 DAY)
+         AND (
+                employment.effective_to IS NULL
+                OR employment.effective_to &gt; #{businessDate}
+         )
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.identity_status = 'ACTIVE'
+        JOIN organization_current_projection organization_projection
+          ON organization_projection.organization_id =
+             organization.organization_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             organization_projection.current_version_id
+         AND organization_version.organization_id =
+             organization.organization_id
+         AND organization_version.status = 'ACTIVE'
+         AND organization_version.effective_from &lt; DATE_ADD(#{businessDate}, INTERVAL 1 DAY)
+         AND (
+                organization_version.effective_to IS NULL
+                OR organization_version.effective_to &gt; #{businessDate}
+         )
+        WHERE employee.company_id = #{companyId}
+        ORDER BY employee.employee_id, employment.assignment_id
+    </select>
+
+    <!--
+      Same EXECUTIVE + standing 免打卡 roster as the official calculator.
+      Match by 工号 across companies because the HR account may sit under
+      another legal entity.
+    -->
+    <select id="listPunchExemptEmployeeIds"
+            timeout="15"
+            resultType="string">
+        SELECT DISTINCT roster_employee.employee_id
+        FROM employee roster_employee
+        JOIN employee role_employee
+          ON role_employee.employee_number = roster_employee.employee_number
+        JOIN auth_principal principal
+          ON principal.employee_id = role_employee.employee_id
+        JOIN auth_principal_role_assignment assignment
+          ON assignment.principal_id = principal.principal_id
+        JOIN auth_role role
+          ON role.role_id = assignment.role_id
+         AND role.role_code = 'EXECUTIVE'
+        WHERE roster_employee.company_id = #{companyId}
+          AND (
+                assignment.valid_to IS NULL
+                OR assignment.valid_to &gt; #{asOf}
+          )
+        UNION
+        SELECT DISTINCT roster_employee.employee_id
+        FROM punch_exemption_assignment assignment
+        JOIN employee listed_employee
+          ON listed_employee.employee_id = assignment.employee_id
+        JOIN employee roster_employee
+          ON roster_employee.employee_number = listed_employee.employee_number
+        WHERE roster_employee.company_id = #{companyId}
+          AND assignment.source = 'STANDING_LIST'
+          AND (
+                assignment.valid_to IS NULL
+                OR assignment.valid_to &gt; #{asOf}
+          )
+    </select>
+
+    <select id="listPunchPoints"
+            timeout="15"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows$PunchRow">
+        SELECT event.employee_id,
+               event.point_instant,
+               employee.employee_number
+        FROM effective_attendance_event event
+        JOIN employee employee
+          ON employee.employee_id = event.employee_id
+        WHERE event.event_kind = 'PUNCH_POINT'
+          AND event.point_instant IS NOT NULL
+          AND event.point_instant &gt;= #{windowStart}
+          AND event.point_instant &lt; #{windowEndExclusive}
+        ORDER BY event.employee_id, event.point_instant
+    </select>
+
+    <select id="listEmployeeNumbers"
+            timeout="15"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows$EmployeeNumberRow">
+        SELECT employee.employee_id,
+               employee.employee_number
+        FROM employee employee
+    </select>
+
+    <select id="listNegativeLeaveBalances"
+            timeout="15"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows$NegativeLeaveRow">
+        SELECT employee.employee_id,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               organization.organization_id,
+               organization_version.name AS organization_name,
+               account.account_type,
+               account.balance_hours
+        FROM time_account account
+        JOIN employee employee
+          ON employee.employee_id = account.employee_id
+         AND employee.company_id = account.company_id
+        JOIN employee_current_projection employee_projection
+          ON employee_projection.employee_id = employee.employee_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id =
+             employee_projection.current_version_id
+         AND employee_version.employee_id = employee.employee_id
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.employment_period_id = account.employment_period_id
+         AND employment.current_version_marker = 1
+         AND employment.record_status = 'ACTIVE'
+        JOIN organization_identity organization
+          ON organization.organization_id = employment.organization_id
+         AND organization.identity_status = 'ACTIVE'
+        JOIN organization_current_projection organization_projection
+          ON organization_projection.organization_id =
+             organization.organization_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             organization_projection.current_version_id
+         AND organization_version.organization_id =
+             organization.organization_id
+        WHERE account.company_id = #{companyId}
+          AND account.account_year = #{accountYear}
+          AND account.account_type IN ('ANNUAL_LEAVE', 'TIME_OFF')
+          AND account.balance_hours &lt; 0
+        ORDER BY employee.employee_number, account.account_type
+    </select>
+</mapper>

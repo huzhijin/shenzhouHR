@@ -10,9 +10,9 @@ umask 077
 export LC_ALL=C
 export LANG=C
 
-readonly EXPECTED_REPOSITORY_ROOT="/Users/huzhijin/Downloads/shenzhouHR"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
+readonly EXPECTED_REPOSITORY_ROOT="$PROJECT_ROOT"
 readonly ISOLATION_ROOT="${HOME}/.local/share/shenzhouhr/mysql-8.4.10-isolated"
 readonly MYSQL_CLIENT="${ISOLATION_ROOT}/install/bin/mysql"
 readonly ROOT_CLIENT_CONFIG="${ISOLATION_ROOT}/secrets/root-client.cnf"

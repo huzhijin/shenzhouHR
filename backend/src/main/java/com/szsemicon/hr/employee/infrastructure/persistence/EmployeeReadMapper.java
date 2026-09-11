@@ -6,7 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 @Mapper
-interface EmployeeReadMapper {
+public interface EmployeeReadMapper {
 
     long countVisibleTo(
             @Param("principalId") String principalId,
@@ -14,6 +14,8 @@ interface EmployeeReadMapper {
             @Param("at") Instant at,
             @Param("query") String query,
             @Param("organizationId") String organizationId,
+            @Param("includeDescendants") boolean includeDescendants,
+            @Param("companyId") String companyId,
             @Param("status") String status);
 
     List<EmployeeSummaryRow> findVisibleTo(
@@ -22,8 +24,16 @@ interface EmployeeReadMapper {
             @Param("at") Instant at,
             @Param("query") String query,
             @Param("organizationId") String organizationId,
+            @Param("includeDescendants") boolean includeDescendants,
+            @Param("companyId") String companyId,
             @Param("status") String status,
             @Param("sort") String sort,
             @Param("limit") int limit,
             @Param("offset") long offset);
+
+    boolean canAccessEmployee(
+            @Param("principalId") String principalId,
+            @Param("capabilityCode") String capabilityCode,
+            @Param("at") Instant at,
+            @Param("employeeId") String employeeId);
 }

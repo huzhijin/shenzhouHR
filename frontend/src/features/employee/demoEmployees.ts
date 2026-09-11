@@ -1,3 +1,5 @@
+import { getDemoOrganizationTree } from '../organization/demoOrganization';
+import type { OrganizationNode } from '../organization/organizationApi';
 import type {
   EmployeeCreateRequest,
   EmployeeDetail,
@@ -88,6 +90,7 @@ const demoEmployees: EmployeeSummary[] = employeeSeeds.map((employee, index) => 
   rowVersion: 1,
 }));
 
+const demoStandingExempt = new Set<string>();
 const demoPeriods = new Map<string, EmploymentPeriodView[]>();
 const demoPriorRecords = new Map<string, PriorServiceRecordView[]>();
 let syntheticSequence = 100;
@@ -97,11 +100,22 @@ export function getDemoEmployeePage(
   size: number,
   filters: EmployeeFilters = {},
 ): EmployeePage {
+  const normalizedQuery = filters.query?.trim().toLocaleLowerCase('zh-CN');
+  const visibleOrganizationIds = filters.organizationId
+    ? demoOrganizationScope(filters.organizationId, filters.includeDescendants)
+    : undefined;
   const filtered = demoEmployees.filter((employee) => (
-    (!filters.query
-      || employee.employeeNumber.includes(filters.query)
-      || employee.displayName.includes(filters.query))
-    && (!filters.organizationId || employee.organizationId === filters.organizationId)
+    (!normalizedQuery
+      || [
+        employee.employeeNumber,
+        employee.displayName,
+        employee.organizationName,
+        employee.organizationCode,
+      ].some((value) => value?.toLocaleLowerCase('zh-CN').includes(normalizedQuery)))
+    && (!visibleOrganizationIds || (
+      employee.organizationId !== null
+      && visibleOrganizationIds.has(employee.organizationId)
+    ))
     && (!filters.status || employee.employmentStatus === filters.status)
   ));
   const offset = page * size;
@@ -111,6 +125,53 @@ export function getDemoEmployeePage(
     page,
     size,
   };
+}
+
+function demoOrganizationScope(
+  organizationId: string,
+  includeDescendants = false,
+): Set<string> {
+  if (!includeDescendants) return new Set([organizationId]);
+  const selected = findDemoOrganization(getDemoOrganizationTree(), organizationId);
+  return new Set(selected ? flattenDemoOrganizationIds(selected) : [organizationId]);
+}
+
+function findDemoOrganization(
+  nodes: OrganizationNode[],
+  organizationId: string,
+): OrganizationNode | undefined {
+  for (const node of nodes) {
+    if (node.organizationId === organizationId) return node;
+    const nested = findDemoOrganization(node.children, organizationId);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function flattenDemoOrganizationIds(node: OrganizationNode): string[] {
+  return [
+    node.organizationId,
+    ...node.children.flatMap(flattenDemoOrganizationIds),
+  ];
+}
+
+export function getDemoPunchExemption(employeeId: string): {
+  standingExempt: boolean;
+  executiveExempt: boolean;
+} {
+  return {
+    standingExempt: demoStandingExempt.has(employeeId),
+    executiveExempt: false,
+  };
+}
+
+export function setDemoPunchExemption(
+  employeeId: string,
+  standingExempt: boolean,
+): { standingExempt: boolean; executiveExempt: boolean } {
+  if (standingExempt) demoStandingExempt.add(employeeId);
+  else demoStandingExempt.delete(employeeId);
+  return getDemoPunchExemption(employeeId);
 }
 
 export function getDemoEmployeeDetail(employeeId: string): EmployeeDetail {

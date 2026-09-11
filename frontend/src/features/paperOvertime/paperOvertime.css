@@ -1,0 +1,21 @@
+.paper-overtime__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.paper-overtime__row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(160px, 1.4fr) 110px minmax(120px, 1fr) 140px 110px 110px 120px minmax(140px, 1.2fr) 40px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+@media (max-width: 960px) {
+  .paper-overtime__row {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+}

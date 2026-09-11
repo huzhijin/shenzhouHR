@@ -1,7 +1,6 @@
 import {
   IconCalendarTime,
   IconGitBranch,
-  IconMapPin,
   IconPlayerPlay,
   IconPlayerStop,
   IconUserPlus,
@@ -16,23 +15,27 @@ import { DataTable } from '../../shared/components/DataTable';
 import { PageHeader, ResourcePagination } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import { getEmployees } from '../employee/employeeApi';
+import { CompanySelect } from '../referenceData';
 import {
   changeAttendanceGroupStatus,
   changeLocationStatus,
   createAssignment,
   createAttendanceGroup,
-  createLocation,
   listAssignments,
   listAttendanceGroupRevisions,
   listAttendanceGroups,
+  listCalendars,
   listLocationRevisions,
   listLocations,
-  updateAssignment,
+  listShifts,
+  transferAssignment,
   updateAttendanceGroup,
   updateLocation,
 } from './attendanceSetupApi';
 import {
   AssignmentDialog,
+  AssignmentTransferDialog,
   AttendanceGroupDialog,
   LocationDialog,
 } from './AttendanceGroupDialogs';
@@ -42,13 +45,19 @@ import {
   mutationSuccessNotice,
   type AttendanceSetupNotice as Notice,
 } from './attendanceSetupFeedback';
+import {
+  loadAllAttendanceDirectoryItems,
+  missingDirectoryLabel,
+} from './attendanceDirectory';
 import type {
   AssignmentInput,
+  AssignmentTransferInput,
   AssignmentView,
   AttendanceGroupInput,
   AttendanceGroupView,
   LocationInput,
   LocationView,
+  Page,
 } from './attendanceSetupTypes';
 
 type LifecycleTarget =
@@ -57,12 +66,14 @@ type LifecycleTarget =
 
 export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] }) {
   const { t } = useTranslation();
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [asOf, setAsOf] = useState('');
   const [selectedLocationId, setSelectedLocationId] = useState('');
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [locationOpen, setLocationOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const [assignmentTransferOpen, setAssignmentTransferOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<LocationView>();
   const [editingGroup, setEditingGroup] = useState<AttendanceGroupView>();
   const [editingAssignment, setEditingAssignment] = useState<AssignmentView>();
@@ -83,20 +94,43 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
   const overviewLoader = useMemo(
     () => () => Promise.all([
       listLocations(locationPage, locationPageSize),
-      listAttendanceGroups(asOf || undefined, groupPage, groupPageSize),
+      selectedCompanyId
+        ? listAttendanceGroups(
+          asOf || undefined,
+          groupPage,
+          groupPageSize,
+          selectedCompanyId,
+        )
+        : Promise.resolve<Page<AttendanceGroupView>>({
+          items: [], total: 0, page: groupPage, size: groupPageSize,
+        }),
     ]),
-    [asOf, groupPage, groupPageSize, locationPage, locationPageSize],
+    [
+      asOf,
+      groupPage,
+      groupPageSize,
+      locationPage,
+      locationPageSize,
+      selectedCompanyId,
+    ],
   );
   const overview = useAsyncResource(
     overviewLoader,
     ([locations, groups]) => locations.total === 0 && groups.total === 0,
-    [asOf, groupPage, groupPageSize, locationPage, locationPageSize],
+    [
+      asOf,
+      groupPage,
+      groupPageSize,
+      locationPage,
+      locationPageSize,
+      selectedCompanyId,
+    ],
   );
   const firstGroupId = overview.resource.status === 'ready'
     ? overview.resource.data[1].items[0]?.groupId ?? ''
     : '';
   const firstLocationId = overview.resource.status === 'ready'
-    ? overview.resource.data[0].items[0]?.locationId ?? ''
+    ? overview.resource.data[0].items[0]?.sharedLocationId ?? ''
     : '';
   const effectiveLocationId = selectedLocationId || firstLocationId;
   const effectiveGroupId = selectedGroupId || firstGroupId;
@@ -161,6 +195,93 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
     (page) => page.total === 0,
     [assignmentPage, assignmentPageSize, effectiveGroupId, asOf],
   );
+  const locationDirectory = useAsyncResource(
+    () => selectedCompanyId
+      ? loadAllAttendanceDirectoryItems(
+        (page, size) => listLocations(page, size, selectedCompanyId),
+      )
+      : Promise.resolve([]),
+    () => false,
+    [selectedCompanyId],
+  );
+  const calendarDirectory = useAsyncResource(
+    () => selectedCompanyId
+      ? loadAllAttendanceDirectoryItems(
+        (page, size) => listCalendars(undefined, page, size, selectedCompanyId),
+      )
+      : Promise.resolve([]),
+    () => false,
+    [selectedCompanyId],
+  );
+  const shiftDirectory = useAsyncResource(
+    () => selectedCompanyId
+      ? loadAllAttendanceDirectoryItems(
+        (page, size) => listShifts(page, size, selectedCompanyId),
+      )
+      : Promise.resolve([]),
+    () => false,
+    [selectedCompanyId],
+  );
+  const employeeDirectory = useAsyncResource(
+    () => selectedCompanyId
+      ? loadAllAttendanceDirectoryItems((page, size) => getEmployees(
+        page,
+        size,
+        { companyId: selectedCompanyId, sort: 'employeeNumber' },
+      ))
+      : Promise.resolve([]),
+    () => false,
+    [selectedCompanyId],
+  );
+  const groupDirectory = useAsyncResource(
+    () => selectedCompanyId
+      ? loadAllAttendanceDirectoryItems(
+        (page, size) => listAttendanceGroups(
+          undefined,
+          page,
+          size,
+          selectedCompanyId,
+        ),
+      )
+      : Promise.resolve([]),
+    () => false,
+    [selectedCompanyId],
+  );
+  const locationLabels = locationDirectory.resource.status === 'ready'
+    ? new Map(locationDirectory.resource.data.map((location) => [
+      location.companyLocationId,
+      `${location.name}（${location.code}）`,
+    ]))
+    : new Map<string, string>();
+  const calendarLabels = calendarDirectory.resource.status === 'ready'
+    ? new Map(calendarDirectory.resource.data.map((calendar) => [
+      calendar.calendarId,
+      `${calendar.name}（${calendar.code}）`,
+    ]))
+    : new Map<string, string>();
+  const shiftLabels = shiftDirectory.resource.status === 'ready'
+    ? new Map(shiftDirectory.resource.data.map((shift) => [
+      shift.shiftId,
+      `${shift.name}（${shift.code}）`,
+    ]))
+    : new Map<string, string>();
+  const employeeLabels = employeeDirectory.resource.status === 'ready'
+    ? new Map(employeeDirectory.resource.data.map((employee) => [
+      employee.employeeId,
+      `${employee.displayName}（${employee.employeeNumber}）`,
+    ]))
+    : new Map<string, string>();
+  const groupLabels = groupDirectory.resource.status === 'ready'
+    ? new Map(groupDirectory.resource.data.map((group) => [
+      group.groupId,
+      `${group.code} · ${group.name}`,
+    ]))
+    : new Map<string, string>();
+  const transferTargetGroups = groupDirectory.resource.status === 'ready'
+    ? groupDirectory.resource.data.filter((group) => (
+      group.status === 'ACTIVE' && group.groupId !== editingAssignment?.groupId
+    ))
+    : [];
   useEffect(() => {
     if (!selectedLocationId && firstLocationId) {
       setSelectedLocationId(firstLocationId);
@@ -242,6 +363,7 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
       locationRevisions.reload();
       groupRevisions.reload();
       assignments.reload();
+      groupDirectory.reload();
     } catch (caught: unknown) {
       setNotice(mutationFailureNotice(caught));
     } finally {
@@ -250,13 +372,14 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
   };
 
   const submitLocation = (input: LocationInput) => {
+    if (!editingLocation) return;
     void runMutation(
-      () => editingLocation
-        ? updateLocation(editingLocation.locationId, editingLocation.rowVersion, input)
-        : createLocation(input),
-      editingLocation
-        ? t('attendanceSetup.locationRolledOver')
-        : t('attendanceSetup.locationCreated'),
+      () => updateLocation(
+        editingLocation.sharedLocationId,
+        editingLocation.rowVersion,
+        input,
+      ),
+      t('attendanceSetup.locationRolledOver'),
       () => {
         setLocationOpen(false);
         setEditingLocation(undefined);
@@ -280,19 +403,25 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
   const submitAssignment = (input: AssignmentInput) => {
     if (!effectiveGroupId) return;
     void runMutation(
-      () => editingAssignment
-        ? updateAssignment(
-          effectiveGroupId,
-          editingAssignment.assignmentId,
-          editingAssignment.rowVersion,
-          input,
-        )
-        : createAssignment(effectiveGroupId, input),
-      editingAssignment
-        ? t('attendanceSetup.assignmentRolledOver')
-        : t('attendanceSetup.assignmentCreated'),
+      () => createAssignment(effectiveGroupId, input),
+      t('attendanceSetup.assignmentCreated'),
       () => {
         setAssignmentOpen(false);
+      },
+    );
+  };
+  const submitAssignmentTransfer = (input: AssignmentTransferInput) => {
+    if (!editingAssignment) return;
+    void runMutation(
+      () => transferAssignment(
+        editingAssignment.groupId,
+        editingAssignment.assignmentId,
+        editingAssignment.rowVersion,
+        input,
+      ),
+      t('attendanceSetup.assignmentTransferred'),
+      () => {
+        setAssignmentTransferOpen(false);
         setEditingAssignment(undefined);
       },
     );
@@ -314,10 +443,6 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
       },
     );
   };
-  const openLocationDialog = () => {
-    setEditingLocation(undefined);
-    setLocationOpen(true);
-  };
   const closeLocationDialog = () => {
     setLocationOpen(false);
     setEditingLocation(undefined);
@@ -336,12 +461,29 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
   };
   const closeAssignmentDialog = () => {
     setAssignmentOpen(false);
-    setEditingAssignment(undefined);
   };
   const changeAsOf = (event: ChangeEvent<HTMLInputElement>) => {
     setAsOf(event.target.value);
     setGroupPage(0);
     setAssignmentPage(0);
+  };
+  const changeCompany = (companyId?: string) => {
+    setSelectedCompanyId(companyId ?? '');
+    setSelectedLocationId('');
+    setSelectedGroupId('');
+    setLocationPage(0);
+    setGroupPage(0);
+    setLocationRevisionPage(0);
+    setGroupRevisionPage(0);
+    setAssignmentPage(0);
+    setLocationOpen(false);
+    setGroupOpen(false);
+    setAssignmentOpen(false);
+    setAssignmentTransferOpen(false);
+    setEditingLocation(undefined);
+    setEditingGroup(undefined);
+    setEditingAssignment(undefined);
+    setNotice(undefined);
   };
   const selectLocation = (locationId: string) => () => {
     setSelectedLocationId(locationId);
@@ -362,7 +504,11 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
   };
   const editAssignment = (assignment: AssignmentView) => () => {
     setEditingAssignment(assignment);
-    setAssignmentOpen(true);
+    setAssignmentTransferOpen(true);
+  };
+  const closeAssignmentTransferDialog = () => {
+    setAssignmentTransferOpen(false);
+    setEditingAssignment(undefined);
   };
   const chooseLocationStatus = (location: LocationView) => () => {
     setStatusTarget({ type: 'location', value: location });
@@ -388,27 +534,26 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
           { label: t('attendanceSetup.groups') },
         ]}
         actions={canManageGroups ? (
-          <>
-            <AccessibleButton
-              label={t('attendanceSetup.createLocation')}
-              icon={<IconMapPin aria-hidden="true" stroke={2} />}
-              onClick={openLocationDialog}
-            >
-              {t('attendanceSetup.createLocation')}
-            </AccessibleButton>
-            <AccessibleButton
-              label={t('attendanceSetup.createGroup')}
-              type="primary"
-              onClick={openGroupDialog}
-            >
-              {t('attendanceSetup.createGroup')}
-            </AccessibleButton>
-          </>
+          <AccessibleButton
+            label={t('attendanceSetup.createGroup')}
+            type="primary"
+            disabled={!selectedCompanyId}
+            onClick={openGroupDialog}
+          >
+            {t('attendanceSetup.createGroup')}
+          </AccessibleButton>
         ) : undefined}
       />
       <AttendanceSetupNotice notice={notice} />
-      <section className="attendance-context-bar" aria-label={t('attendanceSetup.queryAsOf')}>
+      <section className="attendance-context-bar" aria-label={t('attendanceSetup.queryContext')}>
         <IconCalendarTime aria-hidden="true" stroke={2} />
+        <label htmlFor="attendance-groups-company">{t('attendanceSetup.companyId')}</label>
+        <CompanySelect
+          id="attendance-groups-company"
+          value={selectedCompanyId || undefined}
+          allowClear={false}
+          onChange={changeCompany}
+        />
         <label htmlFor="attendance-as-of">{t('attendanceSetup.asOf')}</label>
         <Input
           id="attendance-as-of"
@@ -419,6 +564,9 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
         <AccessibleButton label={t('common.refresh')} onClick={overview.reload}>
           {t('common.refresh')}
         </AccessibleButton>
+        {!selectedCompanyId ? (
+          <span className="form-help">{t('attendanceSetup.selectCompanyFirst')}</span>
+        ) : null}
       </section>
       {overview.resource.status === 'loading' || overview.resource.status === 'partial-loading'
         ? <StatePanel state={overview.resource.status} />
@@ -445,7 +593,7 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
               : (
                 <DataTable
                   rows={overview.resource.data[0].items}
-                  rowKey={(location) => location.locationId}
+                  rowKey={(location) => location.sharedLocationId}
                   ariaLabel={t('attendanceSetup.locationSection')}
                   columns={[
                     { key: 'code', title: t('attendanceSetup.code'), render: (location) => location.code },
@@ -455,8 +603,8 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                       render: (location) => (
                         <AccessibleButton
                           label={`${location.code} ${location.name}`}
-                          type={location.locationId === effectiveLocationId ? 'primary' : 'link'}
-                          onClick={selectLocation(location.locationId)}
+                          type={location.sharedLocationId === effectiveLocationId ? 'primary' : 'link'}
+                          onClick={selectLocation(location.sharedLocationId)}
                         >
                           {location.name}
                         </AccessibleButton>
@@ -465,36 +613,38 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'timezone', title: t('attendanceSetup.timeZone'), render: (location) => location.timeZone },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (location) => location.revisionNumber },
                     { key: 'period', title: t('attendanceSetup.period'), render: (location) => formatPeriod(location.effectiveFrom, location.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (location) => <code className="attendance-digest">{location.snapshotDigest}</code> },
                     { key: 'status', title: t('attendanceSetup.status'), render: (location) => <StatusBadge status={location.status} /> },
-                    { key: 'version', title: t('attendanceSetup.rowVersion'), render: (location) => location.rowVersion },
                     ...(canManageGroups ? [{
                       key: 'actions',
                       title: t('common.actions'),
                       render: (location: LocationView) => (
                         <div className="table-actions">
-                          <AccessibleButton
-                            label={`${t('attendanceSetup.rolloverLocation')} ${location.name}`}
-                            type="text"
-                            icon={<IconGitBranch aria-hidden="true" stroke={2} />}
-                            onClick={editLocation(location)}
-                          >
-                            {t('attendanceSetup.appendRevision')}
-                          </AccessibleButton>
-                          <AccessibleButton
-                            label={`${location.status === 'ACTIVE'
-                              ? t('attendanceSetup.deactivate')
-                              : t('attendanceSetup.activate')} ${location.name}`}
-                            type="text"
-                            icon={location.status === 'ACTIVE'
-                              ? <IconPlayerStop aria-hidden="true" stroke={2} />
-                              : <IconPlayerPlay aria-hidden="true" stroke={2} />}
-                            onClick={chooseLocationStatus(location)}
-                          >
-                            {location.status === 'ACTIVE'
-                              ? t('attendanceSetup.deactivate')
-                              : t('attendanceSetup.activate')}
-                          </AccessibleButton>
+                          {location.sharedManagementAllowed ? (
+                            <>
+                              <AccessibleButton
+                                label={`${t('attendanceSetup.rolloverLocation')} ${location.name}`}
+                                type="text"
+                                icon={<IconGitBranch aria-hidden="true" stroke={2} />}
+                                onClick={editLocation(location)}
+                              >
+                                {t('attendanceSetup.appendRevision')}
+                              </AccessibleButton>
+                              <AccessibleButton
+                                label={`${location.status === 'ACTIVE'
+                                  ? t('attendanceSetup.deactivate')
+                                  : t('attendanceSetup.activate')} ${location.name}`}
+                                type="text"
+                                icon={location.status === 'ACTIVE'
+                                  ? <IconPlayerStop aria-hidden="true" stroke={2} />
+                                  : <IconPlayerPlay aria-hidden="true" stroke={2} />}
+                                onClick={chooseLocationStatus(location)}
+                              >
+                                {location.status === 'ACTIVE'
+                                  ? t('attendanceSetup.deactivate')
+                                  : t('attendanceSetup.activate')}
+                              </AccessibleButton>
+                            </>
+                          ) : <span className="form-help">需具备全部关联公司的管理权限</span>}
                         </div>
                       ),
                     }] : []),
@@ -555,9 +705,7 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'timezone', title: t('attendanceSetup.timeZone'), render: (location) => location.timeZone },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (location) => location.revisionNumber },
                     { key: 'period', title: t('attendanceSetup.period'), render: (location) => formatPeriod(location.effectiveFrom, location.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (location) => <code className="attendance-digest">{location.snapshotDigest}</code> },
                     { key: 'status', title: t('attendanceSetup.status'), render: (location) => <StatusBadge status={location.status} /> },
-                    { key: 'version', title: t('attendanceSetup.rowVersion'), render: (location) => location.rowVersion },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (location) => location.changeReason },
                   ]}
                 />
@@ -608,12 +756,12 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'period', title: t('attendanceSetup.period'), render: (group) => formatPeriod(group.effectiveFrom, group.effectiveTo, t('attendanceSetup.longTerm')) },
                     {
                       key: 'location',
-                      title: t('attendanceSetup.locationRevisionId'),
-                      render: (group) => <code>{group.locationRevisionId}</code>,
+                      title: '地点',
+                      render: (group) => locationLabels.get(group.locationId)
+                        ?? missingDirectoryLabel(locationDirectory.resource.status, '地点'),
                     },
-                    { key: 'calendar', title: t('attendanceSetup.calendarId'), render: (group) => <code>{group.calendarId}</code> },
-                    { key: 'shift', title: t('attendanceSetup.shiftTemplateId'), render: (group) => <code>{group.shiftTemplateId}</code> },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (group) => <code className="attendance-digest">{group.snapshotDigest}</code> },
+                    { key: 'calendar', title: '工作日历', render: (group) => calendarLabels.get(group.calendarId) ?? missingDirectoryLabel(calendarDirectory.resource.status, '日历') },
+                    { key: 'shift', title: '班次', render: (group) => shiftLabels.get(group.shiftTemplateId) ?? missingDirectoryLabel(shiftDirectory.resource.status, '班次') },
                     { key: 'status', title: t('attendanceSetup.status'), render: (group) => <StatusBadge status={group.status} /> },
                     ...(canManageGroups ? [{
                       key: 'actions',
@@ -701,12 +849,10 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                     { key: 'name', title: t('attendanceSetup.name'), render: (group) => group.name },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (group) => group.revisionNumber },
                     { key: 'period', title: t('attendanceSetup.period'), render: (group) => formatPeriod(group.effectiveFrom, group.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'location', title: t('attendanceSetup.locationRevisionId'), render: (group) => <code>{group.locationRevisionId}</code> },
-                    { key: 'calendar', title: t('attendanceSetup.calendarId'), render: (group) => <code>{group.calendarId}</code> },
-                    { key: 'shift', title: t('attendanceSetup.shiftTemplateId'), render: (group) => <code>{group.shiftTemplateId}</code> },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (group) => <code className="attendance-digest">{group.snapshotDigest}</code> },
+                    { key: 'location', title: '地点', render: (group) => locationLabels.get(group.locationId) ?? missingDirectoryLabel(locationDirectory.resource.status, '地点') },
+                    { key: 'calendar', title: '工作日历', render: (group) => calendarLabels.get(group.calendarId) ?? missingDirectoryLabel(calendarDirectory.resource.status, '日历') },
+                    { key: 'shift', title: '班次', render: (group) => shiftLabels.get(group.shiftTemplateId) ?? missingDirectoryLabel(shiftDirectory.resource.status, '班次') },
                     { key: 'status', title: t('attendanceSetup.status'), render: (group) => <StatusBadge status={group.status} /> },
-                    { key: 'version', title: t('attendanceSetup.rowVersion'), render: (group) => group.rowVersion },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (group) => group.changeReason },
                   ]}
                 />
@@ -763,23 +909,38 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
                   rowKey={(assignment) => assignment.assignmentId}
                   ariaLabel={t('attendanceSetup.assignmentSection')}
                   columns={[
-                    { key: 'employee', title: t('attendanceSetup.employeeId'), render: (assignment) => <code>{assignment.employeeId}</code> },
+                    { key: 'employee', title: '员工', render: (assignment) => employeeLabels.get(assignment.employeeId) ?? missingDirectoryLabel(employeeDirectory.resource.status, '员工') },
                     { key: 'period', title: t('attendanceSetup.period'), render: (assignment) => formatPeriod(assignment.effectiveFrom, assignment.effectiveTo, t('attendanceSetup.longTerm')) },
-                    { key: 'month', title: t('attendanceSetup.monthlyContext'), render: (assignment) => <code>{assignment.monthlyContextKey}</code> },
+                    {
+                      key: 'transfer-status',
+                      title: t('attendanceSetup.transferStatus'),
+                      render: (assignment: AssignmentView) => (
+                        assignment.transferable
+                          ? t('attendanceSetup.transferableLeaf')
+                          : assignment.hasSuccessor
+                            ? t('attendanceSetup.transferredHistory')
+                            : t('attendanceSetup.transferPeriodClosed')
+                      ),
+                    },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (assignment) => assignment.changeReason },
                     ...(canAssign ? [{
                       key: 'actions',
                       title: t('common.actions'),
-                      render: (assignment: AssignmentView) => (
+                      render: (assignment: AssignmentView) => assignment.transferable ? (
                         <AccessibleButton
-                          label={`${t('attendanceSetup.rolloverAssignment')} ${assignment.employeeId}`}
+                          label={`${t('attendanceSetup.transferAssignment')} ${employeeLabels.get(assignment.employeeId) ?? '员工'}`}
                           type="text"
                           icon={<IconGitBranch aria-hidden="true" stroke={2} />}
+                          disabled={groupDirectory.resource.status !== 'ready'
+                            || !groupDirectory.resource.data.some((group) => (
+                              group.status === 'ACTIVE'
+                              && group.groupId !== assignment.groupId
+                            ))}
                           onClick={editAssignment(assignment)}
                         >
-                          {t('attendanceSetup.appendSuccessor')}
+                          {t('attendanceSetup.transferAssignment')}
                         </AccessibleButton>
-                      ),
+                      ) : '—',
                     }] : []),
                   ]}
                 />
@@ -799,11 +960,11 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
         </>
       ) : null}
       <LocationDialog
-        key={editingLocation?.locationRevisionId ?? 'create-location'}
+        key={`${selectedCompanyId}-${editingLocation?.locationRevisionId ?? 'create-location'}`}
         open={locationOpen}
         processing={processing}
         initialValues={editingLocation ? {
-          legalEntityId: editingLocation.legalEntityId,
+          companyId: editingLocation.companyId,
           code: editingLocation.code,
           name: editingLocation.name,
           timeZone: editingLocation.timeZone,
@@ -815,11 +976,12 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
         onCancel={closeLocationDialog}
       />
       <AttendanceGroupDialog
-        key={editingGroup?.groupRevisionId ?? 'create-group'}
+        key={`${selectedCompanyId}-${editingGroup?.groupRevisionId ?? 'create-group'}`}
         open={groupOpen}
         processing={processing}
+        defaultCompanyId={selectedCompanyId || undefined}
         initialValues={editingGroup ? {
-          legalEntityId: editingGroup.legalEntityId,
+          companyId: editingGroup.companyId,
           code: editingGroup.code,
           name: editingGroup.name,
           locationId: editingGroup.locationId,
@@ -829,22 +991,36 @@ export function AttendanceGroupsPage({ capabilities }: { capabilities: string[] 
           effectiveTo: editingGroup.effectiveTo,
           reason: '',
         } : undefined}
-        locations={overview.resource.status === 'ready' ? overview.resource.data[0].items : []}
+        locations={locationDirectory.resource.status === 'ready'
+          ? locationDirectory.resource.data
+          : []}
         onSubmit={submitGroup}
         onCancel={closeGroupDialog}
       />
       <AssignmentDialog
-        key={editingAssignment?.assignmentId ?? 'create-assignment'}
+        key="create-assignment"
         open={assignmentOpen}
         processing={processing}
-        initialValues={editingAssignment ? {
-          employeeId: editingAssignment.employeeId,
-          effectiveFrom: suggestedSuccessorDate(editingAssignment.effectiveFrom),
-          effectiveTo: editingAssignment.effectiveTo,
-          reason: '',
-        } : undefined}
         onSubmit={submitAssignment}
         onCancel={closeAssignmentDialog}
+      />
+      <AssignmentTransferDialog
+        key={editingAssignment?.assignmentId ?? 'transfer-assignment'}
+        open={assignmentTransferOpen}
+        processing={processing}
+        assignment={editingAssignment}
+        employeeLabel={editingAssignment
+          ? employeeLabels.get(editingAssignment.employeeId) ?? '员工名称暂不可用'
+          : ''}
+        currentGroupLabel={editingAssignment
+          ? groupLabels.get(editingAssignment.groupId) ?? '当前考勤组'
+          : ''}
+        targetGroups={transferTargetGroups}
+        initialEffectiveFrom={editingAssignment
+          ? suggestedSuccessorDate(editingAssignment.effectiveFrom)
+          : ''}
+        onSubmit={submitAssignmentTransfer}
+        onCancel={closeAssignmentTransferDialog}
       />
       <ConfirmationDialog
         open={Boolean(statusTarget)}

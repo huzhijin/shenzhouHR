@@ -15,6 +15,8 @@ import {
   recalculateDemoPriorService,
   updateDemoEmployee,
   updateDemoEmploymentPeriod,
+  getDemoPunchExemption,
+  setDemoPunchExemption,
 } from './demoEmployees';
 
 export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'TERMINATED';
@@ -129,7 +131,7 @@ export interface PriorServiceRecordPage {
 }
 
 export interface EmployeeCreateRequest {
-  legalEntityId: string;
+  companyId: string;
   employeeNumber: string;
   displayName: string;
   externalEmployeeId?: string | null;
@@ -167,6 +169,8 @@ export interface PriorServiceAdjustmentRequest {
 export interface EmployeeFilters {
   query?: string;
   organizationId?: string;
+  includeDescendants?: boolean;
+  companyId?: string;
   status?: EmployeeStatus;
   sort?: 'employeeNumber' | 'displayName' | 'employmentStatus' | 'organizationName' | 'updatedAt';
 }
@@ -182,6 +186,8 @@ export function getEmployees(
   const parameters = new URLSearchParams({ page: String(page), size: String(size) });
   if (filters.query) parameters.set('query', filters.query);
   if (filters.organizationId) parameters.set('organizationId', filters.organizationId);
+  if (filters.includeDescendants) parameters.set('includeDescendants', 'true');
+  if (filters.companyId) parameters.set('companyId', filters.companyId);
   if (filters.status) parameters.set('status', filters.status);
   if (filters.sort) parameters.set('sort', filters.sort);
   return requestJson<EmployeePage>(`${basePath}?${parameters}`);
@@ -209,6 +215,32 @@ export function createLocalEmployee(
     headers: versionHeaders(0, idempotencyKey),
     body: JSON.stringify(request),
   });
+}
+
+export interface PunchExemptionStatus {
+  standingExempt: boolean;
+  executiveExempt: boolean;
+}
+
+export function getPunchExemption(employeeId: string): Promise<PunchExemptionStatus> {
+  if (isDemoMode()) return Promise.resolve(getDemoPunchExemption(employeeId));
+  return requestJson<PunchExemptionStatus>(
+    `${basePath}/${encodeURIComponent(employeeId)}/punch-exemption`,
+  );
+}
+
+export function setPunchExemption(
+  employeeId: string,
+  standingExempt: boolean,
+): Promise<PunchExemptionStatus> {
+  if (isDemoMode()) return Promise.resolve(setDemoPunchExemption(employeeId, standingExempt));
+  return requestJson<PunchExemptionStatus>(
+    `${basePath}/${encodeURIComponent(employeeId)}/punch-exemption`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ standingExempt }),
+    },
+  );
 }
 
 export function updateLocalEmployee(
@@ -306,6 +338,177 @@ export function recalculatePriorService(
       method: 'POST',
       headers: versionHeaders(rowVersion, idempotencyKey),
       body: JSON.stringify({ reason }),
+    },
+  );
+}
+
+// ── 年假管理 API ───────────────────────────────────────────────────────────────
+
+export interface AnnualLeaveLedgerEntry {
+  entryId: string;
+  entryType: string;
+  entryTypeLabel: string;
+  amountHours: number;
+  sourceType: string;
+  businessDate: string;
+  effectiveFrom: string;
+  expiresOn: string | null;
+  occurredAt: string;
+}
+
+export interface AnnualLeaveAccount {
+  accountId: string | null;
+  employeeId: string;
+  year: number;
+  balanceHours: number;
+  equivalentDays: number;
+  rowVersion: number;
+  entries: AnnualLeaveLedgerEntry[];
+  totalEntries: number;
+}
+
+export type LeaveAccountKind = 'ANNUAL_LEAVE' | 'TIME_OFF';
+
+function leaveAccountBasePath(employeeId: string, kind: LeaveAccountKind): string {
+  const suffix = kind === 'TIME_OFF' ? 'time-off' : 'annual-leave';
+  return `${basePath}/${encodeURIComponent(employeeId)}/${suffix}`;
+}
+
+function demoLeaveAccount(
+  employeeId: string,
+  year: number,
+  kind: LeaveAccountKind,
+): AnnualLeaveAccount {
+  const hours = kind === 'TIME_OFF' ? 16 : 40;
+  return {
+    accountId: `demo-account-${kind}-${employeeId}-${year}`,
+    employeeId,
+    year,
+    balanceHours: hours,
+    equivalentDays: hours / 8,
+    rowVersion: 0,
+    entries: [
+      {
+        entryId: `demo-entry-${kind}`,
+        entryType: 'OPENING',
+        entryTypeLabel: '期初录入',
+        amountHours: hours,
+        sourceType: 'HR_OPENING_IMPORT',
+        businessDate: `${year}-08-01`,
+        effectiveFrom: `${year}-08-01`,
+        expiresOn: `${year}-12-31`,
+        occurredAt: `${year}-08-01T08:00:00Z`,
+      },
+    ],
+    totalEntries: 1,
+  };
+}
+
+export function getAnnualLeaveAccount(
+  employeeId: string,
+  year: number,
+): Promise<AnnualLeaveAccount> {
+  return getLeaveAccount(employeeId, year, 'ANNUAL_LEAVE');
+}
+
+export function getTimeOffAccount(
+  employeeId: string,
+  year: number,
+): Promise<AnnualLeaveAccount> {
+  return getLeaveAccount(employeeId, year, 'TIME_OFF');
+}
+
+export function getLeaveAccount(
+  employeeId: string,
+  year: number,
+  kind: LeaveAccountKind,
+): Promise<AnnualLeaveAccount> {
+  if (isDemoMode()) {
+    return Promise.resolve(demoLeaveAccount(employeeId, year, kind));
+  }
+  return requestJson<AnnualLeaveAccount>(
+    `${leaveAccountBasePath(employeeId, kind)}?year=${year}&page=0&size=20`,
+  );
+}
+
+export function setAnnualLeaveOpeningBalance(
+  employeeId: string,
+  balanceHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<AnnualLeaveAccount> {
+  return setLeaveOpeningBalance(employeeId, balanceHours, year, reason, idempotencyKey, 'ANNUAL_LEAVE');
+}
+
+export function setTimeOffOpeningBalance(
+  employeeId: string,
+  balanceHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<AnnualLeaveAccount> {
+  return setLeaveOpeningBalance(employeeId, balanceHours, year, reason, idempotencyKey, 'TIME_OFF');
+}
+
+export function setLeaveOpeningBalance(
+  employeeId: string,
+  balanceHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+  kind: LeaveAccountKind,
+): Promise<AnnualLeaveAccount> {
+  if (isDemoMode()) {
+    return getLeaveAccount(employeeId, year, kind);
+  }
+  return requestJson<AnnualLeaveAccount>(
+    `${leaveAccountBasePath(employeeId, kind)}/opening`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ balanceHours, year, reason }),
+    },
+  );
+}
+
+export function adjustAnnualLeaveBalance(
+  employeeId: string,
+  adjustmentHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<AnnualLeaveAccount> {
+  return adjustLeaveBalance(employeeId, adjustmentHours, year, reason, idempotencyKey, 'ANNUAL_LEAVE');
+}
+
+export function adjustTimeOffBalance(
+  employeeId: string,
+  adjustmentHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+): Promise<AnnualLeaveAccount> {
+  return adjustLeaveBalance(employeeId, adjustmentHours, year, reason, idempotencyKey, 'TIME_OFF');
+}
+
+export function adjustLeaveBalance(
+  employeeId: string,
+  adjustmentHours: number,
+  year: number,
+  reason: string,
+  idempotencyKey: string,
+  kind: LeaveAccountKind,
+): Promise<AnnualLeaveAccount> {
+  if (isDemoMode()) {
+    return getLeaveAccount(employeeId, year, kind);
+  }
+  return requestJson<AnnualLeaveAccount>(
+    `${leaveAccountBasePath(employeeId, kind)}/adjust`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ adjustmentHours, year, reason }),
     },
   );
 }

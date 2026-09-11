@@ -15,7 +15,7 @@ import type {
   WorkCalendarView,
 } from './attendanceSetupTypes';
 
-const legalEntityId = '9700000000000000001';
+const companyId = '9700000000000000001';
 
 export function requiredDemoItem<T>(items: readonly T[], index = 0): T {
   const item = items[index];
@@ -27,7 +27,9 @@ export function requiredDemoItem<T>(items: readonly T[], index = 0): T {
 
 export const demoLocations: readonly LocationView[] = [{
   locationId: '9703000000000000001',
-  legalEntityId,
+  sharedLocationId: '9703000000000000001',
+  companyLocationId: '9703000000000000001',
+  companyId,
   code: 'SZ-FAB-01',
   locationRevisionId: '9703100000000000001',
   revisionNumber: 1,
@@ -38,11 +40,14 @@ export const demoLocations: readonly LocationView[] = [{
   effectiveTo: null,
   snapshotDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   rowVersion: 3,
+  sharedManagementAllowed: true,
   changeReason: '完成一号厂区考勤边界复核',
   updatedAt: '2026-07-25T02:16:00Z',
 }, {
   locationId: '9703000000000000002',
-  legalEntityId,
+  sharedLocationId: '9703000000000000002',
+  companyLocationId: '9703000000000000002',
+  companyId,
   code: 'NT-PKG-01',
   locationRevisionId: '9703100000000000002',
   revisionNumber: 1,
@@ -53,13 +58,14 @@ export const demoLocations: readonly LocationView[] = [{
   effectiveTo: null,
   snapshotDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
   rowVersion: 1,
+  sharedManagementAllowed: true,
   changeReason: '建立封测基地考勤地点',
   updatedAt: '2026-07-25T02:20:00Z',
 }];
 
 export const demoGroups: readonly AttendanceGroupView[] = [{
   groupId: '9704000000000000001',
-  legalEntityId,
+  companyId,
   code: 'FAB-A-4D2N',
   groupRevisionId: '9704100000000000001',
   revisionNumber: 1,
@@ -75,6 +81,24 @@ export const demoGroups: readonly AttendanceGroupView[] = [{
   rowVersion: 4,
   changeReason: '衔接 2026 夏季班次版本',
   updatedAt: '2026-07-25T03:05:00Z',
+}, {
+  groupId: '9704000000000000002',
+  companyId,
+  code: 'FAB-B-DAY',
+  groupRevisionId: '9704100000000000002',
+  revisionNumber: 1,
+  name: '一号厂 B 班白班',
+  locationId: requiredDemoItem(demoLocations).locationId,
+  locationRevisionId: requiredDemoItem(demoLocations).locationRevisionId,
+  calendarId: '9706000000000000001',
+  shiftTemplateId: '9705000000000000001',
+  status: 'ACTIVE',
+  effectiveFrom: '2026-01-01',
+  effectiveTo: null,
+  snapshotDigest: 'abababababababababababababababababababababababababababababababab',
+  rowVersion: 1,
+  changeReason: '建立可调配的白班考勤组',
+  updatedAt: '2026-07-25T03:10:00Z',
 }];
 
 export const demoAssignments: readonly AssignmentView[] = [{
@@ -85,6 +109,8 @@ export const demoAssignments: readonly AssignmentView[] = [{
   effectiveTo: '2026-08-16',
   rowVersion: 2,
   monthlyContextKey: '9200000000000000001:2026-07',
+  hasSuccessor: true,
+  transferable: false,
   changeReason: '暑期产线轮班安排',
   updatedAt: '2026-07-24T09:20:00Z',
 }, {
@@ -95,13 +121,15 @@ export const demoAssignments: readonly AssignmentView[] = [{
   effectiveTo: null,
   rowVersion: 1,
   monthlyContextKey: '9200000000000000002:2026-07',
+  hasSuccessor: false,
+  transferable: true,
   changeReason: '转入 A 班生效',
   updatedAt: '2026-07-24T09:28:00Z',
 }];
 
 export const demoShifts: readonly ShiftTemplateView[] = [{
   shiftId: '9705000000000000001',
-  legalEntityId,
+  companyId,
   locationId: requiredDemoItem(demoLocations).locationId,
   code: 'FAB-A-DAY',
   name: '一号厂 A 班白班',
@@ -151,7 +179,7 @@ export const demoShiftVersions: readonly ShiftVersionView[] = [{
 
 export const demoCalendars: readonly WorkCalendarView[] = [{
   calendarId: '9706000000000000001',
-  legalEntityId,
+  companyId,
   locationId: requiredDemoItem(demoLocations).locationId,
   code: 'CN-SZ-2026',
   calendarVersionId: '9706050000000000001',
@@ -168,7 +196,7 @@ export const demoCalendars: readonly WorkCalendarView[] = [{
   updatedAt: '2026-07-24T10:15:00Z',
 }, {
   calendarId: '9706000000000000002',
-  legalEntityId,
+  companyId,
   locationId: requiredDemoItem(demoLocations).locationId,
   code: 'CN-SZ-2027',
   calendarVersionId: '9706050000000000002',
@@ -216,6 +244,150 @@ export const demoPolicyCatalog: readonly PolicyTemplateDefinition[] = [{
     { key: 'deductionMinutes', label: '扣除分钟', valueType: 'INTEGER', required: true },
     { key: 'triggerMinutes', label: '触发门槛分钟', valueType: 'INTEGER', required: true },
     { key: 'applicableDayTypes', label: '适用日期类型', valueType: 'ENUM_LIST', required: true },
+    {
+      key: 'saturdayMealWindowStart',
+      label: '周六晚餐窗口开始',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'saturdayMealWindowEnd',
+      label: '周六晚餐窗口结束',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'saturdayDeductionMinutes',
+      label: '周六扣除分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'saturdayTriggerMinutes',
+      label: '周六触发门槛分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'saturdayLunchWindowStart',
+      label: '周六午餐窗口开始',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'saturdayLunchWindowEnd',
+      label: '周六午餐窗口结束',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'saturdayLunchDeductionMinutes',
+      label: '周六午餐扣除分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'saturdayLunchTriggerMinutes',
+      label: '周六午餐触发门槛分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'sundayMealWindowStart',
+      label: '周日晚餐窗口开始',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'sundayMealWindowEnd',
+      label: '周日晚餐窗口结束',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'sundayDeductionMinutes',
+      label: '周日扣除分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'sundayTriggerMinutes',
+      label: '周日触发门槛分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'sundayLunchWindowStart',
+      label: '周日午餐窗口开始',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'sundayLunchWindowEnd',
+      label: '周日午餐窗口结束',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'sundayLunchDeductionMinutes',
+      label: '周日午餐扣除分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'sundayLunchTriggerMinutes',
+      label: '周日午餐触发门槛分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'publicHolidayMealWindowStart',
+      label: '法定节假日晚餐窗口开始',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'publicHolidayMealWindowEnd',
+      label: '法定节假日晚餐窗口结束',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'publicHolidayDeductionMinutes',
+      label: '法定节假日晚餐扣除分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'publicHolidayTriggerMinutes',
+      label: '法定节假日晚餐触发门槛分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'publicHolidayLunchWindowStart',
+      label: '法定节假日午餐窗口开始',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'publicHolidayLunchWindowEnd',
+      label: '法定节假日午餐窗口结束',
+      valueType: 'LOCAL_TIME',
+      required: false,
+    },
+    {
+      key: 'publicHolidayLunchDeductionMinutes',
+      label: '法定节假日午餐扣除分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
+    {
+      key: 'publicHolidayLunchTriggerMinutes',
+      label: '法定节假日午餐触发门槛分钟',
+      valueType: 'INTEGER',
+      required: false,
+    },
   ],
 }, {
   templateId: '25000000-0000-0000-0000-000000000002',
@@ -241,7 +413,7 @@ export const demoBindings: readonly PolicyBindingView[] = [{
   bindingId: '9708000000000000003',
   bindingRevisionId: '9708100000000000003',
   revisionNumber: 1,
-  legalEntityId,
+  companyId,
   policyKind: 'MEAL_DEDUCTION',
   policyVersionId: '25200000-0000-0000-0000-000000000001',
   groupId: requiredDemoItem(demoGroups).groupId,
@@ -257,7 +429,7 @@ export const demoBindings: readonly PolicyBindingView[] = [{
   bindingId: '9708000000000000002',
   bindingRevisionId: '9708100000000000002',
   revisionNumber: 1,
-  legalEntityId,
+  companyId,
   policyKind: 'LATE_GRACE',
   policyVersionId: '25200000-0000-0000-0000-000000000002',
   groupId: requiredDemoItem(demoGroups).groupId,
@@ -273,7 +445,7 @@ export const demoBindings: readonly PolicyBindingView[] = [{
   bindingId: '9708000000000000001',
   bindingRevisionId: '9708100000000000001',
   revisionNumber: 1,
-  legalEntityId,
+  companyId,
   policyKind: 'MONTHLY_LATE_EXEMPTION',
   policyVersionId: '25200000-0000-0000-0000-000000000003',
   groupId: requiredDemoItem(demoGroups).groupId,
@@ -298,6 +470,7 @@ export function demoSimulation(input: PolicySimulationInput): PolicySimulationBa
     usageProvenance: 'DEMO_SERVER_RESPONSE_FIXTURE',
     usageKnowledgeTime: knowledgeTime,
     deductionMinutes: null,
+    matchedMealWindows: [],
     correctionDeadline: null,
     affectedSegment: null,
     writesFormalResult: false,
@@ -313,7 +486,7 @@ export function demoSimulation(input: PolicySimulationInput): PolicySimulationBa
         matched: false,
         consumesAllowance: false,
         rawLateMinutes: null,
-        explanation: 'Demo 展示固定的服务端响应形状；正式结果未写入，浏览器不复制考勤算法。',
+        explanation: '当前条件没有命中用餐扣除规则。',
       },
       {
         ...common,
@@ -322,7 +495,7 @@ export function demoSimulation(input: PolicySimulationInput): PolicySimulationBa
         policyVersionId: requiredDemoItem(demoBindings, 1).policyVersionId,
         matched: false,
         consumesAllowance: false,
-        explanation: '服务端先判定迟到宽限候选。',
+        explanation: '本次迟到处于可宽限范围。',
       },
       {
         ...common,
@@ -332,7 +505,7 @@ export function demoSimulation(input: PolicySimulationInput): PolicySimulationBa
         matched: true,
         consumesAllowance: true,
         predictedMonthlyConsumption: 1,
-        explanation: '服务端预测消费一次月度迟到豁免，不写正式用量。',
+        explanation: '试算预计使用 1 次本月迟到宽限，正式用量不会变化。',
       },
     ],
   };
@@ -351,7 +524,7 @@ export const demoPolicyVersions: readonly AttendancePolicyVersionView[] = [
     scopedVersionId: '25200000-0000-0000-0000-000000000001',
     scopeId: '25100000-0000-0000-0000-000000000001',
     templateId: '25000000-0000-0000-0000-000000000001',
-    legalEntityId,
+    companyId,
     policyKind: 'MEAL_DEDUCTION',
     versionNumber: 1,
     status: 'PUBLISHED',
@@ -381,7 +554,7 @@ export const demoPolicyVersions: readonly AttendancePolicyVersionView[] = [
     scopedVersionId: '25200000-0000-0000-0000-000000000002',
     scopeId: '25100000-0000-0000-0000-000000000002',
     templateId: '25000000-0000-0000-0000-000000000002',
-    legalEntityId,
+    companyId,
     policyKind: 'LATE_GRACE',
     versionNumber: 1,
     status: 'PUBLISHED',
@@ -407,7 +580,7 @@ export const demoPolicyVersions: readonly AttendancePolicyVersionView[] = [
     scopedVersionId: '25200000-0000-0000-0000-000000000003',
     scopeId: '25100000-0000-0000-0000-000000000003',
     templateId: '25000000-0000-0000-0000-000000000003',
-    legalEntityId,
+    companyId,
     policyKind: 'MONTHLY_LATE_EXEMPTION',
     versionNumber: 1,
     status: 'PUBLISHED',

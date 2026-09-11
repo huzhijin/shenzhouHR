@@ -53,16 +53,19 @@ class MyBatisShiftRepository implements ShiftRepository {
     public List<ShiftTemplate> listTemplates(
             String principalId,
             String capability,
+            String companyId,
             int limit,
             int offset,
             Instant at) {
-        return mapper.listTemplates(principalId, capability, limit, offset, at)
+        return mapper.listTemplates(
+                        principalId, capability, companyId, limit, offset, at)
                 .stream().map(this::template).toList();
     }
 
     @Override
-    public long countTemplates(String principalId, String capability, Instant at) {
-        return mapper.countTemplates(principalId, capability, at);
+    public long countTemplates(
+            String principalId, String capability, String companyId, Instant at) {
+        return mapper.countTemplates(principalId, capability, companyId, at);
     }
 
     @Override
@@ -278,7 +281,7 @@ class MyBatisShiftRepository implements ShiftRepository {
 
     private ShiftTemplate template(ShiftRows.TemplateRow row) {
         return new ShiftTemplate(
-                row.shiftTemplateId(), row.legalEntityId(), row.locationId(),
+                row.shiftTemplateId(), row.companyId(), row.locationId(),
                 row.templateCode(), row.templateName(), LifecycleStatus.valueOf(row.status()),
                 row.rowVersion(), row.changeReason(), row.createdBy(), row.createdAt(),
                 row.updatedBy(), row.updatedAt());
@@ -297,7 +300,7 @@ class MyBatisShiftRepository implements ShiftRepository {
 
     private ShiftRows.TemplateRow row(ShiftTemplate value) {
         return new ShiftRows.TemplateRow(
-                value.shiftId(), value.legalEntityId(), value.locationId(), value.code(),
+                value.shiftId(), value.companyId(), value.locationId(), value.code(),
                 value.name(), value.status().name(), value.rowVersion(), value.changeReason(),
                 value.createdBy(), value.createdAt(), value.updatedBy(), value.updatedAt());
     }

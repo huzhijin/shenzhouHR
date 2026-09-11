@@ -38,7 +38,89 @@ public final class CapabilityCodes {
             "ATTENDANCE_SETUP:MANAGE_CALENDAR";
     public static final String ATTENDANCE_SETUP_MANAGE_POLICY =
             "ATTENDANCE_SETUP:MANAGE_POLICY";
+    public static final String ATTENDANCE_SOURCE_READ =
+            "ATTENDANCE_SOURCE:READ";
+    public static final String ATTENDANCE_SOURCE_CONFIGURE =
+            "ATTENDANCE_SOURCE:CONFIGURE";
+    public static final String ATTENDANCE_SOURCE_RUN =
+            "ATTENDANCE_SOURCE:RUN";
+    public static final String ATTENDANCE_SOURCE_RETRY =
+            "ATTENDANCE_SOURCE:RETRY";
+    public static final String ATTENDANCE_SOURCE_QUARANTINE_READ =
+            "ATTENDANCE_SOURCE:QUARANTINE_READ";
+    public static final String ATTENDANCE_PUNCH_IMPORT_READ =
+            "ATTENDANCE_PUNCH_IMPORT:READ";
+    public static final String ATTENDANCE_PUNCH_IMPORT_TEMPLATE_DOWNLOAD =
+            "ATTENDANCE_PUNCH_IMPORT:TEMPLATE_DOWNLOAD";
+    public static final String ATTENDANCE_PUNCH_IMPORT_UPLOAD =
+            "ATTENDANCE_PUNCH_IMPORT:UPLOAD";
+    public static final String ATTENDANCE_PUNCH_IMPORT_PRECHECK =
+            "ATTENDANCE_PUNCH_IMPORT:PRECHECK";
+    public static final String ATTENDANCE_PUNCH_IMPORT_PUBLISH =
+            "ATTENDANCE_PUNCH_IMPORT:PUBLISH";
+    public static final String ATTENDANCE_PUNCH_IMPORT_PARTIAL_PUBLISH =
+            "ATTENDANCE_PUNCH_IMPORT:PARTIAL_PUBLISH";
+    public static final String ATTENDANCE_PUNCH_IMPORT_VOID_OR_REVERSE =
+            "ATTENDANCE_PUNCH_IMPORT:VOID_OR_REVERSE";
+    public static final String ATTENDANCE_PUNCH_IMPORT_RAW_FILE_READ =
+            "ATTENDANCE_PUNCH_IMPORT:RAW_FILE_READ";
+    public static final String ATTENDANCE_PUNCH_IMPORT_RAW_ROW_READ =
+            "ATTENDANCE_PUNCH_IMPORT:RAW_ROW_READ";
+    public static final String ATTENDANCE_PUNCH_IMPORT_ERROR_REPORT_DOWNLOAD =
+            "ATTENDANCE_PUNCH_IMPORT:ERROR_REPORT_DOWNLOAD";
+    public static final String ATTENDANCE_PUNCH_IMPORT_DUPLICATE_REVIEW =
+            "ATTENDANCE_PUNCH_IMPORT:DUPLICATE_REVIEW";
+    public static final String ATTENDANCE_PUNCH_IMPORT_RECALCULATE =
+            "ATTENDANCE_PUNCH_IMPORT:RECALCULATE";
+    public static final String ATTENDANCE_DASHBOARD_READ =
+            "ATTENDANCE_DASHBOARD:READ";
+    public static final String ATTENDANCE_REPORT_READ =
+            "ATTENDANCE_REPORT:READ";
+    public static final String ATTENDANCE_REPORT_QUERY_READ =
+            "ATTENDANCE_REPORT_QUERY:READ";
+    public static final String ATTENDANCE_REPORT_EXPORT_CREATE =
+            "ATTENDANCE_REPORT:EXPORT_CREATE";
+    public static final String ATTENDANCE_REPORT_EXPORT_DOWNLOAD =
+            "ATTENDANCE_REPORT:EXPORT_DOWNLOAD";
+    public static final String ATTENDANCE_REPORT_PUBLISH =
+            "ATTENDANCE_REPORT:PUBLISH";
+    public static final String ATTENDANCE_REPORT_REFRESH =
+            "ATTENDANCE_REPORT:REFRESH";
+    public static final String ATTENDANCE_SELF_READ =
+            "ATTENDANCE_SELF:READ";
+    public static final String ATTENDANCE_PUNCH_CORRECTION_READ =
+            "ATTENDANCE_PUNCH_CORRECTION:READ";
+    public static final String ATTENDANCE_PUNCH_CORRECTION_CREATE =
+            "ATTENDANCE_PUNCH_CORRECTION:CREATE";
+    public static final String ATTENDANCE_PUNCH_CORRECTION_APPROVE =
+            "ATTENDANCE_PUNCH_CORRECTION:APPROVE";
+    public static final String LEAVE_SELF_READ =
+            "LEAVE_SELF:READ";
+    public static final String ANNUAL_LEAVE_READ =
+            "ANNUAL_LEAVE:READ";
+    public static final String ANNUAL_LEAVE_ADJUST =
+            "ANNUAL_LEAVE:ADJUST";
+    public static final String ATTENDANCE_FEEDBACK_READ =
+            "ATTENDANCE_FEEDBACK:READ";
+    public static final String ATTENDANCE_FEEDBACK_CREATE =
+            "ATTENDANCE_FEEDBACK:CREATE";
+    public static final String PAYROLL_RESERVATION_READ =
+            "PAYROLL:RESERVATION_READ";
+    public static final String IDENTITY_EFFECTIVE_FROM_CUTOVER =
+            "IDENTITY_EFFECTIVE_FROM:CUTOVER";
+    public static final String PAPER_OVERTIME_MANAGE =
+            "PAPER_OVERTIME:MANAGE";
+    public static final String ATTENDANCE_ADJUST_MANAGE =
+            "ATTENDANCE_ADJUST:MANAGE";
+
+    private static final String SERVER_INTERNAL_PAYROLL_PREFIX = "PAYROLL:";
 
     private CapabilityCodes() {
+    }
+
+    public static boolean isExternallyDiscoverable(String capabilityCode) {
+        return capabilityCode != null
+                && !capabilityCode.isBlank()
+                && !capabilityCode.startsWith(SERVER_INTERNAL_PAYROLL_PREFIX);
     }
 }

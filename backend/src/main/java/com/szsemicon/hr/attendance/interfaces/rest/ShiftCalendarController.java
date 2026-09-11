@@ -71,10 +71,11 @@ public class ShiftCalendarController {
 
     @GetMapping("/shifts")
     ResponseEntity<ShiftTemplatePage> listShifts(
+            @RequestParam(required = false) String companyId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return noStore(ShiftCalendarDtos.templates(
-                shiftService.listTemplates(page, size)));
+                shiftService.listTemplates(companyId, page, size)));
     }
 
     @PostMapping("/shifts")
@@ -83,13 +84,13 @@ public class ShiftCalendarController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason) {
         var command = new TemplateCommand(
-                request.legalEntityId(), request.locationId(),
+                request.companyId(), request.locationId(),
                 request.code(), request.name(),
                 reason(changeReason, request.reason()));
         var result = mutations.execute(
                 "CREATE_SHIFT_TEMPLATE",
                 "ATTENDANCE_SHIFT_TEMPLATE",
-                request.legalEntityId(),
+                request.companyId(),
                 idempotencyKey,
                 command,
                 null,
@@ -111,7 +112,7 @@ public class ShiftCalendarController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason) {
         var command = new TemplateCommand(
-                request.legalEntityId(), request.locationId(),
+                request.companyId(), request.locationId(),
                 request.code(), request.name(),
                 reason(changeReason, request.reason()));
         long expectedVersion = StrongEtag.parseVersion(ifMatch);
@@ -289,11 +290,12 @@ public class ShiftCalendarController {
 
     @GetMapping("/calendars")
     ResponseEntity<CalendarPage> listCalendars(
+            @RequestParam(required = false) String companyId,
             @RequestParam(required = false) Integer year,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return noStore(ShiftCalendarDtos.calendars(
-                calendarService.listCalendars(year, page, size)));
+                calendarService.listCalendars(companyId, year, page, size)));
     }
 
     @PostMapping("/calendars")
@@ -302,7 +304,7 @@ public class ShiftCalendarController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason) {
         var command = new CalendarCommand(
-                request.legalEntityId(), request.locationId(),
+                request.companyId(), request.locationId(),
                 request.code(), request.name(),
                 request.calendarYear(), request.timeZone(),
                 request.effectiveFrom(), request.effectiveTo(),
@@ -310,7 +312,7 @@ public class ShiftCalendarController {
         var result = mutations.execute(
                 "CREATE_WORK_CALENDAR",
                 "ATTENDANCE_WORK_CALENDAR",
-                request.legalEntityId(),
+                request.companyId(),
                 idempotencyKey,
                 command,
                 null,
@@ -333,7 +335,7 @@ public class ShiftCalendarController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("X-Change-Reason") String changeReason) {
         var command = new CalendarCommand(
-                request.legalEntityId(), request.locationId(),
+                request.companyId(), request.locationId(),
                 request.code(), request.name(),
                 request.calendarYear(), request.timeZone(),
                 request.effectiveFrom(), request.effectiveTo(),

@@ -1,0 +1,26 @@
+{
+  "kind": "critique-panel",
+  "score": 4,
+  "axes": {
+    "clarity": {
+      "score": 5,
+      "notes": "基线、完成状态、路由、演示链路、业务门禁与工程边界分区清晰，结论可直接追溯到交付文件。"
+    },
+    "hierarchy": {
+      "score": 4,
+      "notes": "先给出六项终检摘要，再按覆盖、链路、业务、系统和工程交接渐进展开，避免长文档失去扫读路径。"
+    },
+    "typography": {
+      "score": 4,
+      "notes": "沿用 shenzhou-hr 高密度控制台排版，编号、route、状态和指标使用等宽字体，正文保持可读密度。"
+    },
+    "motion": {
+      "score": 4,
+      "notes": "仅标签切换和焦点移动使用原生短反馈，支持减少动态效果；共享弹窗已补充关闭后焦点恢复。"
+    },
+    "brand": {
+      "score": 5,
+      "notes": "完整横版 Logo、PROJECT_EMBEDDED tokens、8px 节奏、6/8px 圆角和克制的精密制造控制台表达一致。"
+    }
+  }
+}

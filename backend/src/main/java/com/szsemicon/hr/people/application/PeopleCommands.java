@@ -11,7 +11,7 @@ public final class PeopleCommands {
     }
 
     public record CreateImportBatch(
-            String legalEntityId,
+            String companyId,
             TemplateType templateType,
             String templateVersion,
             String reason) {
@@ -30,7 +30,7 @@ public final class PeopleCommands {
     }
 
     public record CreateOrganization(
-            String legalEntityId,
+            String companyId,
             String parentOrganizationId,
             String code,
             String name,
@@ -51,7 +51,7 @@ public final class PeopleCommands {
     }
 
     public record CreateEmployee(
-            String legalEntityId,
+            String companyId,
             String employeeNumber,
             String displayName,
             String externalEmployeeId,

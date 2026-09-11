@@ -36,6 +36,20 @@ describe('WAVE-3 frontend source contract', () => {
     expect(styles).toContain('.rule-effective-timeline');
   });
 
+  it('keeps policy simulation actions in a local non-overlapping layout', () => {
+    const simulation = source('features/attendanceSetup/PolicySimulationPanel.tsx');
+    const styles = source('styles/global.css');
+
+    expect(simulation).toContain('className="policy-simulation-actions"');
+    expect(simulation).toContain('className="policy-simulation-note"');
+    expect(simulation).not.toContain(
+      '<p className="form-help">试算仅用于预览，不会修改正式考勤结果。</p>',
+    );
+    expect(styles).toMatch(/\.simulation-punch-list\s*\{[^}]*display:\s*grid;[^}]*gap:/s);
+    expect(styles).toMatch(/\.policy-simulation-actions\s*\{[^}]*display:\s*grid;[^}]*gap:/s);
+    expect(styles).toMatch(/\.policy-simulation-note\s*\{[^}]*margin:\s*var\(--space-0\);/s);
+  });
+
   it('keeps later waves and PAYROLL isolated from the WAVE-3 feature', () => {
     const wave3Api = source('features/attendanceSetup/attendanceSetupApi.ts');
     const wave3Demo = source('features/attendanceSetup/attendanceSetupDemo.ts');

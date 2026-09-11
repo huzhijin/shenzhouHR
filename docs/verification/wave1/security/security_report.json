@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "title": "神州 HR V1.9 WAVE-1 安全审计",
+  "date": "2026-07-24",
+  "status": "PARTIAL",
+  "scope": [
+    "backend/src/main",
+    "frontend/src",
+    "api/openapi.yaml",
+    "deploy/mysql",
+    "backend/pom.xml",
+    "frontend/package-lock.json",
+    ".env.example"
+  ],
+  "findings": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "open": 0
+  },
+  "checks": [
+    {
+      "tool": "Semgrep",
+      "version": "1.156.0",
+      "status": "PASS",
+      "targets": 158,
+      "rules": 357,
+      "findings": 0
+    },
+    {
+      "tool": "Gitleaks",
+      "status": "PASS",
+      "mode": "targeted-current-scope",
+      "findings": 0
+    },
+    {
+      "tool": "Trivy",
+      "version": "0.69.3",
+      "status": "PASS",
+      "scanners": [
+        "secret",
+        "misconfiguration"
+      ],
+      "findings": 0
+    },
+    {
+      "tool": "npm audit",
+      "status": "PASS",
+      "dependencies": 298,
+      "vulnerabilities": 0
+    },
+    {
+      "tool": "Maven dependency tree",
+      "status": "PASS",
+      "resolved": {
+        "springBoot": "4.1.0",
+        "springSecurity": "7.1.0",
+        "flyway": "12.4.0",
+        "mybatisSpringBoot": "4.0.0",
+        "mysqlConnectorJ": "9.5.0"
+      }
+    },
+    {
+      "tool": "Redocly CLI",
+      "version": "2.40.0",
+      "status": "PASS",
+      "warnings": 0
+    }
+  ],
+  "notRun": [
+    {
+      "tool": "Trivy vulnerability",
+      "reason": "Default OCI vulnerability database did not complete its first synchronization."
+    },
+    {
+      "tool": "OWASP Dependency-Check",
+      "reason": "NVD_API_KEY status is missing and a reliable initial NVD synchronization was unavailable."
+    },
+    {
+      "tool": "shellcheck",
+      "reason": "Executable is unavailable in the current environment."
+    },
+    {
+      "tool": "runtime MySQL and browser security verification",
+      "reason": "SHENZHOUHR_MYSQL_ROOT_PASSWORD status is missing in the current execution context."
+    }
+  ],
+  "limitations": [
+    "This report does not claim absolute system safety.",
+    "H2 tests do not replace MySQL 8.4-compatible migration and least-privilege verification.",
+    "Runtime Cookie, CSRF, network and console evidence remains pending until real MySQL integration."
+  ]
+}

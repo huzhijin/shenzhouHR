@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper">
+
+    <sql id="sourceVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal_role_assignment assignment
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capability}
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = assignment.data_scope_id
+            WHERE assignment.principal_id = #{principalId}
+              AND assignment.valid_from &lt;= #{at}
+              AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
+              AND data_scope.valid_from &lt;= #{at}
+              AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+              AND data_scope.scope_type = 'COMPANY'
+              AND data_scope.company_id = source.company_id
+        )
+    </sql>
+
+    <!--
+      OA document rows are employee facts, not source-administration metadata.
+      The matched employment remains immutable fact context. Organization
+      authorization is evaluated independently against the employee's current
+      effective employment at the authorization instant, so a former department
+      cannot retain access after a transfer. Keep this fragment shared by count
+      and data queries so pagination cannot disclose out-of-scope counts.
+      Unmatched/quarantined rows deliberately do not satisfy this predicate.
+    -->
+    <sql id="oaDocumentVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal_role_assignment role_assignment
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capability}
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+            JOIN auth_principal principal
+              ON principal.principal_id = role_assignment.principal_id
+             AND principal.status = 'ACTIVE'
+            WHERE role_assignment.principal_id = #{principalId}
+              AND role_assignment.valid_from &lt;= #{at}
+              AND (
+                    role_assignment.valid_to IS NULL
+                    OR role_assignment.valid_to &gt; #{at}
+              )
+              AND data_scope.valid_from &lt;= #{at}
+              AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+              AND (
+                    (
+                        data_scope.scope_type = 'COMPANY'
+                        AND data_scope.company_id = source.company_id
+                        AND employee.company_id = source.company_id
+                    )
+                    OR (
+                        data_scope.scope_type = 'ORGANIZATION'
+                        AND employee.company_id = source.company_id
+                        AND EXISTS (
+                            SELECT 1
+                            FROM employment_assignment current_employment
+                            JOIN organization_identity
+                                    assigned_organization
+                              ON assigned_organization.organization_id =
+                                    current_employment.organization_id
+                             AND assigned_organization.company_id =
+                                    employee.company_id
+                             AND assigned_organization.identity_status =
+                                    'ACTIVE'
+                            JOIN organization_current_projection
+                                    assigned_projection
+                              ON assigned_projection.organization_id =
+                                    assigned_organization.organization_id
+                            JOIN organization_version assigned_version
+                              ON assigned_version.organization_version_id =
+                                    assigned_projection.current_version_id
+                             AND assigned_version.organization_id =
+                                    assigned_organization.organization_id
+                             AND assigned_version.status = 'ACTIVE'
+                             AND assigned_version.effective_from &lt;= #{at}
+                             AND (
+                                    assigned_version.effective_to IS NULL
+                                    OR assigned_version.effective_to &gt; #{at}
+                             )
+                            JOIN organization_identity
+                                    scoped_organization
+                              ON scoped_organization.organization_id =
+                                    data_scope.organization_id
+                             AND scoped_organization.company_id =
+                                    assigned_organization.company_id
+                             AND scoped_organization.identity_status = 'ACTIVE'
+                            JOIN organization_current_projection
+                                    scoped_projection
+                              ON scoped_projection.organization_id =
+                                    scoped_organization.organization_id
+                            JOIN organization_version scoped_version
+                              ON scoped_version.organization_version_id =
+                                    scoped_projection.current_version_id
+                             AND scoped_version.organization_id =
+                                    scoped_organization.organization_id
+                             AND scoped_version.status = 'ACTIVE'
+                             AND scoped_version.effective_from &lt;= #{at}
+                             AND (
+                                    scoped_version.effective_to IS NULL
+                                    OR scoped_version.effective_to &gt; #{at}
+                             )
+                            WHERE scoped_organization.organization_id =
+                                    data_scope.organization_id
+                              AND scoped_organization.company_id =
+                                    source.company_id
+                              AND current_employment.employee_id =
+                                    match_decision.employee_id
+                              AND current_employment.version_valid_to IS NULL
+                              AND current_employment.record_status = 'ACTIVE'
+                              AND current_employment.effective_from &lt;= #{at}
+                              AND (
+                                    current_employment.effective_to IS NULL
+                                    OR current_employment.effective_to &gt; #{at}
+                              )
+                              AND (
+                                    (
+                                        data_scope.include_descendants = FALSE
+                                        AND data_scope.organization_id =
+                                            current_employment.organization_id
+                                    )
+                                    OR (
+                                        data_scope.include_descendants = TRUE
+                                        AND EXISTS (
+                                            SELECT 1
+                                            FROM organization_current_closure closure
+                                            WHERE closure.ancestor_organization_id =
+                                                    data_scope.organization_id
+                                              AND closure.descendant_organization_id =
+                                                    current_employment.organization_id
+                                        )
+                                    )
+                                )
+                        )
+                    )
+                    OR (
+                        data_scope.scope_type = 'SELF'
+                        AND principal.employee_id = match_decision.employee_id
+                        AND employee.company_id = source.company_id
+                        AND EXISTS (
+                            SELECT 1
+                            FROM organization_identity
+                                    assigned_organization
+                            WHERE assigned_organization.organization_id =
+                                    employment.organization_id
+                              AND assigned_organization.company_id =
+                                    source.company_id
+                        )
+                    )
+              )
+        )
+    </sql>
+
+    <select id="countSources" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_source source
+        WHERE <include refid="sourceVisibility"/>
+    </select>
+
+    <select id="listSources"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$SourceView">
+        SELECT source.attendance_source_id AS source_id,
+               source.company_id,
+               source.source_type,
+               source.source_code AS code,
+               source.display_name,
+               source.status AS state,
+               CASE
+                   WHEN source.source_type = 'OA_ATTENDANCE'
+                   THEN 'Asia/Shanghai'
+                   ELSE COALESCE(configuration.source_time_zone, 'UNKNOWN')
+               END AS time_zone,
+               COALESCE(configuration.revision_number, 0) AS configuration_revision,
+               watermark.committed_cursor AS committed_watermark,
+               (
+                   SELECT MAX(success.finished_at)
+                   FROM attendance_sync_job success
+                   WHERE success.attendance_source_id = source.attendance_source_id
+                     AND success.status IN ('SUCCEEDED', 'PARTIALLY_QUARANTINED')
+               ) AS last_successful_sync_at,
+               (
+                   SELECT MAX(failed.finished_at)
+                   FROM attendance_sync_job failed
+                   WHERE failed.attendance_source_id = source.attendance_source_id
+                     AND failed.status = 'FAILED'
+               ) AS last_failed_sync_at,
+               (
+                   SELECT latest.safe_error_code
+                   FROM attendance_sync_job latest
+                   WHERE latest.attendance_source_id = source.attendance_source_id
+                     AND latest.status = 'FAILED'
+                   ORDER BY latest.finished_at DESC,
+                            latest.attendance_sync_job_id DESC
+                   LIMIT 1
+               ) AS last_failure_reason,
+               source.row_version
+        FROM attendance_source source
+        LEFT JOIN attendance_source_config_revision configuration
+          ON configuration.source_config_revision_id = (
+              SELECT candidate.source_config_revision_id
+              FROM attendance_source_config_revision candidate
+              WHERE candidate.attendance_source_id = source.attendance_source_id
+              ORDER BY candidate.revision_number DESC,
+                       candidate.source_config_revision_id DESC
+              LIMIT 1
+          )
+        LEFT JOIN attendance_sync_watermark watermark
+          ON watermark.attendance_source_id = source.attendance_source_id
+        WHERE <include refid="sourceVisibility"/>
+        ORDER BY source.source_type, source.display_name, source.attendance_source_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countJobs" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        WHERE <include refid="sourceVisibility"/>
+    </select>
+
+    <select id="listJobs"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$JobView">
+        SELECT job.attendance_sync_job_id AS job_id,
+               source.attendance_source_id AS source_id,
+               source.display_name AS source_display_name,
+               source.source_type,
+               job.status AS state,
+               job.page_count AS committed_pages,
+               job.accepted_count AS raw_fact_count,
+               job.quarantined_count,
+               job.safe_error_code AS safe_error_summary,
+               job.started_at,
+               job.finished_at AS completed_at,
+               job.row_version
+        FROM attendance_sync_job job
+        JOIN attendance_source source
+          ON source.attendance_source_id = job.attendance_source_id
+        WHERE <include refid="sourceVisibility"/>
+        ORDER BY job.created_at DESC, job.attendance_sync_job_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countOaDocuments" resultType="long">
+        SELECT COUNT(DISTINCT document.oa_attendance_document_id)
+        FROM oa_attendance_document document
+        JOIN attendance_source source
+          ON source.attendance_source_id = document.attendance_source_id
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             document.normalized_attendance_record_id
+        JOIN employee_match_decision match_decision
+          ON match_decision.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+         AND match_decision.match_status = 'MATCHED'
+        JOIN employee employee
+          ON employee.employee_id = match_decision.employee_id
+        LEFT JOIN employment_assignment employment
+          ON employment.assignment_id = match_decision.employment_period_id
+         AND employment.employee_id = employee.employee_id
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'OA_ATTENDANCE'
+          AND <include refid="oaDocumentVisibility"/>
+          <if test="documentType != null and documentType != ''">
+              AND document.document_type = #{documentType}
+          </if>
+    </select>
+
+    <select id="listOaDocuments"
+            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$OaDocumentView">
+        SELECT document.oa_attendance_document_id AS document_id,
+               document.source_business_key AS source_document_id,
+               document.source_version,
+               document.document_type,
+               document.source_status,
+               CASE WHEN document.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
+                    THEN 1 ELSE 0 END AS effective_candidate,
+               employee.employee_number,
+               ANY_VALUE(employee_version.display_name) AS employee_name,
+               ANY_VALUE(organization_version.name) AS department,
+               ANY_VALUE(document.leave_type) AS leave_type,
+               ANY_VALUE(context.overtime_treatment) AS overtime_treatment,
+               ANY_VALUE(context.payroll_credit_minutes) AS payroll_credit_minutes,
+               ANY_VALUE(context.time_off_credit_minutes) AS time_off_credit_minutes,
+               ANY_VALUE(context.recognized_work_minutes) AS recognized_work_minutes,
+               ANY_VALUE(normalized.interval_start) AS interval_start,
+               ANY_VALUE(normalized.interval_end) AS interval_end_exclusive
+        FROM oa_attendance_document document
+        JOIN attendance_source source
+          ON source.attendance_source_id = document.attendance_source_id
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id =
+             document.normalized_attendance_record_id
+        JOIN employee_match_decision match_decision
+          ON match_decision.normalized_attendance_record_id =
+             normalized.normalized_attendance_record_id
+         AND match_decision.match_status = 'MATCHED'
+        JOIN employee employee
+          ON employee.employee_id = match_decision.employee_id
+        LEFT JOIN employment_assignment employment
+          ON employment.assignment_id = match_decision.employment_period_id
+         AND employment.employee_id = employee.employee_id
+        LEFT JOIN employee_current_projection employee_projection
+          ON employee_projection.employee_id = employee.employee_id
+        LEFT JOIN employee_version employee_version
+          ON employee_version.employee_version_id =
+             employee_projection.current_version_id
+        LEFT JOIN organization_current_projection organization_projection
+          ON organization_projection.organization_id =
+             employment.organization_id
+        LEFT JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             organization_projection.current_version_id
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id =
+             document.oa_attendance_document_id
+        WHERE source.attendance_source_id = #{sourceId}
+          AND source.source_type = 'OA_ATTENDANCE'
+          AND <include refid="oaDocumentVisibility"/>
+          <if test="documentType != null and documentType != ''">
+              AND document.document_type = #{documentType}
+          </if>
+        GROUP BY document.oa_attendance_document_id,
+                 document.source_business_key,
+                 document.source_version,
+                 document.document_type,
+                 document.source_status,
+                 employee.employee_number
+        ORDER BY MAX(document.knowledge_rank) DESC,
+                 MAX(document.created_at) DESC,
+                 document.oa_attendance_document_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+</mapper>

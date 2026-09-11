@@ -8,6 +8,9 @@ export type SessionState =
   | { status: 'ready'; session: SessionView }
   | { status: 'error'; error: ApiRequestError };
 
+/** Keep an open tab from going idle while the person is still looking at it. */
+export const SESSION_TOUCH_INTERVAL_MS = 10 * 60 * 1000;
+
 export function useSession(): { state: SessionState; reload: () => void } {
   const [state, setState] = useState<SessionState>({ status: 'loading' });
   const [reloadToken, setReloadToken] = useState(0);
@@ -20,6 +23,36 @@ export function useSession(): { state: SessionState; reload: () => void } {
     setState({ status: 'loading' });
     void loadSession(setState);
   }, [reloadToken]);
+
+  useEffect(() => {
+    if (state.status !== 'ready') {
+      return undefined;
+    }
+    const touch = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      void getCurrentSession().catch((error: unknown) => {
+        if (
+          error instanceof ApiRequestError
+          && (error.status === 401 || error.status === 403 || error.status === 404)
+        ) {
+          setReloadToken((current) => current + 1);
+        }
+      });
+    };
+    const id = window.setInterval(touch, SESSION_TOUCH_INTERVAL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        touch();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [state.status]);
 
   return { state, reload };
 }

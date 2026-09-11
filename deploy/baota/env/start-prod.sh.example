@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Copy to /opt/shenzhouhr/conf/start-prod.sh and chmod 700.
+# Fill secrets locally. Do not commit a filled copy.
+set -euo pipefail
+cd /opt/shenzhouhr
+mkdir -p logs
+
+nohup java -jar app/shenzhou-hr.jar \
+  --spring.profiles.active=prod \
+  --server.address=0.0.0.0 \
+  --server.port=9090 \
+  --spring.datasource.url='jdbc:mysql://127.0.0.1:3306/shenzhou_hr?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&sslMode=DISABLED&allowPublicKeyRetrieval=true' \
+  --spring.datasource.username=shenzhouhr_app \
+  --spring.datasource.password='REPLACE_HR_DB_PASSWORD' \
+  --spring.flyway.enabled=true \
+  --shenzhouhr.security.account-provisioning.pepper='REPLACE_PEPPER' \
+  --shenzhouhr.security.account-provisioning.key-id=v1 \
+  --shenzhouhr.security.session.cookie-secure=false \
+  --shenzhouhr.integrations.deli-eplus.enabled=true \
+  --shenzhouhr.integrations.deli-eplus.app-key='REPLACE_DELI_APP_KEY' \
+  --shenzhouhr.integrations.deli-eplus.app-secret='REPLACE_DELI_APP_SECRET' \
+  --shenzhouhr.deli.auto-sync-enabled=true \
+  --shenzhouhr.integrations.oa-mysql.enabled=true \
+  --shenzhouhr.integrations.oa-mysql.sync-not-before=2016-01-01 \
+  --shenzhouhr.integrations.oa-mysql.jdbc-url='jdbc:mysql://192.168.2.169:3308/szoa?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&sslMode=DISABLED&allowPublicKeyRetrieval=true' \
+  --shenzhouhr.integrations.oa-mysql.username=kaoqin2026 \
+  --shenzhouhr.integrations.oa-mysql.password='REPLACE_OA_PASSWORD' \
+  --shenzhouhr.oa.auto-sync-enabled=true \
+  > logs/shenzhouhr.log 2>&1 &
+
+echo "started pid=$!"
+echo "tail -f /opt/shenzhouhr/logs/shenzhouhr.log"

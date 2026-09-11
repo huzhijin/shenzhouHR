@@ -4,6 +4,11 @@ import { useTranslation } from 'react-i18next';
 
 import { StatusBadge } from '../../shared/components/FeedbackComponents';
 import {
+  AttendanceGroupSelect,
+  CompanySelect,
+  LocationSelect,
+} from '../referenceData';
+import {
   AccessibleButton,
   AccessibleNativeButton,
 } from '../../shared/components/AccessibleButton';
@@ -84,9 +89,19 @@ export function ScopeSelector({ value, onChange, disabled = false }: {
               { value: 'ATTENDANCE_GROUP', label: t('policy.attendanceGroup') },
               { value: 'POLICY_GROUP', label: t('policy.policyGroup') },
             ]}
-            onChange={(scopeType) => update(index, { scopeType })}
+            onChange={(scopeType) => update(index, {
+              scopeType,
+              scopeResourceId: '',
+            })}
           />
-          <Input disabled={disabled} aria-label={t('policy.scopeResource', { number: index + 1 })} value={binding.scopeResourceId} onChange={(event) => update(index, { scopeResourceId: event.target.value })} />
+          <ScopeResourceSelect
+            binding={binding}
+            disabled={disabled}
+            ariaLabel={`授权对象 ${index + 1}`}
+            onChange={(scopeResourceId) => update(index, {
+              scopeResourceId: scopeResourceId ?? '',
+            })}
+          />
           <InputNumber disabled={disabled} aria-label={t('policy.priority', { number: index + 1 })} min={0} max={9999} value={binding.priority} onChange={(priority) => update(index, { priority: priority ?? 0 })} />
           <Input disabled={disabled} type="date" aria-label={t('policy.scopeEffectiveFrom', { number: index + 1 })} value={binding.effectiveFrom} onChange={(event) => update(index, { effectiveFrom: event.target.value })} />
           <Input disabled={disabled} type="date" aria-label={t('policy.scopeEffectiveTo', { number: index + 1 })} value={binding.effectiveTo ?? ''} onChange={(event) => update(index, { effectiveTo: event.target.value || null })} />
@@ -123,7 +138,14 @@ export function PolicyEditor({ template, version, onChange, disabled = false }: 
         {Array.from(template.fieldDefinitions ?? [], (field) => (
           <Form.Item key={field.key} label={field.label} required={field.required}>
             {field.valueType === 'ENUM' ? (
-              <Select value={String(valueByKey.get(field.key) ?? '')} options={Array.from(field.enumValues ?? [], (value) => ({ value, label: value }))} onChange={(value) => updateParameter(field.key, value)} />
+              <Select
+                value={String(valueByKey.get(field.key) ?? '')}
+                options={Array.from(field.enumValues ?? [], (value) => ({
+                  value,
+                  label: policyEnumLabel(value),
+                }))}
+                onChange={(value) => updateParameter(field.key, value)}
+              />
             ) : (
               <InputNumber value={Number(valueByKey.get(field.key) ?? 0)} onChange={(value) => updateParameter(field.key, value)} />
             )}
@@ -137,13 +159,31 @@ export function PolicyEditor({ template, version, onChange, disabled = false }: 
   );
 }
 
-export function ValidationPanel({ result }: { result?: PolicyValidationResult }) {
+export function ValidationPanel({
+  result,
+  fieldDefinitions = [],
+}: {
+  result?: PolicyValidationResult;
+  fieldDefinitions?: PolicyTemplateDetail['fieldDefinitions'];
+}) {
   const { t } = useTranslation();
   if (!result) return <ResultPlaceholder title={t('policy.validation')} description={t('policy.validationDescription')} />;
   return (
     <section className="result-panel" data-state={result.valid ? 'success' : 'invalid'} aria-live="polite">
       <Alert showIcon type={result.valid ? 'success' : 'error'} title={result.valid ? t('policy.validationPassed') : t('policy.validationFailed')} />
-      {Array.from(result.issues, (issue) => <Alert key={`${issue.code}-${issue.field ?? ''}`} showIcon type={issue.severity === 'ERROR' ? 'error' : 'warning'} title={issue.message} description={issue.field ? t('policy.field', { field: issue.field }) : undefined} />)}
+      {Array.from(result.issues, (issue) => (
+        <Alert
+          key={`${issue.code}-${issue.field ?? ''}`}
+          showIcon
+          type={issue.severity === 'ERROR' ? 'error' : 'warning'}
+          title={policyResultText(issue.message)}
+          description={issue.field
+            ? t('policy.field', {
+                field: policyFieldLabel(issue.field, fieldDefinitions),
+              })
+            : undefined}
+        />
+      ))}
     </section>
   );
 }
@@ -159,11 +199,7 @@ export function ConflictPanel({ result }: { result?: PolicyConflictResult }) {
           key={`${conflict.conflictingVersionId}-${conflict.scopeResourceId}`}
           type="error"
           title={t('policy.conflictScopeOverlap')}
-          description={t('policy.conflictVersion', {
-            versionId: conflict.conflictingVersionId,
-            scopeType: conflict.scopeType,
-            scopeId: conflict.scopeResourceId,
-          })}
+          description={`${policyScopeTypeLabel(conflict.scopeType)}范围与另一条已配置规则的生效期间重叠。`}
         />
       ))}
     </section>
@@ -181,39 +217,199 @@ export function ImpactPreviewPanel({ result }: { result?: PolicyImpactPreview })
         <div><dt>{t('policy.effectiveFrom')}</dt><dd>{result.effectiveFrom}</dd></div>
         <div><dt>{t('policy.freezeProtection')}</dt><dd>{result.frozenPeriodProtected ? t('policy.defaultDeny') : t('policy.notApplicable')}</dd></div>
       </dl>
-      {Array.from(result.warnings, (warning) => <Alert key={warning} showIcon type="warning" title={warning} />)}
+      {Array.from(result.warnings, (warning) => (
+        <Alert
+          key={warning}
+          showIcon
+          type="warning"
+          title={policyResultText(warning)}
+        />
+      ))}
     </section>
   );
 }
 
-export function SimulationPanel({ result }: { result?: PolicySimulationResult }) {
+export function SimulationPanel({
+  result,
+  fieldDefinitions = [],
+}: {
+  result?: PolicySimulationResult;
+  fieldDefinitions?: PolicyTemplateDetail['fieldDefinitions'];
+}) {
   const { t } = useTranslation();
   if (!result) return <ResultPlaceholder title={t('policy.simulation')} description={t('policy.simulationDescription')} />;
   return (
     <section className="result-panel" data-state="success" aria-live="polite">
       <Alert showIcon type={result.matched ? 'success' : 'warning'} title={result.matched ? t('policy.simulationMatched') : t('policy.simulationUnmatched')} />
-      <pre>{JSON.stringify(result.resolvedParameters, null, 2)}</pre>
-      <ul>{Array.from(result.explanation, (line) => <li key={line}>{line}</li>)}</ul>
+      {result.resolvedParameters.length > 0 ? (
+        <dl className="metric-list" aria-label="试算采用的规则参数">
+          {result.resolvedParameters.map((parameter, index) => (
+            <div key={`${parameter.key}-${index}`}>
+              <dt>{policyFieldLabel(parameter.key, fieldDefinitions)}</dt>
+              <dd>{policyValueLabel(parameter.value)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <ul>
+        {Array.from(result.explanation, (line) => (
+          <li key={line}>{policyResultText(line)}</li>
+        ))}
+      </ul>
     </section>
   );
 }
 
-export function PolicyResultTabs({ validation, conflicts, impact, simulation, active }: {
+export function PolicyResultTabs({
+  validation,
+  conflicts,
+  impact,
+  simulation,
+  active,
+  fieldDefinitions,
+}: {
   validation?: PolicyValidationResult;
   conflicts?: PolicyConflictResult;
   impact?: PolicyImpactPreview;
   simulation?: PolicySimulationResult;
   active: 'validation' | 'conflicts' | 'impact' | 'simulation';
+  fieldDefinitions?: PolicyTemplateDetail['fieldDefinitions'];
 }) {
   const panels: Record<typeof active, ReactNode> = {
-    validation: <ValidationPanel result={validation} />,
+    validation: (
+      <ValidationPanel
+        result={validation}
+        fieldDefinitions={fieldDefinitions}
+      />
+    ),
     conflicts: <ConflictPanel result={conflicts} />,
     impact: <ImpactPreviewPanel result={impact} />,
-    simulation: <SimulationPanel result={simulation} />,
+    simulation: (
+      <SimulationPanel
+        result={simulation}
+        fieldDefinitions={fieldDefinitions}
+      />
+    ),
   };
   return <div className="policy-result-tabs">{panels[active]}</div>;
 }
 
 function ResultPlaceholder({ title, description }: { title: string; description: string }) {
   return <section className="result-placeholder"><h3>{title}</h3><p>{description}</p></section>;
+}
+
+const policyEnumLabels: Readonly<Record<string, string>> = {
+  STRICT: '严格模式',
+  BALANCED: '均衡模式',
+};
+
+const policyScopeTypeLabels: Readonly<Record<string, string>> = {
+  COMPANY: '公司',
+  LOCATION: '地点',
+  ATTENDANCE_GROUP: '考勤组',
+  POLICY_GROUP: '政策组',
+};
+
+export function policyEnumLabel(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  return policyEnumLabels[normalized]
+    ?? (/^[A-Z][A-Z0-9_]*$/.test(normalized) ? '其他选项' : value);
+}
+
+export function policyScopeTypeLabel(value: string): string {
+  return policyScopeTypeLabels[value.trim().toUpperCase()] ?? '其他范围';
+}
+
+export function policyFieldLabel(
+  key: string,
+  fieldDefinitions: PolicyTemplateDetail['fieldDefinitions'] = [],
+): string {
+  return fieldDefinitions?.find((field) => field.key === key)?.label
+    ?? '规则参数';
+}
+
+export function policyResultText(value: string): string {
+  const normalized = value.trim();
+  // Validation and simulation explanations are server-authored. A structured
+  // payload is useful for logs, but it is not meaningful or safe business copy.
+  if (
+    /^[{[]/.test(normalized)
+    && (
+      /["'][A-Za-z][A-Za-z0-9_-]*["']\s*:/.test(normalized)
+      || /^[{[]\s*[}\]]$/.test(normalized)
+    )
+  ) {
+    return '当前结果请结合规则配置确认。';
+  }
+
+  const cleaned = normalized
+    .replace(
+      /\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/gi,
+      '相关记录',
+    )
+    .replace(/\b\d{16,20}\b/g, '相关记录')
+    .replace(/\b[0-9a-f]{24,}\b/gi, '相关记录')
+    .replace(/\b[A-HJKMNP-TV-Z0-9]{26}\b/g, '相关记录')
+    .replace(
+      /\b(?:[a-z][a-z0-9_-]*:){1,}[a-z0-9._:-]+\b/gi,
+      '相关记录',
+    )
+    .replace(
+      /\b(?:rowVersion|snapshotDigest|configurationDigest|digest|queryFingerprint|projectionVersion|scopeResourceId|scopedVersionId|policyVersionId|versionId|groupRevisionId|groupId|employeeId|companyId|organizationId|locationId|attendanceGroupId|createdBy|updatedBy|start_date|end_exclusive)\b/gi,
+      '相关信息',
+    )
+    .replace(/\b[A-Za-z][A-Za-z0-9]*(?:Id|ID)\b/g, '相关信息')
+    .replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g, '相关信息')
+    .replace(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g, '相关状态')
+    .replace(/\b(?:ID|UUID)\b/gi, '信息')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return cleaned || '当前结果请结合规则配置确认。';
+}
+
+function policyValueLabel(value: unknown): string {
+  if (typeof value === 'string') return policyEnumLabel(value);
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (value === null || value === undefined || value === '') return '未设置';
+  if (typeof value === 'number') return String(value);
+  return '已配置';
+}
+
+function ScopeResourceSelect({
+  binding,
+  disabled,
+  ariaLabel,
+  onChange,
+}: {
+  binding: ScopeBinding;
+  disabled: boolean;
+  ariaLabel: string;
+  onChange: (value?: string) => void;
+}) {
+  // Opaque resource IDs stay as form values for API compatibility. Each
+  // selector resolves the corresponding company/location/group business label.
+  const common = {
+    value: binding.scopeResourceId || undefined,
+    disabled,
+    allowClear: true,
+    'aria-label': ariaLabel,
+    onChange,
+  };
+  if (binding.scopeType === 'COMPANY') return <CompanySelect {...common} />;
+  if (binding.scopeType === 'LOCATION') return <LocationSelect {...common} />;
+  if (binding.scopeType === 'ATTENDANCE_GROUP') {
+    return <AttendanceGroupSelect {...common} />;
+  }
+  return (
+    <Select
+      value={binding.scopeResourceId || undefined}
+      disabled
+      aria-label={ariaLabel}
+      options={binding.scopeResourceId
+        ? [{ value: binding.scopeResourceId, label: '已配置政策组' }]
+        : []}
+      placeholder="请先维护政策组"
+    />
+  );
 }

@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ApiSession,
   EVIDENCE_ID_NORMAL_BROWSER,
-  LEGAL_ENTITY_ID,
+  COMPANY_ID,
   NORMAL_BROWSER_MARKER,
   assert,
   assertCorrelatedApiTrace,
@@ -684,7 +684,7 @@ async function probeRoleHttpBoundaries({
             'X-Change-Reason': "UTF-8''W3%20AUDITOR%20denial",
           },
           body: {
-            legalEntityId: LEGAL_ENTITY_ID,
+            companyId: COMPANY_ID,
             code: 'W3AUDITORDENY',
             name: 'W3 AUDITOR 拒绝探针',
             locationId: '00000000-0000-4000-8000-000000000011',

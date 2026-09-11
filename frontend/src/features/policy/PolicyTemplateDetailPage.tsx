@@ -7,7 +7,7 @@ import { OperationFeedback, ReadOnlyDetails, StatusBadge } from '../../shared/co
 import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
-import { VersionTimeline } from './PolicyComponents';
+import { policyResultText, VersionTimeline } from './PolicyComponents';
 import {
   createDraft,
   getPolicyTemplate,
@@ -40,7 +40,7 @@ export function PolicyTemplateDetailPage({ capabilities }: { capabilities: strin
   };
 
   if (templateResource.resource.status === 'loading' || templateResource.resource.status === 'partial-loading') return <StatePanel state={templateResource.resource.status} />;
-  if ('error' in templateResource.resource) return <StatePanel state={templateResource.resource.status} description={templateResource.resource.error.message} onRetry={templateResource.reload} />;
+  if ('error' in templateResource.resource) return <StatePanel state={templateResource.resource.status} description={policyResultText(templateResource.resource.error.message)} onRetry={templateResource.reload} />;
   if (templateResource.resource.status !== 'ready') return <StatePanel state="404" />;
   const template = templateResource.resource.data;
   return (
@@ -59,16 +59,26 @@ export function PolicyTemplateDetailPage({ capabilities }: { capabilities: strin
             { label: t('policy.templateCode'), value: <code>{template.code}</code> },
             { label: t('policy.status'), value: <StatusBadge status={template.status} /> },
             { label: t('policy.latestVersion'), value: `V${template.latestVersionNumber}` },
-            { label: t('policy.rowVersion'), value: template.rowVersion },
           ]} />
           <h3>{t('policy.controlledFields')}</h3>
-          <ul className="definition-list">{template.fieldDefinitions?.map((field) => <li key={field.key}><code>{field.key}</code><span>{field.label} · {field.valueType}{field.required ? ` · ${t('common.required')}` : ''}</span></li>)}</ul>
+          <ul className="definition-list">
+            {template.fieldDefinitions?.map((field) => (
+              <li key={field.key}>
+                <strong>{field.label}</strong>
+                <span>
+                  {fieldTypeLabel(field.valueType)}
+                  {' · '}
+                  {field.required ? t('common.required') : t('common.optional')}
+                </span>
+              </li>
+            ))}
+          </ul>
         </section>
         <section className="content-surface">
           <h2>{t('policy.versionTimeline')}</h2>
           {versionsResource.resource.status === 'loading' || versionsResource.resource.status === 'partial-loading' ? <StatePanel state={versionsResource.resource.status} /> : null}
           {versionsResource.resource.status === 'empty' ? <StatePanel state="empty" description={t('policy.noVersions')} /> : null}
-          {'error' in versionsResource.resource ? <StatePanel state={versionsResource.resource.status} description={versionsResource.resource.error.message} onRetry={versionsResource.reload} /> : null}
+          {'error' in versionsResource.resource ? <StatePanel state={versionsResource.resource.status} description={policyResultText(versionsResource.resource.error.message)} onRetry={versionsResource.reload} /> : null}
           {versionsResource.resource.status === 'ready' ? <VersionTimeline versions={versionsResource.resource.data.items} onSelect={(version) => navigate(`/rules/templates/${templateId}/versions/${version.versionId}`)} /> : null}
         </section>
       </div>
@@ -84,3 +94,13 @@ export function PolicyTemplateDetailPage({ capabilities }: { capabilities: strin
 }
 
 export default PolicyTemplateDetailPage;
+
+function fieldTypeLabel(valueType: string): string {
+  return ({
+    ENUM: '选项',
+    INTEGER: '整数',
+    DECIMAL: '数值',
+    BOOLEAN: '是/否',
+    STRING: '文本',
+  } as Readonly<Record<string, string>>)[valueType] ?? '业务参数';
+}

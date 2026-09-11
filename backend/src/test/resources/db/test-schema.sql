@@ -1,5 +1,5 @@
-CREATE TABLE legal_entity (
-    legal_entity_id VARCHAR(36) PRIMARY KEY,
+CREATE TABLE company (
+    company_id VARCHAR(36) PRIMARY KEY,
     code VARCHAR(64) NOT NULL UNIQUE,
     name VARCHAR(200) NOT NULL,
     status VARCHAR(32) NOT NULL,
@@ -34,16 +34,26 @@ CREATE TABLE auth_capability (
 CREATE TABLE auth_data_scope (
     scope_id VARCHAR(36) PRIMARY KEY,
     scope_type VARCHAR(32) NOT NULL,
-    legal_entity_id VARCHAR(36),
+    company_id VARCHAR(36),
     organization_id VARCHAR(36),
     include_descendants BOOLEAN NOT NULL,
     valid_from TIMESTAMP NOT NULL,
-    valid_to TIMESTAMP
+    valid_to TIMESTAMP,
+    CONSTRAINT fk_test_auth_scope_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT ck_test_auth_scope_target CHECK (
+        (scope_type = 'COMPANY' AND company_id IS NOT NULL
+            AND organization_id IS NULL)
+        OR (scope_type = 'ORGANIZATION' AND company_id IS NULL
+            AND organization_id IS NOT NULL)
+        OR (scope_type = 'SELF' AND company_id IS NULL
+            AND organization_id IS NULL)
+    )
 );
 
 CREATE TABLE organization_identity (
     organization_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     identity_status VARCHAR(32) NOT NULL
 );
 ALTER TABLE organization_identity ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL;
@@ -85,9 +95,19 @@ CREATE TABLE organization_source_binding (
 
 CREATE TABLE employee (
     employee_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     display_name VARCHAR(100) NOT NULL,
     employment_status VARCHAR(32) NOT NULL
+);
+
+CREATE TABLE punch_exemption_assignment (
+    exemption_id VARCHAR(36) PRIMARY KEY,
+    employee_id VARCHAR(36) NOT NULL,
+    listed_employee_number VARCHAR(64) NOT NULL,
+    source VARCHAR(32) NOT NULL,
+    valid_from TIMESTAMP NOT NULL,
+    valid_to TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE employment_assignment (
@@ -109,6 +129,8 @@ CREATE TABLE employee_source_binding (
 -- WAVE-1 tests keep their schema explicit so H2 remains a fast contract test,
 -- while the separately required MySQL suite verifies the real Flyway DDL.
 ALTER TABLE auth_principal ADD COLUMN employee_id VARCHAR(36);
+CREATE UNIQUE INDEX uq_test_auth_principal_employee
+    ON auth_principal (employee_id);
 ALTER TABLE auth_principal ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL;
 ALTER TABLE auth_principal ADD COLUMN row_version BIGINT DEFAULT 0 NOT NULL;
 
@@ -376,9 +398,17 @@ ALTER TABLE employment_assignment ADD COLUMN created_at TIMESTAMP DEFAULT CURREN
 ALTER TABLE employment_assignment ADD COLUMN version_valid_to TIMESTAMP;
 ALTER TABLE employment_assignment ADD COLUMN record_status VARCHAR(32) DEFAULT 'ACTIVE' NOT NULL;
 
+CREATE TABLE employment_period_identity (
+    employment_period_id VARCHAR(36) PRIMARY KEY,
+    employee_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (employment_period_id, employee_id, company_id)
+);
+
 CREATE TABLE people_import_batch (
     batch_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     template_type VARCHAR(32) NOT NULL,
     template_version VARCHAR(32) NOT NULL,
     status VARCHAR(32) NOT NULL,
@@ -440,7 +470,7 @@ CREATE TABLE people_import_issue (
 CREATE TABLE people_import_publication (
     publication_id VARCHAR(36) PRIMARY KEY,
     batch_id VARCHAR(36) NOT NULL UNIQUE,
-    legal_entity_id VARCHAR(36),
+    company_id VARCHAR(36),
     template_type VARCHAR(32),
     template_version VARCHAR(32),
     file_sha256 CHAR(64) NOT NULL,
@@ -451,7 +481,7 @@ CREATE TABLE people_import_publication (
     published_by VARCHAR(36) NOT NULL,
     published_at TIMESTAMP NOT NULL,
     UNIQUE (published_by, idempotency_key),
-    UNIQUE (legal_entity_id, template_type, template_version, file_sha256)
+    UNIQUE (company_id, template_type, template_version, file_sha256)
 );
 
 CREATE TABLE people_import_rollback (
@@ -522,14 +552,16 @@ CREATE TABLE prior_service_record (
 
 CREATE TABLE location (
     location_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_code VARCHAR(64) NOT NULL,
     row_version BIGINT DEFAULT 0 NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, location_code),
-    CONSTRAINT fk_test_location_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, location_code),
+    UNIQUE (company_id, location_id),
+    UNIQUE (company_id, location_id, location_code),
+    CONSTRAINT fk_test_location_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_location_created_by
         FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
 );
@@ -559,16 +591,89 @@ CREATE TABLE location_revision (
     CONSTRAINT ck_test_location_revision_number CHECK (revision_number > 0)
 );
 
+CREATE TABLE shared_location (
+    shared_location_id VARCHAR(36) PRIMARY KEY,
+    location_code VARCHAR(64) NOT NULL UNIQUE,
+    row_version BIGINT DEFAULT 0 NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (shared_location_id, location_code),
+    CONSTRAINT fk_test_shared_location_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
+);
+
+CREATE TABLE shared_location_revision (
+    shared_location_revision_id VARCHAR(36) PRIMARY KEY,
+    shared_location_id VARCHAR(36) NOT NULL,
+    revision_number INTEGER NOT NULL,
+    location_name VARCHAR(100) NOT NULL,
+    time_zone VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    effective_from DATE NOT NULL,
+    effective_to DATE,
+    supersedes_shared_location_revision_id VARCHAR(36),
+    snapshot_digest CHAR(64) NOT NULL,
+    change_reason VARCHAR(500) NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (shared_location_id, revision_number),
+    UNIQUE (shared_location_id, effective_from),
+    UNIQUE (supersedes_shared_location_revision_id),
+    CONSTRAINT fk_test_shared_location_revision_location
+        FOREIGN KEY (shared_location_id)
+        REFERENCES shared_location (shared_location_id),
+    CONSTRAINT fk_test_shared_location_revision_predecessor
+        FOREIGN KEY (supersedes_shared_location_revision_id)
+        REFERENCES shared_location_revision (shared_location_revision_id),
+    CONSTRAINT fk_test_shared_location_revision_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id),
+    CONSTRAINT ck_test_shared_location_revision_number
+        CHECK (revision_number > 0),
+    CONSTRAINT ck_test_shared_location_revision_status
+        CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    CONSTRAINT ck_test_shared_location_revision_period
+        CHECK (effective_to IS NULL OR effective_to > effective_from)
+);
+
+CREATE TABLE company_location_availability (
+    company_location_availability_id VARCHAR(36) PRIMARY KEY,
+    shared_location_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    location_id VARCHAR(36) NOT NULL,
+    location_code VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    effective_from DATE NOT NULL,
+    effective_to DATE,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (company_id, shared_location_id),
+    UNIQUE (location_id),
+    CONSTRAINT fk_test_company_location_shared_code
+        FOREIGN KEY (shared_location_id, location_code)
+        REFERENCES shared_location (shared_location_id, location_code),
+    CONSTRAINT fk_test_company_location_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT fk_test_company_location_projection_company
+        FOREIGN KEY (company_id, location_id, location_code)
+        REFERENCES location (company_id, location_id, location_code),
+    CONSTRAINT fk_test_company_location_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id),
+    CONSTRAINT ck_test_company_location_status
+        CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    CONSTRAINT ck_test_company_location_period
+        CHECK (effective_to IS NULL OR effective_to > effective_from)
+);
+
 CREATE TABLE shift_template (
     shift_template_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_id VARCHAR(36) NOT NULL,
     template_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, template_code),
-    CONSTRAINT fk_test_shift_template_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, template_code),
+    CONSTRAINT fk_test_shift_template_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_shift_template_location
         FOREIGN KEY (location_id) REFERENCES location (location_id),
     CONSTRAINT fk_test_shift_template_created_by
@@ -601,14 +706,14 @@ CREATE TABLE shift_version (
 
 CREATE TABLE work_calendar (
     work_calendar_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_id VARCHAR(36) NOT NULL,
     calendar_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, calendar_code),
-    CONSTRAINT fk_test_work_calendar_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, calendar_code),
+    CONSTRAINT fk_test_work_calendar_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_work_calendar_location
         FOREIGN KEY (location_id) REFERENCES location (location_id),
     CONSTRAINT fk_test_work_calendar_created_by
@@ -668,13 +773,13 @@ CREATE TABLE work_calendar_day (
 
 CREATE TABLE attendance_group (
     attendance_group_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     group_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, group_code),
-    CONSTRAINT fk_test_attendance_group_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, group_code),
+    CONSTRAINT fk_test_attendance_group_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_attendance_group_created_by
         FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
 );
@@ -902,23 +1007,25 @@ CREATE TABLE attendance_policy_template (
         CHECK (template_code IN (
             'MEAL_DEDUCTION',
             'LATE_GRACE',
-            'MONTHLY_LATE_EXEMPTION'
+            'MONTHLY_LATE_EXEMPTION',
+            'PUNCH_WINDOW',
+            'PERIOD_CLOSE'
         ))
 );
 
 CREATE TABLE attendance_policy_scope (
     scope_id VARCHAR(36) PRIMARY KEY,
     policy_template_id VARCHAR(36) NOT NULL,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     row_version BIGINT DEFAULT 0 NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (policy_template_id, legal_entity_id),
+    UNIQUE (policy_template_id, company_id),
     CONSTRAINT fk_test_attendance_policy_scope_template
         FOREIGN KEY (policy_template_id)
         REFERENCES attendance_policy_template (policy_template_id),
-    CONSTRAINT fk_test_attendance_policy_scope_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id)
+    CONSTRAINT fk_test_attendance_policy_scope_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id)
 );
 
 CREATE TABLE attendance_policy_scoped_version (

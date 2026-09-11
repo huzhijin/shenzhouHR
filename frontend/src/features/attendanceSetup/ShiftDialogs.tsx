@@ -3,6 +3,7 @@ import { Form, Input, Modal, Select } from 'antd';
 import { useTranslation } from 'react-i18next';
 
 import { AccessibleButton } from '../../shared/components/AccessibleButton';
+import { CompanySelect, LocationSelect } from '../referenceData';
 import type {
   ShiftSegment,
   ShiftTemplateInput,
@@ -20,11 +21,16 @@ export function ShiftTemplateDialog({
   open,
   processing,
   initialValues,
+  defaultCompanyId,
   onSubmit,
   onCancel,
-}: DialogProps<ShiftTemplateInput> & { initialValues?: ShiftTemplateInput }) {
+}: DialogProps<ShiftTemplateInput> & {
+  initialValues?: ShiftTemplateInput;
+  defaultCompanyId?: string;
+}) {
   const { t } = useTranslation();
   const [form] = Form.useForm<ShiftTemplateInput>();
+  const companyId = Form.useWatch<string>('companyId', form);
   return (
     <Modal
       open={open}
@@ -39,14 +45,14 @@ export function ShiftTemplateDialog({
       <Form<ShiftTemplateInput>
         form={form}
         layout="vertical"
-        initialValues={initialValues}
+        initialValues={initialValues ?? { companyId: defaultCompanyId }}
         onFinish={onSubmit}
       >
-        <Form.Item label={t('attendanceSetup.legalEntityId')} name="legalEntityId" rules={[required()]}>
-          <Input autoComplete="off" />
+        <Form.Item label="公司" name="companyId" rules={[required()]}>
+          <CompanySelect disabled={initialValues !== undefined || Boolean(defaultCompanyId)} />
         </Form.Item>
-        <Form.Item label={t('attendanceSetup.locationId')} name="locationId" rules={[required()]}>
-          <Input autoComplete="off" />
+        <Form.Item label="地点" name="locationId" rules={[required()]}>
+          <LocationSelect companyId={companyId} disabled={initialValues !== undefined} />
         </Form.Item>
         <Form.Item label={t('attendanceSetup.code')} name="code" rules={[required()]}>
           <Input autoComplete="off" />
@@ -124,9 +130,9 @@ export function ShiftVersionDialog({
                     rules={[required()]}
                   >
                     <Select options={[
-                      { value: 'WORK', label: 'WORK' },
-                      { value: 'BREAK', label: 'BREAK' },
-                      { value: 'MEAL', label: 'MEAL' },
+                      { value: 'WORK', label: '工作时段' },
+                      { value: 'BREAK', label: '休息时段' },
+                      { value: 'MEAL', label: '用餐时段' },
                     ]} />
                   </Form.Item>
                   <Form.Item

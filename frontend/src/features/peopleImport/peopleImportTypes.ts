@@ -96,7 +96,7 @@ export interface PeopleImportPublicationView {
 
 export interface PeopleImportBatchSummary {
   batchId: string;
-  legalEntityId: string;
+  companyId: string;
   templateType: PeopleImportTemplateType;
   templateVersion: string;
   status: PeopleImportBatchStatus;
@@ -170,7 +170,7 @@ export interface PeopleImportRollbackView {
 }
 
 export interface PeopleImportCreateRequest {
-  legalEntityId: string;
+  companyId: string;
   templateType: PeopleImportTemplateType;
   templateVersion: string;
   reason: string;
