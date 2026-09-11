@@ -26,14 +26,30 @@ interface AttendanceReportProjectionWriteMapper {
     int insertDailyFact(
             AttendanceReportProjectionWriteRows.DailyFactRow row);
 
+    int insertDailyFacts(
+            @Param("rows") java.util.List<
+                    AttendanceReportProjectionWriteRows.DailyFactRow> rows);
+
     int insertExceptionFact(
             AttendanceReportProjectionWriteRows.ExceptionFactRow row);
+
+    int insertExceptionFacts(
+            @Param("rows") java.util.List<
+                    AttendanceReportProjectionWriteRows.ExceptionFactRow> rows);
 
     int insertOaDocumentFact(
             AttendanceReportProjectionWriteRows.OaDocumentFactRow row);
 
+    int insertOaDocumentFacts(
+            @Param("rows") java.util.List<
+                    AttendanceReportProjectionWriteRows.OaDocumentFactRow> rows);
+
     int insertTimeAccountFact(
             AttendanceReportProjectionWriteRows.TimeAccountFactRow row);
+
+    int insertTimeAccountFacts(
+            @Param("rows") java.util.List<
+                    AttendanceReportProjectionWriteRows.TimeAccountFactRow> rows);
 
     int markPublished(
             @Param("projectionId") String projectionId,

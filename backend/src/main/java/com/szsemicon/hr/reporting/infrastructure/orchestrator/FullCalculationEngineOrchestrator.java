@@ -222,6 +222,8 @@ public class FullCalculationEngineOrchestrator
                 ? scoped.iterator().next()
                 : null;
         boolean personDay = !scoped.isEmpty();
+        long assembleStarted = System.nanoTime();
+        long stageStarted = assembleStarted;
 
         LocalDate periodStart = period.atDay(1);
         LocalDate periodEndExclusive = period.plusMonths(1).atDay(1);
@@ -296,6 +298,8 @@ public class FullCalculationEngineOrchestrator
                     .filter(segment -> scoped.contains(segment.employeeId()))
                     .toList();
         }
+        long shiftMs = elapsedMs(stageStarted);
+        stageStarted = System.nanoTime();
         Instant evidenceWindowStart = shiftSegments.stream()
                 .map(this::segmentEvidenceStart)
                 .min(Comparator.naturalOrder())
@@ -325,6 +329,8 @@ public class FullCalculationEngineOrchestrator
                         evidenceWindowStart,
                         evidenceWindowEnd,
                         dataAsOf);
+        long punchMs = elapsedMs(stageStarted);
+        stageStarted = System.nanoTime();
         List<PunchCorrectionRow> punchCorrections = employeeIdFilter != null
                 ? mapper.findApprovedPunchCorrectionsForEmployee(
                         companyId,
@@ -440,6 +446,8 @@ public class FullCalculationEngineOrchestrator
                         windowStart,
                         windowEnd,
                         dataAsOf);
+        long oaMs = elapsedMs(stageStarted);
+        stageStarted = System.nanoTime();
         oaDocuments = relocateOaEmployees(oaDocuments);
         reportableOaDocuments = relocateReportableOaEmployees(reportableOaDocuments);
         List<TimeAccountSnapshotRow> timeAccountSnapshots = employeeIdFilter != null
@@ -747,12 +755,43 @@ public class FullCalculationEngineOrchestrator
                 dataAsOf,
                 principalId);
 
+        long computeMs = elapsedMs(stageStarted);
+        log.info(
+                "recalc-stage company={} period={} window={} employees={} "
+                        + "shiftMs={} punchMs={} oaMs={} computeMs={} assembleMs={}",
+                companyId,
+                period,
+                recalcWindowType(
+                        writeStartInclusive, writeEndExclusive, personDay),
+                identities.size(),
+                shiftMs,
+                punchMs,
+                oaMs,
+                computeMs,
+                elapsedMs(assembleStarted));
         return new PublishCommand(
                 metadata,
                 allFacts,
                 List.of(),
                 oaReportFacts,
                 timeAccountFacts);
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
+    }
+
+    private static String recalcWindowType(
+            LocalDate writeStartInclusive,
+            LocalDate writeEndExclusive,
+            boolean personDay) {
+        if (personDay) {
+            return "employee-set";
+        }
+        if (writeStartInclusive == null && writeEndExclusive == null) {
+            return "full-month";
+        }
+        return "window";
     }
 
     private PublishCommand emptyCommand(

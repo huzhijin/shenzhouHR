@@ -929,6 +929,7 @@ public class RealtimeAttendanceReportSnapshotService {
                     + command.metadata().sourceSnapshotDigest();
             CacheEntry calculated = new CacheEntry(
                     command, snapshotVersion, dataAsOf, false);
+            long persistStarted = System.nanoTime();
             if (publisher != null) {
                 PublicationResult published = publisher.publish(
                         command,
@@ -942,6 +943,14 @@ public class RealtimeAttendanceReportSnapshotService {
                             command, snapshotVersion, dataAsOf, false);
                 }
             }
+            log.info(
+                    "recalc-persist company={} period={} window=employee-set "
+                            + "employees={} persistMs={} version={}",
+                    companyId,
+                    period,
+                    employeeIds.size(),
+                    (System.nanoTime() - persistStarted) / 1_000_000L,
+                    snapshotVersion);
             log.info(
                     "employee-set calculation finished company={} period={} employees={} version={}",
                     companyId,
@@ -1014,6 +1023,7 @@ public class RealtimeAttendanceReportSnapshotService {
                     + command.metadata().sourceSnapshotDigest();
             CacheEntry calculated = new CacheEntry(
                     command, snapshotVersion, dataAsOf, false);
+            long persistStarted = System.nanoTime();
             if (publisher != null) {
                 PublicationResult published =
                         writeStart == null
@@ -1032,6 +1042,20 @@ public class RealtimeAttendanceReportSnapshotService {
                             command, snapshotVersion, dataAsOf, false);
                 }
             }
+            String windowType = employeeId == null || employeeId.isBlank()
+                    ? (writeStart == null && writeEndExclusive == null
+                            ? "full-month"
+                            : "window")
+                    : "employee-set";
+            log.info(
+                    "recalc-persist company={} period={} window={} "
+                            + "employees={} persistMs={} version={}",
+                    companyId,
+                    period,
+                    windowType,
+                    employeeId == null || employeeId.isBlank() ? 0 : 1,
+                    (System.nanoTime() - persistStarted) / 1_000_000L,
+                    snapshotVersion);
             if (employeeId == null || employeeId.isBlank()) {
                 log.info(
                         "month calculation finished company={} period={} version={}",

@@ -198,10 +198,14 @@ public class AttendanceReportProjectionPublisher
             }
         }
 
+        List<DailyFactWrite> dailyWrites = new ArrayList<>();
+        List<ExceptionFactWrite> exceptionWrites = new ArrayList<>();
+        List<OaDocumentFactWrite> oaWrites = new ArrayList<>();
+        List<TimeAccountFactWrite> accountWrites = new ArrayList<>();
         for (VerifiedCalculatedFacts calculated :
                 publication.calculatedFacts()) {
             DailyFact daily = calculated.facts().dailyFact();
-            writer.appendDailyFact(new DailyFactWrite(
+            dailyWrites.add(new DailyFactWrite(
                     UUID.randomUUID().toString(),
                     projectionId,
                     calculated.employeeVersionId(),
@@ -210,7 +214,7 @@ public class AttendanceReportProjectionPublisher
                     now));
             for (ExceptionFact exception :
                     calculated.facts().exceptionFacts()) {
-                writer.appendExceptionFact(new ExceptionFactWrite(
+                exceptionWrites.add(new ExceptionFactWrite(
                         UUID.randomUUID().toString(),
                         projectionId,
                         daily.companyId(),
@@ -223,7 +227,7 @@ public class AttendanceReportProjectionPublisher
         }
         for (VerifiedCurrentExceptionFact current :
                 publication.currentExceptionFacts()) {
-            writer.appendExceptionFact(new ExceptionFactWrite(
+            exceptionWrites.add(new ExceptionFactWrite(
                     UUID.randomUUID().toString(),
                     projectionId,
                     current.companyId(),
@@ -234,7 +238,7 @@ public class AttendanceReportProjectionPublisher
                     now));
         }
         for (VerifiedOaDocumentFact oa : publication.oaDocumentFacts()) {
-            writer.appendOaDocumentFact(new OaDocumentFactWrite(
+            oaWrites.add(new OaDocumentFactWrite(
                     UUID.randomUUID().toString(),
                     projectionId,
                     oa.companyId(),
@@ -257,7 +261,7 @@ public class AttendanceReportProjectionPublisher
         }
         for (VerifiedTimeAccountFact account :
                 publication.timeAccountFacts()) {
-            writer.appendTimeAccountFact(new TimeAccountFactWrite(
+            accountWrites.add(new TimeAccountFactWrite(
                     UUID.randomUUID().toString(),
                     projectionId,
                     account.companyId(),
@@ -278,6 +282,10 @@ public class AttendanceReportProjectionPublisher
                     account.ledgerVersion(),
                     now));
         }
+        writer.appendDailyFacts(dailyWrites);
+        writer.appendExceptionFacts(exceptionWrites);
+        writer.appendOaDocumentFacts(oaWrites);
+        writer.appendTimeAccountFacts(accountWrites);
         writer.markPublished(projectionId, now);
         return new PublicationResult(
                 projectionId,

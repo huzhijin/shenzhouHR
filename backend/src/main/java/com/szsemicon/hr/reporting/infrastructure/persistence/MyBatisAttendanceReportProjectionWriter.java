@@ -1,6 +1,7 @@
 package com.szsemicon.hr.reporting.infrastructure.persistence;
 
 import com.szsemicon.hr.reporting.application.AttendanceReportProjectionWriter;
+import com.szsemicon.hr.reporting.application.FactWriteBatches;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -8,6 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,12 +25,16 @@ public class MyBatisAttendanceReportProjectionWriter
 
     private final AttendanceReportProjectionWriteMapper mapper;
     private final ObjectMapper objectMapper;
+    private final int batchSize;
 
     public MyBatisAttendanceReportProjectionWriter(
             AttendanceReportProjectionWriteMapper mapper,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Value("${shenzhouhr.reporting.projection-write-batch-size:500}")
+            int batchSize) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
+        this.batchSize = FactWriteBatches.boundedSize(batchSize);
     }
 
     @Override
@@ -95,11 +101,51 @@ public class MyBatisAttendanceReportProjectionWriter
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
+    public void appendDailyFacts(List<DailyFactWrite> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        for (List<DailyFactWrite> chunk :
+                FactWriteBatches.partition(facts, batchSize)) {
+            List<AttendanceReportProjectionWriteRows.DailyFactRow> rows =
+                    chunk.stream()
+                            .map(AttendanceReportProjectionWriteRows
+                                    .DailyFactRow::from)
+                            .toList();
+            requireCount(
+                    mapper.insertDailyFacts(rows),
+                    rows.size(),
+                    "daily report fact references are invalid");
+        }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void appendExceptionFact(ExceptionFactWrite fact) {
         requireSingle(
                 mapper.insertExceptionFact(AttendanceReportProjectionWriteRows
                         .ExceptionFactRow.from(fact)),
                 "exception report fact references are invalid");
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void appendExceptionFacts(List<ExceptionFactWrite> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        for (List<ExceptionFactWrite> chunk :
+                FactWriteBatches.partition(facts, batchSize)) {
+            List<AttendanceReportProjectionWriteRows.ExceptionFactRow> rows =
+                    chunk.stream()
+                            .map(AttendanceReportProjectionWriteRows
+                                    .ExceptionFactRow::from)
+                            .toList();
+            requireCount(
+                    mapper.insertExceptionFacts(rows),
+                    rows.size(),
+                    "exception report fact references are invalid");
+        }
     }
 
     @Override
@@ -118,12 +164,56 @@ public class MyBatisAttendanceReportProjectionWriter
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
+    public void appendOaDocumentFacts(List<OaDocumentFactWrite> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        for (List<OaDocumentFactWrite> chunk :
+                FactWriteBatches.partition(facts, batchSize)) {
+            List<AttendanceReportProjectionWriteRows.OaDocumentFactRow> rows =
+                    chunk.stream()
+                            .map(AttendanceReportProjectionWriteRows
+                                    .OaDocumentFactRow::from)
+                            .toList();
+            int written = mapper.insertOaDocumentFacts(rows);
+            if (written == rows.size()) {
+                continue;
+            }
+            log.warn(
+                    "skipped unverified OA report facts expected={} written={}",
+                    rows.size(),
+                    written);
+        }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void appendTimeAccountFact(TimeAccountFactWrite fact) {
         requireSingle(
                 mapper.insertTimeAccountFact(
                         AttendanceReportProjectionWriteRows
                                 .TimeAccountFactRow.from(fact)),
                 "time-account report fact references are invalid");
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void appendTimeAccountFacts(List<TimeAccountFactWrite> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        for (List<TimeAccountFactWrite> chunk :
+                FactWriteBatches.partition(facts, batchSize)) {
+            List<AttendanceReportProjectionWriteRows.TimeAccountFactRow> rows =
+                    chunk.stream()
+                            .map(AttendanceReportProjectionWriteRows
+                                    .TimeAccountFactRow::from)
+                            .toList();
+            requireCount(
+                    mapper.insertTimeAccountFacts(rows),
+                    rows.size(),
+                    "time-account report fact references are invalid");
+        }
     }
 
     @Override
@@ -332,7 +422,12 @@ public class MyBatisAttendanceReportProjectionWriter
     }
 
     private static void requireSingle(int affected, String message) {
-        if (affected != 1) {
+        requireCount(affected, 1, message);
+    }
+
+    private static void requireCount(
+            int affected, int expected, String message) {
+        if (affected != expected) {
             throw new IllegalStateException(message);
         }
     }

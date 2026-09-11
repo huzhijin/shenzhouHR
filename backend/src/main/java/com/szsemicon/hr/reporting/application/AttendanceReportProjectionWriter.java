@@ -32,11 +32,47 @@ public interface AttendanceReportProjectionWriter {
 
     void appendDailyFact(DailyFactWrite fact);
 
+    default void appendDailyFacts(List<DailyFactWrite> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        for (DailyFactWrite fact : facts) {
+            appendDailyFact(fact);
+        }
+    }
+
     void appendExceptionFact(ExceptionFactWrite fact);
+
+    default void appendExceptionFacts(List<ExceptionFactWrite> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        for (ExceptionFactWrite fact : facts) {
+            appendExceptionFact(fact);
+        }
+    }
 
     void appendOaDocumentFact(OaDocumentFactWrite fact);
 
+    default void appendOaDocumentFacts(List<OaDocumentFactWrite> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        for (OaDocumentFactWrite fact : facts) {
+            appendOaDocumentFact(fact);
+        }
+    }
+
     void appendTimeAccountFact(TimeAccountFactWrite fact);
+
+    default void appendTimeAccountFacts(List<TimeAccountFactWrite> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        for (TimeAccountFactWrite fact : facts) {
+            appendTimeAccountFact(fact);
+        }
+    }
 
     void markPublished(String projectionId, Instant publishedAt);
 
