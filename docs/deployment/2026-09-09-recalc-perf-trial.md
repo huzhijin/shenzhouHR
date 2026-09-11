@@ -4,6 +4,8 @@
 
 发布包：`release-candidates/shenzhouhr-release-20260909-recalc-perf.tar.gz`
 
+SHA256：`0fcc27060504dd6b4bf29a3b1d04c020fc326ea9eb53f6ddcbd8b11efbec6638`
+
 升级脚本：`docs/deployment/2026-09-09-recalc-perf-trial.sh`
 
 ## 试什么
@@ -20,6 +22,8 @@
 
 ```bash
 sha256sum /root/shenzhouhr-release-20260909-recalc-perf.tar.gz
+# 必须是
+# 0fcc27060504dd6b4bf29a3b1d04c020fc326ea9eb53f6ddcbd8b11efbec6638
 chmod +x /root/upgrade-recalc-perf.sh
 bash /root/upgrade-recalc-perf.sh
 ```
