@@ -60,6 +60,28 @@ interface DateRange {
   to: string;
 }
 
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function isoDate(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+/** Default the day table to a window around today so makeup/holiday days are visible. */
+export function defaultCalendarDayRange(year: number, now = new Date()): DateRange {
+  if (year !== now.getFullYear()) {
+    return { from: `${year}-01-01`, to: `${year}-01-14` };
+  }
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const to = new Date(from);
+  to.setDate(from.getDate() + 14);
+  if (to.getFullYear() !== year) {
+    return { from: isoDate(from), to: `${year}-12-31` };
+  }
+  return { from: isoDate(from), to: isoDate(to) };
+}
+
 export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
   const { t } = useTranslation();
   const currentYear = new Date().getFullYear();
@@ -67,10 +89,9 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
   const [year, setYear] = useState(currentYear);
   const [selectedCalendarId, setSelectedCalendarId] = useState('');
   const [selectedCalendarVersionId, setSelectedCalendarVersionId] = useState('');
-  const [draftRange, setDraftRange] = useState<DateRange>({
-    from: `${currentYear}-12-29`,
-    to: `${currentYear}-12-31`,
-  });
+  const [draftRange, setDraftRange] = useState<DateRange>(
+    () => defaultCalendarDayRange(currentYear),
+  );
   const [range, setRange] = useState<DateRange>(draftRange);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarDialogIntent, setCalendarDialogIntent] = useState<
@@ -422,8 +443,9 @@ export function CalendarsPage({ capabilities }: { capabilities: string[] }) {
     setCalendarPage(0);
     setVersionPage(0);
     setDayPage(0);
-    setDraftRange({ from: `${value}-12-29`, to: `${value}-12-31` });
-    setRange({ from: `${value}-12-29`, to: `${value}-12-31` });
+    const nextRange = defaultCalendarDayRange(value);
+    setDraftRange(nextRange);
+    setRange(nextRange);
   };
   const changeCompany = (companyId?: string) => {
     setSelectedCompanyId(companyId ?? '');

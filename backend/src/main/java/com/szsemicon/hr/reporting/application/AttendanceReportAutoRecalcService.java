@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -30,6 +31,7 @@ public class AttendanceReportAutoRecalcService
     private final Clock clock;
     private final boolean enabled;
     private final Duration delay;
+    private final List<ReportSlotCompletionListener> slotListeners;
 
     public AttendanceReportAutoRecalcService(
             JdbcTemplate jdbc,
@@ -39,11 +41,25 @@ public class AttendanceReportAutoRecalcService
                     boolean enabled,
             @Value("${shenzhouhr.report.auto-recalculate-delay:PT10M}")
                     Duration delay) {
+        this(jdbc, snapshots, clock, enabled, delay, List.of());
+    }
+
+    @Autowired
+    public AttendanceReportAutoRecalcService(
+            JdbcTemplate jdbc,
+            RealtimeAttendanceReportSnapshotService snapshots,
+            Clock clock,
+            @Value("${shenzhouhr.report.auto-recalculate-after-sync:true}")
+                    boolean enabled,
+            @Value("${shenzhouhr.report.auto-recalculate-delay:PT10M}")
+                    Duration delay,
+            @Autowired(required = false) List<ReportSlotCompletionListener> slotListeners) {
         this.jdbc = jdbc;
         this.snapshots = snapshots;
         this.clock = clock;
         this.enabled = enabled;
         this.delay = delay;
+        this.slotListeners = slotListeners != null ? slotListeners : List.of();
     }
 
     @Override
@@ -151,6 +167,18 @@ public class AttendanceReportAutoRecalcService
                     """,
                     java.sql.Timestamp.from(now),
                     java.sql.Timestamp.from(slotStart));
+            int slotYear = slotDate.getYear();
+            for (String companyId : companies) {
+                for (ReportSlotCompletionListener listener : slotListeners) {
+                    try {
+                        listener.onReportSlotCompleted(companyId, slotYear);
+                    } catch (RuntimeException listenerError) {
+                        log.error(
+                                "ReportSlotCompletionListener failed company={} year={}",
+                                companyId, slotYear, listenerError);
+                    }
+                }
+            }
         } catch (RuntimeException failed) {
             log.error("auto month engine failed slot={}", slotStart, failed);
             jdbc.update(

@@ -41,6 +41,7 @@ import {
   overtimeTreatmentHover,
   readOvertimeDayHours,
 } from './financeOvertimeLayout';
+import { DayPunchLocationPanel } from './DayPunchLocationPanel';
 import { defaultQueryPeriod, monthDateRange } from './queryPeriod';
 import { getCurrentOrganizationTree, type OrganizationNode } from '../organization/organizationApi';
 import './customerReports.css';
@@ -175,6 +176,7 @@ export function QueryReportsPage({
   const [leaveAdjustReason, setLeaveAdjustReason] = useState('');
   const [leaveAdjusting, setLeaveAdjusting] = useState(false);
   const canAdjustLeave = (capabilities ?? []).includes('ANNUAL_LEAVE:ADJUST');
+  const canViewLocation = (capabilities ?? []).includes('ATTENDANCE_LOCATION:READ');
 
   const currentMonth = period.format('YYYY-MM');
 
@@ -1099,6 +1101,8 @@ export function QueryReportsPage({
             month={(range?.[0] ?? period).format('YYYY-MM')}
             row={detailRow}
             view={matrixView}
+            companyId={companyId}
+            canViewLocation={canViewLocation}
             onAdjust={canAdjust ? openMatrixDayAdjust : undefined}
           />
         ) : detailRow && sheet === 'missed-punch-stat' ? (
@@ -1123,14 +1127,24 @@ export function QueryReportsPage({
             onSave={() => void submitLeaveAdjustment()}
           />
         ) : detailRow ? (
-          <dl className="query-report__drawer">
-            {detailEntries(sheet, detailRow).map((entry) => (
-              <div key={entry.key}>
-                <dt>{entry.title}</dt>
-                <dd>{entry.value}</dd>
-              </div>
-            ))}
-          </dl>
+          <>
+            <dl className="query-report__drawer">
+              {detailEntries(sheet, detailRow).map((entry) => (
+                <div key={entry.key}>
+                  <dt>{entry.title}</dt>
+                  <dd>{entry.value}</dd>
+                </div>
+              ))}
+            </dl>
+            {sheet === 'daily-journal' ? (
+              <DayPunchLocationPanel
+                companyId={companyId}
+                employeeId={String(detailRow.employeeId ?? '')}
+                businessDate={String(detailRow.businessDate ?? '')}
+                canViewLocation={canViewLocation}
+              />
+            ) : null}
+          </>
         ) : null}
       </Drawer>
       <Modal
@@ -2364,11 +2378,15 @@ function MatrixMonthView({
   month,
   row,
   view,
+  companyId,
+  canViewLocation,
   onAdjust,
 }: {
   month: string;
   row: Record<string, unknown>;
   view: 'calendar' | 'list';
+  companyId?: string;
+  canViewLocation?: boolean;
   onAdjust?: (day: Record<string, unknown>, date: string) => void;
 }) {
   const start = dayjs(`${month}-01`);
@@ -2435,40 +2453,88 @@ function MatrixMonthView({
           </div>
         </div>
       ) : (
-        <div className="customer-report__table-scroll">
-          <table className="customer-report__table">
-            <thead>
-              <tr>
-                <th scope="col">日期</th>
-                <th scope="col">星期</th>
-                <th scope="col">日类型</th>
-                <th scope="col">状态</th>
-                <th scope="col">上班打卡</th>
-                <th scope="col">下班打卡</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cells.map(({ date, day }) => {
-                const iso = date.format('YYYY-MM-DD');
-                return (
-                  <tr
-                    key={iso}
-                    className={onAdjust ? 'query-report__row-link' : undefined}
-                    onClick={onAdjust ? () => onAdjust(day ?? {}, iso) : undefined}
-                  >
-                    <td>{date.format('M月D日')}</td>
-                    <td>{weekdayLabel(date.day())}</td>
-                    <td>{dayTypeLabel(String(day?.dayType ?? ''))}</td>
-                    <td><strong>{matrixDayStatus(day)}</strong></td>
-                    <td>{formatPunch(day?.firstPunchAt, iso)}</td>
-                    <td>{formatPunch(day?.lastPunchAt, iso)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <MatrixDayPunchList
+          cells={cells}
+          companyId={companyId}
+          employeeId={String(row.employeeId ?? '')}
+          canViewLocation={canViewLocation}
+          onAdjust={onAdjust}
+        />
       )}
+    </div>
+  );
+}
+
+function MatrixDayPunchList({
+  cells,
+  companyId,
+  employeeId,
+  canViewLocation,
+  onAdjust,
+}: {
+  cells: Array<{ date: Dayjs; day: Record<string, unknown> | undefined }>;
+  companyId?: string;
+  employeeId: string;
+  canViewLocation?: boolean;
+  onAdjust?: (day: Record<string, unknown>, date: string) => void;
+}) {
+  const [openDate, setOpenDate] = useState<string | null>(null);
+  return (
+    <div className="customer-report__table-scroll">
+      <table className="customer-report__table">
+        <thead>
+          <tr>
+            <th scope="col">日期</th>
+            <th scope="col">星期</th>
+            <th scope="col">日类型</th>
+            <th scope="col">状态</th>
+            <th scope="col">上班打卡</th>
+            <th scope="col">下班打卡</th>
+            <th scope="col">当日打卡</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cells.map(({ date, day }) => {
+            const iso = date.format('YYYY-MM-DD');
+            return (
+              <tr key={iso}>
+                <td>{date.format('M月D日')}</td>
+                <td>{weekdayLabel(date.day())}</td>
+                <td>{dayTypeLabel(String(day?.dayType ?? ''))}</td>
+                <td><strong>{matrixDayStatus(day)}</strong></td>
+                <td>{formatPunch(day?.firstPunchAt, iso)}</td>
+                <td>{formatPunch(day?.lastPunchAt, iso)}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="query-report__detail-btn"
+                    onClick={() => setOpenDate(openDate === iso ? null : iso)}
+                  >
+                    {openDate === iso ? '收起' : '查看打卡'}
+                  </button>
+                  {onAdjust ? (
+                    <button
+                      type="button"
+                      className="query-report__detail-btn"
+                      onClick={() => onAdjust(day ?? {}, iso)}
+                    >
+                      改打卡
+                    </button>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {openDate ? (
+        <DayPunchLocationPanel
+          companyId={companyId}
+          employeeId={employeeId}
+          businessDate={openDate}
+          canViewLocation={canViewLocation}
+        />
+      ) : null}
     </div>
   );
 }

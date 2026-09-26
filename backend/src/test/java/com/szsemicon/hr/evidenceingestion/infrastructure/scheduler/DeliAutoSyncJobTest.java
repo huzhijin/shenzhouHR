@@ -26,13 +26,13 @@ import org.springframework.scheduling.support.CronExpression;
 
 class DeliAutoSyncJobTest {
 
-    private static final String FOUR_TIMES_DAILY_CRON = "0 0 0,8,12,18 * * ?";
+    private static final String EVERY_TEN_MINUTES_CRON = "0 */10 * * * ?";
     private static final Instant NOW =
             Instant.parse("2026-08-17T07:00:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
 
     @Test
-    void defaultScheduleRunsAtEightNoonSixAndMidnight() throws Exception {
+    void defaultScheduleRunsEveryTenMinutesFromTheWatermark() throws Exception {
         Scheduled scheduled = DeliAutoSyncJob.class
                 .getDeclaredMethod("triggerScheduledSync")
                 .getAnnotation(Scheduled.class);
@@ -40,20 +40,20 @@ class DeliAutoSyncJobTest {
         assertThat(scheduled).isNotNull();
         assertThat(scheduled.cron())
                 .isEqualTo("${shenzhouhr.deli.auto-sync-cron:"
-                        + FOUR_TIMES_DAILY_CRON + "}");
+                        + EVERY_TEN_MINUTES_CRON + "}");
         assertThat(scheduled.zone())
                 .isEqualTo("${shenzhouhr.oa.auto-sync-zone:Asia/Shanghai}");
 
-        CronExpression expression = CronExpression.parse(FOUR_TIMES_DAILY_CRON);
+        CronExpression expression = CronExpression.parse(EVERY_TEN_MINUTES_CRON);
         assertThat(expression.next(LocalDateTime.of(
                 2026, 8, 17, 7, 17, 42)))
-                .isEqualTo(LocalDateTime.of(2026, 8, 17, 8, 0));
+                .isEqualTo(LocalDateTime.of(2026, 8, 17, 7, 20));
         assertThat(expression.next(LocalDateTime.of(
                 2026, 8, 17, 9, 17, 42)))
-                .isEqualTo(LocalDateTime.of(2026, 8, 17, 12, 0));
+                .isEqualTo(LocalDateTime.of(2026, 8, 17, 9, 20));
         assertThat(expression.next(LocalDateTime.of(
-                2026, 8, 17, 12, 0, 0)))
-                .isEqualTo(LocalDateTime.of(2026, 8, 17, 18, 0));
+                2026, 8, 17, 20, 5, 0)))
+                .isEqualTo(LocalDateTime.of(2026, 8, 17, 20, 10));
         assertThat(expression.next(LocalDateTime.of(
                 2026, 8, 17, 23, 59, 59)))
                 .isEqualTo(LocalDateTime.of(2026, 8, 18, 0, 0));

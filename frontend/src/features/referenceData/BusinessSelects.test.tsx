@@ -199,7 +199,7 @@ describe('business reference selects', () => {
     );
   });
 
-  it('auto-selects one authorized company and explains why the field is disabled', async () => {
+  it('auto-selects one authorized company and still submits companyId', async () => {
     const onFinish = vi.fn();
     render(
       <Form onFinish={onFinish}>
@@ -211,7 +211,8 @@ describe('business reference selects', () => {
     );
 
     const input = screen.getByLabelText('唯一公司');
-    await waitFor(() => expect(input).toBeDisabled());
+    await waitFor(() => expect(api.listReferenceCompanies).toHaveBeenCalled());
+    expect(input).not.toBeDisabled();
     expect(await screen.findByText(company.companyName)).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(
       '当前账号仅授权 1 家公司，已自动选择。',

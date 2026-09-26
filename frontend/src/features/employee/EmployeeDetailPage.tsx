@@ -844,7 +844,7 @@ function EmployeeDialogs({
 function ReasonField() {
   const { t } = useTranslation();
   return (
-    <Form.Item name="reason" label={t('people.reason')} rules={[{ required: true, min: 4 }, { max: 500 }]}>
+    <Form.Item name="reason" label={t('people.reason')} rules={[{ required: true, min: 2 }, { max: 500 }]}>
       <Input.TextArea rows={3} />
     </Form.Item>
   );

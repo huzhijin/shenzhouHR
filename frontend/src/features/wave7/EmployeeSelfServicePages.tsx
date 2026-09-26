@@ -1,4 +1,5 @@
-import { Button } from 'antd';
+import { Button, Drawer } from 'antd';
+import { DayPunchLocationPanel } from '../reports/DayPunchLocationPanel';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useState, type ReactNode } from 'react';
 
@@ -104,6 +105,7 @@ export function EmployeeFeedbackRoute({
 }
 
 export function EmployeeRecordsView({ projection }: { projection: AttendanceRecordsProjection }) {
+  const [punchDate, setPunchDate] = useState<string | null>(null);
   return (
     <>
       <PageHeader title="我的考勤" description="查看本月汇总和每天的考勤记录。" />
@@ -123,6 +125,9 @@ export function EmployeeRecordsView({ projection }: { projection: AttendanceReco
           rowKey={(row) => row.businessDate}
           columns={[
             { key: 'date', title: '日期', render: (row) => formatDate(row.businessDate) },
+            { key: 'punches', title: '打卡', render: (row) => (
+              <Button type="link" onClick={() => setPunchDate(row.businessDate)}>查看打卡</Button>
+            ) },
             { key: 'shift', title: '班次', render: (row) => row.shiftLabel },
             { key: 'hours', title: '确认工时', render: (row) => formatHours(row.confirmedMinutes) },
             {
@@ -145,6 +150,9 @@ export function EmployeeRecordsView({ projection }: { projection: AttendanceReco
           ]}
         />
       </section>
+      <Drawer title="当日打卡" open={punchDate != null} onClose={() => setPunchDate(null)} destroyOnHidden>
+        {punchDate ? <DayPunchLocationPanel businessDate={punchDate} selfService /> : null}
+      </Drawer>
     </>
   );
 }

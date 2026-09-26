@@ -365,6 +365,8 @@ describe('QueryReportsPage presentation', () => {
       '审批状态',
     ]);
     expect(visibleExportColumns('daily-journal').some((column) => column.key === 'adjust')).toBe(false);
+    expect(visibleExportColumns('daily-journal').map((column) => column.title).join(','))
+      .not.toMatch(/地理位置|经纬度|地图|location/i);
     expect(visibleExportColumns('matrix').map((column) => column.key)).not.toContain('action');
   });
 

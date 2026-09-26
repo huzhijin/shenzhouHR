@@ -176,6 +176,14 @@ interface PeopleMapper {
             @Param("companyId") String companyId,
             @Param("code") String code);
 
+    List<PeopleRows.OrganizationRow> listCurrentOrganizations();
+
+    List<PeopleRows.EmployeeRow> listCurrentEmployees();
+
+    List<PeopleRows.EmploymentRow> listOpenEmployments();
+
+    List<PeopleRows.CompanyRefRow> listActiveCompanies();
+
     List<PeopleRows.OrganizationRow> listOrganizationVersions(
             @Param("organizationId") String organizationId,
             @Param("limit") int limit,

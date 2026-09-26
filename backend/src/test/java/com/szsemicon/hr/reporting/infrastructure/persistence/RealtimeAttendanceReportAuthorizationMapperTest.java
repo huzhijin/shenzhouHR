@@ -107,6 +107,28 @@ class RealtimeAttendanceReportAuthorizationMapperTest {
         }
     }
 
+    @Test
+    void locationCapabilityUsesItsOwnScopeAndHonorsExpiry() throws Exception {
+        Configuration configuration = configuration();
+        try (Connection connection = DriverManager.getConnection(
+                "jdbc:h2:mem:location-scope;MODE=MySQL")) {
+            createSchema(connection);
+            seedAuthorizationGraph(connection);
+            var sql = connection.createStatement();
+            sql.execute("INSERT INTO auth_capability VALUES('cap-location','ATTENDANCE_LOCATION:READ')");
+            sql.execute("INSERT INTO auth_role_capability VALUES('role-location','cap-location')");
+            sql.execute("INSERT INTO auth_data_scope VALUES('scope-self','SELF',NULL,NULL,FALSE,TIMESTAMP '2026-01-01 00:00:00',NULL)");
+            sql.execute("INSERT INTO auth_principal_role_assignment VALUES('location-assignment','principal-1','role-location','scope-self',TIMESTAMP '2026-01-01 00:00:00',NULL)");
+            var parameters = Map.<String, Object>of("principalId", "principal-1",
+                    "capabilityCode", "ATTENDANCE_LOCATION:READ", "companyId", "company-a",
+                    "authorizationTime", java.time.Instant.parse(AUTHORIZATION_TIME));
+            assertThat(firstColumn(configuration, connection, "listRealtimeAuthorizedScopes", parameters))
+                    .containsExactly("scope-self");
+            sql.execute("UPDATE auth_principal_role_assignment SET valid_to=TIMESTAMP '2026-08-01 00:00:00' WHERE assignment_id='location-assignment'");
+            assertThat(firstColumn(configuration, connection, "listRealtimeAuthorizedScopes", parameters)).isEmpty();
+        }
+    }
+
     private static List<String> firstColumn(
             Configuration configuration,
             Connection connection,

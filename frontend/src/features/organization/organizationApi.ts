@@ -61,7 +61,7 @@ export interface OrganizationVersionPage {
 export interface OrganizationCreateRequest {
   companyId: string;
   parentOrganizationId?: string | null;
-  code: string;
+  code?: string;
   name: string;
   organizationType: OrganizationNode['organizationType'];
   effectiveFrom: string;

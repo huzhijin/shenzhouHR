@@ -54,7 +54,8 @@ class LeaveAccountOaRecalculateServiceTest {
                 mapper,
                 accounts,
                 reports,
-                Clock.fixed(now, ZoneOffset.UTC));
+                Clock.fixed(now, ZoneOffset.UTC),
+                "");
         when(principals.currentPrincipalId()).thenReturn("principal-1");
         when(mapper.listCompanyEmployments(eq("company-a"), any()))
                 .thenReturn(List.of(new EmployeeEmploymentRow(
@@ -115,7 +116,8 @@ class LeaveAccountOaRecalculateServiceTest {
                 mapper,
                 accounts,
                 reports,
-                Clock.fixed(now, ZoneOffset.UTC));
+                Clock.fixed(now, ZoneOffset.UTC),
+                "");
         when(mapper.listCompanyEmployments(eq("company-a"), any()))
                 .thenReturn(List.of(new EmployeeEmploymentRow(
                         "employee-1", "period-1", "company-a")));
@@ -150,5 +152,62 @@ class LeaveAccountOaRecalculateServiceTest {
         assertThat(result.annualAccounts()).isEqualTo(1);
         verify(capabilities, never()).require(any());
         verify(reports, never()).recalculate(any(), any(), any());
+    }
+
+    @Test
+    void compensatoryOvertimeCreditsTimeOffBalance() {
+        Instant now = Instant.parse("2026-09-18T10:00:00Z");
+        var service = new LeaveAccountOaRecalculateService(
+                capabilities,
+                principals,
+                mapper,
+                accounts,
+                reports,
+                Clock.fixed(now, ZoneOffset.UTC),
+                "");
+        when(principals.currentPrincipalId()).thenReturn("principal-1");
+        when(mapper.listCompanyEmployments(eq("company-a"), any()))
+                .thenReturn(List.of(new EmployeeEmploymentRow(
+                        "employee-1", "period-1", "company-a")));
+        when(mapper.listOaHours(eq("company-a"), any(), any()))
+                .thenReturn(List.of(new OaHourRow(
+                        "employee-1", "COMPENSATORY_OT", 690L)));
+        when(accounts.lockTimeAccount("employee-1", "period-1", 2026, "ANNUAL_LEAVE"))
+                .thenReturn(Optional.of(new TimeAccountRow(
+                        "account-1",
+                        "employee-1",
+                        "period-1",
+                        "company-a",
+                        2026,
+                        BigDecimal.ZERO,
+                        "policy-1",
+                        1L)));
+        when(accounts.lockTimeAccount("employee-1", "period-1", 2026, "TIME_OFF"))
+                .thenReturn(Optional.of(new TimeAccountRow(
+                        "account-2",
+                        "employee-1",
+                        "period-1",
+                        "company-a",
+                        2026,
+                        BigDecimal.valueOf(5),
+                        "policy-1",
+                        1L)));
+        when(mapper.listUnreversedOaSyncEntries(any(), any(), any()))
+                .thenReturn(List.of());
+        when(accounts.nextSequenceNo("account-2")).thenReturn(2);
+        when(accounts.updateBalance(any(), any(), anyLong())).thenReturn(true);
+
+        service.recalculate("company-a", 2026);
+
+        ArgumentCaptor<LedgerEntryRow> captor = ArgumentCaptor.forClass(LedgerEntryRow.class);
+        verify(accounts).insertLedgerEntry(captor.capture());
+        assertThat(captor.getValue().accountId()).isEqualTo("account-2");
+        assertThat(captor.getValue().entryType()).isEqualTo("OVERTIME_CREDIT");
+        assertThat(captor.getValue().amountHours())
+                .isEqualByComparingTo(BigDecimal.valueOf(11.5).setScale(2));
+        verify(accounts).updateBalance(
+                eq("account-2"),
+                eq(BigDecimal.valueOf(16.5).setScale(2)),
+                eq(1L));
     }
 }

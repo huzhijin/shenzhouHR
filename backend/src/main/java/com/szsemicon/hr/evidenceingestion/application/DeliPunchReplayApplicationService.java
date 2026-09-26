@@ -93,7 +93,8 @@ public class DeliPunchReplayApplicationService {
             int identityMovedCount,
             EmployeeDeliBindingSeedService.SeedResult seed,
             List<QuarantineNote> stillQuarantined,
-            boolean recalculated) {
+            boolean recalculated,
+            List<DeliPunchPageTransaction.PromotedPunch> promoted) {
     }
 
     public ReplayResult replay(
@@ -113,7 +114,14 @@ public class DeliPunchReplayApplicationService {
         capabilities.require(CapabilityCodes.ATTENDANCE_SOURCE_RUN);
         try {
             return replayUnchecked(
-                    sourceId, fromDate, toDate, throughToday, seedBindings, recalculate);
+                    sourceId,
+                    fromDate,
+                    toDate,
+                    throughToday,
+                    seedBindings,
+                    recalculate,
+                    false,
+                    null);
         } catch (ApiProblemException exception) {
             throw exception;
         } catch (DeliPunchSourcePort.FetchException exception) {
@@ -143,14 +151,29 @@ public class DeliPunchReplayApplicationService {
         }
     }
 
+    /**
+     * Background recovery. Promotes quarantined punches in the window and
+     * does not move punches that already have an active event. Watermark
+     * stays where it is.
+     */
+    public ReplayResult replayForRecovery(
+            String sourceId, LocalDate fromDate, LocalDate toDate) {
+        return replayUnchecked(
+                sourceId, fromDate, toDate, false, false, false, true, "SYSTEM");
+    }
+
     private ReplayResult replayUnchecked(
             String sourceId,
             LocalDate fromDate,
             LocalDate toDate,
             boolean throughToday,
             boolean seedBindings,
-            boolean recalculate) {
-        String principalId = principals.currentPrincipalId();
+            boolean recalculate,
+            boolean quarantinePromotionOnly,
+            String principalOverride) {
+        String principalId = principalOverride == null
+                ? principals.currentPrincipalId()
+                : principalOverride;
         String resolvedSource = sourceId == null || sourceId.isBlank()
                 ? bindingMapper.findActiveDeliSourceId()
                 : sourceId;
@@ -217,6 +240,7 @@ public class DeliPunchReplayApplicationService {
         int replayed = 0;
         int moved = 0;
         List<QuarantineNote> stillQuarantined = new ArrayList<>();
+        List<DeliPunchPageTransaction.PromotedPunch> promoted = new ArrayList<>();
         StreamCounts checkin = replayStream(
                 source,
                 job,
@@ -227,7 +251,9 @@ public class DeliPunchReplayApplicationService {
                 windowEndExclusive,
                 configurationResolver,
                 periodProtection,
-                stillQuarantined);
+                stillQuarantined,
+                quarantinePromotionOnly,
+                promoted);
         accepted += checkin.accepted;
         quarantined += checkin.quarantined;
         replayed += checkin.replayed;
@@ -242,7 +268,9 @@ public class DeliPunchReplayApplicationService {
                 windowEndExclusive,
                 configurationResolver,
                 periodProtection,
-                stillQuarantined);
+                stillQuarantined,
+                quarantinePromotionOnly,
+                promoted);
         accepted += kq.accepted;
         quarantined += kq.quarantined;
         replayed += kq.replayed;
@@ -278,7 +306,8 @@ public class DeliPunchReplayApplicationService {
                 moved,
                 seed,
                 List.copyOf(stillQuarantined),
-                didRecalc);
+                didRecalc,
+                List.copyOf(promoted));
     }
 
     private StreamCounts replayStream(
@@ -291,7 +320,9 @@ public class DeliPunchReplayApplicationService {
             Instant windowEndExclusive,
             AttendanceConfigurationResolverPort configurationResolver,
             AttendancePeriodProtectionPort periodProtection,
-            List<QuarantineNote> stillQuarantined) {
+            List<QuarantineNote> stillQuarantined,
+            boolean quarantinePromotionOnly,
+            List<DeliPunchPageTransaction.PromotedPunch> promoted) {
         var settings = new DeliPunchSourcePort.FetchSettings(
                 job.pageSize(),
                 ZoneId.of(job.sourceTimeZone()),
@@ -339,11 +370,13 @@ public class DeliPunchReplayApplicationService {
                         configurationResolver,
                         periodProtection,
                         DeliPunchSourcePort.FetchSettings.MODULE_KQ.equals(
-                                apiModule));
+                                apiModule),
+                        quarantinePromotionOnly);
                 accepted += outcome.acceptedCount();
                 quarantined += outcome.quarantinedCount();
                 replayed += outcome.identityReplayedCount();
                 moved += outcome.identityMovedCount();
+                promoted.addAll(outcome.promoted());
                 for (var note : outcome.stillQuarantined()) {
                     if (stillQuarantined.size() < 500) {
                         stillQuarantined.add(new QuarantineNote(

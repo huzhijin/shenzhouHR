@@ -23,7 +23,7 @@ import {
 import { loadAllAttendanceDirectoryItems } from './attendanceDirectory';
 import { AttendancePolicyPage } from './AttendancePolicyPage';
 import { CalendarDaysDialog } from './CalendarDialogs';
-import { CalendarsPage } from './CalendarsPage';
+import { CalendarsPage, defaultCalendarDayRange } from './CalendarsPage';
 import { PolicySimulationPanel } from './PolicySimulationPanel';
 import { ShiftVersionDialog } from './ShiftDialogs';
 import { ShiftsPage } from './ShiftsPage';
@@ -362,6 +362,21 @@ describe('attendance setup demo pages', () => {
     expect(screen.queryByText('跨年边界独立解析')).not.toBeInTheDocument();
     expect(screen.queryByText('[start_date, end_exclusive)')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存日期覆盖' })).toBeDisabled();
+  });
+
+  it('defaults the calendar day window around today instead of year-end', () => {
+    expect(defaultCalendarDayRange(2026, new Date(2026, 8, 19))).toEqual({
+      from: '2026-09-19',
+      to: '2026-10-03',
+    });
+    expect(defaultCalendarDayRange(2025, new Date(2026, 8, 19))).toEqual({
+      from: '2025-01-01',
+      to: '2025-01-14',
+    });
+    expect(defaultCalendarDayRange(2026, new Date(2026, 11, 28))).toEqual({
+      from: '2026-12-28',
+      to: '2026-12-31',
+    });
   });
 
   it('exposes calendar-family update and publish operations to calendar managers', async () => {

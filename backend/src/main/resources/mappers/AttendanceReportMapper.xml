@@ -1339,6 +1339,7 @@
                 'ATTENDANCE_REPORT:EXPORT_CREATE',
                 'ATTENDANCE_REPORT:EXPORT_DOWNLOAD',
                 'ATTENDANCE_DASHBOARD:READ',
+                'ATTENDANCE_LOCATION:READ',
                 'ATTENDANCE_SELF:READ',
                 'ATTENDANCE_REPORT:REFRESH'
          )

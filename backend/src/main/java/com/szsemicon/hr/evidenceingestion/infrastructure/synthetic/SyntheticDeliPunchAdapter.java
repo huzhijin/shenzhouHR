@@ -32,7 +32,9 @@ public class SyntheticDeliPunchAdapter implements DeliPunchSourcePort {
                 "SYNTHETIC-DEVICE-001",
                 "SYNTHETIC-LOCATION",
                 "UNKNOWN",
-                true);
+                true,
+                null,
+                null);
         return new DeliPage(
                 List.of(record),
                 committedCursor,

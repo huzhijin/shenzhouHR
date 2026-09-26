@@ -1910,6 +1910,48 @@
   gap: 8px;
 }
 
+.query-report__punches {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--report-line);
+}
+
+.query-report__punches h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.query-report__punches ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.query-report__punches li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.query-report__punch-error {
+  color: var(--color-danger, #b42318);
+}
+
+.query-report__punch-map p {
+  margin: 0 0 8px;
+}
+
+.query-report__punch-point {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: var(--report-surface-subtle);
+  border: 1px solid var(--report-line);
+}
+
 .query-report__calendar-weekdays,
 .query-report__calendar-grid {
   display: grid;

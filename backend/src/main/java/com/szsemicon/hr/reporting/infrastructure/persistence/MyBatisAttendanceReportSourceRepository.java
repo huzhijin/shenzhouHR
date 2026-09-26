@@ -55,6 +55,7 @@ public class MyBatisAttendanceReportSourceRepository
             MyBatisAttendanceReportSourceRepository.class);
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
     private static final Set<String> REALTIME_SCOPE_CAPABILITIES = Set.of(
+            CapabilityCodes.ATTENDANCE_LOCATION_READ,
             CapabilityCodes.ATTENDANCE_REPORT_READ,
             CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
             CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE,

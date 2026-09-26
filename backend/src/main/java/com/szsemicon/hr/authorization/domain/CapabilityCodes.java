@@ -112,6 +112,8 @@ public final class CapabilityCodes {
             "PAPER_OVERTIME:MANAGE";
     public static final String ATTENDANCE_ADJUST_MANAGE =
             "ATTENDANCE_ADJUST:MANAGE";
+    public static final String ATTENDANCE_LOCATION_READ =
+            "ATTENDANCE_LOCATION:READ";
 
     private static final String SERVER_INTERNAL_PAYROLL_PREFIX = "PAYROLL:";
 

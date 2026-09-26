@@ -4,9 +4,9 @@ import java.time.Instant;
 import java.time.ZoneId;
 
 /**
- * Auto-calculation runs only after the 00:00 and 12:00 sync cycles. Deli still
- * fetches punches at 08:00 and 18:00, and OA still copies documents every hour;
- * those runs do not start a report rebuild.
+ * Auto-calculation runs only after the 00:00 and 12:00 sync cycles. Deli copies
+ * punches every 10 minutes and OA copies documents every 10 minutes on the
+ * offset slot; those other runs do not start a report rebuild.
  */
 final class ScheduledAttendanceRecalcHours {
 

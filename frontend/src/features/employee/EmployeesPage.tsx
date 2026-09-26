@@ -31,7 +31,10 @@ import { OperationFeedback, StatusBadge } from '../../shared/components/Feedback
 import { PageHeader, QueryFilterBar } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { ApiErrorState } from '../people/PeopleCommon';
+import { listAttendanceGroups } from '../attendanceSetup/attendanceSetupApi';
+import type { AttendanceGroupView } from '../attendanceSetup/attendanceSetupTypes';
 import { CompanySelect } from '../referenceData';
+import { listReferenceCompanies } from '../referenceData/referenceDataApi';
 import {
   getCurrentOrganizationTree,
   type OrganizationNode,
@@ -73,6 +76,8 @@ type CreateEmployeeValues = {
   companyId: string;
   employeeNumber: string;
   displayName: string;
+  organizationId: string;
+  attendanceGroupId: string;
   effectiveFrom: dayjs.Dayjs;
   reason: string;
 };
@@ -95,6 +100,8 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
   const [writeError, setWriteError] = useState<ApiRequestError>();
   const [feedback, setFeedback] = useState<string>();
   const [form] = Form.useForm<CreateEmployeeValues>();
+  const selectedCompanyId = Form.useWatch('companyId', form);
+  const [attendanceGroups, setAttendanceGroups] = useState<AttendanceGroupView[]>([]);
   const mutationKey = useRef<string | undefined>(undefined);
   const employeeRequestSequence = useRef(0);
   const directoryRequestSequence = useRef(0);
@@ -169,6 +176,36 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
     load();
   };
 
+  useEffect(() => {
+    if (!createOpen || !selectedCompanyId) {
+      setAttendanceGroups([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      listReferenceCompanies(),
+      listAttendanceGroups(undefined, 0, 100, selectedCompanyId),
+    ]).then(([companies, page]) => {
+      if (cancelled) return;
+      const active = page.items.filter((group) => group.status === 'ACTIVE');
+      setAttendanceGroups(active);
+      const current = form.getFieldValue('attendanceGroupId') as string | undefined;
+      if (!active.some((group) => group.groupId === current)) {
+        const companyName = companies.find((company) => company.companyId === selectedCompanyId)
+          ?.companyName ?? '';
+        form.setFieldValue(
+          'attendanceGroupId',
+          defaultAttendanceGroupId(companyName, active),
+        );
+      }
+    }).catch(() => {
+      if (!cancelled) setAttendanceGroups([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [createOpen, form, selectedCompanyId]);
+
   const openCreate = () => {
     form.resetFields();
     form.setFieldsValue({ effectiveFrom: dayjs() });
@@ -194,6 +231,11 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
       setProcessing(false);
     }
   };
+
+  const createOrganizationOptions = useMemo(
+    () => flattenOrganizationOptions(directoryState.nodes),
+    [directoryState.nodes],
+  );
 
   const page = state.status === 'ready' ? state.page : undefined;
   const directoryNodes = directoryState.nodes;
@@ -391,7 +433,38 @@ export function EmployeesPage({ capabilities = [] }: { capabilities?: string[] }
               <DatePicker />
             </Form.Item>
           </div>
-          <Form.Item name="reason" label={t('people.reason')} rules={[{ required: true, min: 4 }, { max: 500 }]}>
+          <Form.Item
+            name="organizationId"
+            label={t('employee.organizationId')}
+            rules={[{ required: true, message: t('employee.organizationPlaceholder') }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="searchText"
+              placeholder={t('employee.organizationPlaceholder')}
+              options={createOrganizationOptions}
+            />
+          </Form.Item>
+          <Form.Item
+            name="attendanceGroupId"
+            label={t('employee.attendanceGroup')}
+            rules={[{ required: true, message: t('employee.attendanceGroupPlaceholder') }]}
+            extra={attendanceGroups.length === 0 && selectedCompanyId
+              ? t('employee.attendanceGroupEmpty')
+              : undefined}
+          >
+            <Select
+              showSearch
+              optionFilterProp="searchText"
+              placeholder={t('employee.attendanceGroupPlaceholder')}
+              options={attendanceGroups.map((group) => ({
+                value: group.groupId,
+                label: `${group.name}（${group.code}）`,
+                searchText: `${group.name} ${group.code}`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="reason" label={t('people.reason')} rules={[{ required: true, min: 2 }, { max: 500 }]}>
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
@@ -407,9 +480,41 @@ function toCreateRequest(values: CreateEmployeeValues): EmployeeCreateRequest {
     companyId: values.companyId.trim(),
     employeeNumber: values.employeeNumber.trim(),
     displayName: values.displayName.trim(),
+    organizationId: values.organizationId.trim(),
     effectiveFrom: values.effectiveFrom.format('YYYY-MM-DD'),
     reason: values.reason.trim(),
+    attendanceGroupId: values.attendanceGroupId.trim(),
   };
+}
+
+function defaultAttendanceGroupId(
+  companyName: string,
+  groups: AttendanceGroupView[],
+): string | undefined {
+  const byCode = (code: string) => groups.find((group) => group.code === code)?.groupId;
+  if (companyName.includes('上海')) {
+    return byCode('SHANGHAI_SEASONAL')
+      ?? groups.find((group) => group.name.includes('上海'))?.groupId
+      ?? byCode('DEFAULT_ATTENDANCE')
+      ?? groups[0]?.groupId;
+  }
+  return byCode('DEFAULT_ATTENDANCE')
+    ?? groups.find((group) => group.name.includes('默认') || group.name.includes('扬州'))?.groupId
+    ?? groups[0]?.groupId;
+}
+
+function flattenOrganizationOptions(
+  nodes: OrganizationNode[],
+  parentNames: string[] = [],
+): Array<{ label: string; value: string; searchText: string }> {
+  return nodes.flatMap((node) => {
+    const path = [...parentNames, node.name];
+    const label = `${path.join(' / ')}（${node.code}）`;
+    return [
+      { label, value: node.organizationId, searchText: `${path.join(' ')} ${node.code}` },
+      ...flattenOrganizationOptions(node.children, path),
+    ];
+  });
 }
 
 function asApiError(error: unknown, code: string): ApiRequestError {

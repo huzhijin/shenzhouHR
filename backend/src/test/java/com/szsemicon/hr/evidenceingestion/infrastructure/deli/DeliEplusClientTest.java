@@ -876,10 +876,69 @@ class DeliEplusClientTest {
         assertThat(record.direction()).isEqualTo(Direction.AUTO);
         assertThat(record.verificationMethod()).isEqualTo("gps");
         assertThat(record.deviceRef()).isEqualTo("DEMO-TERMINAL-001");
-        assertThat(record.locationSummary()).isNull();
+        assertThat(record.locationSummary()).isEqualTo("sensitive-demo-location");
+        assertThat(record.longitudeRaw()).isNull();
+        assertThat(record.latitudeRaw()).isNull();
         assertThat(record.forbiddenPayloadDropped()).isTrue();
         assertThat(record.toString())
                 .doesNotContain("sensitive-demo-location", "fake-photo-reference");
+    }
+
+    @Test
+    void gpsFixturePersistsAddressAndRawCoordinatesAndDropsPhoto() throws Exception {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse(readFixture(
+                "/fixtures/deli-eplus/checkin-gps.synthetic.json")));
+
+        var record = client(transport)
+                .fetchPage("source-offline-gps", null)
+                .records()
+                .getFirst();
+
+        assertThat(record.verificationMethod()).isEqualTo("gps");
+        assertThat(record.locationSummary()).isEqualTo("辽宁省大连市甘井子区演示路1号");
+        assertThat(record.latitudeRaw()).isEqualTo("38.914000");
+        assertThat(record.longitudeRaw()).isEqualTo("121.614000");
+        assertThat(record.coordinateSystemTag()).isEqualTo("UNKNOWN");
+        assertThat(record.forbiddenPayloadDropped()).isTrue();
+        assertThat(record.toString())
+                .doesNotContain("辽宁省大连市", "38.914000", "121.614000", "synthetic-photo-ref");
+    }
+
+    @Test
+    void fingerprintPunchDoesNotKeepLocation() {
+        CapturingTransport transport = new CapturingTransport();
+        transport.enqueue(okResponse("""
+                {
+                  "code": 0,
+                  "data": {
+                    "next_id": 2,
+                    "data": [{
+                      "id": "DEMO-FP-001",
+                      "user_id": "DEMO-USER-FP",
+                      "ext_id": "DEMO-EMP-FP",
+                      "terminal_id": "DEMO-TERMINAL-001",
+                      "check_type": "fp",
+                      "check_time": 1710000000,
+                      "check_data": {
+                        "location": "should-not-keep",
+                        "lat": "38.9",
+                        "lgt": "121.6"
+                      }
+                    }]
+                  }
+                }
+                """));
+
+        var record = client(transport)
+                .fetchPage("source-demo-deli", null)
+                .records()
+                .getFirst();
+
+        assertThat(record.verificationMethod()).isEqualTo("fp");
+        assertThat(record.locationSummary()).isNull();
+        assertThat(record.longitudeRaw()).isNull();
+        assertThat(record.latitudeRaw()).isNull();
     }
 
     @Test

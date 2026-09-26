@@ -283,6 +283,9 @@ x-delivery-contract:
         - { method: POST, path: /me/attendance/feedback, requestSchema: AttendanceFeedbackRequest, responseSchema: AttendanceFeedbackView, errors: [400, 401, 403, 409, 422] }
         - { method: GET, path: /team/attendance, responseSchema: TeamAttendancePage, errors: [401, 403] }
         - { method: GET, path: /attendance-report-queries/directory, responseSchema: AttendanceReportQueryDirectory, errors: [400, 401, 403] }
+        - { method: GET, path: /me/attendance/day-punches, responseSchema: AttendanceDayPunchPage, errors: [400, 401, 403] }
+        - { method: GET, path: /attendance-report-queries/day-punches, responseSchema: AttendanceDayPunchPage, errors: [400, 401, 403] }
+        - { method: GET, path: '/checkins/{rawFactId}/location', responseSchema: PunchLocationView, errors: [400, 401, 403, 404] }
         - { method: GET, path: '/attendance-report-queries/{sheet}', responseSchema: AttendanceReportQueryPage, errors: [400, 401, 403, 409] }
         - { method: GET, path: '/attendance-report-queries/{sheet}/export', responseSchema: binary, errors: [400, 401, 403, 409] }
         - { method: GET, path: /paper-overtime, responseSchema: PaperOvertimeLineList, errors: [400, 401, 403] }
@@ -5607,6 +5610,85 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '401': { $ref: '#/components/responses/AuthenticationRequired' }
         '403': { $ref: '#/components/responses/AccessDenied' }
+  /me/attendance/day-punches:
+    get:
+      tags: [AttendanceReports]
+      operationId: listSelfAttendanceDayPunches
+      x-capability: ATTENDANCE_SELF:READ
+      description: 员工身份由当前登录账号确定，不接受客户端指定员工。
+      parameters:
+        - name: businessDate
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 本人某日原始打卡列表，不含地址、经纬度或地图
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceDayPunchPage' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /attendance-report-queries/day-punches:
+    get:
+      tags: [AttendanceReports]
+      operationId: listAttendanceDayPunches
+      x-capability: ATTENDANCE_REPORT_QUERY:READ
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, maxLength: 36 }
+        - name: employeeId
+          in: query
+          required: true
+          schema: { type: string, maxLength: 36 }
+        - name: businessDate
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 某日原始打卡列表，不含经纬度
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttendanceDayPunchPage' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+  /checkins/{rawFactId}/location:
+    get:
+      tags: [AttendanceReports]
+      operationId: getCheckinLocation
+      x-capability: ATTENDANCE_LOCATION:READ
+      description: 本人使用 ATTENDANCE_SELF:READ 免填原因；管理者须具有覆盖目标员工的位置权限范围和2至500字原因。成功和拒绝均审计。
+      parameters:
+        - name: rawFactId
+          in: path
+          required: true
+          schema: { type: string, maxLength: 36 }
+        - name: reason
+          in: query
+          schema: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 单次打卡受控位置；未知坐标系不返回可绘点
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            X-Correlation-ID: { $ref: '#/components/headers/CorrelationId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PunchLocationView' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/AuthenticationRequired' }
+        '403': { $ref: '#/components/responses/AccessDenied' }
+        '404': { $ref: '#/components/responses/ResourceNotAvailable' }
   /attendance-report-queries/{sheet}:
     get:
       tags: [AttendanceReports]
@@ -9953,6 +10035,43 @@ components:
     AttendanceReportQueryDirectory:
       type: object
       additionalProperties: true
+    AttendanceDayPunchPage:
+      type: object
+      additionalProperties: false
+      required: [punches]
+      properties:
+        punches:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceDayPunch'
+    AttendanceDayPunch:
+      type: object
+      additionalProperties: false
+      required: [rawFactId, method, sourceLabel, viewLocationAvailable, reasonRequired]
+      properties:
+        rawFactId: { type: string, maxLength: 36 }
+        punchedAt: { type: [string, 'null'] }
+        method: { type: string, maxLength: 64 }
+        sourceLabel: { type: string, enum: [手机, 考勤机] }
+        viewLocationAvailable: { type: boolean }
+        reasonRequired: { type: boolean, description: 本人查看为false }
+    PunchLocationView:
+      type: object
+      additionalProperties: false
+      required: [rawFactId, method, mapPointAvailable]
+      properties:
+        rawFactId: { type: string, maxLength: 36 }
+        punchedAt: { type: [string, 'null'] }
+        method: { type: string, maxLength: 64 }
+        locationText: { type: [string, 'null'], maxLength: 191 }
+        mapPointAvailable: { type: boolean }
+        mapUnavailableReason: { type: [string, 'null'], maxLength: 64 }
+        mapLongitude: { type: [number, 'null'] }
+        mapLatitude: { type: [number, 'null'] }
+        mapImageDataUrl:
+          type: [string, 'null']
+          description: 服务端获取的单点PNG地图data URL；不含供应商密钥，加载失败时为null。
+          maxLength: 2796226
     AttendanceReportQueryPage:
       type: object
       additionalProperties: true

@@ -71,6 +71,7 @@ public class DeliPunchPageTransaction {
                 periodProtection,
                 PunchStream.CHECKIN,
                 true,
+                false,
                 false);
     }
 
@@ -95,6 +96,7 @@ public class DeliPunchPageTransaction {
                 periodProtection,
                 PunchStream.KQ,
                 true,
+                false,
                 false);
     }
 
@@ -119,6 +121,7 @@ public class DeliPunchPageTransaction {
                 configurationResolver,
                 periodProtection,
                 kqStream ? PunchStream.KQ : PunchStream.CHECKIN,
+                false,
                 false,
                 false);
     }
@@ -145,7 +148,35 @@ public class DeliPunchPageTransaction {
                 periodProtection,
                 kqStream ? PunchStream.KQ : PunchStream.CHECKIN,
                 false,
-                true);
+                true,
+                false);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PageCommitResult commitReplayPage(
+            SourceJobStart job,
+            String principalId,
+            String requestId,
+            String executionCapability,
+            int pageNumber,
+            DeliPunchSourcePort.DeliPage page,
+            AttendanceConfigurationResolverPort configurationResolver,
+            AttendancePeriodProtectionPort periodProtection,
+            boolean kqStream,
+            boolean quarantinePromotionOnly) {
+        return commitPage(
+                job,
+                principalId,
+                requestId,
+                executionCapability,
+                pageNumber,
+                page,
+                configurationResolver,
+                periodProtection,
+                kqStream ? PunchStream.KQ : PunchStream.CHECKIN,
+                false,
+                true,
+                quarantinePromotionOnly);
     }
 
     private PageCommitResult commitPage(
@@ -159,7 +190,8 @@ public class DeliPunchPageTransaction {
             AttendancePeriodProtectionPort periodProtection,
             PunchStream stream,
             boolean advanceWatermark,
-            boolean replayIdentity) {
+            boolean replayIdentity,
+            boolean quarantinePromotionOnly) {
         Objects.requireNonNull(job, "job");
         Objects.requireNonNull(page, "page");
         Objects.requireNonNull(configurationResolver, "configurationResolver");
@@ -198,6 +230,7 @@ public class DeliPunchPageTransaction {
         int identityReplayed = 0;
         int identityMoved = 0;
         List<IdentityQuarantineNote> stillQuarantined = new ArrayList<>();
+        List<PromotedPunch> promoted = new ArrayList<>();
         for (var record : page.records()) {
             RecordOutcome outcome = ingestRecord(
                     job,
@@ -208,7 +241,9 @@ public class DeliPunchPageTransaction {
                     periodProtection,
                     committedAt,
                     replayIdentity,
-                    stillQuarantined);
+                    quarantinePromotionOnly,
+                    stillQuarantined,
+                    promoted);
             if (outcome.status() == RecordStatus.ACCEPTED) {
                 accepted++;
             } else {
@@ -284,7 +319,8 @@ public class DeliPunchPageTransaction {
                 quarantined,
                 identityReplayed,
                 identityMoved,
-                List.copyOf(stillQuarantined));
+                List.copyOf(stillQuarantined),
+                List.copyOf(promoted));
     }
 
     private AttendanceSourceSyncModels.PageState lockPage(
@@ -329,7 +365,9 @@ public class DeliPunchPageTransaction {
             AttendancePeriodProtectionPort periodProtection,
             Instant receivedAt,
             boolean replayIdentity,
-            List<IdentityQuarantineNote> stillQuarantined) {
+            boolean quarantinePromotionOnly,
+            List<IdentityQuarantineNote> stillQuarantined,
+            List<PromotedPunch> promoted) {
         validateRecord(record);
         String rawDigest = rawDigest(job, record);
         var existing = evidenceRepository.findRawBySourceIdentity(
@@ -353,7 +391,9 @@ public class DeliPunchPageTransaction {
                         configurationResolver,
                         periodProtection,
                         receivedAt,
-                        stillQuarantined);
+                        quarantinePromotionOnly,
+                        stillQuarantined,
+                        promoted);
             }
             return RecordOutcome.accepted();
         }
@@ -382,7 +422,8 @@ public class DeliPunchPageTransaction {
                         configurationResolver,
                         periodProtection);
             } catch (AttendanceSourceSyncFailure exception) {
-                if (!continuableIngestFailure(exception.safeCode())) {
+                if (!continuableIngestFailure(
+                        exception.safeCode(), quarantinePromotionOnly)) {
                     throw exception;
                 }
                 configurationIssue = exception.safeCode();
@@ -407,6 +448,7 @@ public class DeliPunchPageTransaction {
                 record.punchInstant().toString(),
                 record.direction().name());
 
+        PunchLocationColumns location = PunchLocationColumns.from(record);
         evidenceRepository.insertRawFact(new EvidenceRows.RawFactRow(
                 rawId,
                 job.sourceId(),
@@ -424,7 +466,17 @@ public class DeliPunchPageTransaction {
                 null,
                 requestId,
                 receivedAt,
-                principalId));
+                principalId,
+                record.verificationMethod(),
+                location.locationSummary(),
+                location.longitudeRaw(),
+                location.latitudeRaw(),
+                location.sourceCoordinateSystem(),
+                location.coordinateValidationStatus(),
+                location.coordinateConversionStatus(),
+                null,
+                null,
+                null));
         evidenceRepository.insertNormalizedRecord(
                 new EvidenceRows.NormalizedRecordRow(
                         normalizedId,
@@ -476,6 +528,8 @@ public class DeliPunchPageTransaction {
                 normalizedId,
                 matchId,
                 receivedAt);
+        rememberPromotion(
+                quarantinePromotionOnly, job, record, decision, promoted);
         return replayIdentity
                 ? RecordOutcome.replayed(true, false)
                 : RecordOutcome.accepted();
@@ -719,8 +773,13 @@ public class DeliPunchPageTransaction {
                 decision.reason());
     }
 
-    private static boolean continuableIngestFailure(String safeCode) {
-        return "ATTENDANCE_CONFIGURATION_UNAVAILABLE".equals(safeCode);
+    private static boolean continuableIngestFailure(
+            String safeCode, boolean quarantinePromotionOnly) {
+        if ("ATTENDANCE_CONFIGURATION_UNAVAILABLE".equals(safeCode)) {
+            return true;
+        }
+        return quarantinePromotionOnly
+                && "ATTENDANCE_PERIOD_PROTECTED".equals(safeCode);
     }
 
     private static String issueCode(
@@ -760,6 +819,67 @@ public class DeliPunchPageTransaction {
                 || !isReference(record.verificationMethod(), 64)
                 || !isReference(record.deviceRef(), 191)) {
             throw failure("DELI_RECORD_CONTRACT_INVALID");
+        }
+    }
+
+    private record PunchLocationColumns(
+            String locationSummary,
+            String longitudeRaw,
+            String latitudeRaw,
+            String sourceCoordinateSystem,
+            String coordinateValidationStatus,
+            String coordinateConversionStatus) {
+
+        static PunchLocationColumns from(DeliPunchSourcePort.DeliPunchRecord record) {
+            if (!gpsOrOutWork(record.verificationMethod())) {
+                return new PunchLocationColumns(
+                        null, null, null, "UNKNOWN", "MISSING", "NOT_APPLICABLE");
+            }
+            String lon = record.longitudeRaw();
+            String lat = record.latitudeRaw();
+            if (lon == null && lat == null) {
+                return new PunchLocationColumns(
+                        record.locationSummary(),
+                        null,
+                        null,
+                        "UNKNOWN",
+                        "MISSING",
+                        "NOT_APPLICABLE");
+            }
+            if (lon == null || lat == null || !inBounds(lon, lat)) {
+                return new PunchLocationColumns(
+                        record.locationSummary(),
+                        lon,
+                        lat,
+                        "UNKNOWN",
+                        lon == null || lat == null ? "INCOMPLETE" : "OUT_OF_BOUNDS",
+                        "NOT_APPLICABLE");
+            }
+            return new PunchLocationColumns(
+                    record.locationSummary(),
+                    lon,
+                    lat,
+                    "UNKNOWN",
+                    "UNKNOWN_SYSTEM",
+                    "NOT_APPLICABLE");
+        }
+
+        private static boolean gpsOrOutWork(String method) {
+            if (method == null) {
+                return false;
+            }
+            String normalized = method.trim().toLowerCase(java.util.Locale.ROOT);
+            return "gps".equals(normalized) || "out_work".equals(normalized);
+        }
+
+        private static boolean inBounds(String longitude, String latitude) {
+            try {
+                double lon = Double.parseDouble(longitude);
+                double lat = Double.parseDouble(latitude);
+                return lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90;
+            } catch (NumberFormatException exception) {
+                return false;
+            }
         }
     }
 
@@ -818,11 +938,18 @@ public class DeliPunchPageTransaction {
             AttendanceConfigurationResolverPort configurationResolver,
             AttendancePeriodProtectionPort periodProtection,
             Instant receivedAt,
-            List<IdentityQuarantineNote> stillQuarantined) {
+            boolean quarantinePromotionOnly,
+            List<IdentityQuarantineNote> stillQuarantined,
+            List<PromotedPunch> promoted) {
         var current = evidenceRepository.findReplayStateBySourceIdentity(
                 job.sourceId(),
                 record.sourceRecordId(),
                 record.sourceVersion());
+        if (quarantinePromotionOnly
+                && current != null
+                && current.effectiveAttendanceEventId() != null) {
+            return RecordOutcome.accepted();
+        }
         var decision = EvidenceResolutionPolicy.resolve(
                 employeeResolver,
                 job.sourceId(),
@@ -874,7 +1001,8 @@ public class DeliPunchPageTransaction {
                         configurationResolver,
                         periodProtection);
             } catch (AttendanceSourceSyncFailure exception) {
-                if (!continuableIngestFailure(exception.safeCode())) {
+                if (!continuableIngestFailure(
+                        exception.safeCode(), quarantinePromotionOnly)) {
                     throw exception;
                 }
                 configurationIssue = exception.safeCode();
@@ -971,10 +1099,29 @@ public class DeliPunchPageTransaction {
                 normalizedId,
                 matchId,
                 receivedAt);
+        rememberPromotion(
+                quarantinePromotionOnly, job, record, decision, promoted);
         boolean moved = wasMatched
                 && currentEmployee != null
                 && !currentEmployee.equals(decision.employeeId());
         return RecordOutcome.replayed(true, moved);
+    }
+
+    private static void rememberPromotion(
+            boolean quarantinePromotionOnly,
+            SourceJobStart job,
+            DeliPunchSourcePort.DeliPunchRecord record,
+            EvidenceResolutionPolicy.MatchDecision decision,
+            List<PromotedPunch> promoted) {
+        if (!quarantinePromotionOnly
+                || decision.employeeId() == null
+                || record.punchInstant() == null) {
+            return;
+        }
+        promoted.add(new PromotedPunch(
+                subjectCompanyId(job, decision),
+                decision.employeeId(),
+                record.punchInstant()));
     }
 
     private static String subjectCompanyId(
@@ -1033,21 +1180,27 @@ public class DeliPunchPageTransaction {
                 reason);
     }
 
+    public record PromotedPunch(
+            String companyId, String employeeId, Instant punchInstant) {
+    }
+
     public record PageCommitResult(
             int acceptedCount,
             int quarantinedCount,
             int identityReplayedCount,
             int identityMovedCount,
-            List<IdentityQuarantineNote> stillQuarantined) {
+            List<IdentityQuarantineNote> stillQuarantined,
+            List<PromotedPunch> promoted) {
 
         public PageCommitResult {
             stillQuarantined = stillQuarantined == null
                     ? List.of()
                     : List.copyOf(stillQuarantined);
+            promoted = promoted == null ? List.of() : List.copyOf(promoted);
         }
 
         public PageCommitResult(int acceptedCount, int quarantinedCount) {
-            this(acceptedCount, quarantinedCount, 0, 0, List.of());
+            this(acceptedCount, quarantinedCount, 0, 0, List.of(), List.of());
         }
     }
 

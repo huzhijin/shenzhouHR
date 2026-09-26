@@ -40,13 +40,13 @@ class PinAttendanceReportSnapshotGuardTest {
                         + "infrastructure/scheduler/OaAutoSyncJob.java"));
 
         assertThat(application)
-                .contains("auto-sync-cron: ${SHENZHOUHR_DELI_AUTO_SYNC_CRON:0 0 0,8,12,18 * * ?}")
-                .contains("auto-sync-cron: ${SHENZHOUHR_OA_AUTO_SYNC_CRON:0 0 * * * ?}");
+                .contains("auto-sync-cron: ${SHENZHOUHR_DELI_AUTO_SYNC_CRON:0 */10 * * * ?}")
+                .contains("auto-sync-cron: ${SHENZHOUHR_OA_AUTO_SYNC_CRON:0 5/10 * * * ?}");
         assertThat(deliJob)
-                .contains("0 0 0,8,12,18 * * ?")
+                .contains("0 */10 * * * ?")
                 .doesNotContain("recalculate");
         assertThat(oaJob)
-                .contains("0 0 * * * ?")
+                .contains("0 5/10 * * * ?")
                 .doesNotContain("recalculate");
     }
 

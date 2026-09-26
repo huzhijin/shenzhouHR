@@ -147,7 +147,9 @@ class DeliPunchSyncApplicationServiceTest {
                         "terminal-1",
                         null,
                         "UNKNOWN",
-                        true)),
+                        true,
+                        null,
+                        null)),
                 "0",
                 "1",
                 "a".repeat(64));
@@ -229,7 +231,9 @@ class DeliPunchSyncApplicationServiceTest {
                 "terminal-1",
                 null,
                 "UNKNOWN",
-                true);
+                true,
+                null,
+                null);
         var nextDay = new DeliPunchSourcePort.DeliPunchRecord(
                 "next-day",
                 "version-2",
@@ -245,7 +249,9 @@ class DeliPunchSyncApplicationServiceTest {
                 "terminal-2",
                 null,
                 "UNKNOWN",
-                true);
+                true,
+                null,
+                null);
         var mixed = new DeliPunchSourcePort.DeliPage(
                 List.of(inDay, nextDay),
                 "0",
@@ -325,7 +331,9 @@ class DeliPunchSyncApplicationServiceTest {
                         "13750C_8D32C1032484A20A",
                         null,
                         "UNKNOWN",
-                        true)),
+                        true,
+                        null,
+                        null)),
                 "12848301274",
                 "12852026233",
                 "c".repeat(64));
@@ -460,7 +468,9 @@ class DeliPunchSyncApplicationServiceTest {
                         "terminal-1",
                         null,
                         "UNKNOWN",
-                        true)),
+                        true,
+                        null,
+                        null)),
                 "0",
                 "0",
                 "a".repeat(64));

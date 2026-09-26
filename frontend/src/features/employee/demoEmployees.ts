@@ -207,7 +207,20 @@ export function getDemoEmployeeVersions(employeeId: string): EmployeeVersionPage
 
 export function createDemoEmployee(request: EmployeeCreateRequest): EmployeeDetail {
   const employeeId = `synthetic-local-employee-${syntheticSequence++}`;
-  return employeeDetailFromRequest(employeeId, 1, request);
+  const created = employeeDetailFromRequest(employeeId, 1, request);
+  if (request.organizationId) {
+    demoPeriods.set(employeeId, [period(
+      employeeId,
+      1,
+      request.effectiveFrom,
+      null,
+      null,
+      request.organizationId,
+      null,
+      request.reason,
+    )]);
+  }
+  return { ...created, employmentPeriods: getDemoEmploymentPeriods(employeeId).items };
 }
 
 export function updateDemoEmployee(

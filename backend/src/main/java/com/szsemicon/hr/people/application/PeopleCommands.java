@@ -55,8 +55,10 @@ public final class PeopleCommands {
             String employeeNumber,
             String displayName,
             String externalEmployeeId,
+            String organizationId,
             LocalDate effectiveFrom,
-            String reason) {
+            String reason,
+            String attendanceGroupId) {
     }
 
     public record UpdateEmployee(

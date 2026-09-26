@@ -55,7 +55,7 @@ type OrganizationState =
 type OrganizationFormValue = {
   companyId?: string;
   parentOrganizationId?: string | null;
-  code: string;
+  code?: string;
   name: string;
   organizationType: OrganizationNode['organizationType'];
   status?: OrganizationNode['status'];
@@ -358,8 +358,8 @@ function OrganizationFormDialog({
           />
         </Form.Item>
         <div className="form-grid">
-          <Form.Item name="code" label={t('organization.code')} rules={[{ required: true }, { max: 64 }]}>
-            <Input />
+          <Form.Item name="code" label={t('organization.code')} rules={mode === 'create' ? [{ max: 64 }] : [{ required: true }, { max: 64 }]}>
+            <Input placeholder={mode === 'create' ? '可留空，由系统生成' : undefined} />
           </Form.Item>
           <Form.Item name="name" label={t('organization.name')} rules={[{ required: true }, { max: 128 }]}>
             <Input />
@@ -381,7 +381,7 @@ function OrganizationFormDialog({
             </Form.Item>
           ) : null}
         </div>
-        <Form.Item name="reason" label={t('people.reason')} rules={[{ required: true, min: 4 }, { max: 500 }]}>
+        <Form.Item name="reason" label={t('people.reason')} rules={[{ required: true, min: 2 }, { max: 500 }]}>
           <Input.TextArea rows={3} />
         </Form.Item>
       </Form>
@@ -407,7 +407,7 @@ function toCreateRequest(values: OrganizationFormValue): OrganizationCreateReque
   return {
     companyId: values.companyId ?? '',
     parentOrganizationId: values.parentOrganizationId || null,
-    code: values.code.trim(),
+    code: values.code?.trim() || undefined,
     name: values.name.trim(),
     organizationType: values.organizationType,
     effectiveFrom: values.effectiveFrom.format('YYYY-MM-DD'),
@@ -418,7 +418,7 @@ function toCreateRequest(values: OrganizationFormValue): OrganizationCreateReque
 function toUpdateRequest(values: OrganizationFormValue): OrganizationUpdateRequest {
   return {
     parentOrganizationId: values.parentOrganizationId || null,
-    code: values.code.trim(),
+    code: (values.code ?? '').trim(),
     name: values.name.trim(),
     organizationType: values.organizationType,
     status: values.status ?? 'ACTIVE',

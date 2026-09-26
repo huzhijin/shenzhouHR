@@ -140,6 +140,12 @@ class DeliPunchPageTransactionTest {
         assertThat(raw.getValue().rawObjectRef()).isNull();
         assertThat(raw.getValue().canonicalPayloadDigest())
                 .matches("[0-9a-f]{64}");
+        assertThat(raw.getValue().verificationMethod()).isEqualTo("fp");
+        assertThat(raw.getValue().locationSummary()).isNull();
+        assertThat(raw.getValue().longitudeRaw()).isNull();
+        assertThat(raw.getValue().coordinateValidationStatus()).isEqualTo("MISSING");
+        assertThat(raw.getValue().mapLongitude()).isNull();
+        assertThat(raw.getValue().mapLatitude()).isNull();
         ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
                 ArgumentCaptor.forClass(EvidenceRows.NormalizedRecordRow.class);
         ArgumentCaptor<EvidenceRows.MatchDecisionRow> match =
@@ -418,7 +424,9 @@ class DeliPunchPageTransactionTest {
                         "13750C_8D32C1032484A20A",
                         null,
                         "UNKNOWN",
-                        true);
+                        true,
+                        null,
+                        null);
         var kqPage = new DeliPunchSourcePort.DeliPage(
                 List.of(kqRecord),
                 "12848301274",
@@ -446,6 +454,109 @@ class DeliPunchPageTransactionTest {
                 eq(NOW));
         verify(syncRepository, never()).advanceWatermark(
                 any(), any(Long.class), any(), any(), any());
+    }
+
+    @Test
+    void gpsPunchPersistsAddressAndUnknownSystemCoordinates() {
+        when(employeeResolver.resolveByConfirmedBinding(
+                        "source-1",
+                        "legal-1",
+                        null,
+                        "terminal-1",
+                        ConfirmedBindingKind.DELI_EXT_ID,
+                        "deli-ext-1",
+                        EARLY_MORNING_PUNCH))
+                .thenReturn(List.of(
+                        new EmployeeEmploymentResolverPort.Resolution(
+                                "employee-1",
+                                "employment-1",
+                                MATCH_DIGEST)));
+        when(configurationResolver.resolve(
+                        "legal-1", "employee-1", EARLY_MORNING_PUNCH))
+                .thenReturn(new AttendanceConfigurationResolverPort.Resolution(
+                        "location-1",
+                        "group-revision-1",
+                        "shift-version-1",
+                        ZoneId.of("Asia/Shanghai"),
+                        Set.of(LocalDate.parse("2026-07-29")),
+                        CONFIG_DIGEST,
+                        true));
+        when(periodProtection.protectionFor(
+                        eq("legal-1"), eq("employee-1"), any()))
+                .thenReturn(new AttendancePeriodProtectionPort.Protection(
+                        AttendancePeriodProtectionPort.PeriodStatus.OPEN,
+                        "period-open",
+                        PERIOD_DIGEST));
+        when(evidenceRepository.findExactEvents(
+                        "legal-1",
+                        "employee-1",
+                        EARLY_MORNING_PUNCH,
+                        "AUTO"))
+                .thenReturn(List.of());
+
+        var outcome = transaction.commitPage(
+                job(),
+                ACTOR,
+                REQUEST,
+                CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                1,
+                page(gpsRecord()),
+                configurationResolver,
+                periodProtection);
+
+        assertThat(outcome.acceptedCount()).isEqualTo(1);
+        ArgumentCaptor<EvidenceRows.RawFactRow> raw =
+                ArgumentCaptor.forClass(EvidenceRows.RawFactRow.class);
+        verify(evidenceRepository).insertRawFact(raw.capture());
+        assertThat(raw.getValue().verificationMethod()).isEqualTo("gps");
+        assertThat(raw.getValue().locationSummary()).isEqualTo("大连演示地址");
+        assertThat(raw.getValue().longitudeRaw()).isEqualTo("121.614000");
+        assertThat(raw.getValue().latitudeRaw()).isEqualTo("38.914000");
+        assertThat(raw.getValue().sourceCoordinateSystem()).isEqualTo("UNKNOWN");
+        assertThat(raw.getValue().coordinateValidationStatus())
+                .isEqualTo("UNKNOWN_SYSTEM");
+        assertThat(raw.getValue().coordinateConversionStatus())
+                .isEqualTo("NOT_APPLICABLE");
+        assertThat(raw.getValue().mapLongitude()).isNull();
+        assertThat(raw.getValue().mapLatitude()).isNull();
+    }
+
+    @Test
+    void sameSourceIdentityDoesNotOverwriteStoredCoordinates() {
+        DeliPunchSourcePort.DeliPunchRecord incoming = gpsRecord();
+        String digest = AttendanceEvidenceDigests.sha256(
+                "DELI_RAW_FACT_V1",
+                "source-1",
+                "legal-1",
+                incoming.sourceRecordId(),
+                incoming.sourceVersion(),
+                incoming.externalPersonRef(),
+                incoming.externalPersonRefKind().name(),
+                incoming.employeeNumber(),
+                incoming.punchInstant().toString(),
+                incoming.originalTimeText(),
+                incoming.sourceTimeZone(),
+                incoming.direction().name(),
+                incoming.verificationMethod(),
+                incoming.deviceRef(),
+                incoming.coordinateSystemTag(),
+                Boolean.toString(incoming.forbiddenPayloadDropped()));
+        when(evidenceRepository.findRawBySourceIdentity(
+                        "source-1", "record-1", "version-1"))
+                .thenReturn(existingRaw(digest));
+
+        var outcome = transaction.commitPage(
+                job(),
+                ACTOR,
+                REQUEST,
+                CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                1,
+                page(gpsRecord()),
+                configurationResolver,
+                periodProtection);
+
+        assertThat(outcome.acceptedCount()).isEqualTo(1);
+        verify(evidenceRepository, never()).insertRawFact(any());
     }
 
     @Test
@@ -928,6 +1039,46 @@ class DeliPunchPageTransactionTest {
         verify(evidenceRepository, never()).insertEvidenceLink(any());
     }
 
+    @Test
+    void quarantinePromotionLeavesActivatedPunchUntouched() {
+        when(evidenceRepository.findRawBySourceIdentity(
+                        "source-1", "record-1", "version-1"))
+                .thenReturn(existingRaw("a".repeat(64)));
+        when(evidenceRepository.findReplayStateBySourceIdentity(
+                        "source-1", "record-1", "version-1"))
+                .thenReturn(new EvidenceRows.ReplayStateRow(
+                        "raw-1",
+                        "norm-1",
+                        1,
+                        "VALID",
+                        null,
+                        "MATCHED",
+                        "EMPLOYEE_NUMBER",
+                        "employee-1",
+                        "employment-1",
+                        "event-1",
+                        "employee-1"));
+
+        var outcome = transaction.commitReplayPage(
+                job(),
+                ACTOR,
+                REQUEST,
+                CapabilityCodes.ATTENDANCE_SOURCE_RUN,
+                1,
+                page(record("SZST0560", "han-ext-1")),
+                configurationResolver,
+                periodProtection,
+                false,
+                true);
+
+        assertThat(outcome.acceptedCount()).isEqualTo(1);
+        assertThat(outcome.identityReplayedCount()).isZero();
+        assertThat(outcome.promoted()).isEmpty();
+        verify(evidenceRepository, never()).insertEffectiveEvent(any());
+        verify(evidenceRepository, never()).insertLifecycleFact(any());
+        verify(employeeResolver, never()).resolveByEmployeeNumber(any(), any(), any());
+    }
+
     private static EvidenceRows.RawFactRow existingRaw(String digest) {
         return new EvidenceRows.RawFactRow(
                 "raw-1",
@@ -978,6 +1129,27 @@ class DeliPunchPageTransactionTest {
                 null);
     }
 
+    private static DeliPunchSourcePort.DeliPunchRecord gpsRecord() {
+        return new DeliPunchSourcePort.DeliPunchRecord(
+                "record-1",
+                "version-1",
+                "deli-ext-1",
+                ConfirmedBindingKind.DELI_EXT_ID,
+                null,
+                null,
+                EARLY_MORNING_PUNCH,
+                "1785274200",
+                "Asia/Shanghai",
+                Direction.AUTO,
+                "gps",
+                "terminal-1",
+                "大连演示地址",
+                "UNKNOWN",
+                true,
+                "121.614000",
+                "38.914000");
+    }
+
     private static DeliPunchSourcePort.DeliPunchRecord record(
             String employeeNumber,
             String externalPersonRef,
@@ -998,6 +1170,8 @@ class DeliPunchPageTransactionTest {
                 "terminal-1",
                 null,
                 "UNKNOWN",
-                true);
+                true,
+                null,
+                null);
     }
 }

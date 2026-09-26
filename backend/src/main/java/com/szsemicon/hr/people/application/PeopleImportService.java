@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -67,6 +68,7 @@ public class PeopleImportService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final long maxFileBytes;
+    private final NewHireAttendanceRecovery newHireRecovery;
 
     public PeopleImportService(
             CurrentCapabilityService capabilityService,
@@ -78,6 +80,31 @@ public class PeopleImportService {
             ObjectMapper objectMapper,
             Clock clock,
             @Value("${shenzhouhr.people-import.max-file-bytes:20971520}") long maxFileBytes) {
+        this(
+                capabilityService,
+                principalProvider,
+                repository,
+                workbookGateway,
+                auditService,
+                tokenService,
+                objectMapper,
+                clock,
+                maxFileBytes,
+                null);
+    }
+
+    @Autowired
+    public PeopleImportService(
+            CurrentCapabilityService capabilityService,
+            CurrentPrincipalProvider principalProvider,
+            PeopleRepository repository,
+            PeopleWorkbookGateway workbookGateway,
+            AuditService auditService,
+            SecurityTokenService tokenService,
+            ObjectMapper objectMapper,
+            Clock clock,
+            @Value("${shenzhouhr.people-import.max-file-bytes:20971520}") long maxFileBytes,
+            @Autowired(required = false) NewHireAttendanceRecovery newHireRecovery) {
         this.capabilityService = capabilityService;
         this.principalProvider = principalProvider;
         this.repository = repository;
@@ -87,6 +114,7 @@ public class PeopleImportService {
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.maxFileBytes = maxFileBytes;
+        this.newHireRecovery = newHireRecovery;
     }
 
     @Transactional(readOnly = true)
@@ -514,6 +542,8 @@ public class PeopleImportService {
                 "items", publicationDiffs));
         String snapshotDigest = digest(snapshotJson);
         List<String> localVersionIds = applyDiffs(batch, publicationDiffs, actor, now);
+        NewHireRecoverySignals.afterCommit(
+                newHireRecovery, earliestAddedEmployee(publicationDiffs));
         if (!repository.updateBatchState(
                 batchId, expectedVersion + 1, BatchStatus.PUBLISHED.name(), actor, now,
                 batch.precheckVersion(),
@@ -2092,6 +2122,22 @@ public class PeopleImportService {
 
     private static String string(Map<String, Object> row, String key) {
         return value(row, key);
+    }
+
+    private static LocalDate earliestAddedEmployee(List<ImportDiff> diffs) {
+        LocalDate earliest = null;
+        for (ImportDiff diff : diffs) {
+            if (diff.entityType() != TemplateType.EMPLOYEE
+                    || diff.category() != DiffCategory.ADDED
+                    || diff.proposedValues() == null) {
+                continue;
+            }
+            LocalDate hired = date(diff.proposedValues(), "effectiveFrom");
+            if (hired != null && (earliest == null || hired.isBefore(earliest))) {
+                earliest = hired;
+            }
+        }
+        return earliest;
     }
 
     private static LocalDate date(Map<String, Object> row, String key) {

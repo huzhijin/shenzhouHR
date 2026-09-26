@@ -19,9 +19,10 @@ import org.springframework.stereotype.Component;
  * <p>Disabled by default. Enable via:
  * {@code shenzhouhr.oa.auto-sync-enabled=true}</p>
  *
- * <p>Default cron: every hour in Asia/Shanghai. Override via the
+ * <p>Default cron: every 10 minutes in Asia/Shanghai, at minute 5/15/25/35/45/55
+ * so it does not start in the same second as Deli punch ingest. Override via
  * {@code shenzhouhr.oa.auto-sync-cron} and
- * {@code shenzhouhr.oa.auto-sync-zone} properties.</p>
+ * {@code shenzhouhr.oa.auto-sync-zone}.</p>
  */
 @Component
 @ConditionalOnProperty(
@@ -53,7 +54,7 @@ public final class OaAutoSyncJob {
     }
 
     @Scheduled(
-            cron = "${shenzhouhr.oa.auto-sync-cron:0 0 * * * ?}",
+            cron = "${shenzhouhr.oa.auto-sync-cron:0 5/10 * * * ?}",
             zone = "${shenzhouhr.oa.auto-sync-zone:Asia/Shanghai}")
     void triggerScheduledSync() {
         log.info("Scheduled OA sync starting");

@@ -121,7 +121,9 @@ public class PeopleManagementController {
                 new CreateEmployee(
                         request.companyId(), request.employeeNumber(),
                         request.displayName(), request.externalEmployeeId(),
-                        request.effectiveFrom(), request.reason()),
+                        request.organizationId(),
+                        request.effectiveFrom(), request.reason(),
+                        request.attendanceGroupId()),
                 IfMatchVersion.parse(ifMatch),
                 idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED)

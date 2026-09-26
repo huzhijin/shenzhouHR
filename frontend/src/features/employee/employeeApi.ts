@@ -135,8 +135,10 @@ export interface EmployeeCreateRequest {
   employeeNumber: string;
   displayName: string;
   externalEmployeeId?: string | null;
+  organizationId: string;
   effectiveFrom: string;
   reason: string;
+  attendanceGroupId: string;
 }
 
 export interface EmployeeUpdateRequest {

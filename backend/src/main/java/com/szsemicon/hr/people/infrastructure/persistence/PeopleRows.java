@@ -89,6 +89,9 @@ final class PeopleRows {
             Instant rolledBackAt) {
     }
 
+    record CompanyRefRow(String companyId, String code, String name) {
+    }
+
     record IdempotencyRow(
             String actorId,
             String actionCode,

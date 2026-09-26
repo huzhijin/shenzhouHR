@@ -9,10 +9,12 @@ import static org.mockito.Mockito.verify;
 
 import com.szsemicon.hr.evidenceingestion.application.OaDocumentSyncApplicationService;
 import java.lang.reflect.Method;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.CronExpression;
 
 class OaAutoSyncJobTest {
 
@@ -41,10 +43,18 @@ class OaAutoSyncJobTest {
 
         assertThat(scheduled.cron())
                 .isEqualTo(
-                        "${shenzhouhr.oa.auto-sync-cron:0 0 * * * ?}");
+                        "${shenzhouhr.oa.auto-sync-cron:0 5/10 * * * ?}");
         assertThat(scheduled.zone())
                 .isEqualTo(
                         "${shenzhouhr.oa.auto-sync-zone:Asia/Shanghai}");
+
+        CronExpression expression = CronExpression.parse("0 5/10 * * * ?");
+        assertThat(expression.next(LocalDateTime.of(2026, 8, 17, 7, 0, 0)))
+                .isEqualTo(LocalDateTime.of(2026, 8, 17, 7, 5));
+        assertThat(expression.next(LocalDateTime.of(2026, 8, 17, 7, 17, 42)))
+                .isEqualTo(LocalDateTime.of(2026, 8, 17, 7, 25));
+        assertThat(expression.next(LocalDateTime.of(2026, 8, 17, 23, 59, 59)))
+                .isEqualTo(LocalDateTime.of(2026, 8, 18, 0, 5));
     }
 
     @Test

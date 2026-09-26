@@ -61,12 +61,29 @@ shenzhouhr:
     enabled: false
   deli:
     auto-sync-enabled: ${SHENZHOUHR_DELI_AUTO_SYNC_ENABLED:false}
-    auto-sync-cron: ${SHENZHOUHR_DELI_AUTO_SYNC_CRON:0 0 0,8,12,18 * * ?}
+    # Every 10 minutes, incremental from the kq/checkin watermark. OA overtime
+    # reads these activated punches; hourly still leaves evening forms waiting.
+    auto-sync-cron: ${SHENZHOUHR_DELI_AUTO_SYNC_CRON:0 */10 * * * ?}
     replay-enabled: ${SHENZHOUHR_DELI_REPLAY_ENABLED:false}
+    # After a new hire is saved, wait 10 minutes, then re-read Deli punches
+    # from the hire date and promote quarantined rows. Recalculate only the
+    # people who received punches, from the earliest punch through today.
+    quarantine-rematch-enabled: ${SHENZHOUHR_DELI_QUARANTINE_REMATCH_ENABLED:true}
+    quarantine-rematch-cron: ${SHENZHOUHR_DELI_QUARANTINE_REMATCH_CRON:0 30 21 * * ?}
+    quarantine-rematch-lookback-days: ${SHENZHOUHR_DELI_QUARANTINE_REMATCH_LOOKBACK_DAYS:31}
+    quarantine-rematch-max-lookback-days: ${SHENZHOUHR_DELI_QUARANTINE_REMATCH_MAX_LOOKBACK_DAYS:62}
+    quarantine-rematch-quiet: ${SHENZHOUHR_DELI_QUARANTINE_REMATCH_QUIET:PT10M}
+    quarantine-rematch-poll: ${SHENZHOUHR_DELI_QUARANTINE_REMATCH_POLL:PT60S}
   oa:
     auto-sync-enabled: ${SHENZHOUHR_OA_AUTO_SYNC_ENABLED:false}
-    auto-sync-cron: ${SHENZHOUHR_OA_AUTO_SYNC_CRON:0 0 * * * ?}
+    # Every 10 minutes, offset from Deli (:05/:15/…) so the two jobs
+    # do not start on the same second. Incremental from the OA cursor.
+    auto-sync-cron: ${SHENZHOUHR_OA_AUTO_SYNC_CRON:0 5/10 * * * ?}
     auto-sync-zone: ${SHENZHOUHR_OA_AUTO_SYNC_ZONE:Asia/Shanghai}
+  map:
+    # Basemap key stays in env. Empty means address text only, no plot.
+    basemap-provider: ${SHENZHOUHR_MAP_BASEMAP_PROVIDER:}
+    basemap-key: ${SHENZHOUHR_MAP_BASEMAP_KEY:}
   report:
     # Rebuild OPEN months only at 00:00 and 12:00 after both Deli and OA
     # scheduled syncs succeed, plus this delay; HR can still click 重新计算.
@@ -75,6 +92,8 @@ shenzhouhr:
   leave-account:
     oa-recalculate-enabled: ${SHENZHOUHR_LEAVE_OA_RECALCULATE_ENABLED:true}
     oa-recalculate-cron: ${SHENZHOUHR_LEAVE_OA_RECALCULATE_CRON:0 0 1 * * ?}
+    # Inclusive. Blank would sync the whole year and reverse the 2026-09-18 batch.
+    oa-sync-effective-from: ${SHENZHOUHR_LEAVE_OA_SYNC_EFFECTIVE_FROM:2026-09-19}
   time-off-year-end:
     # Keep disabled until V41/V42 cutover and site acceptance are complete.
     enabled: ${SHENZHOUHR_TIME_OFF_YEAR_END_ENABLED:false}

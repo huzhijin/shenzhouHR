@@ -47,7 +47,10 @@
                        WHEN fact.document_type = 'OVERTIME'
                             AND (
                                 fact.leave_type_code LIKE '%COMPENSATORY%'
+                                OR fact.leave_type_code LIKE '%TIME_OFF%'
                                 OR fact.leave_type_code LIKE '%调休%'
+                                OR context.overtime_type IN (
+                                    'COMPENSATORY', 'TIME_OFF_IN_LIEU')
                             )
                        THEN 'COMPENSATORY_OT'
                        ELSE NULL
@@ -57,6 +60,9 @@
             JOIN attendance_report_projection projection
               ON projection.attendance_report_projection_id =
                  fact.attendance_report_projection_id
+            LEFT JOIN oa_attendance_document_context context
+              ON context.oa_attendance_document_id =
+                 fact.oa_attendance_document_id
             WHERE projection.company_id = #{companyId}
               AND projection.status = 'PUBLISHED'
               AND projection.formula_catalog_version =

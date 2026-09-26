@@ -4,6 +4,8 @@ import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.people.application.PeopleCommands.AdjustPriorService;
+import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.AssignmentCommand;
+import com.szsemicon.hr.attendance.application.AttendanceGroupService;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateEmployee;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateEmployment;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateOrganization;
@@ -28,6 +30,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +48,8 @@ public class PeopleManagementService {
     private final SecurityTokenService tokenService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final NewHireAttendanceRecovery newHireRecovery;
+    private final AttendanceGroupService attendanceGroups;
 
     public PeopleManagementService(
             CurrentCapabilityService capabilityService,
@@ -54,6 +59,50 @@ public class PeopleManagementService {
             SecurityTokenService tokenService,
             ObjectMapper objectMapper,
             Clock clock) {
+        this(
+                capabilityService,
+                principalProvider,
+                repository,
+                auditService,
+                tokenService,
+                objectMapper,
+                clock,
+                null,
+                null);
+    }
+
+    public PeopleManagementService(
+            CurrentCapabilityService capabilityService,
+            CurrentPrincipalProvider principalProvider,
+            PeopleRepository repository,
+            AuditService auditService,
+            SecurityTokenService tokenService,
+            ObjectMapper objectMapper,
+            Clock clock,
+            NewHireAttendanceRecovery newHireRecovery) {
+        this(
+                capabilityService,
+                principalProvider,
+                repository,
+                auditService,
+                tokenService,
+                objectMapper,
+                clock,
+                newHireRecovery,
+                null);
+    }
+
+    @Autowired
+    public PeopleManagementService(
+            CurrentCapabilityService capabilityService,
+            CurrentPrincipalProvider principalProvider,
+            PeopleRepository repository,
+            AuditService auditService,
+            SecurityTokenService tokenService,
+            ObjectMapper objectMapper,
+            Clock clock,
+            @Autowired(required = false) NewHireAttendanceRecovery newHireRecovery,
+            @Autowired(required = false) AttendanceGroupService attendanceGroups) {
         this.capabilityService = capabilityService;
         this.principalProvider = principalProvider;
         this.repository = repository;
@@ -61,14 +110,17 @@ public class PeopleManagementService {
         this.tokenService = tokenService;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.newHireRecovery = newHireRecovery;
+        this.attendanceGroups = attendanceGroups;
     }
 
     @Transactional
     public OrganizationVersion createOrganization(
             CreateOrganization command, long expectedVersion, String idempotencyKey) {
         requireExpected(expectedVersion, 0);
+        String resolvedCode = resolveOrganizationCode(command.companyId(), command.code());
         validateOrganization(
-                command.code(), command.name(), command.organizationType(),
+                resolvedCode, command.name(), command.organizationType(),
                 "ACTIVE", command.effectiveFrom(), null, command.reason());
         requireIdempotencyKey(idempotencyKey);
         requireCompany(CapabilityCodes.ORGANIZATION_CREATE, command.companyId());
@@ -81,15 +133,21 @@ public class PeopleManagementService {
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         }
         repository.lockCompany(command.companyId());
-        if (command.parentOrganizationId() != null) {
-            OrganizationVersion parent = requireOrganization(
-                    command.parentOrganizationId(), CapabilityCodes.ORGANIZATION_CREATE, null);
+        if (command.parentOrganizationId() != null && !command.parentOrganizationId().isBlank()) {
+            OrganizationVersion parent = repository.findCurrentOrganization(
+                            command.parentOrganizationId())
+                    .orElseThrow(() -> invalid("上级部门不存在"));
             if (!parent.companyId().equals(command.companyId())) {
-                throw new ResourceNotAvailableAccessDeniedException();
+                throw new ApiProblemException(
+                        HttpStatus.BAD_REQUEST,
+                        "ORGANIZATION_PARENT_COMPANY_MISMATCH",
+                        "上级部门与所选公司不属于同一家公司");
             }
+            requireOrganization(
+                    command.parentOrganizationId(), CapabilityCodes.ORGANIZATION_CREATE, null);
         }
         if (repository.organizationCodeExists(
-                command.companyId(), command.code().trim(), null)) {
+                command.companyId(), resolvedCode, null)) {
             throw conflict("ORGANIZATION_CODE_CONFLICT", "组织编码已经存在");
         }
         Instant now = clock.instant();
@@ -100,8 +158,8 @@ public class PeopleManagementService {
                 UUID.randomUUID().toString(),
                 organizationId,
                 command.companyId(),
-                command.parentOrganizationId(),
-                command.code().trim(),
+                blankToNull(command.parentOrganizationId()),
+                resolvedCode,
                 command.name().trim(),
                 command.organizationType(),
                 "ACTIVE",
@@ -230,6 +288,8 @@ public class PeopleManagementService {
                 command.effectiveFrom(), null, command.reason());
         requireIdempotencyKey(idempotencyKey);
         requireCompany(CapabilityCodes.EMPLOYEE_CREATE, command.companyId());
+        OrganizationVersion organization = requireCreateEmploymentOrganization(
+                command.organizationId(), command.companyId());
         String actor = principalProvider.currentPrincipalId();
         String requestDigest = digest(command);
         IdempotencyRecord existing = existing(
@@ -276,13 +336,52 @@ public class PeopleManagementService {
                 actor,
                 now);
         repository.saveEmployeeVersion(version);
+        EmploymentPeriod period = new EmploymentPeriod(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                employeeId,
+                organization.organizationId(),
+                null,
+                command.effectiveFrom(),
+                null,
+                null,
+                "ACTIVE",
+                null,
+                0,
+                command.reason().trim(),
+                actor,
+                now);
+        repository.saveEmploymentPeriodVersion(period, true);
         saveIdempotency(
                 actor, "EMPLOYEE_CREATE", idempotencyKey,
                 requestDigest, employeeId, now);
         auditService.record(
                 actor, "EMPLOYEE_VERSION_CREATED", "EMPLOYEE", employeeId,
                 "SUCCESS", command.reason(), null, digest(version));
+        auditService.record(
+                actor, "EMPLOYMENT_PERIOD_CREATED", "EMPLOYEE", employeeId,
+                "SUCCESS", command.reason(), null, digest(period));
+        assignOpeningGroup(employeeId, command, idempotencyKey);
+        NewHireRecoverySignals.afterCommit(newHireRecovery, command.effectiveFrom());
         return employeeDetail(version, null, CapabilityCodes.EMPLOYEE_CREATE);
+    }
+
+    private void assignOpeningGroup(
+            String employeeId, CreateEmployee command, String idempotencyKey) {
+        if (command.attendanceGroupId() == null || command.attendanceGroupId().isBlank()) {
+            return;
+        }
+        if (attendanceGroups == null) {
+            throw new IllegalStateException("attendance group assignment is unavailable");
+        }
+        attendanceGroups.createAssignment(
+                command.attendanceGroupId().trim(),
+                new AssignmentCommand(
+                        employeeId,
+                        command.effectiveFrom(),
+                        null,
+                        command.reason().trim()),
+                idempotencyKey + ":group");
     }
 
     @Transactional
@@ -814,6 +913,44 @@ public class PeopleManagementService {
         repository.saveIdempotency(
                 UUID.randomUUID().toString(), actor, action, key,
                 requestDigest, resourceId, null, at);
+    }
+
+    private String resolveOrganizationCode(String companyId, String code) {
+        if (code != null && !code.isBlank()) {
+            return code.trim();
+        }
+        for (int attempt = 0; attempt < 8; attempt++) {
+            String generated = "D-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+            if (!repository.organizationCodeExists(companyId, generated, null)) {
+                return generated;
+            }
+        }
+        throw invalid("无法生成唯一组织编码");
+    }
+
+    private OrganizationVersion requireCreateEmploymentOrganization(
+            String organizationId, String companyId) {
+        if (organizationId == null || organizationId.isBlank()) {
+            throw invalid("任职部门不能为空");
+        }
+        OrganizationVersion organization = repository.findCurrentOrganization(organizationId)
+                .orElseThrow(() -> invalid("任职部门不存在"));
+        if (!organization.companyId().equals(companyId)
+                || !"ACTIVE".equals(organization.status())) {
+            throw invalid("任职部门必须属于所选公司且为有效组织");
+        }
+        if (!repository.canAccessOrganization(
+                principalProvider.currentPrincipalId(),
+                CapabilityCodes.EMPLOYEE_CREATE,
+                organizationId,
+                clock.instant())) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
+        return organization;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static void validateOrganization(

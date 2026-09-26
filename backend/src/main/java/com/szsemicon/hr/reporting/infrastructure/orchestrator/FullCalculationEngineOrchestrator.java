@@ -2714,8 +2714,11 @@ public class FullCalculationEngineOrchestrator
 
     private DayType reportDayType(CalendarDayRow day) {
         return switch (day.dayType()) {
-            case "WORKDAY" -> weekdayDayType(day.businessDate());
-            case "WEEKEND" -> weekdayDayType(day.businessDate());
+            // A published workday stays a workday even when it falls on
+            // Saturday or Sunday. Makeup days must not be reclassified from
+            // the civil weekday; that would turn 2026-09-20 into a rest day.
+            case "WORKDAY" -> DayType.WEEKDAY;
+            case "WEEKEND" -> weekendDayType(day.businessDate());
             case "SPECIAL_WORKDAY" -> DayType.ADJUSTED_WORKDAY;
             case "PUBLIC_HOLIDAY" -> DayType.PUBLIC_HOLIDAY;
             // Compatibility with pre-normalized fixtures and projections.
@@ -2832,6 +2835,12 @@ public class FullCalculationEngineOrchestrator
         } else {
             return DayType.WEEKDAY;
         }
+    }
+
+    private DayType weekendDayType(LocalDate date) {
+        return date.getDayOfWeek() == DayOfWeek.SUNDAY
+                ? DayType.SUNDAY
+                : DayType.SATURDAY;
     }
 
     private static <T, K> Map<K, List<T>> groupBy(

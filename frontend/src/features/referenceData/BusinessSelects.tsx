@@ -66,8 +66,8 @@ export function CompanySelect(props: BusinessSelectProps) {
         {...props}
         aria-describedby={describedBy}
         state={state}
-        disabled={props.disabled || Boolean(onlyCompany) || noCompany}
-        allowClear={onlyCompany ? false : props.allowClear}
+        disabled={props.disabled || noCompany}
+        allowClear={onlyCompany || noCompany ? false : props.allowClear}
         placeholder={noCompany ? '无可用公司' : props.placeholder ?? '请选择公司'}
       />
       {statusMessage ? (

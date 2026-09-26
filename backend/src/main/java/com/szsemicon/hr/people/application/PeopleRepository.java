@@ -100,6 +100,17 @@ public interface PeopleRepository {
 
     Optional<OrganizationVersion> findOrganizationByCode(String companyId, String code);
 
+    List<OrganizationVersion> listCurrentOrganizations();
+
+    List<EmployeeVersion> listCurrentEmployees();
+
+    List<EmploymentPeriod> listOpenEmployments();
+
+    List<CompanyRef> listActiveCompanies();
+
+    record CompanyRef(String companyId, String code, String name) {
+    }
+
     List<OrganizationVersion> listOrganizationVersions(String organizationId, int limit, int offset);
 
     long countOrganizationVersions(String organizationId);

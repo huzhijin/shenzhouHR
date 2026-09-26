@@ -179,6 +179,21 @@ public interface DeliPunchSourcePort {
             String deviceRef,
             String locationSummary,
             String coordinateSystemTag,
-            boolean forbiddenPayloadDropped) {
+            boolean forbiddenPayloadDropped,
+            String longitudeRaw,
+            String latitudeRaw) {
+
+        @Override
+        public String toString() {
+            return "DeliPunchRecord[sourceRecordId=<redacted>"
+                    + ", sourceVersion=<redacted>"
+                    + ", verificationMethod=" + verificationMethod
+                    + ", coordinateSystemTag=" + coordinateSystemTag
+                    + ", forbiddenPayloadDropped=" + forbiddenPayloadDropped
+                    + ", hasLocationSummary=" + (locationSummary != null)
+                    + ", hasCoordinates="
+                    + (longitudeRaw != null && latitudeRaw != null)
+                    + "]";
+        }
     }
 }

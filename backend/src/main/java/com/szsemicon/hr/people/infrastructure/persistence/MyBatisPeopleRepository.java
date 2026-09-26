@@ -328,6 +328,34 @@ public class MyBatisPeopleRepository implements PeopleRepository {
     }
 
     @Override
+    public List<OrganizationVersion> listCurrentOrganizations() {
+        return mapper.listCurrentOrganizations().stream()
+                .map(MyBatisPeopleRepository::toOrganization)
+                .toList();
+    }
+
+    @Override
+    public List<EmployeeVersion> listCurrentEmployees() {
+        return mapper.listCurrentEmployees().stream()
+                .map(MyBatisPeopleRepository::toEmployee)
+                .toList();
+    }
+
+    @Override
+    public List<EmploymentPeriod> listOpenEmployments() {
+        return mapper.listOpenEmployments().stream()
+                .map(MyBatisPeopleRepository::toEmployment)
+                .toList();
+    }
+
+    @Override
+    public List<CompanyRef> listActiveCompanies() {
+        return mapper.listActiveCompanies().stream()
+                .map(row -> new CompanyRef(row.companyId(), row.code(), row.name()))
+                .toList();
+    }
+
+    @Override
     public List<OrganizationVersion> listOrganizationVersions(
             String organizationId, int limit, int offset) {
         return mapper.listOrganizationVersions(organizationId, limit, offset).stream()

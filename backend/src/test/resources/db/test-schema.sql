@@ -251,7 +251,7 @@ CREATE TABLE audit_event (
     scope_digest CHAR(64),
     purpose_code VARCHAR(64),
     result_code VARCHAR(32) NOT NULL,
-    reason_code VARCHAR(64),
+    reason_code VARCHAR(1000),
     policy_version VARCHAR(64),
     before_digest CHAR(64),
     after_digest CHAR(64),

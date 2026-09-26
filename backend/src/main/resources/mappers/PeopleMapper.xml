@@ -621,6 +621,37 @@
           AND version.code = #{code}
     </select>
 
+    <select id="listCurrentOrganizations"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$OrganizationRow">
+        <include refid="organizationColumns"/>
+        JOIN organization_current_projection projection
+          ON projection.organization_id = version.organization_id
+         AND projection.current_version_id = version.organization_version_id
+        WHERE version.status = 'ACTIVE'
+    </select>
+
+    <select id="listCurrentEmployees"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmployeeRow">
+        <include refid="currentEmployeeColumns"/>
+        JOIN employee_current_projection projection
+          ON projection.employee_id = version.employee_id
+         AND projection.current_version_id = version.employee_version_id
+        WHERE version.status = 'ACTIVE'
+    </select>
+
+    <select id="listOpenEmployments"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$EmploymentRow">
+        <include refid="employmentColumns"/>
+          AND effective_to IS NULL
+    </select>
+
+    <select id="listActiveCompanies"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$CompanyRefRow">
+        SELECT company_id, code, name
+        FROM company
+        WHERE status = 'ACTIVE'
+    </select>
+
     <select id="listOrganizationVersions"
             resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$OrganizationRow">
         <include refid="organizationColumns"/>

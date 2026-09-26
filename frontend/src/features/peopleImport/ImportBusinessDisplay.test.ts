@@ -32,17 +32,14 @@ describe('people import business display', () => {
     expect(source).toContain('targetField: field.key');
   });
 
-  it('uses task creation details throughout page and confirmation UI', () => {
+  it('uses the roster template on the people import page', () => {
     const page = read('PeopleImportPage.tsx');
-    const wizard = read('ImportWizard.tsx');
-    const dialog = read('ImportDialogs.tsx');
 
-    expect(page).toContain('importTaskLabel(state.batch.createdAt');
-    expect(page).toContain('importTaskLabel(row.createdAt)');
-    expect(wizard).toContain('importTaskLabel(batch.createdAt');
-    expect(dialog).toContain('importTaskLabel(batch.createdAt');
-    expect(`${page}\n${wizard}\n${dialog}`).not.toContain('importTaskNumber');
-    expect(`${page}\n${wizard}\n${dialog}`).not.toContain('任务编号');
+    expect(page).toContain('saveRosterTemplate');
+    expect(page).toContain('uploadRosterFile');
+    expect(page).toContain('publishRosterImport');
+    expect(page).not.toContain('ImportWizard');
+    expect(page).not.toContain('组织与员工期初导入');
   });
 
   it('renders business field names and hides raw keys and error codes', () => {

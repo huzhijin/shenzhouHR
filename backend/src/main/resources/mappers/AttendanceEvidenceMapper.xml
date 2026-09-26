@@ -102,6 +102,10 @@
             fact_kind, source_business_key, source_version,
             stable_fingerprint, source_time_text, source_time_zone,
             source_instant, interval_start, interval_end,
+            verification_method, location_summary,
+            longitude_raw, latitude_raw, source_coordinate_system,
+            coordinate_validation_status, coordinate_conversion_status,
+            map_longitude, map_latitude, map_coordinate_system,
             canonical_payload_digest, raw_object_ref, request_id,
             received_at, created_by
         ) VALUES (
@@ -109,6 +113,12 @@
             #{factKind}, #{sourceBusinessKey}, #{sourceVersion},
             #{stableFingerprint}, #{sourceTimeText}, #{sourceTimeZone},
             #{sourceInstant}, #{intervalStart}, #{intervalEnd},
+            #{verificationMethod}, #{locationSummary},
+            #{longitudeRaw}, #{latitudeRaw},
+            COALESCE(#{sourceCoordinateSystem}, 'UNKNOWN'),
+            COALESCE(#{coordinateValidationStatus}, 'MISSING'),
+            COALESCE(#{coordinateConversionStatus}, 'NOT_APPLICABLE'),
+            #{mapLongitude}, #{mapLatitude}, #{mapCoordinateSystem},
             #{canonicalPayloadDigest}, #{rawObjectRef}, #{requestId},
             #{receivedAt}, #{createdBy}
         )

@@ -1,4 +1,5 @@
 const auditActionLabels: Readonly<Record<string, string>> = {
+  PUNCH_LOCATION_READ: '查看打卡位置',
   ACCOUNT_CREATED: '创建本地账号',
   ACCOUNT_STATUS_CHANGED: '变更账号状态',
   ACCOUNT_DISABLED: '停用账号',
@@ -84,6 +85,7 @@ const auditResourceLabels: Readonly<Record<string, string>> = {
   PRIOR_SERVICE: '累计工龄',
   PEOPLE_IMPORT: '组织与员工期初导入批次',
   ATTENDANCE_LOCATION: '考勤地点',
+  RAW_ATTENDANCE_FACT: '原始打卡证据',
   ATTENDANCE_GROUP: '考勤组',
   ATTENDANCE_GROUP_ASSIGNMENT: '考勤组人员归属',
   SHIFT_TEMPLATE: '班次模板',

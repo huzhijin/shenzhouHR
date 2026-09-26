@@ -648,6 +648,8 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
                     "member_name",
                     MAX_MEMBER_NAME_LENGTH);
         }
+        DeliGpsCheckData.Parsed gps = DeliGpsCheckData.parse(
+                row.get("check_data"), checkType, objectMapper);
         return new CheckinRecord(
                 id,
                 userId,
@@ -658,7 +660,11 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
                 checkDataDigest,
                 checkDataDigest != null,
                 employeeNum,
-                memberName);
+                memberName,
+                gps.locationSummary(),
+                gps.longitudeRaw(),
+                gps.latitudeRaw(),
+                gps.forbiddenPayloadDropped());
     }
 
     private DeliPunchRecord toPortRecord(
@@ -693,9 +699,11 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
                 Direction.AUTO,
                 record.checkType(),
                 record.terminalId(),
-                null,
+                record.locationSummary(),
                 "UNKNOWN",
-                record.checkDataPresent());
+                record.forbiddenPayloadDropped(),
+                record.longitudeRaw(),
+                record.latitudeRaw());
     }
 
     private static boolean isSnowflakePersonId(String personRef) {
@@ -1044,14 +1052,21 @@ public final class DeliEplusClient implements DeliPunchSourcePort {
             String checkDataDigest,
             boolean checkDataPresent,
             String checkDataEmployeeNum,
-            String memberName) {
+            String memberName,
+            String locationSummary,
+            String longitudeRaw,
+            String latitudeRaw,
+            boolean forbiddenPayloadDropped) {
 
         @Override
         public String toString() {
             return "CheckinRecord[id=<redacted>, userId=<redacted>, extId=<redacted>"
                     + ", terminalId=<redacted>, checkType=<redacted>"
                     + ", checkTime=<redacted>, checkDataDigest=<redacted>"
-                    + ", checkDataPresent=" + checkDataPresent + "]";
+                    + ", checkDataPresent=" + checkDataPresent
+                    + ", forbiddenPayloadDropped=" + forbiddenPayloadDropped
+                    + ", hasLocationSummary=" + (locationSummary != null)
+                    + "]";
         }
     }
 }

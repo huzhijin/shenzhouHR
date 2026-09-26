@@ -412,6 +412,51 @@ public class RealtimeAttendanceReportSnapshotService {
         cache.put(new CalculationKey(companyId, period, 0L), entry);
     }
 
+    /**
+     * Recalculate one employee from the first punch date through today.
+     * Does not replace the company-month snapshot.
+     */
+    public void materializeEmployeeRange(
+            String companyId,
+            String employeeId,
+            LocalDate fromInclusive,
+            LocalDate toInclusive,
+            Instant authorizationTime) {
+        if (companyId == null || companyId.isBlank()
+                || employeeId == null || employeeId.isBlank()
+                || fromInclusive == null || toInclusive == null
+                || authorizationTime == null
+                || toInclusive.isBefore(fromInclusive)) {
+            return;
+        }
+        YearMonth cursor = YearMonth.from(fromInclusive);
+        YearMonth last = YearMonth.from(toInclusive);
+        while (!cursor.isAfter(last)) {
+            if (!shouldSkipClosed(companyId, cursor, authorizationTime)) {
+                LocalDate monthStart = cursor.atDay(1);
+                LocalDate monthEndExclusive = cursor.plusMonths(1).atDay(1);
+                LocalDate writeStart = fromInclusive.isAfter(monthStart)
+                        ? fromInclusive
+                        : monthStart;
+                LocalDate rangeEndExclusive = toInclusive.plusDays(1);
+                LocalDate writeEndExclusive = rangeEndExclusive.isBefore(monthEndExclusive)
+                        ? rangeEndExclusive
+                        : monthEndExclusive;
+                evictCompanyMonth(companyId, cursor);
+                calculate(
+                        companyId,
+                        cursor,
+                        "SYSTEM",
+                        authorizationTime,
+                        writeStart,
+                        writeEndExclusive,
+                        java.util.List.of(employeeId));
+                evictCompanyMonth(companyId, cursor);
+            }
+            cursor = cursor.plusMonths(1);
+        }
+    }
+
     public ReportSourceSnapshot recalculateEmployee(
             String principalId,
             String capabilityCode,

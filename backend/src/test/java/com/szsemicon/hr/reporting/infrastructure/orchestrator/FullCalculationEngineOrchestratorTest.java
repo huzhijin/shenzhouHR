@@ -2395,6 +2395,80 @@ class FullCalculationEngineOrchestratorTest {
     }
 
     @Test
+    void nationalMakeupSundayStaysAdjustedWorkday() {
+        String companyId = "company-1";
+        LocalDate makeupSunday = LocalDate.of(2026, 9, 20);
+        Instant dataAsOf = Instant.parse("2026-09-20T16:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                makeupSunday,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+        Mockito.when(mapper.findPublishedCalendarDays(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(Instant.class)))
+                .thenReturn(List.of(new CalendarDayRow(
+                        makeupSunday, "SPECIAL_WORKDAY")));
+
+        var daily = orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 9),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf)
+                .calculatedFacts()
+                .getFirst()
+                .facts()
+                .dailyFact();
+
+        assertThat(daily.dayType())
+                .isEqualTo(com.szsemicon.hr.reporting.domain
+                        .AttendanceReportModels.DayType.ADJUSTED_WORKDAY);
+        assertThat(daily.scheduledAttendanceDays()).isEqualTo(1);
+        assertThat(daily.shiftLabel()).isEqualTo("白班");
+    }
+
+    @Test
+    void sundayPublishedAsWorkdayDoesNotFallBackToRest() {
+        String companyId = "company-1";
+        LocalDate sunday = LocalDate.of(2026, 9, 20);
+        Instant dataAsOf = Instant.parse("2026-09-20T16:00:00Z");
+        stubOneEmployeeDay(
+                companyId,
+                sunday,
+                dataAsOf,
+                List.of(),
+                List.of(),
+                List.of());
+        Mockito.when(mapper.findPublishedCalendarDays(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(Instant.class)))
+                .thenReturn(List.of(new CalendarDayRow(sunday, "WORKDAY")));
+
+        var daily = orchestrator.assemble(
+                companyId,
+                YearMonth.of(2026, 9),
+                PeriodState.OPEN,
+                "admin-1",
+                dataAsOf)
+                .calculatedFacts()
+                .getFirst()
+                .facts()
+                .dailyFact();
+
+        assertThat(daily.dayType())
+                .isEqualTo(com.szsemicon.hr.reporting.domain
+                        .AttendanceReportModels.DayType.WEEKDAY);
+        assertThat(daily.scheduledAttendanceDays()).isEqualTo(1);
+    }
+
+    @Test
     void monthlyGraceIsConsumedOnFirstLateDateAndNotRepeated() {
         String companyId = "company-1";
         LocalDate firstDate = LocalDate.of(2026, 8, 3);

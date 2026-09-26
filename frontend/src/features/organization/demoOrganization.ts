@@ -125,7 +125,7 @@ function versionFromRequest(
     organizationId,
     organizationVersionId: `${organizationId}-v${rowVersion + 1}`,
     parentOrganizationId: request.parentOrganizationId ?? null,
-    code: request.code,
+    code: request.code || `AUTO-${rowVersion + 1}`,
     name: request.name,
     organizationType: request.organizationType,
     status: 'status' in request ? request.status : 'ACTIVE',

@@ -22,7 +22,8 @@ import org.springframework.stereotype.Component;
  * department/company routing and reconciliation gates have passed via:
  * {@code shenzhouhr.deli.auto-sync-enabled=true}</p>
  *
- * <p>Default cron: 00:00, 08:00, 12:00 and 18:00. Override via
+ * <p>Default cron: every 10 minutes in Asia/Shanghai. Each run continues the
+ * committed check-in/kq watermark and does not rebuild reports. Override via
  * {@code shenzhouhr.deli.auto-sync-cron}.</p>
  */
 @Component
@@ -63,7 +64,7 @@ public final class DeliAutoSyncJob {
     }
 
     @Scheduled(
-            cron = "${shenzhouhr.deli.auto-sync-cron:0 0 0,8,12,18 * * ?}",
+            cron = "${shenzhouhr.deli.auto-sync-cron:0 */10 * * * ?}",
             zone = "${shenzhouhr.oa.auto-sync-zone:Asia/Shanghai}")
     void triggerScheduledSync() {
         log.info("Scheduled Deli sync starting");

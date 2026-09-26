@@ -2,6 +2,7 @@ package com.szsemicon.hr.leavetimeaccount.infrastructure.scheduler;
 
 import com.szsemicon.hr.leavetimeaccount.application.LeaveAccountOaRecalculateService;
 import com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper;
+import com.szsemicon.hr.reporting.application.ReportSlotCompletionListener;
 import java.time.Clock;
 import java.time.ZoneId;
 import org.slf4j.Logger;
@@ -11,9 +12,22 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Daily OA-driven refresh of annual-leave and time-off ledgers. Coexists with
- * the query-page「按 OA 重算」button. Runs after the 00:00 Deli+OA sync and
- * report rebuild so published OA facts are already current.
+ * OA-driven refresh of annual-leave and time-off ledgers.
+ *
+ * <p>Two trigger paths:</p>
+ * <ol>
+ *   <li><b>Report-slot callback</b> ({@link #onReportSlotCompleted}): fires once
+ *       per company immediately after each automated report rebuild slot (around
+ *       00:10 and 12:10 daily). This keeps personal leave balances in sync with
+ *       OA approvals on the same day rather than waiting until the next fixed
+ *       cron window.</li>
+ *   <li><b>Daily fallback cron</b> ({@link #runDaily}): runs at 01:00 as a
+ *       safety net for the 00:00 slot and catches any companies that the slot
+ *       listener may have missed (e.g. if the report rebuild failed).</li>
+ * </ol>
+ *
+ * <p>Coexists with the query-page 「按 OA 重算」 button which calls
+ * {@link LeaveAccountOaRecalculateService#recalculate} directly.</p>
  */
 @Component
 @ConditionalOnProperty(
@@ -21,7 +35,7 @@ import org.springframework.stereotype.Component;
         name = "oa-recalculate-enabled",
         havingValue = "true",
         matchIfMissing = true)
-public final class LeaveAccountOaRecalculateJob {
+public final class LeaveAccountOaRecalculateJob implements ReportSlotCompletionListener {
 
     private static final Logger log =
             LoggerFactory.getLogger(LeaveAccountOaRecalculateJob.class);
@@ -40,6 +54,33 @@ public final class LeaveAccountOaRecalculateJob {
         this.clock = clock;
     }
 
+    /**
+     * Called by {@link com.szsemicon.hr.reporting.application.AttendanceReportAutoRecalcService}
+     * once per company after each report-rebuild slot completes. Exceptions are
+     * swallowed here because the caller already logs them per-company; rethrowing
+     * would skip remaining companies in the slot listener loop.
+     */
+    @Override
+    public void onReportSlotCompleted(String companyId, int year) {
+        log.info("Report-slot leave-account sync starting company={} year={}", companyId, year);
+        try {
+            var result = service.recalculateAsSystem(companyId, year);
+            log.info(
+                    "Report-slot leave-account sync finished company={} annual={} timeOff={}",
+                    result.companyId(),
+                    result.annualAccounts(),
+                    result.timeOffAccounts());
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Report-slot leave-account sync failed company={} year={}",
+                    companyId, year, exception);
+        }
+    }
+
+    /**
+     * Daily fallback: runs at 01:00 (Asia/Shanghai) to cover the 00:00 report
+     * slot and any companies missed by the slot listener.
+     */
     @Scheduled(
             cron = "${shenzhouhr.leave-account.oa-recalculate-cron:0 0 1 * * ?}",
             zone = "${shenzhouhr.oa.auto-sync-zone:Asia/Shanghai}")

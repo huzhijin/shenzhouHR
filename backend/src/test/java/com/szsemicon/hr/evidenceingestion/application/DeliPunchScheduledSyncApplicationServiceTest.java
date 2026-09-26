@@ -288,7 +288,9 @@ class DeliPunchScheduledSyncApplicationServiceTest {
                 "terminal-1",
                 null,
                 "UNKNOWN",
-                true);
+                true,
+                null,
+                null);
     }
 
     private static SourceJobStart job(
