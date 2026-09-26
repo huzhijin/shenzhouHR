@@ -106,12 +106,10 @@ describe('WAVE-2 people production source contract', () => {
   });
 
   it('keeps drawers within the responsive design token instead of a fixed large width', () => {
-    const peopleImport = read(join(sourceRoot, 'features/peopleImport/PeopleImportPage.tsx'));
     const feedback = read(join(sourceRoot, 'shared/components/FeedbackComponents.tsx'));
 
-    expect(peopleImport).toContain('size="var(--size-drawer)"');
     expect(feedback).toContain('size="var(--size-drawer)"');
-    expect(`${peopleImport}\n${feedback}`).not.toContain('size="large"');
+    expect(feedback).not.toContain('size="large"');
   });
 
   it('keeps people form limits aligned with the OpenAPI contract', () => {
@@ -133,16 +131,14 @@ describe('WAVE-2 people production source contract', () => {
       sourceRoot,
       'shared/files/peopleImportFilePolicy.ts',
     ));
-    const api = read(join(sourceRoot, 'features/peopleImport/peopleImportApi.ts'));
-    const wizard = read(join(sourceRoot, 'features/peopleImport/ImportWizard.tsx'));
+    const api = read(join(sourceRoot, 'features/peopleImport/rosterImportApi.ts'));
 
     expect(validationBoundary).toContain('peopleImportFilePolicy.allowedExtensions');
     expect(validationBoundary).toContain('peopleImportFilePolicy.allowedTypes');
     expect(validationBoundary).toContain('file.size > 0');
     expect(validationBoundary).toContain('peopleImportFilePolicy.maxSizeBytes');
     expect(sharedPolicy).toContain('maxSizeBytes: 20 * 1024 * 1024');
-    expect(api).toContain('peopleImportFileValidator.validate(file)');
-    expect(wizard).toContain('validatePeopleImportFile(selectedFile)');
+    expect(api).toContain('validatePeopleImportFile(file)');
   });
 });
 

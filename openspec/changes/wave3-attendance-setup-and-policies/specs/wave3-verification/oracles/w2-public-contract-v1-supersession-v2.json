@@ -1,0 +1,43 @@
+{
+  "authoritativeAcceptedBaseline": "32a6365bcebfa4cde1c523a64aac4c596b367e1b",
+  "decision": "INVALIDATED_SUPERSEDED",
+  "frozenV1Artifacts": [
+    {
+      "path": "openspec/changes/wave3-attendance-setup-and-policies/specs/wave3-verification/oracles/w2-public-contract-v1.json",
+      "sha256": "72eb8502b0c467f5339792ac22fb48678105222cdef2fe5696136373108b5b50"
+    },
+    {
+      "path": "openspec/changes/wave3-attendance-setup-and-policies/specs/wave3-verification/oracles/extract-w2-public-contract-v1.sh",
+      "sha256": "a319048ecfe5a496c933c278938b2f0119370e722cc62cba46c06ffbd1025b31"
+    },
+    {
+      "path": "scripts/qa/verify_w2_public_contract.py",
+      "sha256": "8c8a9ce499d77dfce13996ac2c396a55416c5ca90bed3844d82dac82afa16538"
+    }
+  ],
+  "id": "w2-public-contract-v1-supersession-v2",
+  "invalidation": {
+    "capturedPollution": [
+      "public MyBatisPolicyRepository.lockTemplate",
+      "PolicyMapper.lockTemplate",
+      "PolicyMapper.xml lockTemplate"
+    ],
+    "reason": "The v1 expected contract captured an unaccepted W3 lockTemplate chain in the W2 generic-policy surface.",
+    "reasonCode": "CAPTURED_UNACCEPTED_W3_LOCK_TEMPLATE_POLLUTION"
+  },
+  "rules": {
+    "currentSourceMustNotBeChangedToMatchV1": true,
+    "v1CurrentSourcePositiveGateProhibited": true,
+    "v1FilesMustRemainByteIdentical": true,
+    "v1IntegrityCheckRequired": true,
+    "v2CurrentSourceExactPositiveGateRequired": true
+  },
+  "status": "INVALIDATED_SUPERSEDED",
+  "supersededBy": "openspec/changes/wave3-attendance-setup-and-policies/specs/wave3-verification/oracles/w2-public-contract-v2.json",
+  "version": 2,
+  "v2ExpectedConstruction": {
+    "method": "manual pre-anchoring against the immutable accepted baseline and immutable V4/v1 evidence",
+    "mustNotUseCurrentActual": true,
+    "mustNotUseTestedExtractor": true
+  }
+}

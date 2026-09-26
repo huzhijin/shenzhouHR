@@ -89,12 +89,57 @@ class ReadApiSecurityIntegrationTest {
     }
 
     @Test
+    void employeeDirectorySearchMatchesDepartmentNameAndCode() throws Exception {
+        mockMvc.perform(get("/api/v1/employees")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("query", "制造中"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].displayName").value("Bob"));
+
+        mockMvc.perform(get("/api/v1/employees")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("query", "30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].displayName").value("Carol"));
+    }
+
+    @Test
     void rejectsPageSizesOutsideTheDocumentedBoundary() throws Exception {
         mockMvc.perform(get("/api/v1/employees")
                         .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
                         .queryParam("size", "101"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void rejectsRetiredCompanyQueryParameterAcrossReportAndSetupEndpoints()
+            throws Exception {
+        String companyId = "30000000-0000-0000-0000-000000000001";
+
+        mockMvc.perform(get("/api/v1/attendance-reports")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("companyId", companyId)
+                        .queryParam("legalEntityId", companyId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        mockMvc.perform(get("/api/v1/attendance-reports/companies")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("legalEntityId", companyId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        mockMvc.perform(get(
+                        "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
+                        "25000000-0000-0000-0000-000000000001")
+                        .header(DEVELOPMENT_HEADER, ALLOWED_PRINCIPAL)
+                        .queryParam("companyId", companyId)
+                        .queryParam("legalEntityId", companyId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test

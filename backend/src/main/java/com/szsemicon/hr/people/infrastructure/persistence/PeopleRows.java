@@ -10,7 +10,7 @@ final class PeopleRows {
 
     record BatchRow(
             String batchId,
-            String legalEntityId,
+            String companyId,
             String templateType,
             String templateVersion,
             String status,
@@ -68,7 +68,7 @@ final class PeopleRows {
     record PublicationRow(
             String publicationId,
             String batchId,
-            String legalEntityId,
+            String companyId,
             String templateType,
             String templateVersion,
             String fileSha256,
@@ -89,6 +89,9 @@ final class PeopleRows {
             Instant rolledBackAt) {
     }
 
+    record CompanyRefRow(String companyId, String code, String name) {
+    }
+
     record IdempotencyRow(
             String actorId,
             String actionCode,
@@ -101,7 +104,7 @@ final class PeopleRows {
     record OrganizationRow(
             String organizationVersionId,
             String organizationId,
-            String legalEntityId,
+            String companyId,
             String parentOrganizationId,
             String code,
             String name,
@@ -121,7 +124,7 @@ final class PeopleRows {
     record EmployeeRow(
             String employeeVersionId,
             String employeeId,
-            String legalEntityId,
+            String companyId,
             String employeeNumber,
             String displayName,
             String status,

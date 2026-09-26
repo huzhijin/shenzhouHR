@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "V19-DEMO-1",
+  "mode": "PROTOTYPE_SIMULATION",
+  "storageKey": "shenzhou-hr-v19-demo-state",
+  "context": {"role":"attendance","month":"2026-07","department":"制造一部","employee":"EMP-DEMO-001","batch":"ATT-XLS-DEMO-001","return":"/workbench"},
+  "departments": [
+    {"id":"DEPT-MFG-01","name":"制造一部","headcount":42},
+    {"id":"DEPT-RD-01","name":"研发一部","headcount":31},
+    {"id":"DEPT-HR-01","name":"人力资源部","headcount":8}
+  ],
+  "employees": [
+    {"id":"EMP-DEMO-001","name":"演示员工甲","department":"制造一部","employmentCycle":"EMPLOY-CYCLE-DEMO-002","latestHireDate":"2024-07-15","priorServiceMonths":96,"companyServiceMonths":24,"cumulativeServiceMonths":120},
+    {"id":"EMP-DEMO-002","name":"演示员工乙","department":"研发一部","employmentCycle":"EMPLOY-CYCLE-DEMO-001","latestHireDate":"2025-03-03","priorServiceMonths":0,"companyServiceMonths":16,"cumulativeServiceMonths":16}
+  ],
+  "employmentCycles": [
+    {"id":"EMPLOY-CYCLE-DEMO-001","employee":"EMP-DEMO-001","start":"2020-02-10","end":"2022-11-30","status":"历史"},
+    {"id":"EMPLOY-CYCLE-DEMO-002","employee":"EMP-DEMO-001","start":"2024-07-15","end":null,"status":"当前"}
+  ],
+  "rule": {"id":"ATT-POLICY-DEMO-V3","version":"V3","status":"draft","effectiveFrom":"2026-08-01","scope":"制造一部 / 离线厂区 A","lateGrace":{"count":1,"minutes":15,"period":"calendar_month","usedByEmployee":1},"meal":{"enabled":true,"window":"18:00–19:00","minutes":30},"missingPunch":{"days":7,"overdueImpact":"missing_segment_only"}},
+  "batches": {
+    "organization":{"id":"ORG-INIT-DEMO-001","status":"ready_to_publish","total":126,"valid":124,"errors":2,"publishedAt":null},
+    "timeAccount":{"id":"TIME-INIT-DEMO-001","status":"ready_to_publish","total":81,"valid":80,"errors":1,"publishedAt":null},
+    "attendance":{"id":"ATT-XLS-DEMO-001","status":"ready_to_publish","site":"离线厂区 A","total":428,"valid":412,"errors":4,"duplicates":8,"suspectedDuplicates":4,"unmatchedEmployees":2,"unmappedDevices":1,"frozen":0,"publishable":412,"publishedAt":null}
+  },
+  "sources": {"onlineDevice":{"id":"DEVICE-DEMO-01","name":"在线考勤机 01","status":"healthy","watermark":"2026-07-22 14:18"},"oa":{"status":"healthy","watermark":"2026-07-22 14:12","readOnly":true}},
+  "attendanceEvent": {"id":"ATT-EVENT-DEMO-001","employee":"EMP-DEMO-001","date":"2026-07-18","segment":"13:00–17:30","source":"ATT-XLS-DEMO-001","punchIn":"13:02","punchOut":null,"exception":"missing_out","correctionDue":"2026-07-25 23:59","status":"pending_correction"},
+  "exceptions": {"total":7,"missingPunch":3,"late":2,"meal":1,"other":1,"resolved":0},
+  "recalculation": {"status":"not_started","changedRecords":0},
+  "monthClose": {"month":"2026-07","status":"blocked","progress":72,"blockingItems":3,"closedAt":null},
+  "timeAccounts": {"EMP-DEMO-001":{"annualLeaveHours":80,"compTimeHours":0,"workTimeHours":0,"openingBatch":"TIME-INIT-DEMO-001","openingBatchStatus":"ready_to_publish"}},
+  "annualLeavePreview": {"employee":"EMP-DEMO-001","eligible":true,"qualificationMonths":24,"cumulativeServiceMonths":120,"tier":"满 10 年且不足 20 年","days":10,"hours":80,"grantDate":"2026-07-15","expiryDate":"2027-07-14"},
+  "feedback": {"id":"FEEDBACK-DEMO-001","employee":"EMP-DEMO-001","status":"待部门确认","createdAt":"2026-07-20 09:16"},
+  "qaVerification": {
+    "checkedAt":"2026-07-22",
+    "artifactRange":"V19-OD-00..V19-OD-16",
+    "artifactFileCount":18,
+    "activeBaseline":"V19-OD-00",
+    "routeCount":36,
+    "demoFlowCount":5,
+    "deadLinks":0,
+    "missing":0,
+    "blocked":0,
+    "classification":"DESIGN_QA_COMPLETE",
+    "backendStatus":"ENGINEERING_ASSUMPTION / NOT_VERIFIED"
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "authority": "Wave-3 design Decision 12 plus immutable V1/V3/V4 migrations",
+  "tables": [
+    {
+      "table": "policy_template",
+      "pk": ["template_id"],
+      "columns": [
+        "template_id:id",
+        "template_code:code",
+        "name:text",
+        "description:text",
+        "field_definitions_json:json",
+        "status:code",
+        "row_version:uint",
+        "created_by:id",
+        "created_at:instant",
+        "updated_by:id",
+        "updated_at:instant"
+      ]
+    },
+    {
+      "table": "policy_version",
+      "pk": ["version_id"],
+      "columns": [
+        "version_id:id",
+        "template_id:id",
+        "version_number:uint",
+        "status:code",
+        "parameters_json:json",
+        "effective_from:date",
+        "effective_to:date?",
+        "change_reason:text",
+        "validation_json:json?",
+        "snapshot_json:json?",
+        "snapshot_digest:digest?",
+        "rollback_of_version_id:id?",
+        "row_version:uint",
+        "created_by:id",
+        "created_at:instant",
+        "published_at:instant?",
+        "updated_by:id",
+        "updated_at:instant"
+      ]
+    },
+    {
+      "table": "policy_scope_binding",
+      "pk": ["binding_id"],
+      "columns": [
+        "binding_id:id",
+        "version_id:id",
+        "scope_type:code",
+        "scope_resource_id:id",
+        "priority:uint",
+        "effective_from:date",
+        "effective_to:date?",
+        "row_version:uint"
+      ]
+    },
+    {
+      "table": "policy_publication_record",
+      "pk": ["publication_id"],
+      "columns": [
+        "publication_id:id",
+        "template_id:id",
+        "version_id:id",
+        "action:code",
+        "reason:text",
+        "actor_id:id",
+        "request_id:code",
+        "result:code",
+        "occurred_at:instant",
+        "snapshot_digest:digest?"
+      ]
+    },
+    {
+      "table": "policy_rollback_record",
+      "pk": ["rollback_id"],
+      "columns": [
+        "rollback_id:id",
+        "template_id:id",
+        "source_version_id:id",
+        "target_version_id:id",
+        "created_version_id:id",
+        "reason:text",
+        "actor_id:id",
+        "request_id:code",
+        "result:code",
+        "occurred_at:instant"
+      ]
+    },
+    {
+      "table": "audit_event",
+      "pk": ["event_id"],
+      "columns": [
+        "event_id:id",
+        "occurred_at:instant",
+        "actor_id_ref:id",
+        "actor_type:code",
+        "action_code:code",
+        "resource_type:code",
+        "resource_id_ref:id?",
+        "scope_digest:digest?",
+        "purpose_code:code?",
+        "result_code:code",
+        "reason_code:code?",
+        "policy_version:code?",
+        "before_digest:digest?",
+        "after_digest:digest?",
+        "correlation_id:code",
+        "request_id:code",
+        "previous_hash:digest?",
+        "event_hash:digest",
+        "anchor_ref:text?"
+      ]
+    }
+  ]
+}

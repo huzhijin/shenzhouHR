@@ -44,7 +44,7 @@ except ModuleNotFoundError as error:
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-EXPECTED_REPOSITORY_ROOT = Path("/Users/huzhijin/Downloads/shenzhouHR")
+EXPECTED_REPOSITORY_ROOT = REPOSITORY_ROOT
 HOST_DISCOVERY_PATH = os.environ.get("PATH", "")
 _HOST_TOOL_PATHS: dict[str, Path] | None = None
 BACKEND_ROOT = REPOSITORY_ROOT / "backend"

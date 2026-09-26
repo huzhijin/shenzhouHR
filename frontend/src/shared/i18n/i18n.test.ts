@@ -12,8 +12,8 @@ describe('i18n interpolation', () => {
   it('renders multiple variables used by policy conflict feedback', () => {
     expect(i18n.t('policy.conflictVersion', {
       versionId: 'version-3',
-      scopeType: 'LEGAL_ENTITY',
-      scopeId: 'legal-entity-1',
+      scopeType: 'COMPANY',
+      scopeId: 'company-1',
     })).not.toContain('{');
   });
 
@@ -26,5 +26,9 @@ describe('i18n interpolation', () => {
     expect(['added', 'updated', 'unchanged', 'conflict', 'error'].map(
       (metric) => i18n.t(`peopleImport.metric.${metric}`),
     )).toEqual(['新增', '修改', '不变', '冲突', '错误']);
+  });
+
+  it('labels the employee assignment column with the business department term', () => {
+    expect(i18n.t('employee.column.organization')).toBe('所在部门');
   });
 });

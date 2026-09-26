@@ -32,13 +32,13 @@ class MyBatisAttendancePolicyLifecycleRepository
     }
 
     @Override
-    public Scope findScope(String templateId, String legalEntityId) {
-        return scope(mapper.findScope(templateId, legalEntityId));
+    public Scope findScope(String templateId, String companyId) {
+        return scope(mapper.findScope(templateId, companyId));
     }
 
     @Override
-    public Scope lockScope(String templateId, String legalEntityId) {
-        return scope(mapper.lockScope(templateId, legalEntityId));
+    public Scope lockScope(String templateId, String companyId) {
+        return scope(mapper.lockScope(templateId, companyId));
     }
 
     private Scope scope(AttendancePolicyLifecycleRows.ScopeRow row) {
@@ -47,32 +47,32 @@ class MyBatisAttendancePolicyLifecycleRepository
                 : new Scope(
                         row.scopeId(),
                         row.templateId(),
-                        row.legalEntityId(),
+                        row.companyId(),
                         row.policyKind(),
                         row.rowVersion());
     }
 
     @Override
     public Page<ScopedPolicyVersion> list(
-            String templateId, String legalEntityId, int page, int size) {
+            String templateId, String companyId, int page, int size) {
         long offset = Math.multiplyExact((long) page, size);
         List<ScopedPolicyVersion> items = mapper.listVersions(
-                        templateId, legalEntityId, size, offset)
+                        templateId, companyId, size, offset)
                 .stream()
                 .map(this::version)
                 .toList();
         return new Page<>(
                 items,
-                mapper.countVersions(templateId, legalEntityId),
+                mapper.countVersions(templateId, companyId),
                 page,
                 size);
     }
 
     @Override
     public Optional<ScopedPolicyVersion> find(
-            String templateId, String scopedVersionId, String legalEntityId) {
+            String templateId, String scopedVersionId, String companyId) {
         return Optional.ofNullable(
-                        mapper.findVersion(templateId, scopedVersionId, legalEntityId))
+                        mapper.findVersion(templateId, scopedVersionId, companyId))
                 .map(this::version);
     }
 
@@ -161,7 +161,7 @@ class MyBatisAttendancePolicyLifecycleRepository
                 row.scopedVersionId(),
                 row.scopeId(),
                 row.templateId(),
-                row.legalEntityId(),
+                row.companyId(),
                 PolicyKind.valueOf(row.policyKind()),
                 row.versionNumber(),
                 status,
@@ -187,7 +187,7 @@ class MyBatisAttendancePolicyLifecycleRepository
                 value.scopedVersionId(),
                 value.scopeId(),
                 value.templateId(),
-                value.legalEntityId(),
+                value.companyId(),
                 value.policyKind().name(),
                 value.versionNumber(),
                 value.status().name(),

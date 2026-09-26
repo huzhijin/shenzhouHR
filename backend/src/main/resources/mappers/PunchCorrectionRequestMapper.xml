@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.attendance.infrastructure.persistence.PunchCorrectionRequestMapper">
+
+    <sql id="requestColumns">
+        punch_correction_request_id AS request_id,
+        employee_id,
+        request_month,
+        business_date,
+        punch_side,
+        correction_reason,
+        status,
+        requested_at,
+        requested_by,
+        reviewed_at,
+        reviewed_by,
+        review_notes
+    </sql>
+
+    <select id="lockEmployee" resultType="string">
+        SELECT employee_id
+        FROM employee
+        WHERE employee_id = #{employeeId}
+        FOR UPDATE
+    </select>
+
+    <select id="countQuotaConsuming" resultType="int">
+        SELECT COUNT(*)
+        FROM punch_correction_request
+        WHERE employee_id = #{employeeId}
+          AND request_month = #{requestMonth}
+          AND status IN ('PENDING', 'APPROVED')
+    </select>
+
+    <select id="isPunchExempt" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN auth_principal_role_assignment assignment
+              ON assignment.principal_id = principal.principal_id
+            JOIN auth_role role
+              ON role.role_id = assignment.role_id
+            WHERE principal.employee_id = #{employeeId}
+              AND principal.status = 'ACTIVE'
+              AND role.role_code = 'EXECUTIVE'
+              AND assignment.valid_from &lt;= #{knowledgeAsOf}
+              AND (assignment.valid_to IS NULL
+                   OR assignment.valid_to &gt; #{knowledgeAsOf})
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <select id="isScheduledWorkDay" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM attendance_group_assignment assignment
+            JOIN attendance_group_revision group_revision
+              ON group_revision.attendance_group_revision_id =
+                    assignment.attendance_group_revision_id
+            JOIN attendance_group scoped_group
+              ON scoped_group.attendance_group_id =
+                    group_revision.attendance_group_id
+            JOIN attendance_assignment_timeline assignment_state
+              ON assignment_state.attendance_group_assignment_id =
+                    assignment.attendance_group_assignment_id
+             AND assignment_state.state = 'ACTIVE'
+            JOIN attendance_group_timeline group_state
+              ON group_state.attendance_group_id =
+                    scoped_group.attendance_group_id
+             AND group_state.state = 'ACTIVE'
+            JOIN calendar_publication_timeline publication
+              ON publication.work_calendar_id =
+                    group_revision.work_calendar_id
+             AND publication.state = 'PUBLISHED'
+            JOIN work_calendar_day calendar_day
+              ON calendar_day.work_calendar_version_id =
+                    publication.work_calendar_version_id
+             AND calendar_day.business_date = #{businessDate}
+            WHERE assignment.employee_id = #{employeeId}
+              AND assignment.effective_from &lt;= #{businessDate}
+              AND assignment.created_at &lt;= #{knowledgeAsOf}
+              AND assignment_state.business_effective_from
+                    &lt;= #{businessDate}
+              AND assignment_state.recorded_at &lt;= #{knowledgeAsOf}
+              AND group_state.business_effective_from &lt;= #{businessDate}
+              AND group_state.recorded_at &lt;= #{knowledgeAsOf}
+              AND publication.business_effective_from &lt;= #{businessDate}
+              AND publication.recorded_at &lt;= #{knowledgeAsOf}
+              AND calendar_day.day_type IN ('WORKDAY', 'SPECIAL_WORKDAY')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM attendance_group_assignment successor
+                  WHERE successor.supersedes_assignment_id =
+                            assignment.attendance_group_assignment_id
+                    AND successor.effective_from &lt;= #{businessDate}
+                    AND successor.created_at &lt;= #{knowledgeAsOf}
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM attendance_assignment_timeline newer
+                  WHERE newer.attendance_group_assignment_id =
+                            assignment.attendance_group_assignment_id
+                    AND newer.business_effective_from &lt;= #{businessDate}
+                    AND newer.recorded_at &lt;= #{knowledgeAsOf}
+                    AND newer.event_sequence &gt;
+                            assignment_state.event_sequence
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM attendance_group_timeline newer
+                  WHERE newer.attendance_group_id =
+                            scoped_group.attendance_group_id
+                    AND newer.business_effective_from &lt;= #{businessDate}
+                    AND newer.recorded_at &lt;= #{knowledgeAsOf}
+                    AND newer.event_sequence &gt; group_state.event_sequence
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM calendar_publication_timeline newer
+                  WHERE newer.work_calendar_id =
+                            group_revision.work_calendar_id
+                    AND newer.business_effective_from &lt;= #{businessDate}
+                    AND newer.recorded_at &lt;= #{knowledgeAsOf}
+                    AND newer.event_sequence &gt; publication.event_sequence
+              )
+        ) THEN TRUE ELSE FALSE END
+    </select>
+
+    <insert id="insert">
+        INSERT INTO punch_correction_request (
+            punch_correction_request_id,
+            employee_id,
+            request_month,
+            business_date,
+            punch_side,
+            correction_reason,
+            status,
+            requested_at,
+            requested_by,
+            reviewed_at,
+            reviewed_by,
+            review_notes,
+            created_at
+        ) VALUES (
+            #{row.requestId},
+            #{row.employeeId},
+            #{row.requestMonth},
+            #{row.businessDate},
+            #{row.punchSide},
+            #{row.correctionReason},
+            #{row.status},
+            #{row.requestedAt},
+            #{row.requestedBy},
+            #{row.reviewedAt},
+            #{row.reviewedBy},
+            #{row.reviewNotes},
+            #{row.requestedAt}
+        )
+    </insert>
+
+    <select id="find"
+            resultType="com.szsemicon.hr.attendance.infrastructure.persistence.PunchCorrectionRows$RequestRow">
+        SELECT <include refid="requestColumns"/>
+        FROM punch_correction_request
+        WHERE punch_correction_request_id = #{requestId}
+    </select>
+
+    <update id="approve">
+        UPDATE punch_correction_request
+        SET status = 'APPROVED',
+            reviewed_at = #{reviewedAt},
+            reviewed_by = #{reviewerId},
+            review_notes = #{reviewNotes}
+        WHERE punch_correction_request_id = #{requestId}
+          AND status = 'PENDING'
+    </update>
+</mapper>

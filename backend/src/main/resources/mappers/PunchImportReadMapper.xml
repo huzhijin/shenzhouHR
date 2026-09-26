@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.punchimport.infrastructure.persistence.PunchImportReadMapper">
+
+    <sql id="batchVisibility">
+        EXISTS (
+            SELECT 1
+            FROM auth_principal_role_assignment assignment
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = assignment.role_id
+            JOIN auth_capability capability
+              ON capability.capability_id = role_capability.capability_id
+             AND capability.capability_code = #{capability}
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = assignment.data_scope_id
+            WHERE assignment.principal_id = #{principalId}
+              AND assignment.valid_from &lt;= #{at}
+              AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
+              AND data_scope.valid_from &lt;= #{at}
+              AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+              AND data_scope.scope_type = 'COMPANY'
+              AND data_scope.company_id = batch.company_id
+        )
+    </sql>
+
+    <sql id="batchColumns">
+        batch.punch_import_batch_id AS batch_id,
+        batch.company_id,
+        batch.attendance_source_id AS source_id,
+        file.original_filename,
+        file.content_sha256 AS file_sha256,
+        COALESCE((
+            SELECT state.to_state
+            FROM punch_import_state_event state
+            WHERE state.punch_import_batch_id = batch.punch_import_batch_id
+            ORDER BY state.sequence_number DESC,
+                     state.punch_import_state_event_id DESC
+            LIMIT 1
+        ), 'DRAFT') AS state,
+        COALESCE(precheck.total_count, 0) AS total_rows,
+        COALESCE(precheck.valid_count, 0) AS valid_rows,
+        COALESCE(precheck.blocking_count, 0) AS invalid_rows,
+        (
+            SELECT COUNT(DISTINCT exact_issue.punch_import_row_id)
+            FROM punch_import_issue exact_issue
+            JOIN punch_import_normalization_attempt exact_attempt
+              ON exact_attempt.punch_import_normalization_attempt_id =
+                 exact_issue.punch_import_normalization_attempt_id
+            WHERE exact_attempt.punch_import_batch_id = batch.punch_import_batch_id
+              AND exact_issue.issue_code = 'EXACT_DUPLICATE'
+        ) AS exact_duplicate_rows,
+        (
+            SELECT COUNT(DISTINCT near_issue.punch_import_row_id)
+            FROM punch_import_issue near_issue
+            JOIN punch_import_normalization_attempt near_attempt
+              ON near_attempt.punch_import_normalization_attempt_id =
+                 near_issue.punch_import_normalization_attempt_id
+            WHERE near_attempt.punch_import_batch_id = batch.punch_import_batch_id
+              AND near_issue.issue_code = 'NEAR_DUPLICATE_PENDING'
+        ) AS near_duplicate_rows,
+        COALESCE(JSON_LENGTH(precheck.affected_subjects_json), 0)
+            AS affected_employees,
+        CAST(NULL AS DATE) AS affected_date_from,
+        CAST(NULL AS DATE) AS affected_date_to,
+        CASE WHEN precheck.precheck_token_digest IS NOT NULL
+                   AND precheck.expires_at &gt; #{at}
+             THEN TRUE ELSE FALSE END AS precheck_token_present,
+        NULL AS precheck_token,
+        batch.created_at,
+        batch.row_version
+    </sql>
+
+    <sql id="batchJoins">
+        JOIN punch_import_file file
+          ON file.punch_import_batch_id = batch.punch_import_batch_id
+        LEFT JOIN punch_import_precheck precheck
+          ON precheck.punch_import_precheck_id = (
+              SELECT candidate.punch_import_precheck_id
+              FROM punch_import_precheck candidate
+              WHERE candidate.punch_import_batch_id =
+                    batch.punch_import_batch_id
+              ORDER BY candidate.created_at DESC,
+                       candidate.punch_import_precheck_id DESC
+              LIMIT 1
+          )
+    </sql>
+
+    <select id="countBatches" resultType="long">
+        SELECT COUNT(*)
+        FROM punch_import_batch batch
+        WHERE <include refid="batchVisibility"/>
+    </select>
+
+    <select id="listBatches"
+            resultType="com.szsemicon.hr.punchimport.application.PunchImportReadModels$BatchView">
+        SELECT <include refid="batchColumns"/>
+        FROM punch_import_batch batch
+        <include refid="batchJoins"/>
+        WHERE <include refid="batchVisibility"/>
+        ORDER BY batch.created_at DESC, batch.punch_import_batch_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findBatch"
+            resultType="com.szsemicon.hr.punchimport.application.PunchImportReadModels$BatchView">
+        SELECT <include refid="batchColumns"/>
+        FROM punch_import_batch batch
+        <include refid="batchJoins"/>
+        WHERE batch.punch_import_batch_id = #{batchId}
+          AND <include refid="batchVisibility"/>
+    </select>
+
+    <sql id="latestAttempt">
+        attempt.attempt_number = (
+            SELECT MAX(candidate.attempt_number)
+            FROM punch_import_normalization_attempt candidate
+            WHERE candidate.punch_import_batch_id =
+                  batch.punch_import_batch_id
+        )
+    </sql>
+
+    <select id="countIssues" resultType="long">
+        SELECT COUNT(*)
+        FROM punch_import_batch batch
+        JOIN punch_import_normalization_attempt attempt
+          ON attempt.punch_import_batch_id = batch.punch_import_batch_id
+         AND <include refid="latestAttempt"/>
+        JOIN punch_import_issue issue
+          ON issue.punch_import_normalization_attempt_id =
+             attempt.punch_import_normalization_attempt_id
+        WHERE batch.punch_import_batch_id = #{batchId}
+          AND <include refid="batchVisibility"/>
+    </select>
+
+    <select id="listIssues"
+            resultType="com.szsemicon.hr.punchimport.application.PunchImportReadModels$IssueView">
+        SELECT issue.punch_import_issue_id AS issue_id,
+               COALESCE(row.row_number, 0) AS row_number,
+               issue.field_name AS field,
+               issue.issue_code AS code,
+               issue.severity,
+               issue.safe_message
+        FROM punch_import_batch batch
+        JOIN punch_import_normalization_attempt attempt
+          ON attempt.punch_import_batch_id = batch.punch_import_batch_id
+         AND <include refid="latestAttempt"/>
+        JOIN punch_import_issue issue
+          ON issue.punch_import_normalization_attempt_id =
+             attempt.punch_import_normalization_attempt_id
+        LEFT JOIN punch_import_row row
+          ON row.punch_import_row_id = issue.punch_import_row_id
+        WHERE batch.punch_import_batch_id = #{batchId}
+          AND <include refid="batchVisibility"/>
+        ORDER BY row.row_number, issue.severity, issue.punch_import_issue_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countRows" resultType="long">
+        SELECT COUNT(*)
+        FROM punch_import_batch batch
+        JOIN punch_import_row row
+          ON row.punch_import_batch_id = batch.punch_import_batch_id
+        WHERE batch.punch_import_batch_id = #{batchId}
+          AND <include refid="batchVisibility"/>
+    </select>
+
+    <select id="listRows"
+            resultType="com.szsemicon.hr.punchimport.application.PunchImportReadModels$RowView">
+        SELECT row.punch_import_row_id AS row_id,
+               row.row_number,
+               JSON_UNQUOTE(JSON_EXTRACT(
+                   row.raw_values_json, '$.employeeNumber')) AS employee_number,
+               JSON_UNQUOTE(JSON_EXTRACT(
+                   row.raw_values_json, '$.punchTime')) AS punch_time,
+               JSON_UNQUOTE(JSON_EXTRACT(
+                   row.raw_values_json, '$.sourceTimeZone')) AS source_time_zone,
+               COALESCE(match_decision.match_status, 'UNMATCHED') AS match_state,
+               CASE
+                   WHEN EXISTS (
+                       SELECT 1
+                       FROM punch_import_issue duplicate_issue
+                       WHERE duplicate_issue.punch_import_row_id =
+                             row.punch_import_row_id
+                         AND duplicate_issue.issue_code =
+                             'NEAR_DUPLICATE_PENDING'
+                   ) THEN 'NEAR_PENDING'
+                   WHEN EXISTS (
+                       SELECT 1
+                       FROM punch_import_issue duplicate_issue
+                       WHERE duplicate_issue.punch_import_row_id =
+                             row.punch_import_row_id
+                         AND duplicate_issue.issue_code =
+                             'EXACT_DUPLICATE'
+                   ) THEN 'EXACT'
+                   ELSE 'NONE'
+               END AS duplicate_state,
+               CASE WHEN row.blocking_issue_count = 0
+                          AND match_decision.match_status = 'MATCHED'
+                    THEN TRUE ELSE FALSE END AS publishable
+        FROM punch_import_batch batch
+        JOIN punch_import_row row
+          ON row.punch_import_batch_id = batch.punch_import_batch_id
+        LEFT JOIN employee_match_decision match_decision
+          ON match_decision.employee_match_decision_id =
+             row.employee_match_decision_id
+        WHERE batch.punch_import_batch_id = #{batchId}
+          AND <include refid="batchVisibility"/>
+        ORDER BY row.row_number, row.punch_import_row_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+</mapper>

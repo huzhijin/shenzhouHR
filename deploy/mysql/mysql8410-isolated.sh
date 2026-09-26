@@ -10,9 +10,9 @@ umask 077
 export LC_ALL=C
 export LANG=C
 
-readonly MYSQL8410_EXPECTED_REPOSITORY_ROOT="/Users/huzhijin/Downloads/shenzhouHR"
 readonly MYSQL8410_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly MYSQL8410_PROJECT_ROOT="$(cd "${MYSQL8410_SCRIPT_DIR}/../.." && pwd -P)"
+readonly MYSQL8410_EXPECTED_REPOSITORY_ROOT="$MYSQL8410_PROJECT_ROOT"
 readonly MYSQL8410_VERSION="8.4.10"
 readonly MYSQL8410_SOURCE_ARCHIVE="mysql-8.4.10.tar.gz"
 readonly MYSQL8410_SOURCE_URL="https://cdn.mysql.com/Downloads/MySQL-8.4/mysql-8.4.10.tar.gz"

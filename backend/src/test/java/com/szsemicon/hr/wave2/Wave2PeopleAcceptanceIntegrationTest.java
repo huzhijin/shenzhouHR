@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -114,7 +115,7 @@ class Wave2PeopleAcceptanceIntegrationTest extends Wave1IntegrationTestSupport {
 
     @Test
     void rehire_creates_new_employment_period() throws Exception {
-        mockMvc.perform(post(
+        var result = mockMvc.perform(post(
                         "/api/v1/employees/{employeeId}/employment-periods",
                         EMPLOYEE_ID)
                         .with(user(ADMIN_PRINCIPAL).authorities(authority("EMPLOYMENT:CREATE")))
@@ -130,7 +131,115 @@ class Wave2PeopleAcceptanceIntegrationTest extends Wave1IntegrationTestSupport {
                                 }
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.startDate").value("2026-08-01"));
+                .andExpect(jsonPath("$.startDate").value("2026-08-01"))
+                .andExpect(jsonPath("$.employmentPeriodId").isString())
+                .andReturn();
+
+        String employmentPeriodId = JsonPath.read(
+                result.getResponse().getContentAsString(),
+                "$.employmentPeriodId");
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM employment_period_identity
+                WHERE employment_period_id = ?
+                  AND employee_id = ?
+                  AND company_id = '30000000-0000-0000-0000-000000000001'
+                """,
+                Long.class,
+                employmentPeriodId,
+                EMPLOYEE_ID)).isEqualTo(1L);
+    }
+
+    @Test
+    void employment_import_publish_creates_period_identity() throws Exception {
+        String batchId = "91000000-0000-0000-0000-000000000002";
+        jdbc.update(
+                """
+                INSERT INTO people_import_batch (
+                    batch_id, company_id, template_type, template_version,
+                    status, reason, file_sha256, mapping_json,
+                    added_count, updated_count, unchanged_count,
+                    conflict_count, error_count, blocking_issue_count,
+                    precheck_version, row_version, created_by, created_at,
+                    updated_by, updated_at
+                ) VALUES (
+                    ?, '30000000-0000-0000-0000-000000000001',
+                    'EMPLOYMENT', '1.0.0', 'AWAITING_CONFIRMATION',
+                    'WAVE-2 SYNTHETIC EMPLOYMENT IMPORT', ?, '[]',
+                    1, 0, 0, 0, 0, 0, 1, 1, ?, CURRENT_TIMESTAMP,
+                    ?, CURRENT_TIMESTAMP
+                )
+                """,
+                batchId,
+                FILE_SHA256,
+                ADMIN_PRINCIPAL,
+                ADMIN_PRINCIPAL);
+        jdbc.update(
+                """
+                INSERT INTO people_import_diff (
+                    diff_id, batch_id, row_number, entity_type, category,
+                    matched_resource_id, source_values_json,
+                    current_values_json, proposed_values_json
+                ) VALUES (
+                    '94000000-0000-0000-0000-000000000002', ?, 2,
+                    'EMPLOYMENT', 'ADDED', NULL, ?, NULL, ?
+                )
+                """,
+                batchId,
+                """
+                {"employeeNumber":"LEGACY-b0000000-0000-0000-0000-000000000001",
+                 "organizationCode":"20","startDate":"2026-08-01",
+                 "terminationDate":null}
+                """,
+                """
+                {"employeeNumber":"LEGACY-b0000000-0000-0000-0000-000000000001",
+                 "organizationCode":"20","startDate":"2026-08-01",
+                 "terminationDate":null}
+                """);
+
+        var result = mockMvc.perform(post(
+                        "/api/v1/people-imports/{batchId}/publish",
+                        batchId)
+                        .with(user(ADMIN_PRINCIPAL).authorities(
+                                authority("PEOPLE_IMPORT:PUBLISH")))
+                        .with(csrf())
+                        .header("Idempotency-Key", "wave2-employment-identity-import")
+                        .header("If-Match", "\"1\"")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "reason":"WAVE-2 合成任职身份发布",
+                                  "confirmedFileSha256":"%s",
+                                  "confirmedPrecheckVersion":1
+                                }
+                                """.formatted(FILE_SHA256)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.localVersionIds[0]").isString())
+                .andReturn();
+
+        String assignmentVersionId = JsonPath.read(
+                result.getResponse().getContentAsString(),
+                "$.localVersionIds[0]");
+        String employmentPeriodId = jdbc.queryForObject(
+                """
+                SELECT employment_period_id
+                FROM employment_assignment
+                WHERE assignment_id = ?
+                """,
+                String.class,
+                assignmentVersionId);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM employment_period_identity
+                WHERE employment_period_id = ?
+                  AND employee_id = ?
+                  AND company_id = '30000000-0000-0000-0000-000000000001'
+                """,
+                Long.class,
+                employmentPeriodId,
+                EMPLOYEE_ID)).isEqualTo(1L);
     }
 
     @Test

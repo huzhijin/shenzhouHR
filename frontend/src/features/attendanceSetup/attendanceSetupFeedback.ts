@@ -7,6 +7,7 @@ import i18n from '../../shared/i18n/i18n';
 export interface AttendanceSetupNotice {
   kind: 'success' | 'error' | 'warning' | 'info';
   message: string;
+  /** Internal request metadata for logging/support; business notices must not render it. */
   correlationId?: string;
   state?:
     | 'success'

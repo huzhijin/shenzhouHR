@@ -1,0 +1,36 @@
+{
+  "fixtureVersion": 1,
+  "ownership": "independent-read-only-review",
+  "structuredSurfaceSha256": {
+    "java": "44cc90db714a0d7306d1575a89701de1bf64f06d4b54304f47f35d31ff6ab419",
+    "mapper": "ab8f9206f914702ccbff6125766499419dd359cec3672da933a3d3cb4c7b0007",
+    "h2": "4d5fa1b3fec81f413f6d0e9e1b98a7e592fd59643ce8021ab6d2c61bcd81e178",
+    "openapi": "c6871abad3455eafcd567a5fbee21cfeb10504a1da0e73ce31ad3e4de7620c3a"
+  },
+  "forbiddenTokens": ["legalEntityId", "legal_entity_id"],
+  "javaSurfaces": [
+    "PolicyModels", "PolicyRows", "PolicyRepository", "PolicyMapper",
+    "MyBatisPolicyRepository", "PolicyDraftService", "PolicyApplicationService",
+    "PolicyLifecycleService", "PolicyRecordSupport", "PolicyDtos", "PolicyController"
+  ],
+  "requiredPolicyVersionContract": {
+    "columns": [
+      "version_id", "template_id", "version_number", "status", "parameters_json",
+      "effective_from", "effective_to", "change_reason", "validation_json",
+      "snapshot_json", "snapshot_digest", "rollback_of_version_id", "row_version",
+      "created_by", "created_at", "published_at", "updated_by", "updated_at"
+    ],
+    "uniqueKeys": [["template_id", "version_number"]],
+    "effectivePeriod": "effective_to IS NULL OR effective_to >= effective_from"
+  },
+  "mapperSurfaces": ["statement ids", "parameter types", "result maps", "column order"],
+  "openApiSurfaces": ["W2 policy paths", "methods", "parameters", "statuses", "request schemas", "response schemas"],
+  "h2Surfaces": ["policy_template", "policy_version", "policy_scope_binding", "policy_publication_record", "policy_rollback_record"],
+  "auditEventV6Columns": [
+    "event_id", "occurred_at", "actor_id_ref", "actor_type", "action_code",
+    "resource_type", "resource_id_ref", "scope_digest", "purpose_code",
+    "result_code", "reason_code", "policy_version", "before_digest",
+    "after_digest", "correlation_id", "request_id", "previous_hash",
+    "event_hash", "anchor_ref"
+  ]
+}

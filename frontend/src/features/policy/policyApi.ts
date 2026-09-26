@@ -105,7 +105,7 @@ const demoTemplate: PolicyTemplateDetail = {
   templateId: '9500000000000000001',
   code: 'GENERIC_CONTROLLED_POLICY',
   name: '通用受控规则模板',
-  description: '用于验证受控字段、作用范围与版本发布底座，不包含具体业务计算。',
+  description: '用于维护通用业务判定方式、阈值和适用范围。',
   status: 'ACTIVE',
   latestVersionNumber: 2,
   rowVersion: 3,
@@ -123,7 +123,7 @@ const demoVersions: PolicyVersionDetail[] = [
     status: 'PUBLISHED',
     effectiveFrom: '2026-07-01',
     effectiveTo: null,
-    changeReason: '建立受控规则版本基线',
+    changeReason: '建立通用规则',
     createdBy: '9100000000000000001',
     createdAt: '2026-06-28T08:00:00Z',
     publishedAt: '2026-06-30T08:00:00Z',
@@ -138,7 +138,7 @@ const demoVersions: PolicyVersionDetail[] = [
     status: 'DRAFT',
     effectiveFrom: '2026-08-01',
     effectiveTo: null,
-    changeReason: '验证规则版本编辑与冲突检测',
+    changeReason: '优化规则判定与适用范围',
     createdBy: '9100000000000000002',
     createdAt: '2026-07-23T08:00:00Z',
     rowVersion: 1,
@@ -271,7 +271,7 @@ export function previewPolicyImpact(templateId: string, versionId: string): Prom
     effectiveFrom: '2026-08-01',
     effectiveTo: null,
     frozenPeriodProtected: true,
-    warnings: ['冻结期间默认拒绝写入，需在后续业务波次接入保护实现。'],
+    warnings: ['所选期间已冻结，不能直接发布变更。'],
   });
   return requestJson<PolicyImpactPreview>(`${versionPath(templateId, versionId)}/impact-preview`, { method: 'POST' });
 }

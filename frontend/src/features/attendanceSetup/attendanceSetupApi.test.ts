@@ -59,6 +59,36 @@ describe('attendance setup API boundary', () => {
     );
   });
 
+  it('keeps every attendance directory inside the explicitly selected company', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({
+      items: [],
+      total: 0,
+      page: 2,
+      size: 25,
+    })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await attendanceApi.listLocations(2, 25, 'company/1');
+    await attendanceApi.listAttendanceGroups('2026-08-01', 2, 25, 'company/1');
+    await attendanceApi.listShifts(2, 25, 'company/1');
+    await attendanceApi.listCalendars(2026, 2, 25, 'company/1');
+    await attendanceApi.listPolicyBindings(
+      'group/1',
+      '2026-08-01',
+      2,
+      25,
+      'company/1',
+    );
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/v1/attendance-setup/locations?companyId=company%2F1&page=2&size=25',
+      '/api/v1/attendance-setup/groups?companyId=company%2F1&asOf=2026-08-01&page=2&size=25',
+      '/api/v1/attendance-setup/shifts?companyId=company%2F1&page=2&size=25',
+      '/api/v1/attendance-setup/calendars?companyId=company%2F1&year=2026&page=2&size=25',
+      '/api/v1/attendance-setup/policy-bindings?companyId=company%2F1&groupId=group%2F1&asOf=2026-08-01&page=2&size=25',
+    ]);
+  });
+
   it('reads immutable calendar days through the selected version route', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       items: [],
@@ -126,7 +156,7 @@ describe('attendance setup API boundary', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       scopedVersionId: 'version/2',
       templateId: 'template/3',
-      legalEntityId: 'legal-entity/4',
+      companyId: 'company/4',
       policyKind: 'LATE_GRACE',
     }));
     vi.stubGlobal('fetch', fetchMock);
@@ -286,7 +316,7 @@ describe('attendance setup API boundary', () => {
   it('sends idempotency and strong optimistic-concurrency headers to real routes', async () => {
     const created = {
       groupId: 'group-1',
-      legalEntityId: 'legal-entity-1',
+      companyId: 'company-1',
       code: 'FAB-A',
       groupRevisionId: 'group-revision-1',
       revisionNumber: 1,
@@ -305,7 +335,7 @@ describe('attendance setup API boundary', () => {
     };
     const calendar: WorkCalendarView = {
       calendarId: 'calendar-1',
-      legalEntityId: 'legal-entity-1',
+      companyId: 'company-1',
       locationId: 'location-1',
       code: 'CN-SZ-2026',
       calendarVersionId: 'calendar-version-1',
@@ -327,7 +357,7 @@ describe('attendance setup API boundary', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await createAttendanceGroup({
-      legalEntityId: created.legalEntityId,
+      companyId: created.companyId,
       code: created.code,
       name: created.name,
       locationId: created.locationId,
@@ -349,7 +379,7 @@ describe('attendance setup API boundary', () => {
       .toBe(`UTF-8''${encodeURIComponent('建立考勤组')}`);
     expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string))
       .toEqual({
-        legalEntityId: 'legal-entity-1',
+        companyId: 'company-1',
         code: 'FAB-A',
         name: '晶圆厂 A 班',
         locationId: 'location-1',
@@ -369,6 +399,49 @@ describe('attendance setup API boundary', () => {
         dayType: 'WORKDAY',
         shiftVersionOverrideId: 'shift-version-1',
       }]);
+  });
+
+  it('transfers an assignment with target group, business date, and controlled headers', async () => {
+    const assignment = requiredDemoItem(demoAssignments);
+    const targetGroup = requiredDemoItem(demoGroups, 1);
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+      ...assignment,
+      assignmentId: 'assignment-successor',
+      groupId: targetGroup.groupId,
+      effectiveFrom: '2026-08-20',
+      rowVersion: 0,
+      changeReason: '调配到白班',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await attendanceApi.transferAssignment(
+      assignment.groupId,
+      assignment.assignmentId,
+      assignment.rowVersion,
+      {
+        targetGroupId: targetGroup.groupId,
+        effectiveFrom: '2026-08-20',
+        reason: '调配到白班',
+      },
+    );
+
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const headers = new Headers(init.headers);
+    expect(path).toBe(
+      `/api/v1/attendance-setup/groups/${assignment.groupId}`
+        + `/assignments/${assignment.assignmentId}/transfer`,
+    );
+    expect(init.method).toBe('POST');
+    expect(headers.get('If-Match')).toBe(`"${assignment.rowVersion}"`);
+    expect(headers.get('Idempotency-Key'))
+      .toMatch(/^attendance-assignment-transfer:/);
+    expect(headers.get('X-Change-Reason'))
+      .toBe(`UTF-8''${encodeURIComponent('调配到白班')}`);
+    expect(JSON.parse(String(init.body))).toEqual({
+      targetGroupId: targetGroup.groupId,
+      effectiveFrom: '2026-08-20',
+      reason: '调配到白班',
+    });
   });
 
   it('short-circuits before every business fetch in demo mode', async () => {
@@ -430,7 +503,7 @@ describe('attendance setup API boundary', () => {
     const binding = requiredDemoItem(demoBindings);
     const policyVersion = requiredDemoItem(demoPolicyVersions);
     const locationInput: LocationInput = {
-      legalEntityId: location.legalEntityId,
+      companyId: location.companyId,
       code: location.code,
       name: location.name,
       timeZone: location.timeZone,
@@ -439,7 +512,7 @@ describe('attendance setup API boundary', () => {
       reason: '演示地点变更',
     };
     const groupInput: AttendanceGroupInput = {
-      legalEntityId: group.legalEntityId,
+      companyId: group.companyId,
       code: group.code,
       name: group.name,
       locationId: group.locationId,
@@ -450,7 +523,7 @@ describe('attendance setup API boundary', () => {
       reason: '演示考勤组变更',
     };
     const shiftInput: ShiftTemplateInput = {
-      legalEntityId: shift.legalEntityId,
+      companyId: shift.companyId,
       locationId: shift.locationId,
       code: shift.code,
       name: shift.name,
@@ -463,7 +536,7 @@ describe('attendance setup API boundary', () => {
       reason: '演示班次版本变更',
     };
     const calendarInput: WorkCalendarInput = {
-      legalEntityId: calendar.legalEntityId,
+      companyId: calendar.companyId,
       locationId: calendar.locationId,
       code: calendar.code,
       name: calendar.name,
@@ -495,7 +568,6 @@ describe('attendance setup API boundary', () => {
     const calls = {
       listLocations: () => attendanceApi.listLocations(),
       listLocationRevisions: () => attendanceApi.listLocationRevisions(location.locationId),
-      createLocation: () => attendanceApi.createLocation(locationInput),
       updateLocation: () => attendanceApi.updateLocation(location.locationId, location.rowVersion, locationInput),
       changeLocationStatus: () => attendanceApi.changeLocationStatus(location, 'deactivate', '演示停用地点'),
       listAttendanceGroups: () => attendanceApi.listAttendanceGroups('2026-08-01'),
@@ -521,6 +593,16 @@ describe('attendance setup API boundary', () => {
           effectiveFrom: assignment.effectiveFrom,
           effectiveTo: assignment.effectiveTo,
           reason: '演示人员分配更新',
+        },
+      ),
+      transferAssignment: () => attendanceApi.transferAssignment(
+        group.groupId,
+        assignment.assignmentId,
+        assignment.rowVersion,
+        {
+          targetGroupId: requiredDemoItem(demoGroups, 1).groupId,
+          effectiveFrom: '2026-08-20',
+          reason: '演示人员跨组调配',
         },
       ),
       listShifts: () => attendanceApi.listShifts(),
@@ -597,18 +679,18 @@ describe('attendance setup API boundary', () => {
       updatePolicyBinding: () => attendanceApi.updatePolicyBinding(binding, bindingInput),
       listAttendancePolicyVersions: () => attendanceApi.listAttendancePolicyVersions(
         policyVersion.templateId,
-        policyVersion.legalEntityId,
+        policyVersion.companyId,
       ),
       getAttendancePolicyVersion: () => attendanceApi.getAttendancePolicyVersion(
         policyVersion.templateId,
-        policyVersion.legalEntityId,
+        policyVersion.companyId,
         policyVersion.scopedVersionId,
       ),
       getAttendancePolicyVersionContext: () => attendanceApi
         .getAttendancePolicyVersionContext(policyVersion.scopedVersionId),
       createAttendancePolicyDraft: () => attendanceApi.createAttendancePolicyDraft(
         policyVersion.templateId,
-        policyVersion.legalEntityId,
+        policyVersion.companyId,
         {
         basedOnVersionId: policyVersion.scopedVersionId,
         effectiveFrom: '2026-09-01',

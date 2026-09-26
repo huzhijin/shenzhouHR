@@ -89,7 +89,7 @@ describe('people import publish contract', () => {
 function batch(overrides: Pick<PeopleImportBatchDetail, 'rowVersion' | 'precheckVersion'>): PeopleImportBatchDetail {
   return {
     batchId: 'batch-1',
-    legalEntityId: 'legal-entity-1',
+    companyId: 'company-1',
     templateType: 'ORGANIZATION',
     templateVersion: '1.0',
     status: 'AWAITING_CONFIRMATION',

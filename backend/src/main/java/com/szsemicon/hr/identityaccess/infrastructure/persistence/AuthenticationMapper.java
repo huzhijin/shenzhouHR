@@ -10,11 +10,18 @@ interface AuthenticationMapper {
     AccountRow findAccountByNormalizedUsername(
             @Param("normalizedUsername") String normalizedUsername);
 
+    AccountRow lockAccountByNormalizedUsername(
+            @Param("normalizedUsername") String normalizedUsername);
+
     AccountRow findAccountById(@Param("accountId") String accountId);
+
+    AccountRow lockAccountById(@Param("accountId") String accountId);
 
     AccountRow findAccountByPrincipalId(@Param("principalId") String principalId);
 
     CredentialRow findCredential(@Param("accountId") String accountId);
+
+    CredentialRow lockCredential(@Param("accountId") String accountId);
 
     FailureRow findFailure(@Param("accountId") String accountId);
 
@@ -25,6 +32,10 @@ interface AuthenticationMapper {
     SessionRow findSessionById(@Param("sessionId") String sessionId);
 
     ResetGrantRow findActiveResetGrant(
+            @Param("digest") String digest,
+            @Param("at") Instant at);
+
+    ResetGrantRow lockActiveResetGrant(
             @Param("digest") String digest,
             @Param("at") Instant at);
 }

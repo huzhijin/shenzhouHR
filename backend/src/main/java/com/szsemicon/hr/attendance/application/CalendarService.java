@@ -74,6 +74,12 @@ public class CalendarService {
     @Transactional(readOnly = true)
     public Page<WorkCalendar> listCalendars(
             Integer year, int page, int size) {
+        return listCalendars(null, year, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<WorkCalendar> listCalendars(
+            String companyId, Integer year, int page, int size) {
         AttendanceSetupRules.page(page, size);
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
         String principalId = principalProvider.currentPrincipalId();
@@ -82,6 +88,7 @@ public class CalendarService {
                 repository.listCalendars(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         year,
                         size,
                         page * size,
@@ -89,6 +96,7 @@ public class CalendarService {
                 repository.countCalendars(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         year,
                         at),
                 page,
@@ -129,18 +137,21 @@ public class CalendarService {
             CalendarCommand command, String idempotencyKey) {
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_MANAGE_CALENDAR);
         CalendarCommand normalized = normalize(command);
-        requireLegalEntity(
-                normalized.legalEntityId(),
+        requireCompany(
+                normalized.companyId(),
                 CapabilityCodes.ATTENDANCE_SETUP_MANAGE_CALENDAR);
         String actor = principalProvider.currentPrincipalId();
         String key = AttendanceSetupRules.idempotencyKey(idempotencyKey);
         var locationRevisions = groupRepository.resolveLocationRevisions(
                 normalized.locationId(), normalized.effectiveFrom(), clock.instant());
         if (locationRevisions.size() != 1
-                || !locationRevisions.getFirst().legalEntityId()
-                        .equals(normalized.legalEntityId())
+                || !locationRevisions.getFirst().companyId()
+                        .equals(normalized.companyId())
                 || !locationRevisions.getFirst().timeZone()
-                        .equals(normalized.timeZone())) {
+                        .equals(normalized.timeZone())
+                || !groupRepository.isLocationAvailable(
+                        normalized.locationId(), normalized.companyId(),
+                        normalized.effectiveFrom())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         WorkCalendar replay =
@@ -155,7 +166,7 @@ public class CalendarService {
         }
         Instant now = clock.instant();
         WorkCalendar created = new WorkCalendar(
-                UUID.randomUUID().toString(), normalized.legalEntityId(),
+                UUID.randomUUID().toString(), normalized.companyId(),
                 normalized.locationId(), normalized.code(),
                 UUID.randomUUID().toString(), 1,
                 normalized.name(), normalized.calendarYear(),
@@ -205,7 +216,7 @@ public class CalendarService {
         }
         Instant now = clock.instant();
         WorkCalendar created = new WorkCalendar(
-                family.calendarId(), family.legalEntityId(), family.locationId(),
+                family.calendarId(), family.companyId(), family.locationId(),
                 family.code(), UUID.randomUUID().toString(),
                 repository.nextVersionNumber(calendarId),
                 normalized.name(), normalized.calendarYear(),
@@ -231,7 +242,7 @@ public class CalendarService {
                     "已发布工作日历不可原地修改");
         }
         CalendarCommand normalized = normalize(command);
-        if (!current.legalEntityId().equals(normalized.legalEntityId())) {
+        if (!current.companyId().equals(normalized.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         if (!current.locationId().equals(normalized.locationId())
@@ -244,7 +255,7 @@ public class CalendarService {
         String actor = principalProvider.currentPrincipalId();
         Instant now = clock.instant();
         WorkCalendar updated = new WorkCalendar(
-                current.calendarId(), current.legalEntityId(), current.locationId(),
+                current.calendarId(), current.companyId(), current.locationId(),
                 current.code(), current.calendarVersionId(), current.versionNumber(),
                 normalized.name(), normalized.calendarYear(),
                 normalized.timeZone(), current.status(),
@@ -281,7 +292,7 @@ public class CalendarService {
         String actor = principalProvider.currentPrincipalId();
         Instant now = clock.instant();
         WorkCalendar updated = new WorkCalendar(
-                current.calendarId(), current.legalEntityId(), current.locationId(),
+                current.calendarId(), current.companyId(), current.locationId(),
                 current.code(), current.calendarVersionId(), current.versionNumber(),
                 normalized.name(), normalized.calendarYear(),
                 normalized.timeZone(), current.status(),
@@ -715,7 +726,7 @@ public class CalendarService {
                             || command.businessDate().isBefore(value.effectiveTo()))
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
             var template = shiftRepository.findTemplate(version.shiftId())
-                    .filter(value -> value.legalEntityId().equals(calendar.legalEntityId()))
+                    .filter(value -> value.companyId().equals(calendar.companyId()))
                     .filter(value -> value.locationId().equals(calendar.locationId()))
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
             if (!version.timeZone().equals(calendar.timeZone())
@@ -748,7 +759,7 @@ public class CalendarService {
         capabilityService.require(capability);
         WorkCalendar calendar = repository.findCalendar(calendarId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        requireLegalEntity(calendar.legalEntityId(), capability);
+        requireCompany(calendar.companyId(), capability);
         return calendar;
     }
 
@@ -758,14 +769,14 @@ public class CalendarService {
         WorkCalendar calendar = repository.findVersion(versionId)
                 .filter(value -> value.calendarId().equals(calendarId))
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        requireLegalEntity(calendar.legalEntityId(), capability);
+        requireCompany(calendar.companyId(), capability);
         return calendar;
     }
 
-    private void requireLegalEntity(String legalEntityId, String capability) {
-        if (!peopleRepository.canAccessLegalEntity(
+    private void requireCompany(String companyId, String capability) {
+        if (!peopleRepository.canAccessCompany(
                 principalProvider.currentPrincipalId(), capability,
-                legalEntityId, clock.instant())) {
+                companyId, clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
     }
@@ -783,7 +794,7 @@ public class CalendarService {
                     "日历版本期间必须位于声明年度内");
         }
         return new CalendarCommand(
-                Objects.requireNonNull(command.legalEntityId()),
+                Objects.requireNonNull(command.companyId()),
                 Objects.requireNonNull(command.locationId()),
                 AttendanceSetupRules.code(command.code()),
                 AttendanceSetupRules.name(command.name()),
@@ -797,14 +808,14 @@ public class CalendarService {
     private CalendarVersionCommand normalizeVersion(
             WorkCalendar family, CalendarVersionCommand command) {
         CalendarCommand normalized = normalize(new CalendarCommand(
-                family.legalEntityId(), family.locationId(), family.code(),
+                family.companyId(), family.locationId(), family.code(),
                 command.name(), command.calendarYear(), command.timeZone(),
                 command.effectiveFrom(), command.effectiveTo(), command.reason()));
         var locationRevisions = groupRepository.resolveLocationRevisions(
                 family.locationId(), normalized.effectiveFrom(), clock.instant());
         if (locationRevisions.size() != 1
-                || !locationRevisions.getFirst().legalEntityId()
-                        .equals(family.legalEntityId())
+                || !locationRevisions.getFirst().companyId()
+                        .equals(family.companyId())
                 || !locationRevisions.getFirst().timeZone()
                         .equals(normalized.timeZone())) {
             throw new ResourceNotAvailableAccessDeniedException();
@@ -816,7 +827,7 @@ public class CalendarService {
     }
 
     private boolean same(WorkCalendar calendar, CalendarCommand command) {
-        return calendar.legalEntityId().equals(command.legalEntityId())
+        return calendar.companyId().equals(command.companyId())
                 && calendar.code().equals(command.code())
                 && calendar.locationId().equals(command.locationId())
                 && calendar.name().equals(command.name())

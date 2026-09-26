@@ -96,7 +96,7 @@ public class PeopleImportController {
             @RequestHeader("Idempotency-Key") String idempotencyKey) {
         ImportBatch batch = service.createBatch(
                 new CreateImportBatch(
-                        request.legalEntityId(), request.templateType(),
+                        request.companyId(), request.templateType(),
                         request.templateVersion(), request.reason()),
                 IfMatchVersion.parse(ifMatch),
                 idempotencyKey);

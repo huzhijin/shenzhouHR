@@ -1,14 +1,14 @@
-INSERT INTO legal_entity (
-    legal_entity_id, code, name, status, created_at
+INSERT INTO company (
+    company_id, code, name, status, created_at
 ) VALUES
     (
         '30000000-0000-0000-0000-000000000001',
-        'WAVE2-LE-001', 'WAVE-2 合成法人一', 'ACTIVE',
+        'WAVE2-LE-001', 'WAVE-2 合成公司一', 'ACTIVE',
         TIMESTAMP '2020-01-01 00:00:00'
     ),
     (
         '30000000-0000-0000-0000-000000000002',
-        'WAVE2-LE-002', 'WAVE-2 合成法人二', 'ACTIVE',
+        'WAVE2-LE-002', 'WAVE-2 合成公司二', 'ACTIVE',
         TIMESTAMP '2020-01-01 00:00:00'
     );
 
@@ -25,11 +25,11 @@ INSERT INTO auth_role_capability (role_id, capability_id) VALUES
     ('10000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000001');
 
 INSERT INTO auth_data_scope (
-    scope_id, scope_type, legal_entity_id, organization_id,
+    scope_id, scope_type, company_id, organization_id,
     include_descendants, valid_from, valid_to
 ) VALUES
     (
-        '90000000-0000-0000-0000-000000000001', 'LEGAL_ENTITY',
+        '90000000-0000-0000-0000-000000000001', 'COMPANY',
         '30000000-0000-0000-0000-000000000001', NULL,
         TRUE, TIMESTAMP '2020-01-01 00:00:00', NULL
     ),
@@ -65,7 +65,7 @@ INSERT INTO auth_principal_role_assignment (
     );
 
 INSERT INTO organization_identity (
-    organization_id, legal_entity_id, identity_status
+    organization_id, company_id, identity_status
 ) VALUES
     ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'ACTIVE'),
     ('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', 'ACTIVE'),
@@ -102,7 +102,7 @@ INSERT INTO organization_version (
     (
         '50000000-0000-0000-0000-000000000004',
         '40000000-0000-0000-0000-000000000004', NULL,
-        '40', '其他法人组织', 'COMPANY',
+        '40', '其他公司组织', 'COMPANY',
         TIMESTAMP '2020-01-01 00:00:00', NULL
     ),
     (
@@ -156,7 +156,7 @@ INSERT INTO organization_source_binding (
     );
 
 INSERT INTO employee (
-    employee_id, legal_entity_id, display_name, employment_status
+    employee_id, company_id, display_name, employment_status
 ) VALUES
     ('b0000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'Alice', 'ACTIVE'),
     ('b0000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', 'Bob', 'ACTIVE'),
@@ -247,6 +247,16 @@ SET employment_period_id = assignment_id,
         ELSE NULL
     END;
 
+INSERT INTO employment_period_identity (
+    employment_period_id, employee_id, company_id, created_at
+)
+SELECT assignment.employment_period_id,
+       assignment.employee_id,
+       employee.company_id,
+       assignment.created_at
+FROM employment_assignment assignment
+JOIN employee ON employee.employee_id = assignment.employee_id;
+
 INSERT INTO employee_version (
     employee_version_id, employee_id, employee_number, display_name, status,
     effective_from, effective_to, source_authority, row_version, change_reason,
@@ -299,7 +309,7 @@ INSERT INTO auth_role_capability (role_id, capability_id) VALUES
     );
 
 INSERT INTO people_import_batch (
-    batch_id, legal_entity_id, template_type, template_version, status, reason,
+    batch_id, company_id, template_type, template_version, status, reason,
     file_sha256, mapping_json, added_count, updated_count, unchanged_count,
     conflict_count, error_count, blocking_issue_count, precheck_version,
     row_version, created_by, created_at, updated_by, updated_at

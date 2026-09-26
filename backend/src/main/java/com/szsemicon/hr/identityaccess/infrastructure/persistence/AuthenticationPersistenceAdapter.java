@@ -40,8 +40,20 @@ public class AuthenticationPersistenceAdapter implements AuthenticationPersisten
     }
 
     @Override
+    public Optional<AccountRecord> lockAccountByNormalizedUsername(String normalizedUsername) {
+        return Optional.ofNullable(mapper.lockAccountByNormalizedUsername(normalizedUsername))
+                .map(AuthenticationPersistenceAdapter::toAccount);
+    }
+
+    @Override
     public Optional<AccountRecord> findAccountById(String accountId) {
         return Optional.ofNullable(mapper.findAccountById(accountId))
+                .map(AuthenticationPersistenceAdapter::toAccount);
+    }
+
+    @Override
+    public Optional<AccountRecord> lockAccountById(String accountId) {
+        return Optional.ofNullable(mapper.lockAccountById(accountId))
                 .map(AuthenticationPersistenceAdapter::toAccount);
     }
 
@@ -54,6 +66,15 @@ public class AuthenticationPersistenceAdapter implements AuthenticationPersisten
     @Override
     public Optional<CredentialRecord> findCredential(String accountId) {
         return Optional.ofNullable(mapper.findCredential(accountId))
+                .map(row -> new CredentialRecord(
+                        row.accountId(),
+                        row.passwordHash(),
+                        row.rowVersion()));
+    }
+
+    @Override
+    public Optional<CredentialRecord> lockCredential(String accountId) {
+        return Optional.ofNullable(mapper.lockCredential(accountId))
                 .map(row -> new CredentialRecord(
                         row.accountId(),
                         row.passwordHash(),
@@ -88,6 +109,17 @@ public class AuthenticationPersistenceAdapter implements AuthenticationPersisten
     @Override
     public Optional<ResetGrantRecord> findResetGrantByDigest(String digest, Instant at) {
         return Optional.ofNullable(mapper.findActiveResetGrant(digest, at))
+                .map(row -> new ResetGrantRecord(
+                        row.grantId(),
+                        row.accountId(),
+                        row.expiresAt(),
+                        row.usedAt(),
+                        row.rowVersion()));
+    }
+
+    @Override
+    public Optional<ResetGrantRecord> lockResetGrantByDigest(String digest, Instant at) {
+        return Optional.ofNullable(mapper.lockActiveResetGrant(digest, at))
                 .map(row -> new ResetGrantRecord(
                         row.grantId(),
                         row.accountId(),
@@ -349,6 +381,18 @@ public class AuthenticationPersistenceAdapter implements AuthenticationPersisten
                 Timestamp.from(now));
     }
 
+    @Override
+    public void invalidateUnusedResetGrants(String accountId, Instant at) {
+        jdbc.update(
+                """
+                UPDATE password_reset_grant
+                SET used_at = ?, row_version = row_version + 1
+                WHERE account_id = ? AND used_at IS NULL
+                """,
+                Timestamp.from(at),
+                accountId);
+    }
+
     private static AccountRecord toAccount(AccountRow row) {
         return new AccountRecord(
                 row.accountId(),
@@ -362,7 +406,7 @@ public class AuthenticationPersistenceAdapter implements AuthenticationPersisten
                 row.lastLoginAt(),
                 row.sessionEpoch(),
                 row.rowVersion(),
-                row.legalEntityId());
+                row.companyId());
     }
 
     private static SessionRecord toSession(SessionRow row) {

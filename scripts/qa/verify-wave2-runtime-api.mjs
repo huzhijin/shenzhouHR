@@ -38,7 +38,7 @@ if (repositoryRoot !== EXPECTED_REPOSITORY_ROOT) {
 const runtimeRoot = join(repositoryRoot, 'docs/verification/wave2/runtime');
 const fixturesRoot = join(runtimeRoot, 'fixtures');
 const XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const LEGAL_ENTITY_ID = '30000000-0000-0000-0000-000000000001';
+const COMPANY_ID = '30000000-0000-0000-0000-000000000001';
 const BASE_URL = 'http://127.0.0.1:8080';
 const HTTP_TIMEOUT_MS = 15_000;
 const SUBPROCESS_TIMEOUT_MS = 30_000;
@@ -152,7 +152,7 @@ async function main() {
     const context = {
       runId: runToken,
       generatedAt: new Date().toISOString(),
-      legalEntityId: LEGAL_ENTITY_ID,
+      companyId: COMPANY_ID,
       organizationId: local.rootOrganization.organizationId,
       organizationCode: local.rootOrganization.code,
       employeeId: local.employeeUnderTest.employeeId,
@@ -184,7 +184,7 @@ async function verifySecurityBoundaries(admin) {
   await admin.request('cross-scope-batch-create', '/api/v1/people-imports', {
     method: 'POST',
     body: {
-      legalEntityId: '30000000-0000-0000-0000-000000000099',
+      companyId: '30000000-0000-0000-0000-000000000099',
       templateType: 'EMPLOYEE',
       templateVersion: '1.0.0',
       reason: 'WAVE-2 越权范围拒绝验证',
@@ -195,7 +195,7 @@ async function verifySecurityBoundaries(admin) {
   await admin.request('csrf-rejected', '/api/v1/people-imports', {
     method: 'POST',
     body: {
-      legalEntityId: LEGAL_ENTITY_ID,
+      companyId: COMPANY_ID,
       templateType: 'EMPLOYEE',
       templateVersion: '1.0.0',
       reason: 'WAVE-2 CSRF 拒绝验证',
@@ -225,8 +225,8 @@ async function verifySecurityBoundaries(admin) {
       temporaryPassword: restrictedPassword,
       roleAssignments: [{
         roleId: restrictedRole.roleId,
-        scopeType: 'LEGAL_ENTITY',
-        scopeResourceId: LEGAL_ENTITY_ID,
+        scopeType: 'COMPANY',
+        scopeResourceId: COMPANY_ID,
         validFrom: new Date(Date.now() - 60_000).toISOString(),
         validTo: null,
       }],
@@ -268,7 +268,7 @@ async function verifyLocalPeopleLifecycle(admin) {
   const rootOrganization = (await admin.request('local-root-organization-create', '/api/v1/organization-units', {
     method: 'POST',
     body: {
-      legalEntityId: LEGAL_ENTITY_ID,
+      companyId: COMPANY_ID,
       parentOrganizationId: null,
       code: `W2ROOT${runCode}`,
       name: `WAVE-2 合成总部 ${runCode}`,
@@ -282,7 +282,7 @@ async function verifyLocalPeopleLifecycle(admin) {
   const childOrganization = (await admin.request('local-child-organization-create', '/api/v1/organization-units', {
     method: 'POST',
     body: {
-      legalEntityId: LEGAL_ENTITY_ID,
+      companyId: COMPANY_ID,
       parentOrganizationId: rootOrganization.organizationId,
       code: `W2DEPT${runCode}`,
       name: `WAVE-2 合成部门 ${runCode}`,
@@ -346,7 +346,7 @@ async function verifyLocalPeopleLifecycle(admin) {
       {
         method: 'POST',
         body: {
-          legalEntityId: LEGAL_ENTITY_ID,
+          companyId: COMPANY_ID,
           employeeNumber: `W2${variant.replaceAll('_', '')}${runCode}`,
           displayName: 'WAVE-2 同名合成员工',
           externalEmployeeId: `EXT-${variant}-${runCode}`,
@@ -1125,7 +1125,7 @@ async function createBatch(admin, template, label) {
   return (await admin.request(`${label}-batch-create`, '/api/v1/people-imports', {
     method: 'POST',
     body: {
-      legalEntityId: LEGAL_ENTITY_ID,
+      companyId: COMPANY_ID,
       templateType: template.templateType,
       templateVersion: template.templateVersion,
       reason: `WAVE-2 ${label} 真实批次`,

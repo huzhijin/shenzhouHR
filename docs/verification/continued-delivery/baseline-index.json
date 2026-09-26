@@ -1,0 +1,373 @@
+{
+  "schemaVersion": "1.0.0",
+  "indexedAt": "2026-07-26T22:35:00+08:00",
+  "repository": {
+    "root": "/Users/huzhijin/Downloads/shenzhouHR",
+    "rootMatchesAuthority": true,
+    "gitMetadata": "ABSENT",
+    "preservationMode": "INCREMENTAL_FILE_AND_SHA256"
+  },
+  "authority": {
+    "precedence": [
+      "latest explicit user authorization",
+      "docs/docs-confirm-v1.9",
+      "design/open-design/v1.9",
+      "docs/v1.9-rebaseline",
+      "api/openapi.yaml",
+      "openspec/changes/wave3-attendance-setup-and-policies",
+      "README.md",
+      "AGENTS.md",
+      "umadev.yaml"
+    ],
+    "files": [
+      {
+        "path": "README.md",
+        "sha256": "009aa91aa680ae9dafbbfd0f73046a5b8f7ec61a7ebcfb45fe533cebc4ecea9f"
+      },
+      {
+        "path": "AGENTS.md",
+        "sha256": "047e80a4e76f2a536984f120033866e00015a58ac86a2f925804ed4bd21b555d"
+      },
+      {
+        "path": "umadev.yaml",
+        "sha256": "477c36fad8fd9071a124fc025a4d542b68cdd550501c7c307327771ba7cb514d"
+      },
+      {
+        "path": "docs/docs-confirm-v1.9/00-review-manifest.md",
+        "sha256": "e8d05ce19814db7e986d9c498ef4fdd44e520103c4d22ea0db89ce2d70818398"
+      },
+      {
+        "path": "docs/docs-confirm-v1.9/01-v1.9-specification-summary.md",
+        "sha256": "c6f4f1fed46d414dd28756bba690fa1ce950a20c097ca46aa6bc3f37775f6acd"
+      },
+      {
+        "path": "docs/docs-confirm-v1.9/02-decisions-and-open-questions.md",
+        "sha256": "58e56173e707522aa21b7c2e6b58bf2735b42545a1659c3d44db0f57cee21b48"
+      },
+      {
+        "path": "docs/docs-confirm-v1.9/03-local-mysql-development-and-test-plan.md",
+        "sha256": "c54e7cd04f63fd6c051b36e6a7abf149280f0a461c6b7ae9d542beecc2e10e3b"
+      },
+      {
+        "path": "docs/v1.9-rebaseline/05-domain-rule-permission-architecture.md",
+        "sha256": "7221d87ccc817c39d64607b916b14798a2590d5ece903c0e4194d51c77060aed"
+      },
+      {
+        "path": "docs/v1.9-rebaseline/06-api-delta-and-v3-migration-plan.md",
+        "sha256": "14d5e3ea3b854e7a4708c90e1d4fb99910076b610b94eb30b6f338ef8a649b86"
+      },
+      {
+        "path": "docs/v1.9-rebaseline/07-vertical-slice-roadmap.md",
+        "sha256": "9e0b052a88cc62242d87ecf07df9fe8788e9cd74edfc5046a0a26e0173232149"
+      },
+      {
+        "path": "docs/v1.9-rebaseline/09-acceptance-criteria.md",
+        "sha256": "bcb4f09c810f29d672fbebb7337208b015a1fad79ebf86569f27dbacdbc6cc12"
+      },
+      {
+        "path": "docs/v1.9-rebaseline/10-requirement-test-traceability.md",
+        "sha256": "a09a564a16fce6faabd3301a5ee17788a5a9e1ce13686fde315dffe686f5ec0b"
+      },
+      {
+        "path": "design/open-design/v1.9/design-handoff.md",
+        "sha256": "034a66318a5029fd77c4143fb0f445a61de3e45ff89ec760870c41039da998c4"
+      },
+      {
+        "path": "design/open-design/v1.9/page-state-matrix.md",
+        "sha256": "57aca767ed59974074ed65e68a6c299c7fdbb4f8884348bdbd5c915084b60368"
+      },
+      {
+        "path": "design/open-design/v1.9/react-implementation-notes.md",
+        "sha256": "e81d945732773b6c1599eeb0e2257efb360941331a045e3119d2efdc2f9f62e8"
+      },
+      {
+        "path": "api/openapi.yaml",
+        "sha256": "176acd8c28a19a178bc96e1bdfb39e59f8653aa70a187259ba2f816ef771d91d"
+      }
+    ]
+  },
+  "acceptedBaseline": {
+    "wave1": {
+      "status": "ACCEPTED_RETAIN",
+      "regressionRequiredAfterEveryStage": true
+    },
+    "wave2": {
+      "status": "ACCEPTED_RETAIN",
+      "evidenceRoot": "docs/verification/wave2/runtime",
+      "reportedBaseline": {
+        "openApiStatic": "8/8",
+        "backendTests": "87/87",
+        "frontendTestFiles": 16,
+        "frontendTests": "126/126",
+        "acceptance": "AC-PEOPLE-01..12 PASS"
+      },
+      "flywayHistory": "docs/verification/wave2/runtime/mysql/flyway-history.tsv",
+      "regressionRequiredAfterEveryStage": true,
+      "legacyWorkflowStateIsAuthoritative": false
+    }
+  },
+  "wave3": {
+    "change": "wave3-attendance-setup-and-policies",
+    "status": "RED_NOT_ACCEPTED",
+    "openSpecStatus": {
+      "state": "ready",
+      "tasksCompleted": 0,
+      "tasksTotal": 45
+    },
+    "artifacts": [
+      {
+        "path": "openspec/changes/wave3-attendance-setup-and-policies/proposal.md",
+        "sha256": "d066b9d9d495f53f8f9e9b0c3fb0c68bf95125077ef93ace6a882b4b20308d32"
+      },
+      {
+        "path": "openspec/changes/wave3-attendance-setup-and-policies/design.md",
+        "sha256": "b66474435428d9dc544e48f4052e6e96d273b5c6a2278d468bedcdc2bd2ab1bb"
+      },
+      {
+        "path": "openspec/changes/wave3-attendance-setup-and-policies/specs/attendance-base-policies/spec.md",
+        "sha256": "11c649b117f0e289a455ae46732c73b830c1631948325b8a2e2d522b8fa5c549"
+      },
+      {
+        "path": "openspec/changes/wave3-attendance-setup-and-policies/specs/attendance-groups/spec.md",
+        "sha256": "21fee4c682a726933839113029b2ea28909b0d37a0f6e0c59a9e8b53c5a1e49f"
+      },
+      {
+        "path": "openspec/changes/wave3-attendance-setup-and-policies/specs/shift-work-calendars/spec.md",
+        "sha256": "15610402e67b0dfdf53c5c14916cd2949f4d8119fd73e8a89437ba254efc0a64"
+      },
+      {
+        "path": "openspec/changes/wave3-attendance-setup-and-policies/specs/wave3-verification/spec.md",
+        "sha256": "3dff62465872d927140ee040158092a66ebbc583ed87110ed5b9073f907b1b68"
+      },
+      {
+        "path": "openspec/changes/wave3-attendance-setup-and-policies/tasks.md",
+        "sha256": "bffd7f95fdc5ddea910afd77ae406df2a708b4814f776afa72802ccdd75e0912"
+      }
+    ],
+    "invalidatedEvidence": [
+      {
+        "runId": "w3-20260726-1709",
+        "status": "INVALIDATED"
+      },
+      {
+        "runId": "w3-20260726-1917",
+        "status": "INVALIDATED_NON_FINAL",
+        "marker": "docs/verification/wave3/runs/w3-20260726-1917/INVALIDATED.md",
+        "markerSha256": "aba81e49f0a1cb222662dd35eee90fb8ad97e8e5267e67669190d75cdb54cc47"
+      }
+    ],
+    "promotionBlockedUntil": [
+      "all 45 OpenSpec tasks are genuinely accepted",
+      "V7 is aligned before its first persistent application",
+      "MySQL 8.4 verification is PASS or explicitly remains NOT_VERIFIED at release",
+      "WAVE-1 and WAVE-2 regressions pass"
+    ]
+  },
+  "databaseMigrations": {
+    "immutable": [
+      {
+        "version": "V1",
+        "path": "backend/src/main/resources/db/migration/V1__identity_organization_authorization_audit.sql",
+        "sha256": "5f5cdd3367ef7ab128974b7fcad89a44bcfc5631008bd066806f77d33f85c440"
+      },
+      {
+        "version": "V2",
+        "path": "backend/src/main/resources/db/migration/V2__baseline_authorization_catalog.sql",
+        "sha256": "28934279faafa2154faccd470976aa6ab2c4a5058f7d1b08a989c271da5241b4"
+      },
+      {
+        "version": "V3",
+        "path": "backend/src/main/resources/db/migration/V3__local_identity_session.sql",
+        "sha256": "75120a31c594f2a974c031ed400d028028f83fb915df1b457902df27a971f9f9"
+      },
+      {
+        "version": "V4",
+        "path": "backend/src/main/resources/db/migration/V4__versioned_policy_foundation.sql",
+        "sha256": "22b7f4b4b5ad21beec719c09aade3fc50b41a64d958951a690328ea38d2402a8"
+      },
+      {
+        "version": "V5",
+        "path": "backend/src/main/resources/db/migration/V5__people_initial_import_and_versioning.sql",
+        "sha256": "6fd13a0e31a37d27fb7d9f71f8117acf7d5fb0bd38d4d117303b2b8582b6b589"
+      },
+      {
+        "version": "V6",
+        "path": "backend/src/main/resources/db/migration/V6__system_admin_people_read_prerequisite.sql",
+        "sha256": "11762c79e34bea2ab6aa790a6b32c6466658eec03fd7a97b23fe540cf985c003"
+      }
+    ],
+    "provisional": [
+      {
+        "version": "V7",
+        "path": "backend/src/main/resources/db/migration/V7__attendance_setup_and_base_policies.sql",
+        "sha256": "b96e670be1429c51e90fc9c236467fea39b1d45bd56e15bdf311801cef979c29",
+        "persistedToVerifiedDatabase": false,
+        "mayBeAlignedBeforeFirstApply": true
+      }
+    ],
+    "forwardOnlyAllocation": [
+      {
+        "version": "V7",
+        "stage": "WAVE_3",
+        "purpose": "attendance setup and policy storage"
+      },
+      {
+        "version": "V8",
+        "stage": "WAVE_4",
+        "purpose": "source configuration and immutable evidence"
+      },
+      {
+        "version": "V9",
+        "stage": "WAVE_4",
+        "purpose": "offline punch import"
+      },
+      {
+        "version": "V10",
+        "stage": "ATTENDANCE_CALCULATION",
+        "purpose": "deterministic daily and monthly results"
+      },
+      {
+        "version": "V11",
+        "stage": "PERIOD_CLOSE",
+        "purpose": "close, reopen and immutable snapshots"
+      },
+      {
+        "version": "V12",
+        "stage": "LEAVE_TIME_ACCOUNT",
+        "purpose": "leave workflow and time ledger"
+      },
+      {
+        "version": "V13",
+        "stage": "SELF_SERVICE_REPORTING",
+        "purpose": "feedback, export and display audit"
+      }
+    ],
+    "forbidden": [
+      "modify V1-V6",
+      "create empty migrations",
+      "reuse a migration version",
+      "allocate a PAYROLL migration without separate authorization"
+    ],
+    "verifiedServerVersion": "NOT_VERIFIED_MYSQL_8_4",
+    "observedLocalServerVersion": "MySQL 8.0.34"
+  },
+  "apiContract": {
+    "source": "api/openapi.yaml",
+    "openApiVersion": "3.1.0",
+    "documentVersion": "1.9.0-wave3",
+    "basePath": "/api/v1",
+    "errorEnvelope": "#/components/schemas/ApiError",
+    "activeCallableSurface": "paths",
+    "plannedBindingSurface": "x-delivery-contract",
+    "plannedEntriesAreCallable": false,
+    "identifierTransport": "string",
+    "unknownRouteBehavior": 404,
+    "attendanceGroupCollection": {
+      "openApiPath": "/attendance-setup/groups",
+      "runtimePath": "/api/v1/attendance-setup/groups",
+      "frontendBasePath": "/api/v1/attendance-setup",
+      "backendRequestMapping": "/api/v1/attendance-setup",
+      "rejectedAlias": "/api/attendance/groups",
+      "rejectedAliasStatus": "NOT_CALLABLE"
+    }
+  },
+  "stageDependencyDag": [
+    {
+      "stage": "WAVE_3",
+      "dependsOn": [
+        "WAVE_2_ACCEPTED"
+      ]
+    },
+    {
+      "stage": "WAVE_4",
+      "dependsOn": [
+        "WAVE_3_ACCEPTED",
+        "WAVE_2_REGRESSION_PASS"
+      ]
+    },
+    {
+      "stage": "ATTENDANCE_CALCULATION",
+      "dependsOn": [
+        "WAVE_4_ACCEPTED"
+      ]
+    },
+    {
+      "stage": "PERIOD_CLOSE",
+      "dependsOn": [
+        "ATTENDANCE_CALCULATION_ACCEPTED"
+      ]
+    },
+    {
+      "stage": "LEAVE_TIME_ACCOUNT",
+      "dependsOn": [
+        "PERIOD_CLOSE_ACCEPTED"
+      ]
+    },
+    {
+      "stage": "SELF_SERVICE_REPORTING",
+      "dependsOn": [
+        "LEAVE_TIME_ACCOUNT_ACCEPTED"
+      ]
+    },
+    {
+      "stage": "FINAL_RELEASE_ACCEPTANCE",
+      "dependsOn": [
+        "WAVE_1_REGRESSION_PASS",
+        "WAVE_2_REGRESSION_PASS",
+        "WAVE_3_ACCEPTED",
+        "WAVE_4_ACCEPTED",
+        "ATTENDANCE_CALCULATION_ACCEPTED",
+        "PERIOD_CLOSE_ACCEPTED",
+        "LEAVE_TIME_ACCOUNT_ACCEPTED",
+        "SELF_SERVICE_REPORTING_ACCEPTED"
+      ]
+    }
+  ],
+  "securityDefaults": {
+    "authorization": "SERVER_SIDE_DEFAULT_DENY",
+    "objectAuthorization": "REQUIRED",
+    "legalEntityScope": "REQUIRED",
+    "stateMutation": [
+      "CSRF",
+      "Idempotency-Key",
+      "If-Match",
+      "audit event"
+    ],
+    "credentials": "REFERENCE_ONLY_NEVER_PLAINTEXT_IN_DATABASE_OR_LOGS",
+    "externalSources": "READ_ONLY_ALLOWLIST",
+    "rawEvidence": "IMMUTABLE_HASHED",
+    "unknownRoutes": "REAL_404",
+    "monthCloseBeforeProvider": "FAIL_CLOSED_CURRENT_OR_PAST_EFFECTIVITY",
+    "demoMode": "NO_API_AND_NO_DATABASE_MUTATION",
+    "externalVerification": "NOT_VERIFIED_UNLESS_REAL_TENANT_CREDENTIALS_AND_ENVIRONMENT_EXIST"
+  },
+  "scopeExclusions": {
+    "PAYROLL": {
+      "authorized": false,
+      "frontendDiscoverability": 0,
+      "apiOperationsAllocated": 0,
+      "databaseMigrationsAllocated": 0,
+      "capabilitiesAllocated": 0,
+      "requiresSeparateAuthorization": true
+    }
+  },
+  "resolvedArchitectureConflict": {
+    "issue": "The reopened WAVE-3 OpenSpec and provisional V7 split late grace from monthly exemption but omit the mandatory single-missing-punch policy.",
+    "decision": "Persist four independent policy kinds and preserve the three-kind compatibility API projection.",
+    "storagePolicyKinds": [
+      "MEAL_DEDUCTION",
+      "LATE_GRACE",
+      "MONTHLY_LATE_EXEMPTION",
+      "SINGLE_MISSING_PUNCH"
+    ],
+    "compatibilityApiProjection": {
+      "MEAL_DEDUCTION": "ATTENDANCE_MEAL_DEDUCTION",
+      "LATE_GRACE": "ATTENDANCE_LATE_GRACE",
+      "MONTHLY_LATE_EXEMPTION": "ATTENDANCE_LATE_GRACE",
+      "SINGLE_MISSING_PUNCH": "ATTENDANCE_SINGLE_MISSING_PUNCH"
+    },
+    "implementationGate": "OpenSpec, V7, backend catalog, frontend types and tests must be aligned atomically before V7 is first applied."
+  },
+  "nextScheduledStep": "shared responsive and accessibility design tokens",
+  "payrollExcludedFromNextScheduledStep": true
+}

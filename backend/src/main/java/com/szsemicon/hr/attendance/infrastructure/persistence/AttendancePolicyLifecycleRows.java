@@ -11,7 +11,7 @@ final class AttendancePolicyLifecycleRows {
     record ScopeRow(
             String scopeId,
             String templateId,
-            String legalEntityId,
+            String companyId,
             String policyKind,
             long rowVersion) {
     }
@@ -20,7 +20,7 @@ final class AttendancePolicyLifecycleRows {
             String scopedVersionId,
             String scopeId,
             String templateId,
-            String legalEntityId,
+            String companyId,
             String policyKind,
             int versionNumber,
             String status,

@@ -285,7 +285,7 @@ public final class PoiPeopleWorkbookGateway implements PeopleWorkbookGateway {
         return switch (type) {
             case ORGANIZATION -> List.of(
                     field("organizationCode", "组织编码", true, "TEXT", true,
-                            "法人主体内稳定且唯一；必须使用文本单元格以保留前导零和精确值"),
+                            "公司主体内稳定且唯一；必须使用文本单元格以保留前导零和精确值"),
                     field("name", "组织名称", true, "TEXT", false,
                             "组织显示名称，不作为唯一匹配键"),
                     field("parentOrganizationCode", "上级组织编码", false, "TEXT", false,
@@ -296,7 +296,7 @@ public final class PoiPeopleWorkbookGateway implements PeopleWorkbookGateway {
                             "ISO 8601 日期，格式 YYYY-MM-DD"));
             case EMPLOYEE -> List.of(
                     field("employeeNumber", "员工编号", true, "TEXT", true,
-                            "法人主体内稳定且唯一；必须使用文本单元格以保留前导零和精确值"),
+                            "公司主体内稳定且唯一；必须使用文本单元格以保留前导零和精确值"),
                     field("externalEmployeeId", "外部精确员工ID", false, "PRECISE_ID", true,
                             "可选精确匹配键；必须使用文本单元格，姓名和部门永远不是唯一键"),
                     field("displayName", "姓名", true, "TEXT", false,
@@ -307,7 +307,7 @@ public final class PoiPeopleWorkbookGateway implements PeopleWorkbookGateway {
                     field("employeeNumber", "员工编号", true, "TEXT", true,
                             "通过员工编号精确匹配员工；必须使用文本单元格"),
                     field("organizationCode", "组织编码", true, "TEXT", true,
-                            "通过法人主体内组织编码精确匹配组织；必须使用文本单元格"),
+                            "通过公司主体内组织编码精确匹配组织；必须使用文本单元格"),
                     field("startDate", "任职开始日", true, "DATE", false,
                             "半开区间起点，格式 YYYY-MM-DD"),
                     field("terminationDate", "业务离职日", false, "DATE", false,

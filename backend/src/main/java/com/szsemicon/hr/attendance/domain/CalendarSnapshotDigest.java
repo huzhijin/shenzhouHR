@@ -43,7 +43,7 @@ public final class CalendarSnapshotDigest {
 
         StringBuilder canonical = new StringBuilder();
         append(canonical, FORMAT);
-        append(canonical, calendar.legalEntityId());
+        append(canonical, calendar.companyId());
         append(canonical, calendar.locationId());
         append(canonical, calendar.calendarId());
         append(canonical, calendar.calendarVersionId());

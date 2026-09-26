@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "authority": "Wave-3 verification fixed seed oracle",
+  "baselineLegalEntityId": "30000000-0000-0000-0000-000000000001",
+  "effectiveFrom": "1970-01-01",
+  "effectiveTo": null,
+  "seeds": [
+    {
+      "policyKind": "MEAL_DEDUCTION",
+      "templateId": "25000000-0000-0000-0000-000000000001",
+      "scopeId": "25100000-0000-0000-0000-000000000001",
+      "scopedVersionId": "25200000-0000-0000-0000-000000000001",
+      "lifecycleEventId": "25300000-0000-0000-0000-000000000001",
+      "parameters": {
+        "applicableDayTypes": ["SPECIAL_WORKDAY", "WORKDAY"],
+        "deductionMinutes": 30,
+        "enabled": true,
+        "mealWindowEnd": "20:00",
+        "mealWindowStart": "18:00",
+        "triggerMinutes": 240
+      },
+      "canonicalSnapshot": "{\"effectiveFrom\":\"1970-01-01\",\"effectiveTo\":null,\"legalEntityId\":\"30000000-0000-0000-0000-000000000001\",\"parameters\":{\"applicableDayTypes\":[\"SPECIAL_WORKDAY\",\"WORKDAY\"],\"deductionMinutes\":30,\"enabled\":true,\"mealWindowEnd\":\"20:00\",\"mealWindowStart\":\"18:00\",\"triggerMinutes\":240},\"policyKind\":\"MEAL_DEDUCTION\",\"scopeId\":\"25100000-0000-0000-0000-000000000001\",\"templateId\":\"25000000-0000-0000-0000-000000000001\",\"versionNumber\":1}",
+      "snapshotDigest": "4279b3f40121f995d09245f3450e1087b4d5757e237ded4f8d4e0343fb210981"
+    },
+    {
+      "policyKind": "LATE_GRACE",
+      "templateId": "25000000-0000-0000-0000-000000000002",
+      "scopeId": "25100000-0000-0000-0000-000000000002",
+      "scopedVersionId": "25200000-0000-0000-0000-000000000002",
+      "lifecycleEventId": "25300000-0000-0000-0000-000000000002",
+      "parameters": {
+        "enabled": true,
+        "graceMinutes": 15
+      },
+      "canonicalSnapshot": "{\"effectiveFrom\":\"1970-01-01\",\"effectiveTo\":null,\"legalEntityId\":\"30000000-0000-0000-0000-000000000001\",\"parameters\":{\"enabled\":true,\"graceMinutes\":15},\"policyKind\":\"LATE_GRACE\",\"scopeId\":\"25100000-0000-0000-0000-000000000002\",\"templateId\":\"25000000-0000-0000-0000-000000000002\",\"versionNumber\":1}",
+      "snapshotDigest": "ea11c63a991838a20b61d6d3e9d0281035263b8529b2fb767fa0b2e631306ce9"
+    },
+    {
+      "policyKind": "MONTHLY_LATE_EXEMPTION",
+      "templateId": "25000000-0000-0000-0000-000000000003",
+      "scopeId": "25100000-0000-0000-0000-000000000003",
+      "scopedVersionId": "25200000-0000-0000-0000-000000000003",
+      "lifecycleEventId": "25300000-0000-0000-0000-000000000003",
+      "parameters": {
+        "enabled": true,
+        "graceMinutes": 15,
+        "monthlyUses": 1,
+        "resetOnGroupChange": false
+      },
+      "canonicalSnapshot": "{\"effectiveFrom\":\"1970-01-01\",\"effectiveTo\":null,\"legalEntityId\":\"30000000-0000-0000-0000-000000000001\",\"parameters\":{\"enabled\":true,\"graceMinutes\":15,\"monthlyUses\":1,\"resetOnGroupChange\":false},\"policyKind\":\"MONTHLY_LATE_EXEMPTION\",\"scopeId\":\"25100000-0000-0000-0000-000000000003\",\"templateId\":\"25000000-0000-0000-0000-000000000003\",\"versionNumber\":1}",
+      "snapshotDigest": "b0a533500852c464c7065812fd56519f0c571ebbf453834a8b189388e29f1a51"
+    }
+  ]
+}

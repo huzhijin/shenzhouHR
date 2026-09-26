@@ -56,7 +56,7 @@ except ImportError as error:  # pragma: no cover - import failure is fail-closed
     raise SystemExit(f"W3_SEMANTIC_GATE_PRODUCER=FAIL import: {error}") from error
 
 
-REPOSITORY_ROOT = Path("/Users/huzhijin/Downloads/shenzhouHR")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WAVE3_RUNS_ROOT = REPOSITORY_ROOT / "docs/verification/wave3/runs"
 CONTRACT_PATH = REPOSITORY_ROOT / "scripts/qa/wave3-evidence-contract-v1.json"
 PUBLIC_DRIVER = REPOSITORY_ROOT / "scripts/qa/verify_w2_public_contract_v2.py"
@@ -119,14 +119,27 @@ SEED_ORACLE = (
 SEED_ORACLE_SHA256 = (
     "2f74955cf1bf8ac83a743f63666187a03e549e0fba5ebb120d61c1067dacea6d"
 )
-API_SEMANTIC_ORACLE = (
+API_SEMANTIC_ORACLE_V1 = (
     REPOSITORY_ROOT
     / "openspec/changes/wave3-attendance-setup-and-policies/specs/"
     "wave3-verification/oracles/w3-api-semantic-oracle-v1.json"
 )
-API_SEMANTIC_ORACLE_SHA256 = (
+API_SEMANTIC_ORACLE_V1_SHA256 = (
     "b0f04f6abd556ca81478b93a37ce5464396e6d37335b330552c9f43313da40e4"
 )
+API_SEMANTIC_ORACLE = (
+    REPOSITORY_ROOT
+    / "openspec/changes/wave3-attendance-setup-and-policies/specs/"
+    "wave3-verification/oracles/w3-api-semantic-oracle-v2.json"
+)
+API_SEMANTIC_ORACLE_SHA256 = (
+    "a46bfd9444a1b42a7668fb138f85c4afc97b481237bccc79160ccb1c6c7481cc"
+)
+API_SEMANTIC_REVIEWED_CHANGES = [
+    "54 operations use ATTENDANCE_SETUP:COMPANY as the reviewed top-level data scope",
+    "11 company-bound request/view schemas and 11 linked Java records use companyId",
+    "AttendancePolicyMatchedMealWindowView is included in the reviewed 54-schema closure",
+]
 OPENAPI = REPOSITORY_ROOT / "api/openapi.yaml"
 MYSQL_ISOLATION = REPOSITORY_ROOT / "deploy/mysql/mysql8410-isolated.sh"
 MYSQL_WAVE3 = REPOSITORY_ROOT / "deploy/mysql/wave3-local-mysql.sh"
@@ -572,6 +585,17 @@ def validate_fixed_semantic_oracles() -> tuple[dict[str, Any], dict[str, Any]]:
     load_review_owned_api_oracle()
     load_w2_fixed_row_oracle()
     return dict(w2), dict(seed)
+
+
+def require_public_contract_match(
+    actual: Mapping[str, Any],
+    expected_fixture: Mapping[str, Any],
+) -> None:
+    expected_contract = expected_fixture.get("contract")
+    if not isinstance(expected_contract, Mapping):
+        fail("fixed W2 public oracle contract is missing or invalid")
+    if actual != expected_contract:
+        fail("W2 public actual JSON differs from the fixed oracle contract")
 
 
 def validate_unique_v7_migration(
@@ -1403,9 +1427,9 @@ def build_review_owned_api_snapshot(
         key=lambda item: (item[1], item[0]),
     )
     return {
-        "version": 1,
+        "version": 2,
         "authority": (
-            "Wave-3 review-owned attendance setup API semantics; "
+            "Wave-3 review-owned attendance setup company-current API semantics; "
             "independent of Controller/OpenAPI/Java runtime derivation"
         ),
         "operationCount": len(keys),
@@ -1436,12 +1460,18 @@ def build_review_owned_api_snapshot(
             }
             for method, path in keys
         ],
+        "reviewedChanges": list(API_SEMANTIC_REVIEWED_CHANGES),
         "schemas": review_schema_export(document, openapi),
         "javaRecords": review_java_record_export(),
     }
 
 
 def load_review_owned_api_oracle() -> dict[str, Any]:
+    if (
+        sha256_file(API_SEMANTIC_ORACLE_V1)
+        != API_SEMANTIC_ORACLE_V1_SHA256
+    ):
+        fail("frozen v1 API semantic oracle SHA256 drifted")
     if sha256_file(API_SEMANTIC_ORACLE) != API_SEMANTIC_ORACLE_SHA256:
         fail("review-owned API semantic oracle SHA256 drifted")
     value = load_json(API_SEMANTIC_ORACLE, "review-owned API semantic oracle")
@@ -1453,17 +1483,19 @@ def load_review_owned_api_oracle() -> dict[str, Any]:
         "operationCount",
         "errorResponseContracts",
         "operations",
+        "reviewedChanges",
         "schemas",
         "javaRecords",
     }
     if (
         set(value) != expected_keys
-        or value.get("version") != 1
+        or value.get("version") != 2
         or value.get("operationCount") != 54
         or not isinstance(value.get("operations"), list)
         or len(value["operations"]) != 54
         or not isinstance(value.get("errorResponseContracts"), list)
         or len(value["errorResponseContracts"]) != 1
+        or value.get("reviewedChanges") != API_SEMANTIC_REVIEWED_CHANGES
         or not isinstance(value.get("schemas"), list)
         or not isinstance(value.get("javaRecords"), list)
     ):
@@ -1863,7 +1895,7 @@ def compare_operation_closure(
             or operation["capability"] != expected_capability(*key)
         ):
             differences.append(f"{label}: capability")
-        if operation["dataScope"] != "ATTENDANCE_SETUP:LEGAL_ENTITY":
+        if operation["dataScope"] != "ATTENDANCE_SETUP:COMPANY":
             differences.append(f"{label}: dataScope")
         controller_parameters = {
             (value["in"], value["name"]): value
@@ -1964,14 +1996,14 @@ def compare_operation_closure(
             key[1].startswith("/attendance-setup/policy-lifecycle/")
             and "{templateId}" in key[1]
         ):
-            lifecycle_parameter = ("query", "legalEntityId")
+            lifecycle_parameter = ("query", "companyId")
             if lifecycle_parameter not in controller_parameters:
                 differences.append(
-                    f"{label}: controller missing lifecycle legalEntityId"
+                    f"{label}: controller missing lifecycle companyId"
                 )
             if lifecycle_parameter not in openapi_parameters:
                 differences.append(
-                    f"{label}: OpenAPI missing lifecycle legalEntityId"
+                    f"{label}: OpenAPI missing lifecycle companyId"
                 )
         controller_body = controller["requestBody"]
         operation_body = operation["requestSchema"]
@@ -2640,6 +2672,15 @@ def artifact_map(plan: Mapping[str, Any]) -> dict[str, dict[str, str]]:
     if tuple(result) != tuple(SEMANTIC_IDS):
         fail("leaf plan does not contain the first seven semantic IDs in order")
     return result
+
+
+def load_semantic_plan(
+    verifier: Wave3Evidence,
+    run_root: Path,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    _plan_path, leaves = load_plan_for_run(verifier, run_root, context)
+    return {"leaves": leaves}
 
 
 def validate_build_regression_log(
@@ -3986,7 +4027,7 @@ def validate_retained_canonical_golden(
     )
     framing = require_exact_object(
         document["framing"],
-        {"value", "row", "line", "final"},
+        {"field", "row", "snapshotLine", "finalHashInput"},
         "retained canonical golden framing",
     )
     if (
@@ -4161,6 +4202,17 @@ def parse_tsv_bytes(contents: bytes, label: str) -> dict[str, str]:
     return values
 
 
+def expected_mysql_db_identity_tsv(database_identity: str) -> bytes:
+    if not DATABASE_IDENTITY_PATTERN.fullmatch(database_identity):
+        fail("isolated MySQL database identity is invalid")
+    server_uuid = database_identity.split(":", 2)[1]
+    return (
+        f"db_identity\t{database_identity}\n"
+        f"server_uuid\t{server_uuid}\n"
+        "database\tshenzhou_hr_test\n"
+    ).encode("utf-8")
+
+
 def produce(
     run_context_path: Path,
     runtime_env_path: Path,
@@ -4241,7 +4293,7 @@ def produce(
             "runtime environment requires SHENZHOUHR_DEV_DB_PASSWORD "
             "for the all-gate dev privilege probe"
         )
-    plan = load_plan_for_run(verifier, run_root)
+    plan = load_semantic_plan(verifier, run_root, context)
     roles = artifact_map(plan)
     for evidence_id, role_paths in roles.items():
         for relative in role_paths.values():
@@ -4358,8 +4410,7 @@ def produce(
         )
         actual_public = load_json(actual_a, "W2 public actual export")
         expected_public = load_json(PUBLIC_EXPECTED, "W2 public oracle")
-        if actual_public != expected_public:
-            fail("W2 public actual JSON differs from the fixed oracle")
+        require_public_contract_match(actual_public, expected_public)
         try:
             public_summary = json.loads(exact_output)
         except json.JSONDecodeError as error:
@@ -4669,6 +4720,7 @@ def produce(
             {
                 "verify-run-context.tsv",
                 "verify.log",
+                "verify-db-identity.tsv",
                 "verify-mysql8410-server-identity.tsv",
                 "existing-mysql8034-verify-before.tsv",
                 "existing-mysql8034-verify-after.tsv",
@@ -4721,6 +4773,11 @@ def produce(
         }
         if verify_context != expected_verify_context:
             fail("isolated MySQL verify run-context TSV semantics differ")
+        if read_identity_evidence(
+            "verify-db-identity.tsv",
+            "isolated MySQL verify database identity",
+        ) != expected_mysql_db_identity_tsv(context["databaseIdentity"]):
+            fail("isolated MySQL verify database identity TSV semantics differ")
 
         mysql_capture_dir = stage_root / "internal/mysql-semantic-captures"
         mysql_capture_fd, capture_identity = (
@@ -5576,6 +5633,10 @@ def produce(
 
 def self_test() -> None:
     validate_fixed_semantic_oracles()
+    validate_retained_canonical_golden(
+        load_json(CANONICAL_GOLDEN, "retained canonical golden"),
+        W3_REGISTRY,
+    )
     controllers = controller_operation_export()
     document = load_unique_yaml(OPENAPI.read_text(encoding="utf-8"))
     operations = openapi_operation_export(document)
@@ -5667,7 +5728,7 @@ def self_test() -> None:
                 for value in operation["parameters"]
                 if not (
                     value["in"] == "query"
-                    and value["name"] == "legalEntityId"
+                    and value["name"] == "companyId"
                 )
                 and not (
                     value["in"] == "header"

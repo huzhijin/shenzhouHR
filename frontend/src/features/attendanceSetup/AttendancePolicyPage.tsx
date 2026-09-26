@@ -4,8 +4,8 @@ import {
   IconFlask,
   IconLink,
 } from '@tabler/icons-react';
-import { Alert, Input, Pagination, Segmented } from 'antd';
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { Alert, Pagination, Segmented } from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -15,6 +15,8 @@ import { DataTable } from '../../shared/components/DataTable';
 import { PageHeader } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import { CompanySelect } from '../referenceData';
+import { listReferenceAttendanceGroups } from '../referenceData/referenceDataApi';
 import {
   createPolicyBinding,
   getAttendancePolicyVersionContext,
@@ -31,6 +33,7 @@ import {
   mutationSuccessNotice,
   type AttendanceSetupNotice as Notice,
 } from './attendanceSetupFeedback';
+import { missingDirectoryLabel } from './attendanceDirectory';
 import { PolicyBindingDialog } from './PolicyBindingDialog';
 import { PolicySimulationPanel } from './PolicySimulationPanel';
 import type {
@@ -51,7 +54,7 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
   const { versionId = '' } = useParams();
   const navigate = useNavigate();
   const [policyKind, setPolicyKind] = useState<AttendancePolicyKind>(defaultKind);
-  const [draftVersionId, setDraftVersionId] = useState(versionId);
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const [bindingOpen, setBindingOpen] = useState(false);
   const [editingBinding, setEditingBinding] = useState<PolicyBindingView>();
   const [processing, setProcessing] = useState(false);
@@ -70,14 +73,34 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
   const catalogAndBindingsLoader = useMemo(
     () => () => Promise.all([
       listPolicyCatalog(),
-      listPolicyBindings(undefined, undefined, bindingPage, bindingPageSize),
+      selectedCompanyId
+        ? listPolicyBindings(
+          undefined,
+          undefined,
+          bindingPage,
+          bindingPageSize,
+          selectedCompanyId,
+        )
+        : Promise.resolve({
+          items: [],
+          total: 0,
+          page: bindingPage,
+          size: bindingPageSize,
+        }),
     ]),
-    [bindingPage, bindingPageSize],
+    [bindingPage, bindingPageSize, selectedCompanyId],
   );
   const catalogAndBindings = useAsyncResource(
     catalogAndBindingsLoader,
     ([catalog, bindings]) => catalog.length === 0 && bindings.items.length === 0,
-    [bindingPage, bindingPageSize],
+    [bindingPage, bindingPageSize, selectedCompanyId],
+  );
+  const groupDirectory = useAsyncResource(
+    () => selectedCompanyId
+      ? listReferenceAttendanceGroups(undefined, selectedCompanyId)
+      : Promise.resolve([]),
+    () => false,
+    [selectedCompanyId],
   );
   const policyVersionContextLoader = useMemo(
     () => () => versionId
@@ -105,15 +128,24 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
       ? template.templateId === routeContext.templateId
       : template.policyKind === effectivePolicyKind)
     : undefined;
-  const lifecycleLegalEntityId = routeContext?.legalEntityId ?? '';
+  const lifecycleCompanyId = routeContext?.companyId ?? selectedCompanyId;
   const effectiveVersionId = routeContext?.scopedVersionId ?? '';
-  const applyVersionId = () => {
-    const trimmed = draftVersionId.trim();
-    if (trimmed) navigate(`/rules/attendance-policy/${encodeURIComponent(trimmed)}`);
-  };
+  const canBindEffectiveVersion = routeContext?.status === 'PUBLISHED';
+  const bindPolicyDisabledHint = !effectiveVersionId
+    ? t('attendanceSetup.bindPolicyDisabledHint')
+    : routeContext?.status === 'DRAFT'
+      ? '当前为草稿版本，请先校验并发布后再绑定考勤组'
+      : routeContext?.status === 'VALIDATED'
+        ? '当前版本已校验，请先发布后再绑定考勤组'
+        : '只有已发布的规则版本可以绑定考勤组';
+  const groupLabels = groupDirectory.resource.status === 'ready'
+    ? new Map(groupDirectory.resource.data.map((group) => [
+      group.groupId,
+      `${group.name}（${group.code}）`,
+    ]))
+    : new Map<string, string>();
 
   useEffect(() => {
-    setDraftVersionId(versionId);
     simulationGeneration.current += 1;
     impactGeneration.current += 1;
     bindingMutationGeneration.current += 1;
@@ -137,7 +169,7 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
   useEffect(() => {
     if (!routeContext) return;
     setPolicyKind(routeContext.policyKind);
-    setDraftVersionId(routeContext.scopedVersionId);
+    setSelectedCompanyId(routeContext.companyId);
   }, [routeContext]);
 
   const saveBinding = async (input: PolicyBindingPreviewInput) => {
@@ -230,6 +262,7 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
   };
 
   const openBindingCreator = () => {
+    if (!canBindEffectiveVersion) return;
     setEditingBinding(undefined);
     setBindingOpen(true);
   };
@@ -239,7 +272,6 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
     bindingMutationGeneration.current += 1;
     if (versionId) {
       navigate('/rules/attendance-policy');
-      setDraftVersionId('');
     }
     setPolicyKind(value);
     setSimulation(undefined);
@@ -252,8 +284,17 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
     setEditingBinding(undefined);
     setProcessing(false);
   };
-  const changeDraftVersionId = (event: ChangeEvent<HTMLInputElement>) => {
-    setDraftVersionId(event.target.value);
+  const changeCompany = (companyId?: string) => {
+    if (versionId && !routeContext) return;
+    if (versionId) navigate('/rules/attendance-policy');
+    setSelectedCompanyId(companyId ?? '');
+    setBindingPage(0);
+    setBindingOpen(false);
+    setEditingBinding(undefined);
+    setSimulation(undefined);
+    setImpact(undefined);
+    setImpactBinding(undefined);
+    setNotice(undefined);
   };
   const openBindingEditor = (binding: PolicyBindingView) => async () => {
     const generation = ++bindingMutationGeneration.current;
@@ -265,6 +306,7 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
         undefined,
         0,
         100,
+        lifecycleCompanyId || undefined,
       );
       if (bindingMutationGeneration.current !== generation) return;
       const current = currentBindings.items.find(
@@ -296,9 +338,15 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
       }
     }
   };
-  const selectPolicyVersion = (selectedVersionId: string) => {
-    navigate(`/rules/attendance-policy/${encodeURIComponent(selectedVersionId)}`);
-  };
+  const selectPolicyVersion = useCallback((
+    selectedVersionId: string,
+    options?: { replace?: boolean },
+  ) => {
+    navigate(
+      `/rules/attendance-policy/${encodeURIComponent(selectedVersionId)}`,
+      { replace: options?.replace === true },
+    );
+  }, [navigate]);
   const requestSimulation = (input: PolicySimulationInput) => {
     void simulate(input);
   };
@@ -334,13 +382,14 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
         ]}
         actions={canManage ? (
           <AccessibleButton
-            label={t('attendanceSetup.createBinding')}
+            label={t('attendanceSetup.bindPolicyToGroup')}
             type="primary"
             icon={<IconLink aria-hidden="true" stroke={2} />}
-            disabled={!effectiveVersionId}
+            disabled={!canBindEffectiveVersion}
+            title={!canBindEffectiveVersion ? bindPolicyDisabledHint : undefined}
             onClick={openBindingCreator}
           >
-            {t('attendanceSetup.createBinding')}
+            {t('attendanceSetup.bindPolicyToGroup')}
           </AccessibleButton>
         ) : undefined}
       />
@@ -352,6 +401,15 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
         title={t('attendanceSetup.frozenTitle')}
         description={t('attendanceSetup.frozenDescription')}
       />
+      {!canManage ? (
+        <Alert
+          className="attendance-boundary-note"
+          showIcon
+          type="info"
+          title={t('attendanceSetup.policyReadOnlyTitle')}
+          description={t('attendanceSetup.policyReadOnlyDescription')}
+        />
+      ) : null}
       <section className="attendance-policy-selector" aria-label={t('attendanceSetup.policyCatalog')}>
         <Segmented<AttendancePolicyKind>
           block
@@ -361,23 +419,36 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
             { value: 'MEAL_DEDUCTION', label: t('attendanceSetup.policyMeal') },
             { value: 'LATE_GRACE', label: t('attendanceSetup.policyLateGrace') },
             { value: 'MONTHLY_LATE_EXEMPTION', label: t('attendanceSetup.policyMissingPunch') },
+            { value: 'PUNCH_WINDOW', label: '打卡取卡窗口' },
+            { value: 'PERIOD_CLOSE', label: '月结封账' },
           ]}
         />
         <div className="attendance-version-input">
-          <label htmlFor="attendance-policy-version">{t('attendanceSetup.policyVersionId')}</label>
-          <Input
-            id="attendance-policy-version"
-            value={draftVersionId}
-            onChange={changeDraftVersionId}
+          <label htmlFor="attendance-policy-company">公司</label>
+          <CompanySelect
+            id="attendance-policy-company"
+            value={lifecycleCompanyId || undefined}
+            allowClear={false}
+            onChange={changeCompany}
           />
-          <AccessibleButton
-            label={t('attendanceSetup.select')}
-            onClick={applyVersionId}
-          >
-            {t('attendanceSetup.select')}
-          </AccessibleButton>
+          <span className="form-help">
+            {routeContext
+              ? `当前策略版本：V${routeContext.versionNumber}`
+              : selectedCompanyId
+                ? t('attendanceSetup.companySelectedHint')
+                : t('attendanceSetup.selectCompanyFirst')}
+          </span>
         </div>
       </section>
+      {!versionId && !selectedCompanyId ? (
+        <Alert
+          className="attendance-boundary-note"
+          showIcon
+          type="info"
+          title={t('attendanceSetup.companyRequiredForPolicyTitle')}
+          description={t('attendanceSetup.companyRequiredForPolicyDescription')}
+        />
+      ) : null}
       {catalogAndBindings.resource.status === 'loading'
         || catalogAndBindings.resource.status === 'partial-loading'
         ? <StatePanel state={catalogAndBindings.resource.status} />
@@ -406,7 +477,9 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
           <section className="content-surface attendance-section">
             <div className="section-heading">
               <div>
-                <h2>{selectedTemplate?.name ?? t('attendanceSetup.policyCatalog')}</h2>
+                <h2>{selectedTemplate
+                  ? policyKindLabel(selectedTemplate.policyKind)
+                  : t('attendanceSetup.policyCatalog')}</h2>
                 <p>{t('attendanceSetup.policyDescription')}</p>
               </div>
             </div>
@@ -414,12 +487,24 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
               {(selectedTemplate?.fields ?? []).map((field) => (
                 <li key={field.key}>
                   <strong>{field.label}</strong>
-                  <span>{field.key}</span>
-                  <code>{field.valueType}</code>
+                  <small>
+                    {t(field.required ? 'common.required' : 'common.optional')}
+                  </small>
                 </li>
               ))}
             </ul>
           </section>
+          {routeContextReady && selectedTemplate && lifecycleCompanyId ? (
+            <AttendancePolicyLifecyclePanel
+              key={`${selectedTemplate.templateId}-${lifecycleCompanyId}-${effectiveVersionId}`}
+              templateId={selectedTemplate.templateId}
+              companyId={lifecycleCompanyId}
+              selectedVersionId={effectiveVersionId}
+              fields={selectedTemplate.fields}
+              canManage={canManage}
+              onSelectVersion={selectPolicyVersion}
+            />
+          ) : null}
           <section className="content-surface attendance-section section-spaced">
             <div className="section-heading">
               <div>
@@ -441,15 +526,19 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
                   rowKey={(binding) => binding.bindingRevisionId}
                   ariaLabel={t('attendanceSetup.policyBinding')}
                   columns={[
-                    { key: 'kind', title: t('attendanceSetup.policyKind'), render: (binding) => binding.policyKind },
+                    { key: 'kind', title: t('attendanceSetup.policyKind'), render: (binding) => policyKindLabel(binding.policyKind) },
                     { key: 'revision', title: t('attendanceSetup.revision'), render: (binding) => binding.revisionNumber },
-                    { key: 'policyVersion', title: t('attendanceSetup.policyVersionId'), render: (binding) => <code>{binding.policyVersionId}</code> },
-                    { key: 'group', title: t('attendanceSetup.groupId'), render: (binding) => <code>{binding.groupId}</code> },
-                    { key: 'groupRevision', title: t('attendanceSetup.groupRevisionId'), render: (binding) => <code>{binding.groupRevisionId}</code> },
+                    {
+                      key: 'group',
+                      title: '考勤组',
+                      render: (binding) => groupLabels.get(binding.groupId)
+                        ?? missingDirectoryLabel(
+                          groupDirectory.resource.status,
+                          '考勤组',
+                        ),
+                    },
                     { key: 'period', title: t('attendanceSetup.period'), render: (binding) => `${binding.effectiveFrom} → ${binding.effectiveTo ?? t('attendanceSetup.longTerm')}` },
-                    { key: 'digest', title: t('attendanceSetup.snapshotDigest'), render: (binding) => <code className="attendance-digest">{binding.snapshotDigest}</code> },
                     { key: 'status', title: t('attendanceSetup.status'), render: (binding) => <StatusBadge status={binding.status} /> },
-                    { key: 'rowVersion', title: t('attendanceSetup.rowVersion'), render: (binding) => binding.rowVersion },
                     { key: 'reason', title: t('attendanceSetup.reason'), render: (binding) => binding.changeReason },
                     ...(canManage && routeContextReady ? [{
                       key: 'actions',
@@ -501,17 +590,6 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
               </nav>
             ) : null}
           </section>
-          {routeContextReady && selectedTemplate && lifecycleLegalEntityId ? (
-            <AttendancePolicyLifecyclePanel
-              key={`${selectedTemplate.templateId}-${lifecycleLegalEntityId}-${effectiveVersionId}`}
-              templateId={selectedTemplate.templateId}
-              legalEntityId={lifecycleLegalEntityId}
-              selectedVersionId={effectiveVersionId}
-              fields={selectedTemplate.fields}
-              canManage={canManage}
-              onSelectVersion={selectPolicyVersion}
-            />
-          ) : null}
           {routeContextReady && canManage ? (
             <>
               <section className="content-surface attendance-section section-spaced">
@@ -538,7 +616,11 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
                     <h2>{t('attendanceSetup.impactPreview')}</h2>
                     <p>
                       {impactBinding
-                        ? `${impactBinding.policyVersionId} · ${impactBinding.groupId}`
+                        ? groupLabels.get(impactBinding.groupId)
+                          ?? missingDirectoryLabel(
+                            groupDirectory.resource.status,
+                            '考勤组',
+                          )
                         : t('attendanceSetup.selectBindingForImpact')}
                     </p>
                   </div>
@@ -547,7 +629,6 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
                   <dl className="metric-list">
                     <div><dt>{t('attendanceSetup.groupCount')}</dt><dd>{impact.groupCount}</dd></div>
                     <div><dt>{t('attendanceSetup.assignmentCount')}</dt><dd>{impact.assignmentCount}</dd></div>
-                    <div><dt>{t('attendanceSetup.countSource')}</dt><dd>{impact.countSource}</dd></div>
                   </dl>
                 ) : <StatePanel state="empty" description={t('attendanceSetup.runImpact')} />}
               </section>
@@ -558,9 +639,10 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
       {routeContextReady && canManage ? (
         <>
           <PolicyBindingDialog
-            key={`${effectivePolicyKind}-${effectiveVersionId}-${editingBinding?.bindingId ?? 'create'}`}
+            key={`${lifecycleCompanyId}-${effectivePolicyKind}-${effectiveVersionId}-${editingBinding?.bindingId ?? 'create'}`}
             open={bindingOpen}
             processing={processing}
+            companyId={lifecycleCompanyId}
             catalog={catalogAndBindings.resource.status === 'ready'
               ? catalogAndBindings.resource.data[0]
               : []}
@@ -585,3 +667,13 @@ export function AttendancePolicyPage({ capabilities }: { capabilities: string[] 
 }
 
 export default AttendancePolicyPage;
+
+function policyKindLabel(value: AttendancePolicyKind): string {
+  return ({
+    MEAL_DEDUCTION: '用餐时段扣除',
+    LATE_GRACE: '迟到宽限',
+    MONTHLY_LATE_EXEMPTION: '每月迟到豁免',
+    PUNCH_WINDOW: '打卡取卡窗口',
+    PERIOD_CLOSE: '月结封账',
+  } as const)[value];
+}

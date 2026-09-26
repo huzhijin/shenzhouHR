@@ -18,6 +18,7 @@ interface ShiftMapper {
     List<ShiftRows.TemplateRow> listTemplates(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
+            @Param("companyId") String companyId,
             @Param("limit") int limit,
             @Param("offset") int offset,
             @Param("at") Instant at);
@@ -25,6 +26,7 @@ interface ShiftMapper {
     long countTemplates(
             @Param("principalId") String principalId,
             @Param("capability") String capability,
+            @Param("companyId") String companyId,
             @Param("at") Instant at);
 
     void insertTemplate(

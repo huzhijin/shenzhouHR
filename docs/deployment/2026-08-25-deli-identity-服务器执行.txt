@@ -1,0 +1,20 @@
+把下面两个文件传到宝塔 /root：
+
+  release-candidates/shenzhouhr-release-20260825-deli-identity.tar.gz
+  release-candidates/upgrade-deli-identity.sh
+
+然后终端只跑（不用再输账号密码）：
+
+bash /root/upgrade-deli-identity.sh
+
+怕断线：
+
+nohup bash /root/upgrade-deli-identity.sh >> /root/upgrade-deli-identity.log 2>&1 &
+tail -f /root/upgrade-deli-identity.log
+
+不要覆盖 /opt/shenzhouhr/start-prod.sh
+不要改得力 00:00/12:00 cron
+不要只点「重新计算」
+
+SHA256：
+dd36a18fd3518bf8fd259a43901c52bb46f97e1e43558f72a27413378952537c

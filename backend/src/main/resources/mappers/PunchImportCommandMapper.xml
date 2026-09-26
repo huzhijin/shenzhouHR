@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.punchimport.application.PunchImportCommandMapper">
+
+    <select id="countCompanyScope" resultType="int">
+        SELECT COUNT(*)
+        FROM auth_principal_role_assignment assignment
+        JOIN auth_role_capability role_capability
+          ON role_capability.role_id = assignment.role_id
+        JOIN auth_capability capability
+          ON capability.capability_id = role_capability.capability_id
+         AND capability.capability_code = #{capability}
+        JOIN auth_data_scope data_scope
+          ON data_scope.scope_id = assignment.data_scope_id
+        WHERE assignment.principal_id = #{principalId}
+          AND assignment.valid_from &lt;= #{at}
+          AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
+          AND data_scope.valid_from &lt;= #{at}
+          AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+          AND data_scope.scope_type = 'COMPANY'
+          AND data_scope.company_id = #{companyId}
+    </select>
+
+    <select id="findActiveSpreadsheetSource" resultType="string">
+        SELECT attendance_source_id
+        FROM attendance_source
+        WHERE attendance_source_id = #{sourceId}
+          AND company_id = #{companyId}
+          AND status = 'ACTIVE'
+          AND source_type IN ('DEVICE_EXCEL', 'STANDARD_XLSX')
+    </select>
+
+    <insert id="insertBatch">
+        INSERT INTO punch_import_batch (
+            punch_import_batch_id, attendance_source_id, company_id,
+            location_id, mapping_profile_version_id, row_version,
+            created_by, created_at
+        ) VALUES (
+            #{batchId}, #{sourceId}, #{companyId},
+            NULL, NULL, 1, #{actorId}, #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertFile">
+        INSERT INTO punch_import_file (
+            punch_import_file_id, punch_import_batch_id, attendance_source_id,
+            company_id, content_sha256, original_filename, stored_object_ref,
+            file_size_bytes, content_type, malware_scan_status, template_version,
+            field_contract_digest, uploaded_by, uploaded_at
+        ) VALUES (
+            #{fileId}, #{batchId}, #{sourceId}, #{companyId}, #{sha256},
+            #{filename}, #{objectRef}, #{size}, #{contentType}, 'CLEAN',
+            #{templateVersion}, #{contractDigest}, #{actorId}, #{uploadedAt}
+        )
+    </insert>
+
+    <insert id="insertState">
+        INSERT INTO punch_import_state_event (
+            punch_import_state_event_id, punch_import_batch_id, sequence_number,
+            from_state, to_state, reason_code, request_id, actor_id, created_at
+        ) VALUES (
+            #{eventId}, #{batchId}, #{sequence}, #{fromState}, #{toState},
+            #{reasonCode}, #{requestId}, #{actorId}, #{createdAt}
+        )
+    </insert>
+
+    <select id="nextStateSequence" resultType="int">
+        SELECT COALESCE(MAX(sequence_number), 0) + 1
+        FROM punch_import_state_event
+        WHERE punch_import_batch_id = #{batchId}
+    </select>
+
+    <select id="currentState" resultType="string">
+        SELECT to_state
+        FROM punch_import_state_event
+        WHERE punch_import_batch_id = #{batchId}
+        ORDER BY sequence_number DESC, punch_import_state_event_id DESC
+        LIMIT 1
+    </select>
+
+    <update id="incrementBatchVersion">
+        UPDATE punch_import_batch
+        SET row_version = row_version + 1
+        WHERE punch_import_batch_id = #{batchId}
+          AND row_version = #{expectedVersion}
+    </update>
+
+    <select id="findFile"
+            resultType="com.szsemicon.hr.punchimport.application.PunchImportCommandMapper$FileRef">
+        SELECT punch_import_file_id AS file_id,
+               stored_object_ref AS object_ref,
+               original_filename AS filename,
+               content_sha256 AS sha256,
+               template_version,
+               field_contract_digest
+        FROM punch_import_file
+        WHERE punch_import_batch_id = #{batchId}
+    </select>
+
+    <insert id="insertRow">
+        INSERT INTO punch_import_row (
+            punch_import_row_id, punch_import_batch_id, punch_import_file_id,
+            `row_number`, raw_values_json, stable_fingerprint,
+            blocking_issue_count, warning_issue_count, created_at
+        ) VALUES (
+            #{rowId}, #{batchId}, #{fileId}, #{rowNumber}, #{rawJson},
+            #{fingerprint}, #{blocking}, #{warning}, #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertAttempt">
+        INSERT INTO punch_import_normalization_attempt (
+            punch_import_normalization_attempt_id, punch_import_batch_id,
+            attempt_number, mapping_profile_version_id, status,
+            resolver_snapshot_digest, period_version, duplicate_window_version,
+            attempt_digest, started_at, completed_at
+        ) VALUES (
+            #{attemptId}, #{batchId}, #{attemptNumber}, NULL, #{status},
+            #{digest}, 'LIVE', '60s', #{digest}, #{startedAt}, #{completedAt}
+        )
+    </insert>
+
+    <select id="nextAttemptNumber" resultType="int">
+        SELECT COALESCE(MAX(attempt_number), 0) + 1
+        FROM punch_import_normalization_attempt
+        WHERE punch_import_batch_id = #{batchId}
+    </select>
+
+    <insert id="insertIssue">
+        INSERT INTO punch_import_issue (
+            punch_import_issue_id, punch_import_normalization_attempt_id,
+            punch_import_row_id, issue_code, severity, field_name,
+            safe_message, created_at
+        ) VALUES (
+            #{issueId}, #{attemptId}, #{rowId}, #{code}, #{severity},
+            #{field}, #{message}, #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertPrecheck">
+        INSERT INTO punch_import_precheck (
+            punch_import_precheck_id, punch_import_batch_id,
+            normalization_attempt_id, precheck_token_digest, expires_at,
+            total_count, valid_count, blocking_count, warning_count,
+            affected_subjects_json, row_result_digest, created_at
+        ) VALUES (
+            #{precheckId}, #{batchId}, #{attemptId}, #{tokenDigest}, #{expiresAt},
+            #{total}, #{valid}, #{blocking}, #{warning},
+            #{subjectsJson}, #{rowDigest}, #{createdAt}
+        )
+    </insert>
+
+    <select id="findLatestPrecheck"
+            resultType="com.szsemicon.hr.punchimport.application.PunchImportCommandMapper$LatestPrecheck">
+        SELECT punch_import_precheck_id AS precheck_id,
+               normalization_attempt_id AS attempt_id,
+               precheck_token_digest AS token_digest,
+               expires_at,
+               total_count,
+               valid_count,
+               blocking_count
+        FROM punch_import_precheck
+        WHERE punch_import_batch_id = #{batchId}
+        ORDER BY created_at DESC, punch_import_precheck_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="listStagedRows"
+            resultType="com.szsemicon.hr.punchimport.application.PunchImportCommandMapper$StagedRow">
+        SELECT punch_import_row_id AS row_id,
+               `row_number` AS row_number,
+               raw_values_json,
+               stable_fingerprint,
+               blocking_issue_count
+        FROM punch_import_row
+        WHERE punch_import_batch_id = #{batchId}
+        ORDER BY `row_number`, punch_import_row_id
+    </select>
+
+    <update id="markRowPublished">
+        UPDATE punch_import_row
+        SET published_raw_fact_id = #{rawFactId},
+            effective_attendance_event_id = #{eventId}
+        WHERE punch_import_row_id = #{rowId}
+    </update>
+
+    <insert id="insertPublication">
+        INSERT INTO punch_import_publication (
+            punch_import_publication_id, punch_import_batch_id,
+            punch_import_precheck_id, publish_mode, published_count,
+            retained_invalid_count, idempotency_key, request_digest,
+            change_reason, published_by, published_at
+        ) VALUES (
+            #{publicationId}, #{batchId}, #{precheckId}, #{mode}, #{published},
+            #{retained}, #{idempotencyKey}, #{requestDigest}, #{reason},
+            #{actorId}, #{publishedAt}
+        )
+    </insert>
+
+    <select id="matchEmployees"
+            resultType="com.szsemicon.hr.punchimport.application.PunchImportCommandMapper$EmployeeMatch">
+        SELECT employee.employee_id,
+               employment.employment_period_id
+        FROM employee employee
+        JOIN employee_version employee_version
+          ON employee_version.employee_id = employee.employee_id
+         AND employee_version.status = 'ACTIVE'
+         AND employee_version.effective_from &lt;= #{businessDate}
+         AND (
+                employee_version.effective_to IS NULL
+                OR employee_version.effective_to &gt; #{businessDate}
+         )
+        JOIN employment_assignment employment
+          ON employment.employee_id = employee.employee_id
+         AND employment.version_valid_to IS NULL
+         AND employment.record_status = 'ACTIVE'
+         AND DATE(employment.effective_from) &lt;= #{businessDate}
+         AND (
+                employment.effective_to IS NULL
+                OR DATE(employment.effective_to) &gt; #{businessDate}
+         )
+        WHERE employee.company_id = #{companyId}
+          AND employee_version.employee_number = #{employeeNumber}
+        LIMIT 3
+    </select>
+</mapper>
