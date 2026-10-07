@@ -69,18 +69,20 @@ describe('attendance policy route and revision safety', () => {
     await waitFor(() => {
       expect(detailSpy).toHaveBeenCalledWith(
         routed.templateId,
-        routed.legalEntityId,
+        routed.companyId,
         routed.scopedVersionId,
       );
     });
-    expect(screen.getByLabelText('已发布策略版本 ID')).toHaveValue(
-      routed.scopedVersionId,
-    );
+    expect(await screen.findByText(`当前策略版本：V${routed.versionNumber}`))
+      .toBeInTheDocument();
+    expect(await screen.findByText('江苏神州半导体科技股份有限公司'))
+      .toBeInTheDocument();
     const heading = await screen.findByRole(
       'heading',
       { name: '策略版本生命周期' },
     );
     const panel = requiredClosest(heading, 'section');
+    expect(screen.queryByText(routed.scopedVersionId)).not.toBeInTheDocument();
     expect(within(panel).queryByText(previous.scopedVersionId)).not.toBeInTheDocument();
     expect(within(panel).queryByRole('button', { name: '停用' }))
       .not.toBeInTheDocument();
@@ -120,10 +122,11 @@ describe('attendance policy route and revision safety', () => {
         undefined,
         0,
         100,
+        visibleRevision.companyId,
       );
     });
     expect(await screen.findByText(
-      '当前页面使用的并发版本已过期，请刷新后基于最新修订重试。',
+      '数据已被其他人更新，请刷新后重新操作。',
     )).toBeInTheDocument();
     expect(view.baseElement.querySelector('.ant-modal')).not.toBeInTheDocument();
   });
@@ -135,10 +138,27 @@ describe('attendance policy route and revision safety', () => {
       effectiveFrom: '2099-06-10',
       effectiveTo: '2099-07-01',
     };
+    const historical = {
+      ...base,
+      scopedVersionId: '25200000-0000-0000-0000-000000000009',
+      versionNumber: 8,
+      status: 'INACTIVE' as const,
+      effectiveFrom: '2098-01-01',
+      effectiveTo: '2099-06-10',
+    };
     const contextSpy = vi.spyOn(attendanceSetupApi, 'getAttendancePolicyVersionContext')
       .mockResolvedValue(bounded);
     const detailSpy = vi.spyOn(attendanceSetupApi, 'getAttendancePolicyVersion')
       .mockResolvedValue(bounded);
+    vi.spyOn(attendanceSetupApi, 'listAttendancePolicyVersions')
+      .mockImplementation((_templateId, _companyId, page = 0, size = 20) => (
+        Promise.resolve({
+          items: [bounded, historical],
+          total: 2,
+          page,
+          size,
+        })
+      ));
     const deactivateSpy = vi.spyOn(
       attendanceSetupApi,
       'deactivateAttendancePolicyVersion',
@@ -162,7 +182,7 @@ describe('attendance policy route and revision safety', () => {
       expect(contextSpy).toHaveBeenCalledWith(bounded.scopedVersionId);
       expect(detailSpy).toHaveBeenCalledWith(
         bounded.templateId,
-        bounded.legalEntityId,
+        bounded.companyId,
         bounded.scopedVersionId,
       );
     }, { timeout: 5_000 });
@@ -182,11 +202,14 @@ describe('attendance policy route and revision safety', () => {
       workbench.querySelector<HTMLTextAreaElement>('textarea'),
       'lifecycle reason',
     );
-    const rollbackTarget = within(workbench).getByLabelText('回滚目标版本 ID');
+    const rollbackTarget = within(workbench).getByLabelText('恢复到历史版本');
     fireEvent.change(reason, { target: { value: '日期边界测试' } });
-    fireEvent.change(rollbackTarget, {
-      target: { value: '25200000-0000-0000-0000-000000000009' },
-    });
+    fireEvent.mouseDown(rollbackTarget);
+    fireEvent.click(await screen.findByText('V8 · 2098-01-01 · 已停用'));
+    expect(within(workbench).getByText('V8 · 2098-01-01 · 已停用'))
+      .toBeInTheDocument();
+    expect(within(workbench).queryByText(historical.scopedVersionId))
+      .not.toBeInTheDocument();
     fireEvent.change(boundary, { target: { value: '2099-07-01' } });
 
     fireEvent.click(within(workbench).getByRole('button', { name: '停用' }));

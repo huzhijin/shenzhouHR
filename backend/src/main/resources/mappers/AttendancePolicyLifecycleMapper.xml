@@ -6,7 +6,7 @@
 
     <sql id="versionColumns">
         version.scoped_version_id, version.scope_id,
-        scope.policy_template_id AS template_id, scope.legal_entity_id,
+        scope.policy_template_id AS template_id, scope.company_id,
         template.template_code AS policy_kind,
         version.version_number,
         COALESCE((
@@ -57,13 +57,13 @@
 
     <sql id="scopeColumns">
         SELECT scope.scope_id, scope.policy_template_id AS template_id,
-               scope.legal_entity_id, template.template_code AS policy_kind,
+               scope.company_id, template.template_code AS policy_kind,
                scope.row_version
         FROM attendance_policy_scope scope
         JOIN attendance_policy_template template
           ON template.policy_template_id = scope.policy_template_id
         WHERE scope.policy_template_id = #{templateId}
-          AND scope.legal_entity_id = #{legalEntityId}
+          AND scope.company_id = #{companyId}
     </sql>
 
     <select id="findScope"
@@ -82,7 +82,7 @@
         FROM attendance_policy_scoped_version version
         JOIN attendance_policy_scope scope ON scope.scope_id = version.scope_id
         WHERE scope.policy_template_id = #{templateId}
-          AND scope.legal_entity_id = #{legalEntityId}
+          AND scope.company_id = #{companyId}
     </select>
 
     <select id="listVersions"
@@ -93,7 +93,7 @@
         JOIN attendance_policy_template template
           ON template.policy_template_id = scope.policy_template_id
         WHERE scope.policy_template_id = #{templateId}
-          AND scope.legal_entity_id = #{legalEntityId}
+          AND scope.company_id = #{companyId}
         ORDER BY version.version_number DESC, version.scoped_version_id
         LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -106,7 +106,7 @@
         JOIN attendance_policy_template template
           ON template.policy_template_id = scope.policy_template_id
         WHERE scope.policy_template_id = #{templateId}
-          AND scope.legal_entity_id = #{legalEntityId}
+          AND scope.company_id = #{companyId}
           AND version.scoped_version_id = #{scopedVersionId}
     </select>
 

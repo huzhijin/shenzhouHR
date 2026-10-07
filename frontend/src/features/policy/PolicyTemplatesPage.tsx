@@ -8,6 +8,7 @@ import { OperationFeedback, StatusBadge } from '../../shared/components/Feedback
 import { PageHeader, QueryFilterBar } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import { policyResultText } from './PolicyComponents';
 import { createPolicyTemplate, listPolicyTemplates } from './policyApi';
 
 export function PolicyTemplatesPage({ capabilities }: { capabilities: string[] }) {
@@ -44,13 +45,12 @@ export function PolicyTemplatesPage({ capabilities }: { capabilities: string[] }
         <QueryFilterBar query={query} onQueryChange={setQuery} placeholder={t('policy.searchTemplates')}><Button onClick={reload}>{t('common.refresh')}</Button></QueryFilterBar>
         {resource.status === 'loading' || resource.status === 'partial-loading' ? <StatePanel state={resource.status} /> : null}
         {resource.status === 'empty' ? <StatePanel state="empty" description={t('policy.noTemplates')} /> : null}
-        {'error' in resource ? <StatePanel state={resource.status} description={resource.error.message} onRetry={reload} /> : null}
+        {'error' in resource ? <StatePanel state={resource.status} description={policyResultText(resource.error.message)} onRetry={reload} /> : null}
         {resource.status === 'ready' ? <DataTable rows={resource.data.items} rowKey={(row) => row.templateId} columns={[
           { key: 'code', title: t('policy.templateCode'), render: (row) => <Link to={`/rules/templates/${row.templateId}`}>{row.code}</Link> },
           { key: 'name', title: t('policy.templateName'), render: (row) => row.name },
           { key: 'status', title: t('policy.status'), render: (row) => <StatusBadge status={row.status} /> },
           { key: 'version', title: t('policy.latestVersion'), render: (row) => `V${row.latestVersionNumber}` },
-          { key: 'rowVersion', title: t('policy.rowVersion'), render: (row) => row.rowVersion },
         ]} /> : null}
       </section>
       <Modal open={createOpen} title={t('policy.createTemplateTitle')} okText={t('policy.create')} cancelText={t('common.cancel')} confirmLoading={processing} onOk={() => void form.submit()} onCancel={() => setCreateOpen(false)}>

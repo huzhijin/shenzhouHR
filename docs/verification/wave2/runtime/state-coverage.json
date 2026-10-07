@@ -1,0 +1,366 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-26T03:28:23Z",
+  "runId": "ms17xm8i0bb61873",
+  "evidenceLayerDefinitions": {
+    "API_REAL": "Real HTTP calls to the current backend on port 8080 using shenzhou_hr_dev MySQL.",
+    "BROWSER_REAL": "The real React frontend on port 5173 calling real /api endpoints backed by port 8080 and MySQL.",
+    "BROWSER_FAULT_INJECTION": "The real React frontend with a narrowly injected delay, empty response, or network failure; proves client rendering only, not backend or database behavior."
+  },
+  "summary": {
+    "requiredCoverageCount": 20,
+    "uiStateCount": 15,
+    "fullyBrowserAndApiBackedStates": [
+      "normal",
+      "401",
+      "409-conflict",
+      "partial-success",
+      "success",
+      "frozen-blocked"
+    ],
+    "browserFaultInjectionStates": [
+      "loading",
+      "partial-loading",
+      "empty",
+      "error",
+      "network-error",
+      "processing"
+    ],
+    "apiOnlyStates": [
+      "403",
+      "404",
+      "stale"
+    ],
+    "browser404Claim": false
+  },
+  "states": [
+    {
+      "id": "normal",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "claim": "All four production people routes rendered real backend and MySQL data.",
+      "evidence": [
+        "runtime-api.tsv",
+        "browser-normal-network.json",
+        "browser-matrix.json",
+        "screenshots/01-people-import-390x844.png",
+        "screenshots/02-people-organization-768x1024.png",
+        "screenshots/03-people-employees-1024x768.png",
+        "screenshots/04-employee-detail-1366x768.png"
+      ]
+    },
+    {
+      "id": "loading",
+      "status": "PASS_CLIENT_RENDERING",
+      "layers": [
+        "BROWSER_FAULT_INJECTION"
+      ],
+      "claim": "The employee list exposes aria-busy=true and its loading surface while the selected request is delayed.",
+      "doesNotClaim": "A naturally slow backend request was observed.",
+      "evidence": [
+        "browser-loading-state.json",
+        "screenshots/14-loading-employees-1440x900.png"
+      ]
+    },
+    {
+      "id": "partial-loading",
+      "status": "PASS_CLIENT_RENDERING",
+      "layers": [
+        "BROWSER_FAULT_INJECTION"
+      ],
+      "claim": "The employee route preserves its shell and exposes aria-busy=true during a delayed refresh.",
+      "doesNotClaim": "A naturally slow backend refresh was observed.",
+      "evidence": [
+        "browser-partial-loading-state.json",
+        "screenshots/15-partial-loading-employees-1440x900.png"
+      ]
+    },
+    {
+      "id": "empty",
+      "status": "PASS_CLIENT_RENDERING",
+      "layers": [
+        "BROWSER_FAULT_INJECTION"
+      ],
+      "claim": "The real React employee route renders a distinct empty result with no horizontal overflow.",
+      "doesNotClaim": "The retained MySQL dataset was empty.",
+      "evidence": [
+        "browser-empty-state.json",
+        "screenshots/10-empty-employees-1440x900.png"
+      ]
+    },
+    {
+      "id": "error",
+      "status": "PASS_CLIENT_RENDERING",
+      "layers": [
+        "BROWSER_FAULT_INJECTION"
+      ],
+      "claim": "A request failure renders the safe service-unavailable error surface.",
+      "doesNotClaim": "A real backend 5xx was produced.",
+      "evidence": [
+        "browser-network-error-state.json",
+        "browser-fault-console.json",
+        "browser-fault-errors.json",
+        "screenshots/11-network-error-1440x900.png"
+      ]
+    },
+    {
+      "id": "network-error",
+      "status": "PASS_CLIENT_RENDERING",
+      "layers": [
+        "BROWSER_FAULT_INJECTION"
+      ],
+      "claim": "An injected network failure renders the retry-oriented network error surface without a page error.",
+      "doesNotClaim": "The real backend became unavailable.",
+      "evidence": [
+        "browser-network-error-state.json",
+        "browser-fault-errors.json",
+        "screenshots/11-network-error-1440x900.png"
+      ]
+    },
+    {
+      "id": "401",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "claim": "Unauthenticated people API access returns 401 and a protected browser route reaches the real login page.",
+      "evidence": [
+        "runtime-api.tsv",
+        "runtime-business-api.tsv",
+        "browser-unauth-network.json",
+        "browser-unauth-state.json",
+        "screenshots/12-unauthenticated-login-1440x900.png"
+      ]
+    },
+    {
+      "id": "403",
+      "status": "PASS_API_ONLY",
+      "layers": [
+        "API_REAL"
+      ],
+      "claim": "Real CSRF and restricted-role requests return 403 with stable safe error codes.",
+      "browserVerified": false,
+      "evidence": [
+        "runtime-business-api.tsv",
+        "runtime-api-business.json"
+      ]
+    },
+    {
+      "id": "404",
+      "status": "PASS_API_ONLY",
+      "layers": [
+        "API_REAL"
+      ],
+      "claim": "Unknown employee and cross-scope requests return 404 RESOURCE_NOT_AVAILABLE.",
+      "browserVerified": false,
+      "excludedEvidence": {
+        "discarded": true,
+        "reason": "An earlier browser attempt redirected to the default route, did not contain a usable WAVE-2 404 state, and was removed rather than used to claim 404 UI coverage."
+      },
+      "evidence": [
+        "runtime-business-api.tsv",
+        "runtime-api-business.json"
+      ]
+    },
+    {
+      "id": "409-conflict",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "claim": "Real APIs reject stale versions, overlapping employment, blocked publication, and invalid rollback with 409; the real validation-failed import screen exposes the blocking conflict.",
+      "browserScope": "The browser evidence covers the import blocking conflict, not every 409 subtype.",
+      "evidence": [
+        "runtime-business-api.tsv",
+        "runtime-api-business.json",
+        "screenshots/07-validation-failed-1440x900.png"
+      ]
+    },
+    {
+      "id": "stale",
+      "status": "PASS_API_ONLY",
+      "layers": [
+        "API_REAL"
+      ],
+      "claim": "A stale organization version update returns 409 STALE_VERSION.",
+      "browserVerified": false,
+      "evidence": [
+        "runtime-business-api.tsv"
+      ]
+    },
+    {
+      "id": "processing",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_FAULT_INJECTION"
+      ],
+      "claim": "Real organization and employee precheck requests are accepted with HTTP 202 and later resolve to persisted batch states; a narrowly delayed request verifies the real React processing dialog, aria-busy state, and responsive layout.",
+      "doesNotClaim": "The processing dialog was observed during a naturally slow backend request.",
+      "evidence": [
+        "runtime-business-api.tsv",
+        "runtime-api-business.json",
+        "browser-processing-state.json",
+        "screenshots/16-processing-import-1440x900.png"
+      ]
+    },
+    {
+      "id": "partial-success",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "claim": "The real precheck contains one ADDED, UPDATED, UNCHANGED, CONFLICT, and ERROR row and the real browser shows the validation-failed batch.",
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "screenshots/07-validation-failed-1440x900.png"
+      ]
+    },
+    {
+      "id": "success",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "claim": "Real APIs complete local maintenance, employment, prior service, publish, void, and eligible rollback; the real browser displays the published batch successfully.",
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "browser-published-state.json",
+        "screenshots/13-published-success-1440x900.png"
+      ]
+    },
+    {
+      "id": "frozen-blocked",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "claim": "A real import with two blocking issues cannot publish and remains visible as VALIDATION_FAILED in the real browser.",
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "screenshots/07-validation-failed-1440x900.png"
+      ]
+    }
+  ],
+  "domainScenarioCoverage": [
+    {
+      "id": "six-step-import",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "evidence": [
+        "runtime-business-api.tsv",
+        "screenshots/01-people-import-390x844.png",
+        "screenshots/05-people-import-1440x900.png",
+        "screenshots/07-validation-failed-1440x900.png"
+      ]
+    },
+    {
+      "id": "idempotency-hit",
+      "status": "PASS",
+      "layers": [
+        "API_REAL"
+      ],
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv"
+      ]
+    },
+    {
+      "id": "local-authority-organization",
+      "status": "PASS",
+      "layers": [
+        "API_REAL"
+      ],
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv"
+      ]
+    },
+    {
+      "id": "rehire",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "screenshots/04-employee-detail-1366x768.png",
+        "screenshots/06-employee-detail-1920x1080.png"
+      ]
+    },
+    {
+      "id": "period-overlap",
+      "status": "PASS",
+      "layers": [
+        "API_REAL"
+      ],
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv"
+      ]
+    },
+    {
+      "id": "prior-service",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "screenshots/04-employee-detail-1366x768.png",
+        "screenshots/06-employee-detail-1920x1080.png"
+      ]
+    },
+    {
+      "id": "audit",
+      "status": "PASS",
+      "layers": [
+        "API_REAL",
+        "BROWSER_REAL"
+      ],
+      "evidence": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "screenshots/04-employee-detail-1366x768.png"
+      ]
+    }
+  ],
+  "responsiveCoverage": {
+    "evidenceLayer": "BROWSER_REAL",
+    "matrix": "browser-matrix.json",
+    "viewports": [
+      "390x844",
+      "768x1024",
+      "1024x768",
+      "1366x768",
+      "1440x900",
+      "1920x1080"
+    ],
+    "horizontalOverflowCount": 0,
+    "touchTargetViolationCount": 0,
+    "unlabeledControlCount": 0
+  },
+  "accessibilityCaveat": {
+    "axeViolationCount": 0,
+    "axeIncompleteCount": 4,
+    "claim": "Incomplete contrast checks are not counted as automated passes. They are supplemented only by approved token pairings and manual contrast calculations recorded in open-design-manifest.json and ../UIUX.md."
+  }
+}

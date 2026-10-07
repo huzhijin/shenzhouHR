@@ -30,6 +30,7 @@ import {
   policyLifecycleMinimumDate,
   utcDateAfter,
 } from './attendancePolicyLifecycleDates';
+import { policyResultText } from '../policy/PolicyComponents';
 import type {
   PolicyFieldDefinition,
   PolicyParameterValue,
@@ -37,18 +38,21 @@ import type {
 
 interface LifecyclePanelProps {
   templateId: string;
-  legalEntityId: string;
+  companyId: string;
   selectedVersionId: string;
   fields: PolicyFieldDefinition[];
   canManage: boolean;
-  onSelectVersion: (versionId: string) => void;
+  onSelectVersion: (
+    versionId: string,
+    options?: { replace?: boolean },
+  ) => void;
 }
 
 type LifecycleAction = 'validate' | 'publish' | 'deactivate' | 'rollback';
 
 export function AttendancePolicyLifecyclePanel({
   templateId,
-  legalEntityId,
+  companyId,
   selectedVersionId,
   fields,
   canManage,
@@ -68,10 +72,10 @@ export function AttendancePolicyLifecyclePanel({
   const [versionPage, setVersionPage] = useState(0);
   const [versionPageSize, setVersionPageSize] = useState(20);
   const versionsLoader = useMemo(
-    () => () => templateId && legalEntityId
+    () => () => templateId && companyId
       ? listAttendancePolicyVersions(
         templateId,
-        legalEntityId,
+        companyId,
         versionPage,
         versionPageSize,
       )
@@ -81,34 +85,38 @@ export function AttendancePolicyLifecyclePanel({
         page: versionPage,
         size: versionPageSize,
       }),
-    [legalEntityId, templateId, versionPage, versionPageSize],
+    [companyId, templateId, versionPage, versionPageSize],
   );
   const versions = useAsyncResource(
     versionsLoader,
     (page) => page.items.length === 0,
-    [legalEntityId, templateId, versionPage, versionPageSize],
+    [companyId, templateId, versionPage, versionPageSize],
   );
   const effectiveVersionId = selectedVersionId
     || (versions.resource.status === 'ready'
       ? versions.resource.data.items[0]?.scopedVersionId ?? ''
       : '');
   const detailLoader = useMemo(
-    () => () => templateId && legalEntityId && effectiveVersionId
-      ? getAttendancePolicyVersion(templateId, legalEntityId, effectiveVersionId)
+    () => () => templateId && companyId && effectiveVersionId
+      ? getAttendancePolicyVersion(templateId, companyId, effectiveVersionId)
       : Promise.resolve(null),
-    [effectiveVersionId, legalEntityId, templateId],
+    [effectiveVersionId, companyId, templateId],
   );
   const detail = useAsyncResource(
     detailLoader,
     (value) => value === null,
-    [effectiveVersionId, legalEntityId, templateId],
+    [effectiveVersionId, companyId, templateId],
   );
   const selected = detail.resource.status === 'ready'
     && detail.resource.data?.scopedVersionId === effectiveVersionId
     && detail.resource.data.templateId === templateId
-    && detail.resource.data.legalEntityId === legalEntityId
+    && detail.resource.data.companyId === companyId
     ? detail.resource.data
     : undefined;
+  const draftMinimumDate = selected
+    ? policyLifecycleMinimumDate(selected.effectiveFrom)
+    : utcDateAfter(1);
+  const editMinimumDate = utcDateAfter(1);
 
   useEffect(() => {
     if (!selected) return;
@@ -125,7 +133,19 @@ export function AttendancePolicyLifecyclePanel({
 
   useEffect(() => {
     setVersionPage(0);
-  }, [legalEntityId, templateId]);
+  }, [companyId, templateId]);
+
+  useEffect(() => {
+    setDraftEffectiveFrom((current) => current < draftMinimumDate
+      ? draftMinimumDate
+      : current);
+  }, [draftMinimumDate]);
+
+  useEffect(() => {
+    if (!selectedVersionId && effectiveVersionId) {
+      onSelectVersion(effectiveVersionId, { replace: true });
+    }
+  }, [effectiveVersionId, onSelectVersion, selectedVersionId]);
 
   const reload = () => {
     versions.reload();
@@ -151,12 +171,19 @@ export function AttendancePolicyLifecyclePanel({
   };
 
   const createDraft = () => {
+    if (!draftEffectiveFrom || draftEffectiveFrom < draftMinimumDate) {
+      setNotice({
+        kind: 'warning',
+        message: t('attendanceSetup.futureEffectiveFromRequired'),
+      });
+      return;
+    }
     if (!templateId || draftReason.trim().length < 2) {
       setNotice({ kind: 'warning', message: t('attendanceSetup.reasonRequired') });
       return;
     }
     void run(async () => {
-      const created = await createAttendancePolicyDraft(templateId, legalEntityId, {
+      const created = await createAttendancePolicyDraft(templateId, companyId, {
         basedOnVersionId: selected?.scopedVersionId ?? null,
         effectiveFrom: draftEffectiveFrom,
         effectiveTo: null,
@@ -170,21 +197,31 @@ export function AttendancePolicyLifecyclePanel({
   };
 
   const saveDraft = () => {
-    if (!selected || actionReason.trim().length < 2) {
+    if (!selected) return;
+    if (!editEffectiveFrom || editEffectiveFrom < editMinimumDate) {
+      setNotice({
+        kind: 'warning',
+        message: t('attendanceSetup.futureEffectiveFromRequired'),
+      });
+      return;
+    }
+    if (actionReason.trim().length < 2) {
       setNotice({ kind: 'warning', message: t('attendanceSetup.reasonRequired') });
       return;
     }
-    const parameters = fields.map((field) => ({
-      key: field.key,
-      value: typedParameterValue(field, parameterValues[field.key] ?? ''),
-    }));
+    const parameters = policyParametersForSave(fields, parameterValues);
     void run(
-      () => updateAttendancePolicyDraft(selected, {
-        parameters,
-        effectiveFrom: editEffectiveFrom,
-        effectiveTo: editEffectiveTo || null,
-        reason: actionReason.trim(),
-      }),
+      async () => {
+        const updated = await updateAttendancePolicyDraft(selected, {
+          parameters,
+          effectiveFrom: editEffectiveFrom,
+          effectiveTo: editEffectiveTo || null,
+          reason: actionReason.trim(),
+        });
+        setVersionPage(0);
+        onSelectVersion(updated.scopedVersionId, { replace: true });
+        return updated;
+      },
       t('attendanceSetup.policyDraftSaved'),
     );
   };
@@ -246,9 +283,7 @@ export function AttendancePolicyLifecyclePanel({
   const changeActionEffectiveFrom = (event: ChangeEvent<HTMLInputElement>) => {
     setActionEffectiveFrom(event.target.value);
   };
-  const changeRollbackTarget = (event: ChangeEvent<HTMLInputElement>) => {
-    setRollbackTarget(event.target.value);
-  };
+  const changeRollbackTarget = (value: string) => setRollbackTarget(value);
   const chooseLifecycleAction = (action: LifecycleAction) => () => {
     executeLifecycle(action);
   };
@@ -264,7 +299,7 @@ export function AttendancePolicyLifecyclePanel({
       <div className="section-heading">
         <div>
           <h2>{t('attendanceSetup.policyLifecycle')}</h2>
-          <p>{t('attendanceSetup.policyLifecycleDescription')}</p>
+          <p>查看策略的历史版本，并完成校验、发布、停用或恢复操作。</p>
         </div>
         <AccessibleButton
           label={t('common.refresh')}
@@ -275,6 +310,40 @@ export function AttendancePolicyLifecyclePanel({
         </AccessibleButton>
       </div>
       <AttendanceSetupNotice notice={notice} />
+      {canManage ? (
+        <div className="attendance-draft-creator">
+          <div>
+            <h3>{t('attendanceSetup.createPolicyDraft')}</h3>
+            <p>{t('attendanceSetup.createPolicyDraftDescription')}</p>
+          </div>
+          <div className="form-grid">
+            <label>
+              <span>{t('attendanceSetup.effectiveFrom')}</span>
+              <Input
+                type="date"
+                min={draftMinimumDate}
+                value={draftEffectiveFrom}
+                onChange={changeDraftEffectiveFrom}
+              />
+            </label>
+            <label>
+              <span>{t('attendanceSetup.reason')}</span>
+              <Input
+                value={draftReason}
+                onChange={changeDraftReason}
+              />
+            </label>
+          </div>
+          <AccessibleButton
+            label={t('attendanceSetup.createPolicyDraft')}
+            type="primary"
+            loading={processing}
+            onClick={createDraft}
+          >
+            {t('attendanceSetup.createPolicyDraft')}
+          </AccessibleButton>
+        </div>
+      ) : null}
       {versions.resource.status === 'loading' || versions.resource.status === 'partial-loading'
         ? <StatePanel state={versions.resource.status} />
         : null}
@@ -346,18 +415,25 @@ export function AttendancePolicyLifecyclePanel({
             <IconGitBranch aria-hidden="true" stroke={2} />
             <div>
               <strong>{t('attendanceSetup.version')} {selected.versionNumber}</strong>
-              <span>{selected.scopedVersionId}</span>
+              <span>{selected.effectiveFrom} → {selected.effectiveTo ?? t('attendanceSetup.longTerm')}</span>
             </div>
             <StatusBadge status={selected.status} />
           </header>
+          {selected.status === 'PUBLISHED' && canManage ? (
+            <Alert
+              showIcon
+              type="info"
+              title="已发布版本不可直接编辑"
+              description={`如需修改，请在上方基于 V${selected.versionNumber} 创建策略草稿：选择未来生效日期，并填写至少 2 个字符的变更原因。进入草稿后才能修改参数、校验和发布。`}
+            />
+          ) : null}
           <dl className="metric-list">
-            <div><dt>{t('attendanceSetup.rowVersion')}</dt><dd>{selected.rowVersion}</dd></div>
-            <div><dt>{t('attendanceSetup.legalEntityId')}</dt><dd>{selected.legalEntityId}</dd></div>
-            <div><dt>{t('attendanceSetup.policyKind')}</dt><dd>{selected.policyKind}</dd></div>
-            <div><dt>{t('attendanceSetup.scopeId')}</dt><dd>{selected.scopeId}</dd></div>
+            <div><dt>{t('attendanceSetup.policyKind')}</dt><dd>{policyKindLabel(selected.policyKind)}</dd></div>
             <div><dt>{t('attendanceSetup.validation')}</dt><dd>{selected.validation.valid ? t('attendanceSetup.yes') : t('attendanceSetup.no')}</dd></div>
-            <div><dt>{t('attendanceSetup.configurationDigest')}</dt><dd>{selected.snapshotDigest ?? t('common.none')}</dd></div>
-            <div><dt>{t('attendanceSetup.rollbackTarget')}</dt><dd>{selected.rollbackOfScopedVersionId ?? t('common.none')}</dd></div>
+            <div>
+              <dt>版本来源</dt>
+              <dd>{selected.rollbackOfScopedVersionId ? '由历史版本恢复' : '正常创建'}</dd>
+            </div>
             <div><dt>{t('attendanceSetup.deactivationEffectiveFrom')}</dt><dd>{selected.deactivationEffectiveFrom ?? t('common.none')}</dd></div>
           </dl>
           <section
@@ -371,8 +447,8 @@ export function AttendancePolicyLifecyclePanel({
                 key={`${issue.code}-${issue.field}`}
                 showIcon
                 type="error"
-                title={issue.message}
-                description={`${issue.field} · ${issue.code}`}
+                title={policyResultText(issue.message)}
+                description={fields.find((field) => field.key === issue.field)?.label}
               />
             ))}
           </section>
@@ -385,6 +461,7 @@ export function AttendancePolicyLifecyclePanel({
                       <span>{t('attendanceSetup.effectiveFrom')}</span>
                       <Input
                         type="date"
+                        min={editMinimumDate}
                         value={editEffectiveFrom}
                         onChange={changeEditEffectiveFrom}
                       />
@@ -399,7 +476,10 @@ export function AttendancePolicyLifecyclePanel({
                     </label>
                     {fields.map((field) => (
                       <label key={field.key}>
-                        <span>{field.label}</span>
+                        <span>
+                          {field.label}
+                          {!field.required ? ` · ${t('common.optional')}` : ''}
+                        </span>
                         {field.valueType === 'BOOLEAN' ? (
                           <Select
                             value={parameterValues[field.key]}
@@ -448,10 +528,24 @@ export function AttendancePolicyLifecyclePanel({
                     />
                   </label>
                   <label>
-                    <span>{t('attendanceSetup.rollbackTarget')}</span>
-                    <Input
+                    <span>恢复到历史版本</span>
+                    <Select
+                      placeholder="请选择历史版本"
                       value={rollbackTarget}
                       onChange={changeRollbackTarget}
+                      options={(versions.resource.status === 'ready'
+                        ? versions.resource.data.items
+                        : [])
+                        .filter((version) => (
+                          version.scopedVersionId !== selected.scopedVersionId
+                          && ['PUBLISHED', 'INACTIVE'].includes(version.status)
+                        ))
+                        .map((version) => ({
+                          value: version.scopedVersionId,
+                          label: `V${version.versionNumber} · ${version.effectiveFrom} · ${
+                            version.status === 'PUBLISHED' ? '已发布' : '已停用'
+                          }`,
+                        }))}
                     />
                   </label>
                 </div>
@@ -501,36 +595,6 @@ export function AttendancePolicyLifecyclePanel({
           ) : null}
         </div>
       ) : null}
-      {canManage ? (
-        <div className="attendance-draft-creator">
-          <h3>{t('attendanceSetup.createPolicyDraft')}</h3>
-          <div className="form-grid">
-            <label>
-              <span>{t('attendanceSetup.effectiveFrom')}</span>
-              <Input
-                type="date"
-                value={draftEffectiveFrom}
-                onChange={changeDraftEffectiveFrom}
-              />
-            </label>
-            <label>
-              <span>{t('attendanceSetup.reason')}</span>
-              <Input
-                value={draftReason}
-                onChange={changeDraftReason}
-              />
-            </label>
-          </div>
-          <AccessibleButton
-            label={t('attendanceSetup.createPolicyDraft')}
-            type="primary"
-            loading={processing}
-            onClick={createDraft}
-          >
-            {t('attendanceSetup.createPolicyDraft')}
-          </AccessibleButton>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -550,8 +614,30 @@ function typedParameterValue(
   return value;
 }
 
+export function policyParametersForSave(
+  fields: PolicyFieldDefinition[],
+  parameterValues: Record<string, string>,
+): PolicyParameterValue[] {
+  return fields.flatMap((field) => {
+    const value = parameterValues[field.key] ?? '';
+    if (!field.required && value.trim().length === 0) return [];
+    return [{
+      key: field.key,
+      value: typedParameterValue(field, value),
+    }];
+  });
+}
+
 function displayParameterValue(value: unknown): string {
   return Array.isArray(value) ? value.join(', ') : String(value);
+}
+
+function policyKindLabel(value: string): string {
+  return ({
+    MEAL_DEDUCTION: '餐时扣除',
+    LATE_GRACE: '迟到宽限',
+    MONTHLY_LATE_EXEMPTION: '月度迟到豁免',
+  } as Readonly<Record<string, string>>)[value] ?? '考勤策略';
 }
 
 function futureDate(days: number): string {

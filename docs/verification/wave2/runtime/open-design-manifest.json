@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-26T03:28:23Z",
+  "runId": "ms17xm8i0bb61873",
+  "mode": "PROJECT_EMBEDDED",
+  "services": {
+    "backend": "http://127.0.0.1:8080",
+    "normalFrontend": "http://127.0.0.1:5173",
+    "demoFrontend": "http://127.0.0.1:5174",
+    "database": "shenzhou_hr_dev"
+  },
+  "requestCountingRule": "Count all captured browser requests for totalRequests; count only Fetch/XHR requests whose URL pathname starts with /api/ as business API requests. Vite source-module paths containing /src/shared/api/ are not business API requests.",
+  "normalTotalRequests": 923,
+  "normalApiRequests": 132,
+  "normalConsoleErrors": 0,
+  "normalPageErrors": 0,
+  "demoTotalRequests": 278,
+  "demoApiRequests": 0,
+  "demoBackend8080Requests": 0,
+  "demoConsoleErrors": 0,
+  "demoPageErrors": 0,
+  "demoMysqlObservedRowsBefore": 518,
+  "demoMysqlObservedRowsAfter": 518,
+  "demoMysqlWriteDelta": 0,
+  "responsiveSummary": {
+    "routeViewportPairs": 6,
+    "horizontalOverflowCount": 0,
+    "touchTargetViolationCount": 0,
+    "unlabeledControlCount": 0
+  },
+  "accessibility": {
+    "axeFiles": [
+      "a11y-import-390x844.json",
+      "a11y-organization-768x1024.json",
+      "a11y-employees-1024x768.json",
+      "a11y-employee-detail-1366x768.json",
+      "a11y-import-1440x900.json",
+      "a11y-employee-detail-1920x1080.json",
+      "a11y-validation-failed-1440x900.json"
+    ],
+    "automatedViolationCount": 0,
+    "manualContrastReview": {
+      "bodyTextOnSurface": "14.68:1",
+      "secondaryTextOnSurface": "7.58:1",
+      "secondaryTextOnCanvas": "7.18:1",
+      "selectedTreeTextOnInfoSurface": "10.46:1"
+    },
+    "keyboardEvidence": "keyboard-evidence.json"
+  },
+  "evidenceFiles": {
+    "responsiveMatrix": "browser-matrix.json",
+    "normalNetwork": "browser-normal-network.json",
+    "normalConsole": "browser-normal-console.json",
+    "normalPageErrors": "browser-normal-errors.json",
+    "demoNetwork": "browser-demo-network.json",
+    "demoConsole": "browser-demo-console.json",
+    "demoPageErrors": "browser-demo-errors.json",
+    "demoMysqlBefore": "demo-mysql-before.tsv",
+    "demoMysqlAfter": "demo-mysql-after.tsv",
+    "touchSelectAndCards": "touch-select-card.json",
+    "touchMobileMenu": "touch-mobile-menu.json",
+    "touchDatePicker": "touch-date-picker.json",
+    "touchHistoryDrawer": "touch-history-drawer.json"
+  },
+  "screenshots": [
+    {
+      "path": "screenshots/01-people-import-390x844.png",
+      "route": "/people/import",
+      "viewport": "390x844",
+      "state": "initial-import"
+    },
+    {
+      "path": "screenshots/02-people-organization-768x1024.png",
+      "route": "/people/organization",
+      "viewport": "768x1024",
+      "state": "organization-tree-and-detail"
+    },
+    {
+      "path": "screenshots/03-people-employees-1024x768.png",
+      "route": "/people/employees",
+      "viewport": "1024x768",
+      "state": "employee-list"
+    },
+    {
+      "path": "screenshots/04-employee-detail-1366x768.png",
+      "route": "/people/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8",
+      "viewport": "1366x768",
+      "state": "employee-employment-and-prior-service"
+    },
+    {
+      "path": "screenshots/05-people-import-1440x900.png",
+      "route": "/people/import",
+      "viewport": "1440x900",
+      "state": "versioned-template"
+    },
+    {
+      "path": "screenshots/06-employee-detail-1920x1080.png",
+      "route": "/people/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8",
+      "viewport": "1920x1080",
+      "state": "wide-employee-history"
+    },
+    {
+      "path": "screenshots/07-validation-failed-1440x900.png",
+      "route": "/people/import?batch=fd2b36c4-00be-416a-8c8b-aa07ab3840e4",
+      "viewport": "1440x900",
+      "state": "five-category-validation-failed"
+    },
+    {
+      "path": "screenshots/08-demo-isolation-1440x900.png",
+      "route": "/rules",
+      "viewport": "1440x900",
+      "state": "demo-isolation"
+    },
+    {
+      "path": "screenshots/09-keyboard-focus-1440x900.png",
+      "route": "/people/import",
+      "viewport": "1440x900",
+      "state": "focus-visible-skip-link"
+    },
+    {
+      "path": "screenshots/10-empty-employees-1440x900.png",
+      "route": "/people/employees",
+      "viewport": "1440x900",
+      "state": "empty-client-rendering-fault-injection"
+    },
+    {
+      "path": "screenshots/11-network-error-1440x900.png",
+      "route": "/people/employees",
+      "viewport": "1440x900",
+      "state": "network-error-client-rendering-fault-injection"
+    },
+    {
+      "path": "screenshots/12-unauthenticated-login-1440x900.png",
+      "route": "/login",
+      "viewport": "1440x900",
+      "state": "unauthenticated-login"
+    },
+    {
+      "path": "screenshots/13-published-success-1440x900.png",
+      "route": "/people/import?batch=c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e",
+      "viewport": "1440x900",
+      "state": "published-success"
+    },
+    {
+      "path": "screenshots/14-loading-employees-1440x900.png",
+      "route": "/people/employees",
+      "viewport": "1440x900",
+      "state": "loading-client-rendering-fault-injection"
+    },
+    {
+      "path": "screenshots/15-partial-loading-employees-1440x900.png",
+      "route": "/people/employees",
+      "viewport": "1440x900",
+      "state": "partial-loading-client-rendering-fault-injection"
+    },
+    {
+      "path": "screenshots/16-processing-import-1440x900.png",
+      "route": "/people/import?batch=fd2b36c4-00be-416a-8c8b-aa07ab3840e4",
+      "viewport": "1440x900",
+      "state": "processing-client-rendering-fault-injection"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 package com.szsemicon.hr.attendance.interfaces.rest;
 
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Assignment;
+import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.AssignmentListItem;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.AttendanceGroup;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Location;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Page;
@@ -17,7 +18,7 @@ final class AttendanceGroupDtos {
     }
 
     record LocationRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotBlank @Size(max = 64) String code,
             @NotBlank @Size(max = 100) String name,
             @NotBlank @Size(max = 64) String timeZone,
@@ -27,8 +28,11 @@ final class AttendanceGroupDtos {
     }
 
     record LocationView(
+            /** Compatibility alias; use the explicit shared/company identifiers. */
             String locationId,
-            String legalEntityId,
+            String sharedLocationId,
+            String companyLocationId,
+            String companyId,
             String code,
             String locationRevisionId,
             int revisionNumber,
@@ -39,6 +43,7 @@ final class AttendanceGroupDtos {
             LocalDate effectiveTo,
             String snapshotDigest,
             long rowVersion,
+            boolean sharedManagementAllowed,
             String changeReason,
             Instant updatedAt) {
     }
@@ -47,7 +52,7 @@ final class AttendanceGroupDtos {
     }
 
     record GroupRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotBlank @Size(max = 64) String code,
             @NotBlank @Size(max = 100) String name,
             @NotBlank String locationId,
@@ -60,7 +65,7 @@ final class AttendanceGroupDtos {
 
     record GroupView(
             String groupId,
-            String legalEntityId,
+            String companyId,
             String code,
             String groupRevisionId,
             int revisionNumber,
@@ -88,6 +93,12 @@ final class AttendanceGroupDtos {
             @NotBlank @Size(min = 2, max = 500) String reason) {
     }
 
+    record AssignmentTransferRequest(
+            @NotBlank String targetGroupId,
+            @NotNull LocalDate effectiveFrom,
+            @NotBlank @Size(min = 2, max = 500) String reason) {
+    }
+
     record AssignmentView(
             String assignmentId,
             String groupId,
@@ -96,6 +107,8 @@ final class AttendanceGroupDtos {
             LocalDate effectiveTo,
             long rowVersion,
             String monthlyContextKey,
+            boolean hasSuccessor,
+            boolean transferable,
             String changeReason,
             Instant updatedAt) {
     }
@@ -111,11 +124,18 @@ final class AttendanceGroupDtos {
     }
 
     static LocationView location(Location value) {
+        return location(value, false);
+    }
+
+    static LocationView location(
+            Location value, boolean sharedManagementAllowed) {
         return new LocationView(
-                value.locationId(), value.legalEntityId(), value.code(),
+                value.locationId(), value.sharedLocationId(), value.locationId(),
+                value.companyId(), value.code(),
                 value.locationRevisionId(), value.revisionNumber(), value.name(),
                 value.timeZone(), value.status().name(), value.effectiveFrom(),
                 value.effectiveTo(), value.snapshotDigest(), value.rowVersion(),
+                sharedManagementAllowed,
                 value.changeReason(), value.updatedAt());
     }
 
@@ -127,7 +147,7 @@ final class AttendanceGroupDtos {
 
     static GroupView group(AttendanceGroup value) {
         return new GroupView(
-                value.groupId(), value.legalEntityId(), value.code(),
+                value.groupId(), value.companyId(), value.code(),
                 value.groupRevisionId(), value.revisionNumber(), value.name(),
                 value.locationId(), value.locationRevisionId(),
                 value.calendarId(), value.shiftTemplateId(),
@@ -142,15 +162,19 @@ final class AttendanceGroupDtos {
                 page.total(), page.page(), page.size());
     }
 
-    static AssignmentView assignment(Assignment value, LocalDate asOf) {
+    static AssignmentView assignment(
+            AssignmentListItem item, LocalDate asOf) {
+        Assignment value = item.assignment();
         LocalDate contextDate = asOf == null ? value.effectiveFrom() : asOf;
         return new AssignmentView(
                 value.assignmentId(), value.groupId(), value.employeeId(),
                 value.effectiveFrom(), value.effectiveTo(), value.rowVersion(),
-                value.monthlyContextKey(contextDate), value.changeReason(), value.updatedAt());
+                value.monthlyContextKey(contextDate), item.hasSuccessor(),
+                item.transferable(), value.changeReason(), value.updatedAt());
     }
 
-    static AssignmentPage assignments(Page<Assignment> page, LocalDate asOf) {
+    static AssignmentPage assignments(
+            Page<AssignmentListItem> page, LocalDate asOf) {
         return new AssignmentPage(
                 page.items().stream()
                         .map(value -> assignment(value, asOf))

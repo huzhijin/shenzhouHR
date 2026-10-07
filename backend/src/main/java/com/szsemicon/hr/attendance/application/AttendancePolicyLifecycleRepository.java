@@ -13,20 +13,20 @@ public interface AttendancePolicyLifecycleRepository {
     record Scope(
             String scopeId,
             String templateId,
-            String legalEntityId,
+            String companyId,
             String policyKind,
             long rowVersion) {
     }
 
-    Scope findScope(String templateId, String legalEntityId);
+    Scope findScope(String templateId, String companyId);
 
-    Scope lockScope(String templateId, String legalEntityId);
+    Scope lockScope(String templateId, String companyId);
 
     Page<ScopedPolicyVersion> list(
-            String templateId, String legalEntityId, int page, int size);
+            String templateId, String companyId, int page, int size);
 
     Optional<ScopedPolicyVersion> find(
-            String templateId, String scopedVersionId, String legalEntityId);
+            String templateId, String scopedVersionId, String companyId);
 
     Optional<ScopedPolicyVersion> findByScopedVersionId(String scopedVersionId);
 

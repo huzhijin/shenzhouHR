@@ -67,19 +67,19 @@ public class AttendancePolicyLifecycleFacade {
 
     @Transactional(readOnly = true)
     public Page<ScopedPolicyVersion> listVersions(
-            String templateId, String legalEntityId, int page, int size) {
+            String templateId, String companyId, int page, int size) {
         requirePage(page, size);
         requireScope(
-                templateId, legalEntityId, CapabilityCodes.ATTENDANCE_SETUP_READ, false);
-        return repository.list(templateId, legalEntityId, page, size);
+                templateId, companyId, CapabilityCodes.ATTENDANCE_SETUP_READ, false);
+        return repository.list(templateId, companyId, page, size);
     }
 
     @Transactional(readOnly = true)
     public ScopedPolicyVersion getVersion(
-            String templateId, String versionId, String legalEntityId) {
+            String templateId, String versionId, String companyId) {
         requireScope(
-                templateId, legalEntityId, CapabilityCodes.ATTENDANCE_SETUP_READ, false);
-        return requireVersion(templateId, versionId, legalEntityId);
+                templateId, companyId, CapabilityCodes.ATTENDANCE_SETUP_READ, false);
+        return requireVersion(templateId, versionId, companyId);
     }
 
     @Transactional(readOnly = true)
@@ -88,10 +88,10 @@ public class AttendancePolicyLifecycleFacade {
         ScopedPolicyVersion version = repository.findByScopedVersionId(versionId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         String actorId = principalProvider.currentPrincipalId();
-        if (!peopleRepository.canAccessLegalEntity(
+        if (!peopleRepository.canAccessCompany(
                 actorId,
                 CapabilityCodes.ATTENDANCE_SETUP_READ,
-                version.legalEntityId(),
+                version.companyId(),
                 clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -101,7 +101,7 @@ public class AttendancePolicyLifecycleFacade {
     @Transactional
     public ScopedPolicyVersion createDraft(
             String templateId,
-            String legalEntityId,
+            String companyId,
             String basedOnVersionId,
             LocalDate effectiveFrom,
             LocalDate effectiveTo,
@@ -112,12 +112,12 @@ public class AttendancePolicyLifecycleFacade {
         requireReason(reason);
         Scope scope = requireScope(
                 templateId,
-                legalEntityId,
+                companyId,
                 CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                 false);
         ScopedPolicyVersion base = basedOnVersionId == null
                 ? null
-                : requireVersion(templateId, basedOnVersionId, legalEntityId);
+                : requireVersion(templateId, basedOnVersionId, companyId);
         String actorId = principalProvider.currentPrincipalId();
         return idempotencyService.execute(
                 actorId,
@@ -126,19 +126,19 @@ public class AttendancePolicyLifecycleFacade {
                 scope.scopeId(),
                 idempotencyKey,
                 new DraftIdempotencyRequest(
-                        legalEntityId,
+                        companyId,
                         basedOnVersionId,
                         effectiveFrom,
                         effectiveTo,
                         reason),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         false),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         true),
                 201,
@@ -148,7 +148,7 @@ public class AttendancePolicyLifecycleFacade {
                 () -> {
                     Scope locked = requireScope(
                             templateId,
-                            legalEntityId,
+                            companyId,
                             CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                             false);
                     Instant now = clock.instant();
@@ -157,7 +157,7 @@ public class AttendancePolicyLifecycleFacade {
                             versionId,
                             locked.scopeId(),
                             locked.templateId(),
-                            locked.legalEntityId(),
+                            locked.companyId(),
                             com.szsemicon.hr.attendance.domain.AttendancePolicyModels.PolicyKind
                                     .valueOf(locked.policyKind()),
                             repository.nextVersionNumber(locked.scopeId()),
@@ -191,7 +191,7 @@ public class AttendancePolicyLifecycleFacade {
                             requestId(requestId),
                             now);
                     audit(actorId, "ATTENDANCE_POLICY_DRAFT_CREATED", versionId, reason);
-                    return requireVersion(templateId, versionId, legalEntityId);
+                    return requireVersion(templateId, versionId, companyId);
                 });
     }
 
@@ -199,7 +199,7 @@ public class AttendancePolicyLifecycleFacade {
     public ScopedPolicyVersion updateDraft(
             String templateId,
             String versionId,
-            String legalEntityId,
+            String companyId,
             List<ParameterValue> parameters,
             LocalDate effectiveFrom,
             LocalDate effectiveTo,
@@ -211,7 +211,7 @@ public class AttendancePolicyLifecycleFacade {
         requireReason(reason);
         Scope scope = requireScope(
                 templateId,
-                legalEntityId,
+                companyId,
                 CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                 false);
         String actorId = principalProvider.currentPrincipalId();
@@ -222,7 +222,7 @@ public class AttendancePolicyLifecycleFacade {
                 versionId,
                 idempotencyKey,
                 new UpdateIdempotencyRequest(
-                        legalEntityId,
+                        companyId,
                         parameters,
                         effectiveFrom,
                         effectiveTo,
@@ -230,12 +230,12 @@ public class AttendancePolicyLifecycleFacade {
                         expectedVersion),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         false),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         true),
                 200,
@@ -245,11 +245,11 @@ public class AttendancePolicyLifecycleFacade {
                 () -> {
                     requireScope(
                             scope.templateId(),
-                            scope.legalEntityId(),
+                            scope.companyId(),
                             CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                             false);
                     ScopedPolicyVersion current =
-                            requireVersion(templateId, versionId, legalEntityId);
+                            requireVersion(templateId, versionId, companyId);
                     requireVersion(current.rowVersion(), expectedVersion);
                     if (current.status() == ScopedVersionStatus.PUBLISHED) {
                         throw conflict(
@@ -267,7 +267,7 @@ public class AttendancePolicyLifecycleFacade {
                             successorId,
                             current.scopeId(),
                             current.templateId(),
-                            current.legalEntityId(),
+                            current.companyId(),
                             current.policyKind(),
                             successorVersionNumber,
                             ScopedVersionStatus.DRAFT,
@@ -301,7 +301,7 @@ public class AttendancePolicyLifecycleFacade {
                             requestId(requestId),
                             now);
                     audit(actorId, "ATTENDANCE_POLICY_DRAFT_UPDATED", successorId, reason);
-                    return requireVersion(templateId, successorId, legalEntityId);
+                    return requireVersion(templateId, successorId, companyId);
                 });
     }
 
@@ -309,7 +309,7 @@ public class AttendancePolicyLifecycleFacade {
     public ValidationResult validate(
             String templateId,
             String versionId,
-            String legalEntityId,
+            String companyId,
             long expectedVersion,
             String reason,
             String idempotencyKey,
@@ -317,7 +317,7 @@ public class AttendancePolicyLifecycleFacade {
         requireReason(reason);
         Scope scope = requireScope(
                 templateId,
-                legalEntityId,
+                companyId,
                 CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                 false);
         String actorId = principalProvider.currentPrincipalId();
@@ -328,15 +328,15 @@ public class AttendancePolicyLifecycleFacade {
                 versionId,
                 idempotencyKey,
                 new TransitionIdempotencyRequest(
-                        legalEntityId, reason, expectedVersion, null, null),
+                        companyId, reason, expectedVersion, null, null),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         false),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         true),
                 200,
@@ -348,11 +348,11 @@ public class AttendancePolicyLifecycleFacade {
                 () -> {
                     requireScope(
                             scope.templateId(),
-                            scope.legalEntityId(),
+                            scope.companyId(),
                             CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                             false);
                     ScopedPolicyVersion current =
-                            requireVersion(templateId, versionId, legalEntityId);
+                            requireVersion(templateId, versionId, companyId);
                     requireVersion(current.rowVersion(), expectedVersion);
                     if (current.status() == ScopedVersionStatus.PUBLISHED) {
                         throw conflict(
@@ -381,7 +381,7 @@ public class AttendancePolicyLifecycleFacade {
     public ScopedPolicyVersion publish(
             String templateId,
             String versionId,
-            String legalEntityId,
+            String companyId,
             String reason,
             long expectedVersion,
             String idempotencyKey,
@@ -389,7 +389,7 @@ public class AttendancePolicyLifecycleFacade {
         requireReason(reason);
         Scope scope = requireScope(
                 templateId,
-                legalEntityId,
+                companyId,
                 CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                 false);
         String actorId = principalProvider.currentPrincipalId();
@@ -400,15 +400,15 @@ public class AttendancePolicyLifecycleFacade {
                 versionId,
                 idempotencyKey,
                 new TransitionIdempotencyRequest(
-                        legalEntityId, reason, expectedVersion, null, null),
+                        companyId, reason, expectedVersion, null, null),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         false),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         true),
                 200,
@@ -418,11 +418,11 @@ public class AttendancePolicyLifecycleFacade {
                 () -> {
                     Scope locked = requireScope(
                             scope.templateId(),
-                            scope.legalEntityId(),
+                            scope.companyId(),
                             CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                             false);
                     ScopedPolicyVersion current =
-                            requireVersion(templateId, versionId, legalEntityId);
+                            requireVersion(templateId, versionId, companyId);
                     requireVersion(current.rowVersion(), expectedVersion);
                     requireFutureChange(current.effectiveFrom());
                     if (current.status() != ScopedVersionStatus.VALIDATED) {
@@ -471,7 +471,7 @@ public class AttendancePolicyLifecycleFacade {
                             currentRequestId,
                             now);
                     audit(actorId, "ATTENDANCE_POLICY_PUBLISHED", versionId, reason);
-                    return requireVersion(templateId, versionId, legalEntityId);
+                    return requireVersion(templateId, versionId, companyId);
                 });
     }
 
@@ -479,7 +479,7 @@ public class AttendancePolicyLifecycleFacade {
     public ScopedPolicyVersion deactivate(
             String templateId,
             String versionId,
-            String legalEntityId,
+            String companyId,
             LocalDate effectiveFrom,
             String reason,
             long expectedVersion,
@@ -488,7 +488,7 @@ public class AttendancePolicyLifecycleFacade {
         requireReason(reason);
         Scope scope = requireScope(
                 templateId,
-                legalEntityId,
+                companyId,
                 CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                 false);
         String actorId = principalProvider.currentPrincipalId();
@@ -499,15 +499,15 @@ public class AttendancePolicyLifecycleFacade {
                 versionId,
                 idempotencyKey,
                 new TransitionIdempotencyRequest(
-                        legalEntityId, reason, expectedVersion, null, effectiveFrom),
+                        companyId, reason, expectedVersion, null, effectiveFrom),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         false),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         true),
                 200,
@@ -517,11 +517,11 @@ public class AttendancePolicyLifecycleFacade {
                 () -> {
                     Scope locked = requireScope(
                             scope.templateId(),
-                            scope.legalEntityId(),
+                            scope.companyId(),
                             CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                             false);
                     ScopedPolicyVersion current =
-                            requireVersion(templateId, versionId, legalEntityId);
+                            requireVersion(templateId, versionId, companyId);
                     requireVersion(current.rowVersion(), expectedVersion);
                     requireFutureChange(effectiveFrom);
                     if (current.status() != ScopedVersionStatus.PUBLISHED) {
@@ -547,7 +547,7 @@ public class AttendancePolicyLifecycleFacade {
                             clock.instant());
                     audit(actorId, "ATTENDANCE_POLICY_DEACTIVATION_SCHEDULED",
                             versionId, reason);
-                    return requireVersion(templateId, versionId, legalEntityId);
+                    return requireVersion(templateId, versionId, companyId);
                 });
     }
 
@@ -555,7 +555,7 @@ public class AttendancePolicyLifecycleFacade {
     public ScopedPolicyVersion rollback(
             String templateId,
             String sourceVersionId,
-            String legalEntityId,
+            String companyId,
             String targetVersionId,
             LocalDate effectiveFrom,
             String reason,
@@ -565,7 +565,7 @@ public class AttendancePolicyLifecycleFacade {
         requireReason(reason);
         Scope scope = requireScope(
                 templateId,
-                legalEntityId,
+                companyId,
                 CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                 false);
         String actorId = principalProvider.currentPrincipalId();
@@ -576,19 +576,19 @@ public class AttendancePolicyLifecycleFacade {
                 sourceVersionId,
                 idempotencyKey,
                 new TransitionIdempotencyRequest(
-                        legalEntityId,
+                        companyId,
                         reason,
                         expectedVersion,
                         targetVersionId,
                         effectiveFrom),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         false),
                 () -> requireScope(
                         templateId,
-                        legalEntityId,
+                        companyId,
                         CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                         true),
                 201,
@@ -598,11 +598,11 @@ public class AttendancePolicyLifecycleFacade {
                 () -> {
                     Scope locked = requireScope(
                             scope.templateId(),
-                            scope.legalEntityId(),
+                            scope.companyId(),
                             CapabilityCodes.ATTENDANCE_SETUP_MANAGE_POLICY,
                             false);
                     ScopedPolicyVersion source =
-                            requireVersion(templateId, sourceVersionId, legalEntityId);
+                            requireVersion(templateId, sourceVersionId, companyId);
                     requireVersion(source.rowVersion(), expectedVersion);
                     requireFutureChange(effectiveFrom);
                     requireRollbackBoundary(source, effectiveFrom);
@@ -612,7 +612,7 @@ public class AttendancePolicyLifecycleFacade {
                                 "回滚目标不能与当前版本相同");
                     }
                     ScopedPolicyVersion target =
-                            requireVersion(templateId, targetVersionId, legalEntityId);
+                            requireVersion(templateId, targetVersionId, companyId);
                     if (source.status() != ScopedVersionStatus.PUBLISHED
                             || target.status() != ScopedVersionStatus.PUBLISHED) {
                         throw conflict(
@@ -634,7 +634,7 @@ public class AttendancePolicyLifecycleFacade {
                             createdVersionId,
                             locked.scopeId(),
                             locked.templateId(),
-                            locked.legalEntityId(),
+                            locked.companyId(),
                             target.policyKind(),
                             repository.nextVersionNumber(locked.scopeId()),
                             ScopedVersionStatus.PUBLISHED,
@@ -658,7 +658,7 @@ public class AttendancePolicyLifecycleFacade {
                             created.scopedVersionId(),
                             created.scopeId(),
                             created.templateId(),
-                            created.legalEntityId(),
+                            created.companyId(),
                             created.policyKind(),
                             created.versionNumber(),
                             created.status(),
@@ -702,25 +702,25 @@ public class AttendancePolicyLifecycleFacade {
                     audit(actorId, "ATTENDANCE_POLICY_ROLLED_BACK",
                             createdVersionId, reason);
                     return requireVersion(
-                            templateId, createdVersionId, legalEntityId);
+                            templateId, createdVersionId, companyId);
                 });
     }
 
     private Scope requireScope(
             String templateId,
-            String legalEntityId,
+            String companyId,
             String capability,
             boolean lock) {
         capabilityService.require(capability);
         String actorId = principalProvider.currentPrincipalId();
-        if (legalEntityId == null
-                || !peopleRepository.canAccessLegalEntity(
-                        actorId, capability, legalEntityId, clock.instant())) {
+        if (companyId == null
+                || !peopleRepository.canAccessCompany(
+                        actorId, capability, companyId, clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         Scope scope = lock
-                ? repository.lockScope(templateId, legalEntityId)
-                : repository.findScope(templateId, legalEntityId);
+                ? repository.lockScope(templateId, companyId)
+                : repository.findScope(templateId, companyId);
         if (scope == null) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -728,8 +728,8 @@ public class AttendancePolicyLifecycleFacade {
     }
 
     private ScopedPolicyVersion requireVersion(
-            String templateId, String versionId, String legalEntityId) {
-        return repository.find(templateId, versionId, legalEntityId)
+            String templateId, String versionId, String companyId) {
+        return repository.find(templateId, versionId, companyId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
     }
 
@@ -756,7 +756,7 @@ public class AttendancePolicyLifecycleFacade {
             Map<String, Object> snapshot = new TreeMap<>();
             snapshot.put("effectiveFrom", version.effectiveFrom());
             snapshot.put("effectiveTo", version.effectiveTo());
-            snapshot.put("legalEntityId", version.legalEntityId());
+            snapshot.put("companyId", version.companyId());
             snapshot.put("parameters", parameters);
             snapshot.put("policyKind", version.policyKind().name());
             snapshot.put("scopeId", version.scopeId());
@@ -779,7 +779,7 @@ public class AttendancePolicyLifecycleFacade {
                 version.scopedVersionId(),
                 version.scopeId(),
                 version.templateId(),
-                version.legalEntityId(),
+                version.companyId(),
                 version.policyKind(),
                 version.versionNumber(),
                 version.status(),
@@ -911,7 +911,7 @@ public class AttendancePolicyLifecycleFacade {
     }
 
     private record DraftIdempotencyRequest(
-            String legalEntityId,
+            String companyId,
             String basedOnVersionId,
             LocalDate effectiveFrom,
             LocalDate effectiveTo,
@@ -919,7 +919,7 @@ public class AttendancePolicyLifecycleFacade {
     }
 
     private record UpdateIdempotencyRequest(
-            String legalEntityId,
+            String companyId,
             List<ParameterValue> parameters,
             LocalDate effectiveFrom,
             LocalDate effectiveTo,
@@ -928,7 +928,7 @@ public class AttendancePolicyLifecycleFacade {
     }
 
     private record TransitionIdempotencyRequest(
-            String legalEntityId,
+            String companyId,
             String reason,
             long expectedVersion,
             String targetVersionId,

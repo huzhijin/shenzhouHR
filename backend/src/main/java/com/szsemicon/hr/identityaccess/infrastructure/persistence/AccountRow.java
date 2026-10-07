@@ -14,5 +14,5 @@ record AccountRow(
         Instant lastLoginAt,
         long sessionEpoch,
         long rowVersion,
-        String legalEntityId) {
+        String companyId) {
 }

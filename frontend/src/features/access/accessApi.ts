@@ -1,5 +1,6 @@
 import { requestJson } from '../../shared/api/apiClient';
 import { isDemoMode } from '../../shared/config/runtimeMode';
+import { passwordMeetsPolicy } from '../../shared/security/passwordPolicy';
 
 export type AccountStatus = 'ACTIVE' | 'DISABLED' | 'LOCKED';
 
@@ -28,8 +29,9 @@ export interface SessionSummary {
 
 export interface RoleAssignmentRequest {
   roleId: string;
-  scopeType: 'LEGAL_ENTITY' | 'ORGANIZATION' | 'SELF';
+  scopeType: 'COMPANY' | 'ORGANIZATION' | 'SELF';
   scopeResourceId: string | null;
+  includeDescendants?: boolean;
   validFrom: string;
   validTo: string | null;
 }
@@ -38,7 +40,28 @@ export interface RoleAssignmentView extends RoleAssignmentRequest {
   assignmentId: string;
   roleCode: string;
   roleName: string;
+  scopeCompanyId?: string | null;
+  scopeCompanyName?: string | null;
+  scopeResourceName?: string | null;
+  scopeResourcePath?: string | null;
 }
+
+export interface GrantableCompany {
+  companyId: string;
+  code: string;
+  name: string;
+}
+
+export interface GrantableOrganization {
+  organizationId: string;
+  companyId: string;
+  parentOrganizationId: string | null;
+  code: string;
+  name: string;
+  canIncludeDescendants: boolean;
+}
+
+export type GrantableScopeUsage = 'ROLE_ASSIGNMENT' | 'ACCOUNT_CREATION';
 
 export interface AccountDetail extends AccountSummary {
   roles: RoleAssignmentView[];
@@ -52,11 +75,55 @@ export interface AccountPage {
   size: number;
 }
 
+export type EmployeeAccountCandidateStatus =
+  | 'AVAILABLE'
+  | 'ALREADY_PROVISIONED'
+  | 'USERNAME_CONFLICT';
+
+export interface EmployeeAccountCandidate {
+  employeeId: string;
+  companyId: string;
+  employeeNumber: string;
+  displayName: string;
+  organizationName?: string | null;
+  status: EmployeeAccountCandidateStatus;
+}
+
+export interface EmployeeAccountCandidatePage {
+  items: EmployeeAccountCandidate[];
+  total: number;
+  available: number;
+  alreadyProvisioned: number;
+  usernameConflicts: number;
+  page: number;
+  size: number;
+}
+
+export interface TemporaryCredential {
+  accountId: string;
+  employeeId: string;
+  employeeNumber: string;
+  displayName: string;
+  organizationName?: string | null;
+  username: string;
+  temporaryPassword: string;
+}
+
+export interface BulkAccountCreationResult {
+  credentials: TemporaryCredential[];
+  created: number;
+  replayed: boolean;
+}
+
 export interface RoleView {
   roleId: string;
   roleCode: string;
   roleName: string;
   capabilities: string[];
+}
+
+export function isStrongTemporaryPassword(value: string): boolean {
+  return passwordMeetsPolicy(value);
 }
 
 export interface AccountFilters {
@@ -138,8 +205,13 @@ export function getAccount(accountId: string): Promise<AccountDetail> {
         roleId: demoRoles[0]?.roleId ?? '',
         roleCode: demoRoles[0]?.roleCode ?? '',
         roleName: demoRoles[0]?.roleName ?? '',
-        scopeType: 'LEGAL_ENTITY',
+        scopeType: 'COMPANY',
         scopeResourceId: '9700000000000000001',
+        scopeCompanyId: '9700000000000000001',
+        scopeCompanyName: '江苏神州半导体科技股份有限公司',
+        scopeResourceName: '江苏神州半导体科技股份有限公司',
+        scopeResourcePath: null,
+        includeDescendants: true,
         validFrom: '2026-07-01T00:00:00Z',
         validTo: null,
       }],
@@ -159,7 +231,8 @@ export function getAccount(accountId: string): Promise<AccountDetail> {
 export function createAccount(input: {
   username: string;
   displayName: string;
-  temporaryPassword: string;
+  temporaryPassword?: string;
+  employeeId?: string | null;
   roleAssignments: RoleAssignmentRequest[];
 }): Promise<AccountDetail> {
   if (isDemoMode()) return getAccount('9100000000000000001');
@@ -167,6 +240,53 @@ export function createAccount(input: {
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export function listEmployeeAccountCandidates(input: {
+  companyId: string;
+  query?: string;
+  page?: number;
+  size?: number;
+}): Promise<EmployeeAccountCandidatePage> {
+  if (isDemoMode()) {
+    return Promise.resolve({
+      items: [],
+      total: 0,
+      available: 0,
+      alreadyProvisioned: 0,
+      usernameConflicts: 0,
+      page: input.page ?? 0,
+      size: input.size ?? 20,
+    });
+  }
+  const params = new URLSearchParams({
+    companyId: input.companyId,
+    page: String(input.page ?? 0),
+    size: String(input.size ?? 20),
+  });
+  if (input.query?.trim()) params.set('query', input.query.trim());
+  return requestJson<EmployeeAccountCandidatePage>(
+    `/api/v1/access/account-provisioning/candidates?${params}`,
+  );
+}
+
+export function createEmployeeAccounts(
+  employeeIds: string[],
+  idempotencyKey: string,
+  recoveryKey: string,
+): Promise<BulkAccountCreationResult> {
+  if (isDemoMode()) return Promise.resolve({ credentials: [], created: 0, replayed: false });
+  return requestJson<BulkAccountCreationResult>(
+    '/api/v1/access/account-provisioning/accounts',
+    {
+      method: 'POST',
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+        'Provisioning-Recovery-Key': recoveryKey,
+      },
+      body: JSON.stringify({ employeeIds }),
+    },
+  );
 }
 
 export function updateAccountStatus(
@@ -206,9 +326,55 @@ export function issuePasswordReset(accountId: string, reason: string): Promise<v
   });
 }
 
+export function resetTemporaryPassword(
+  accountId: string,
+  reason: string,
+  temporaryPassword: string,
+): Promise<void> {
+  if (isDemoMode()) return Promise.resolve();
+  return requestJson<void>(
+    `/api/v1/access/accounts/${encodeURIComponent(accountId)}/temporary-password-reset`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        reason,
+        temporaryPassword,
+      }),
+    },
+  );
+}
+
 export function listRoles(): Promise<RoleView[]> {
   if (isDemoMode()) return Promise.resolve(demoRoles);
   return requestJson<RoleView[]>('/api/v1/access/roles');
+}
+
+export function listGrantableCompanies(
+  scopeType: 'COMPANY' | 'ORGANIZATION',
+  usage: GrantableScopeUsage = 'ROLE_ASSIGNMENT',
+): Promise<GrantableCompany[]> {
+  if (isDemoMode()) {
+    return Promise.resolve([{
+      companyId: '9700000000000000001',
+      code: 'SZSC',
+      name: '江苏神州半导体科技股份有限公司',
+    }]);
+  }
+  const params = new URLSearchParams({ scopeType, usage });
+  return requestJson<GrantableCompany[]>(
+    `/api/v1/access/grantable-scopes/companies?${params}`,
+  );
+}
+
+export function listGrantableOrganizations(
+  companyId: string,
+  usage: GrantableScopeUsage = 'ROLE_ASSIGNMENT',
+): Promise<GrantableOrganization[]> {
+  if (isDemoMode()) return Promise.resolve([]);
+  const params = new URLSearchParams({ usage });
+  return requestJson<GrantableOrganization[]>(
+    `/api/v1/access/grantable-scopes/companies/${encodeURIComponent(companyId)}/organizations?${params}`,
+  );
 }
 
 export function assignRoles(

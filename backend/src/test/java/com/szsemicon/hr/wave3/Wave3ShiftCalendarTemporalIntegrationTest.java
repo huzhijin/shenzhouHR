@@ -29,7 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 class Wave3ShiftCalendarTemporalIntegrationTest
         extends Wave1IntegrationTestSupport {
 
-    private static final String LEGAL_ENTITY =
+    private static final String COMPANY =
             "30000000-0000-0000-0000-000000000001";
     private static final String NON_CANONICAL_DIGEST =
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -57,7 +57,7 @@ class Wave3ShiftCalendarTemporalIntegrationTest
 
         ShiftTemplate template = new ShiftTemplate(
                 shiftId,
-                LEGAL_ENTITY,
+                COMPANY,
                 locationId,
                 "TEMPORAL_SHIFT",
                 "连续时态班次",
@@ -458,7 +458,7 @@ class Wave3ShiftCalendarTemporalIntegrationTest
             Instant createdAt) {
         return new WorkCalendar(
                 calendarId,
-                LEGAL_ENTITY,
+                COMPANY,
                 locationId,
                 "TEMPORAL_CALENDAR",
                 versionId,
@@ -516,12 +516,12 @@ class Wave3ShiftCalendarTemporalIntegrationTest
         jdbc.update(
                 """
                 INSERT INTO location (
-                    location_id, legal_entity_id, location_code, row_version,
+                    location_id, company_id, location_code, row_version,
                     created_by, created_at
                 ) VALUES (?, ?, ?, 0, ?, ?)
                 """,
                 locationId,
-                LEGAL_ENTITY,
+                COMPANY,
                 code,
                 ADMIN_PRINCIPAL,
                 Timestamp.from(createdAt));

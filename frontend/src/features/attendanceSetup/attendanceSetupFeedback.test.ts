@@ -39,7 +39,8 @@ describe('attendance setup mutation feedback', () => {
 
       expect(notice.state).toBe(state);
       expect(notice.message).toContain('操作已完成。');
-      expect(notice.message.includes('精确重放')).toBe(header === 'true');
+      expect(notice.message.includes('已经成功完成')).toBe(header === 'true');
+      expect(notice.message).not.toMatch(/幂等|重放/);
     },
   );
 

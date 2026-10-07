@@ -2062,6 +2062,7 @@ class Wave3BuildGateProducerTest(unittest.TestCase):
     @contextmanager
     def _runs_temporary(prefix: str):
         runs_root = REPOSITORY_ROOT / "docs/verification/wave3/runs"
+        runs_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
             prefix=prefix, dir=runs_root
         ) as temporary:

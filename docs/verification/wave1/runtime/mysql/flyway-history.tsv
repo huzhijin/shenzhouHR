@@ -1,0 +1,9 @@
+TABLE_SCHEMA	installed_rank	version	description	type	success
+shenzhou_hr_dev	1	1	identity organization authorization audit	SQL	1
+shenzhou_hr_dev	2	2	baseline authorization catalog	SQL	1
+shenzhou_hr_dev	3	3	local identity session	SQL	1
+shenzhou_hr_dev	4	4	versioned policy foundation	SQL	1
+shenzhou_hr_test	1	1	identity organization authorization audit	SQL	1
+shenzhou_hr_test	2	2	baseline authorization catalog	SQL	1
+shenzhou_hr_test	3	3	local identity session	SQL	1
+shenzhou_hr_test	4	4	versioned policy foundation	SQL	1

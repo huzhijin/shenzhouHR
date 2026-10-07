@@ -98,6 +98,7 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
         plan = producer.plan_document()
         self.assertEqual(plan["leafCount"], 7)
         self.assertEqual(tuple(plan["leafIds"]), producer.SEMANTIC_IDS)
+
         self.assertEqual(tuple(plan["requiredRoles"]), producer.SEMANTIC_IDS)
         self.assertEqual(
             plan["requiredRoles"]["W3-VER-W2-RETAINED"],
@@ -143,6 +144,75 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
                 producer.ProducerError, "exactly the reviewed V7"
             ):
                 producer.validate_unique_v7_migration(migration_dir)
+
+    def test_semantic_plan_loader_passes_bound_context(self) -> None:
+        verifier = object()
+        run_root = (
+            producer.REPOSITORY_ROOT
+            / "docs/verification/wave3/runs/test-run"
+        )
+        context = {"runId": "test-run"}
+        leaves = [{"evidenceId": producer.SEMANTIC_IDS[0]}]
+        with patch.object(
+            producer,
+            "load_plan_for_run",
+            return_value=(run_root / "orchestration/leaf-plan.json", leaves),
+        ) as loader:
+            plan = producer.load_semantic_plan(verifier, run_root, context)
+        loader.assert_called_once_with(verifier, run_root, context)
+        self.assertEqual(plan, {"leaves": leaves})
+
+    def test_public_contract_matches_nested_fixed_fixture(self) -> None:
+        expected = producer.load_json(
+            producer.PUBLIC_EXPECTED, "W2 public oracle"
+        )
+        actual = copy.deepcopy(expected["contract"])
+        producer.require_public_contract_match(actual, expected)
+
+        actual["boundary"]["violations"].append("mutated")
+        with self.assertRaisesRegex(
+            producer.ProducerError,
+            "differs from the fixed oracle contract",
+        ):
+            producer.require_public_contract_match(actual, expected)
+
+        with self.assertRaisesRegex(
+            producer.ProducerError,
+            "contract is missing or invalid",
+        ):
+            producer.require_public_contract_match(actual, {})
+
+    def test_retained_canonical_golden_matches_current_schema(self) -> None:
+        golden = producer.load_json(
+            producer.CANONICAL_GOLDEN, "retained canonical golden"
+        )
+        validated = producer.validate_retained_canonical_golden(
+            golden, producer.W3_REGISTRY
+        )
+        self.assertEqual(
+            set(validated["framing"]),
+            {"field", "row", "snapshotLine", "finalHashInput"},
+        )
+
+    def test_mysql_database_identity_tsv_is_exact(self) -> None:
+        identity = (
+            "mysql8410:533ca0bc-89c8-11f1-a08b-1ee9344ad44b:"
+            "shenzhou_hr_test"
+        )
+        self.assertEqual(
+            producer.expected_mysql_db_identity_tsv(identity),
+            (
+                f"db_identity\t{identity}\n"
+                "server_uuid\t533ca0bc-89c8-11f1-a08b-1ee9344ad44b\n"
+                "database\tshenzhou_hr_test\n"
+            ).encode("utf-8"),
+        )
+        with self.assertRaisesRegex(
+            producer.ProducerError, "database identity is invalid"
+        ):
+            producer.expected_mysql_db_identity_tsv(
+                "mysql8410:not-a-uuid:shenzhou_hr_test"
+            )
 
     def test_openapi_controller_and_request_schema_closure(self) -> None:
         comparison = producer.compare_operation_closure(
@@ -277,7 +347,7 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
                         for value in operation["parameters"]
                         if not (
                             value["in"] == "query"
-                            and value["name"] == "legalEntityId"
+                            and value["name"] == "companyId"
                         )
                         and not (
                             value["in"] == "header"
@@ -313,6 +383,14 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
         )
 
     def test_review_owned_api_oracle_rejects_linked_mutants(self) -> None:
+        self.assertEqual(
+            producer.sha256_file(producer.API_SEMANTIC_ORACLE_V1),
+            producer.API_SEMANTIC_ORACLE_V1_SHA256,
+        )
+        self.assertEqual(
+            producer.load_review_owned_api_oracle()["version"],
+            2,
+        )
         self.assertEqual(
             producer.compare_review_owned_api_oracle(
                 self.openapi, self.controllers
@@ -385,7 +463,7 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
                 operation["parameters"] = [
                     parameter
                     for parameter in operation["parameters"]
-                    if parameter["name"] != "legalEntityId"
+                    if parameter["name"] != "companyId"
                 ]
         for path, item in no_lifecycle_binding_document["paths"].items():
             if "/policy-lifecycle/" not in path or "{templateId}" not in path:
@@ -399,7 +477,7 @@ class Wave3SemanticGateProducerTest(unittest.TestCase):
                     if producer.resolve_parameter(
                         no_lifecycle_binding_document, parameter
                     ).get("name")
-                    != "legalEntityId"
+                    != "companyId"
                 ]
         self.assertEqual(
             producer.compare_review_owned_api_oracle(

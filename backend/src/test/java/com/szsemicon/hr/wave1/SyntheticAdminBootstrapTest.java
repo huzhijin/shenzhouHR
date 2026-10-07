@@ -12,6 +12,7 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,8 @@ class SyntheticAdminBootstrapTest extends Wave1IntegrationTestSupport {
 
     private static final String SYSTEM_ADMIN_ROLE =
             "10000000-0000-0000-0000-000000000002";
+    private static final String HR_ADMIN_ROLE =
+            "10000000-0000-0000-0000-000000000001";
 
     @Autowired
     private AccountPersistence accountPersistence;
@@ -79,13 +82,12 @@ class SyntheticAdminBootstrapTest extends Wave1IntegrationTestSupport {
                 .startsWith("$2");
         assertThat(new BCryptPasswordEncoder().matches(password, account.passwordHash())).isTrue();
         assertThat(account.algorithm()).isEqualTo("BCRYPT");
-        assertThat(account.roleCode()).isEqualTo("SYSTEM_ADMIN");
-        assertThat(account.roleId()).isEqualTo(SYSTEM_ADMIN_ROLE);
+        assertSyntheticAdminRoles(username);
         assertSyntheticPolicyData();
     }
 
     @Test
-    void repeatedBootstrapReplacesHashAndRevokesEveryOldSession() throws Exception {
+    void repeatedBootstrapPreservesChangedPasswordAndExistingSessions() throws Exception {
         String username = syntheticUsername();
         String firstPassword = newTestSecret();
         runBootstrap(username, firstPassword);
@@ -112,20 +114,21 @@ class SyntheticAdminBootstrapTest extends Wave1IntegrationTestSupport {
         BootstrapAccount replaced = findBootstrapAccount(username);
 
         assertThat(replaced.accountId()).isEqualTo(initial.accountId());
-        assertThat(replaced.passwordHash()).isNotEqualTo(initial.passwordHash());
+        assertThat(replaced.passwordHash()).isEqualTo(initial.passwordHash());
         assertThat(new BCryptPasswordEncoder()
-                .matches(replacementPassword, replaced.passwordHash())).isTrue();
+                .matches(firstPassword, replaced.passwordHash())).isTrue();
         assertThat(new BCryptPasswordEncoder()
-                .matches(firstPassword, replaced.passwordHash())).isFalse();
+                .matches(replacementPassword, replaced.passwordHash())).isFalse();
         assertThat(replaced.firstChangeRequired()).isTrue();
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM user_session WHERE session_id = ?",
                 String.class,
-                sessionId)).isEqualTo("REVOKED");
+                sessionId)).isEqualTo("ACTIVE");
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM session_revocation WHERE session_id = ?",
                 Long.class,
-                sessionId)).isEqualTo(1);
+                sessionId)).isZero();
+        assertSyntheticAdminRoles(username);
         assertSyntheticPolicyData();
     }
 
@@ -149,15 +152,27 @@ class SyntheticAdminBootstrapTest extends Wave1IntegrationTestSupport {
     }
 
     private void runBootstrap(String username, String password) throws Exception {
-        new SyntheticAdminBootstrap(
-                        accountPersistence,
-                        authenticationPersistence,
-                        jdbc,
-                        clock,
-                        passwordCodec,
-                        username,
-                        password)
-                .run(new DefaultApplicationArguments(new String[0]));
+        SyntheticAdminBootstrap bootstrap = new SyntheticAdminBootstrap(
+                accountPersistence,
+                authenticationPersistence,
+                jdbc,
+                clock,
+                passwordCodec,
+                username,
+                password);
+        jdbc.update(
+                """
+                INSERT INTO auth_role (
+                    role_id, role_code, role_name, permission_domain
+                )
+                SELECT ?, 'HR_ADMIN', 'HR管理员', 'HR'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM auth_role WHERE role_id = ?
+                )
+                """,
+                HR_ADMIN_ROLE,
+                HR_ADMIN_ROLE);
+        bootstrap.run(new DefaultApplicationArguments(new String[0]));
     }
 
     private BootstrapAccount findBootstrapAccount(String username) {
@@ -165,14 +180,10 @@ class SyntheticAdminBootstrapTest extends Wave1IntegrationTestSupport {
                 """
                 SELECT account.account_id, account.status,
                        account.first_password_change_required,
-                       credential.password_hash, credential.algorithm,
-                       role.role_id, role.role_code
+                       credential.password_hash, credential.algorithm
                 FROM local_account account
                 JOIN password_credential credential
                   ON credential.account_id = account.account_id
-                JOIN auth_principal_role_assignment assignment
-                  ON assignment.principal_id = account.principal_id
-                JOIN auth_role role ON role.role_id = assignment.role_id
                 WHERE account.normalized_username = ?
                 """,
                 (result, rowNumber) -> new BootstrapAccount(
@@ -180,10 +191,28 @@ class SyntheticAdminBootstrapTest extends Wave1IntegrationTestSupport {
                         result.getString("status"),
                         result.getBoolean("first_password_change_required"),
                         result.getString("password_hash"),
-                        result.getString("algorithm"),
-                        result.getString("role_id"),
-                        result.getString("role_code")),
+                        result.getString("algorithm")),
                 username.toLowerCase());
+    }
+
+    private void assertSyntheticAdminRoles(String username) {
+        assertThat(jdbc.query(
+                """
+                SELECT role.role_code, role.role_id
+                FROM local_account account
+                JOIN auth_principal_role_assignment assignment
+                  ON assignment.principal_id = account.principal_id
+                JOIN auth_role role ON role.role_id = assignment.role_id
+                WHERE account.normalized_username = ?
+                  AND assignment.valid_to IS NULL
+                """,
+                (result, rowNumber) -> Map.entry(
+                        result.getString("role_code"),
+                        result.getString("role_id")),
+                username.toLowerCase()))
+                .containsExactlyInAnyOrder(
+                        Map.entry("SYSTEM_ADMIN", SYSTEM_ADMIN_ROLE),
+                        Map.entry("HR_ADMIN", HR_ADMIN_ROLE));
     }
 
     private void assertSyntheticPolicyData() {
@@ -244,8 +273,6 @@ class SyntheticAdminBootstrapTest extends Wave1IntegrationTestSupport {
             String status,
             boolean firstChangeRequired,
             String passwordHash,
-            String algorithm,
-            String roleId,
-            String roleCode) {
+            String algorithm) {
     }
 }

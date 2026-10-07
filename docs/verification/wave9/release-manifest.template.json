@@ -1,0 +1,101 @@
+{
+  "commit": "0000000000000000000000000000000000000000",
+  "dirty": true,
+  "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+  "explicit_non_dependencies": [
+    "w8"
+  ],
+  "gates": [
+    {
+      "commit": "0000000000000000000000000000000000000000",
+      "details": {},
+      "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "gate": "w7_final",
+      "reason": "W7 FINAL has not been synchronized into an integrated commit",
+      "run_id": "w9-integration-required",
+      "status": "NOT_VERIFIED"
+    },
+    {
+      "commit": "0000000000000000000000000000000000000000",
+      "details": {},
+      "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "gate": "threat_dynamic",
+      "reason": "authorized dynamic threat matrix has not run",
+      "run_id": "w9-integration-required",
+      "status": "NOT_VERIFIED"
+    },
+    {
+      "commit": "0000000000000000000000000000000000000000",
+      "details": {},
+      "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "gate": "performance_50_concurrency",
+      "reason": "50-concurrency integrated performance run has not run",
+      "run_id": "w9-integration-required",
+      "status": "NOT_VERIFIED"
+    },
+    {
+      "commit": "0000000000000000000000000000000000000000",
+      "details": {},
+      "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "gate": "capacity_36_month",
+      "reason": "production baseline and 36-month POC are unavailable",
+      "run_id": "w9-integration-required",
+      "status": "NOT_VERIFIED"
+    },
+    {
+      "commit": "0000000000000000000000000000000000000000",
+      "details": {},
+      "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "gate": "mysql_8_4_lts",
+      "reason": "approved MySQL 8.4 LTS environment has not been verified",
+      "run_id": "w9-integration-required",
+      "status": "NOT_VERIFIED"
+    },
+    {
+      "commit": "0000000000000000000000000000000000000000",
+      "details": {},
+      "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "gate": "browser_matrix",
+      "reason": "real browser and device matrix has not run",
+      "run_id": "w9-integration-required",
+      "status": "NOT_VERIFIED"
+    },
+    {
+      "commit": "0000000000000000000000000000000000000000",
+      "details": {},
+      "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "gate": "recovery_drill",
+      "reason": "human MySQL 8.4 PITR/RPO/RTO drill has not run",
+      "run_id": "w9-integration-required",
+      "status": "NOT_VERIFIED"
+    },
+    {
+      "commit": "0000000000000000000000000000000000000000",
+      "details": {},
+      "environment_id": "NOT_VERIFIED:final-integrated-environment-required",
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "gate": "native_deployment",
+      "reason": "Ubuntu 24.04 candidate preflight and rollback have not run",
+      "run_id": "w9-integration-required",
+      "status": "NOT_VERIFIED"
+    }
+  ],
+  "run_id": "w9-integration-required",
+  "schema_version": "shenzhouhr.w9.release-evidence/v1",
+  "verdict": "NOT_VERIFIED"
+}

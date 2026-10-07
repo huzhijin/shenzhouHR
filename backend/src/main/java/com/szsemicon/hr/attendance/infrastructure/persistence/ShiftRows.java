@@ -10,7 +10,7 @@ final class ShiftRows {
 
     record TemplateRow(
             String shiftTemplateId,
-            String legalEntityId,
+            String companyId,
             String locationId,
             String templateCode,
             String templateName,

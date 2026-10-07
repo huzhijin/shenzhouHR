@@ -11,26 +11,26 @@ interface AttendancePolicyLifecycleMapper {
 
     AttendancePolicyLifecycleRows.ScopeRow findScope(
             @Param("templateId") String templateId,
-            @Param("legalEntityId") String legalEntityId);
+            @Param("companyId") String companyId);
 
     AttendancePolicyLifecycleRows.ScopeRow lockScope(
             @Param("templateId") String templateId,
-            @Param("legalEntityId") String legalEntityId);
+            @Param("companyId") String companyId);
 
     long countVersions(
             @Param("templateId") String templateId,
-            @Param("legalEntityId") String legalEntityId);
+            @Param("companyId") String companyId);
 
     List<AttendancePolicyLifecycleRows.VersionRow> listVersions(
             @Param("templateId") String templateId,
-            @Param("legalEntityId") String legalEntityId,
+            @Param("companyId") String companyId,
             @Param("limit") int limit,
             @Param("offset") long offset);
 
     AttendancePolicyLifecycleRows.VersionRow findVersion(
             @Param("templateId") String templateId,
             @Param("scopedVersionId") String scopedVersionId,
-            @Param("legalEntityId") String legalEntityId);
+            @Param("companyId") String companyId);
 
     AttendancePolicyLifecycleRows.VersionRow findVersionByScopedVersionId(
             @Param("scopedVersionId") String scopedVersionId);

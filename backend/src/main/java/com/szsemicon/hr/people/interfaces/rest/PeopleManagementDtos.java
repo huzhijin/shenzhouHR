@@ -26,9 +26,9 @@ final class PeopleManagementDtos {
     }
 
     record OrganizationCreateRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             String parentOrganizationId,
-            @NotBlank @Size(max = 128) String code,
+            @Size(max = 128) String code,
             @NotBlank @Size(max = 200) String name,
             @NotBlank String organizationType,
             @NotNull LocalDate effectiveFrom,
@@ -47,12 +47,14 @@ final class PeopleManagementDtos {
     }
 
     record EmployeeCreateRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotBlank @Size(max = 128) String employeeNumber,
             @NotBlank @Size(max = 100) String displayName,
             @Size(max = 128) String externalEmployeeId,
+            @NotBlank String organizationId,
             @NotNull LocalDate effectiveFrom,
-            @NotBlank @Size(min = 2, max = 500) String reason) {
+            @NotBlank @Size(min = 2, max = 500) String reason,
+            @NotBlank String attendanceGroupId) {
     }
 
     record EmployeeUpdateRequest(

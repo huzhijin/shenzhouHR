@@ -8,7 +8,7 @@ public final class AttendanceGroupCommands {
     }
 
     public record LocationCommand(
-            String legalEntityId,
+            String companyId,
             String code,
             String name,
             String timeZone,
@@ -18,7 +18,7 @@ public final class AttendanceGroupCommands {
     }
 
     public record GroupCommand(
-            String legalEntityId,
+            String companyId,
             String code,
             String name,
             String locationId,
@@ -33,6 +33,13 @@ public final class AttendanceGroupCommands {
             String employeeId,
             LocalDate effectiveFrom,
             LocalDate effectiveTo,
+            String reason) {
+    }
+
+    public record AssignmentTransferCommand(
+            String sourceGroupId,
+            String targetGroupId,
+            LocalDate effectiveFrom,
             String reason) {
     }
 }

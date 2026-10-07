@@ -1,0 +1,3 @@
+Grants for shenzhou_hr_test_app@localhost
+GRANT USAGE ON *.* TO `shenzhou_hr_test_app`@`localhost`
+GRANT SELECT, INSERT, UPDATE, DELETE ON `shenzhou_hr_test`.* TO `shenzhou_hr_test_app`@`localhost`

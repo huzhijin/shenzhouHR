@@ -50,7 +50,7 @@ function batch(status: PeopleImportBatchDetail['status']): PeopleImportBatchDeta
   return {
     batchId: '10000000-0000-0000-0000-000000000001',
     auditResourceId: '10000000-0000-0000-0000-000000000001',
-    legalEntityId: '10000000-0000-0000-0000-000000000002',
+    companyId: '10000000-0000-0000-0000-000000000002',
     templateType: 'EMPLOYEE',
     templateVersion: '1.0',
     status,

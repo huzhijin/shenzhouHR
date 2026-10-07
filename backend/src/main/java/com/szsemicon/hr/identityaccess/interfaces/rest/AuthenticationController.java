@@ -1,6 +1,7 @@
 package com.szsemicon.hr.identityaccess.interfaces.rest;
 
 import com.szsemicon.hr.audit.application.AuditService;
+import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService.LoginResult;
 import com.szsemicon.hr.identityaccess.application.AuthenticationService.SessionIdentity;
@@ -43,7 +44,7 @@ public class AuthenticationController {
             SecurityTokenService tokenService,
             AuditService auditService,
             @Value("${shenzhouhr.security.session.cookie-secure:true}") boolean secureCookie,
-            @Value("${shenzhouhr.security.session.absolute-timeout:PT8H}") Duration absoluteTimeout) {
+            @Value("${shenzhouhr.security.session.absolute-timeout:PT12H}") Duration absoluteTimeout) {
         this.authenticationService = authenticationService;
         this.tokenService = tokenService;
         this.auditService = auditService;
@@ -199,8 +200,140 @@ public class AuthenticationController {
 
     public static List<MenuItem> menu(List<String> capabilities) {
         List<MenuItem> menu = new ArrayList<>();
+        boolean canReadOrganizationDashboard = capabilities.contains(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ);
+        boolean canReadSelfAttendance = capabilities.contains(
+                CapabilityCodes.ATTENDANCE_SELF_READ);
+        if (canReadOrganizationDashboard) {
+            menu.add(new MenuItem(
+                    "workbench", "考勤工作台", "/workbench"));
+        } else if (canReadSelfAttendance) {
+            /*
+             * /workbench is capability-sensitive: personal accounts receive a
+             * self-scoped projection, while administrators keep the organization
+             * dashboard. Keeping this item first makes login land on the correct
+             * home without widening either data scope.
+             */
+            menu.add(new MenuItem(
+                    "personal-workbench", "我的考勤工作台", "/workbench"));
+        }
+        if (canReadSelfAttendance) {
+            menu.add(new MenuItem(
+                    "my-attendance", "我的考勤", "/me/today"));
+        }
+        if (capabilities.contains(
+                CapabilityCodes.LEAVE_SELF_READ)) {
+            menu.add(new MenuItem(
+                    "my-leave", "我的假期", "/me/leave"));
+        }
+        if (capabilities.contains(
+                CapabilityCodes.ATTENDANCE_REPORT_READ)) {
+            menu.add(new MenuItem(
+                    "attendance-reports",
+                    "考勤报表",
+                    "/attendance/reports"));
+        }
+        if (capabilities.contains(
+                CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ)) {
+            menu.add(new MenuItem(
+                    "attendance-query-exceptions",
+                    "异常总览",
+                    "/attendance/queries/exceptions"));
+            menu.add(new MenuItem(
+                    "attendance-query-leave",
+                    "请假统计",
+                    "/attendance/queries/leave"));
+            menu.add(new MenuItem(
+                    "attendance-query-leave-summary",
+                    "请假汇总",
+                    "/attendance/queries/leave-summary"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime",
+                    "加班统计",
+                    "/attendance/queries/overtime"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime-daily",
+                    "加班日报",
+                    "/attendance/queries/overtime-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-finance-overtime",
+                    "每日加班查询",
+                    "/attendance/queries/finance-overtime"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime-fee-daily",
+                    "每日加班费查询",
+                    "/attendance/queries/overtime-fee-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime-voluntary-daily",
+                    "每日义务加班查询",
+                    "/attendance/queries/overtime-voluntary-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-overtime-comp-daily",
+                    "每日调休查询",
+                    "/attendance/queries/overtime-comp-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-absence-stat",
+                    "旷工统计表",
+                    "/attendance/queries/absence-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-leave-stat",
+                    "请假统计表",
+                    "/attendance/queries/leave-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-daily-journal",
+                    "考勤日报",
+                    "/attendance/queries/daily-journal"));
+            menu.add(new MenuItem(
+                    "attendance-query-makeup",
+                    "补签",
+                    "/attendance/queries/makeup"));
+            menu.add(new MenuItem(
+                    "attendance-query-work-hours",
+                    "月度工时统计表",
+                    "/attendance/queries/work-hours"));
+            menu.add(new MenuItem(
+                    "attendance-query-late",
+                    "迟到统计",
+                    "/attendance/queries/late"));
+            menu.add(new MenuItem(
+                    "attendance-query-missed-punch",
+                    "忘打卡",
+                    "/attendance/queries/missed-punch"));
+            menu.add(new MenuItem(
+                    "attendance-query-missed-punch-stat",
+                    "忘打卡统计表",
+                    "/attendance/queries/missed-punch-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-attendance-rate",
+                    "出勤率",
+                    "/attendance/queries/attendance-rate"));
+            menu.add(new MenuItem(
+                    "attendance-query-annual-leave",
+                    "年休假",
+                    "/attendance/queries/annual-leave"));
+            menu.add(new MenuItem(
+                    "attendance-query-annual-leave-stat",
+                    "年假统计表",
+                    "/attendance/queries/annual-leave-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-time-off",
+                    "调休额度",
+                    "/attendance/queries/time-off"));
+            menu.add(new MenuItem(
+                    "attendance-query-time-off-stat",
+                    "调休统计表",
+                    "/attendance/queries/time-off-stat"));
+            menu.add(new MenuItem(
+                    "attendance-query-time-off-daily",
+                    "调休日报",
+                    "/attendance/queries/time-off-daily"));
+            menu.add(new MenuItem(
+                    "attendance-query-matrix",
+                    "考勤明细",
+                    "/attendance/queries/matrix"));
+        }
         if (capabilities.contains("POLICY:READ")) {
-            menu.add(new MenuItem("rules", "规则中心", "/rules"));
+            menu.add(new MenuItem("rules", "规则设置", "/rules"));
         }
         if (capabilities.contains("ACCOUNT:READ")) {
             menu.add(new MenuItem("accounts", "账号管理", "/access/accounts"));
@@ -209,27 +342,41 @@ public class AuthenticationController {
             menu.add(new MenuItem("roles", "角色权限", "/access/roles"));
         }
         if (capabilities.contains("AUDIT:READ")) {
-            menu.add(new MenuItem("audit", "审计事件", "/access/audit"));
+            menu.add(new MenuItem("audit", "操作记录", "/access/audit"));
         }
         if (capabilities.contains("PEOPLE_IMPORT:READ")) {
-            menu.add(new MenuItem("people-import", "人员期初导入", "/people/import"));
+            menu.add(new MenuItem("people-import", "导入人员", "/people/import"));
         }
         if (capabilities.contains("ORGANIZATION:READ")
                 || capabilities.contains("MASTER_DATA:READ")) {
             menu.add(new MenuItem(
-                    "people-organization", "组织维护", "/people/organization"));
+                    "people-organization", "部门与组织", "/people/organization"));
         }
         if (capabilities.contains("EMPLOYEE:READ")
                 || capabilities.contains("MASTER_DATA:READ")) {
-            menu.add(new MenuItem("people-employees", "员工维护", "/people/employees"));
+            menu.add(new MenuItem("people-employees", "员工", "/people/employees"));
         }
         if (capabilities.contains("ATTENDANCE_SETUP:READ")) {
             menu.add(new MenuItem(
-                    "attendance-groups", "考勤组与人员", "/rules/attendance-groups"));
-            menu.add(new MenuItem("attendance-shifts", "班次版本", "/rules/shifts"));
+                    "attendance-groups", "考勤组", "/rules/attendance-groups"));
+            menu.add(new MenuItem("attendance-shifts", "班次", "/rules/shifts"));
             menu.add(new MenuItem("attendance-calendars", "工作日历", "/rules/calendars"));
             menu.add(new MenuItem(
-                    "attendance-policies", "考勤基础策略", "/rules/attendance-policy"));
+                    "attendance-policies", "考勤规则", "/rules/attendance-policy"));
+        }
+        if (capabilities.contains("ATTENDANCE_SOURCE:READ")) {
+            menu.add(new MenuItem(
+                    "attendance-sources-online", "考勤机数据", "/sources/online"));
+            menu.add(new MenuItem(
+                    "attendance-sources-oa", "OA 单据", "/sources/oa"));
+            menu.add(new MenuItem(
+                    "attendance-source-jobs", "同步记录", "/sources/jobs"));
+        }
+        if (capabilities.contains("ATTENDANCE_PUNCH_IMPORT:READ")) {
+            menu.add(new MenuItem(
+                    "attendance-punch-imports",
+                    "导入打卡文件",
+                    "/sources/attendance-excel"));
         }
         return List.copyOf(menu);
     }

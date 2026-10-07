@@ -63,7 +63,7 @@ class AttendancePolicyBindingBoundaryTest {
                 "binding",
                 "binding-revision",
                 1,
-                "legal-entity",
+                "company",
                 PolicyKind.LATE_GRACE,
                 "policy-version",
                 "group",

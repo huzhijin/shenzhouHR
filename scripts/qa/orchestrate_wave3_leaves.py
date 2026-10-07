@@ -43,7 +43,7 @@ except ImportError:
     )
 
 
-EXPECTED_REPOSITORY_ROOT = Path("/Users/huzhijin/Downloads/shenzhouHR")
+EXPECTED_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PLAN_RELATIVE_PATH = "orchestration/leaf-plan.json"
 MYSQL_CLIENT = Path(
     "/Users/huzhijin/.local/share/shenzhouhr/"

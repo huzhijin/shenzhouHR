@@ -1,7 +1,7 @@
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, theme as antdTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { lazy, Suspense } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense, type ReactNode } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { LoginPage } from '../features/auth/LoginPage';
 import type { CurrentCapabilities } from '../features/session/sessionApi';
@@ -9,6 +9,8 @@ import { useSession } from '../features/session/useSession';
 import { AppErrorBoundary } from '../shared/components/AppErrorBoundary';
 import { AppShell } from '../shared/components/AppShell';
 import { StatePanel } from '../shared/components/StatePanel';
+import { AppearanceProvider, useAppearance } from '../shared/appearance/AppearanceProvider';
+import { isDemoMode } from '../shared/config/runtimeMode';
 import { translate } from '../shared/i18n/messages';
 import { readCspNonce } from '../shared/security/cspNonce';
 import { authorizedMenu } from './routeAuthorization';
@@ -30,6 +32,28 @@ const AttendanceGroupsPage = lazy(() => import('../features/attendanceSetup/Atte
 const ShiftsPage = lazy(() => import('../features/attendanceSetup/ShiftsPage'));
 const CalendarsPage = lazy(() => import('../features/attendanceSetup/CalendarsPage'));
 const AttendancePolicyPage = lazy(() => import('../features/attendanceSetup/AttendancePolicyPage'));
+const SourceOverviewPage = lazy(() => import('../features/attendanceSources/SourceOverviewPage'));
+const OaSourcesPage = lazy(() => import('../features/attendanceSources/OaSourcesPage'));
+const PaperOvertimePage = lazy(() => import('../features/paperOvertime/PaperOvertimePage'));
+const SourceJobsPage = lazy(() => import('../features/attendanceSources/SourceJobsPage'));
+const PunchImportsPage = lazy(() => import('../features/punchImport/PunchImportsPage'));
+const PunchImportDetailPage = lazy(() => import('../features/punchImport/PunchImportDetailPage'));
+const DashboardRoute = lazy(() => import('../features/wave7/DashboardPage'));
+const PersonalAttendanceDashboardRoute = lazy(
+  () => import('../features/wave7/PersonalAttendanceDashboard')
+    .then((module) => ({ default: module.PersonalAttendanceDashboardRoute })),
+);
+const CustomerReportsRoute = lazy(() => import('../features/reports/CustomerReportCenterPage'));
+const QueryReportsRoute = lazy(() => import('../features/reports/QueryReportsPage'));
+const AttendanceScreenRoute = lazy(() => import('../features/wave7/AttendanceBigScreenPage'));
+const EmployeeTodayRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
+  .then((module) => ({ default: module.EmployeeTodayRoute })));
+const EmployeeRecordsRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
+  .then((module) => ({ default: module.EmployeeRecordsRoute })));
+const EmployeeLeaveRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
+  .then((module) => ({ default: module.EmployeeLeaveRoute })));
+const EmployeeFeedbackRoute = lazy(() => import('../features/wave7/EmployeeSelfServicePages')
+  .then((module) => ({ default: module.EmployeeFeedbackRoute })));
 
 const theme = {
   token: {
@@ -64,24 +88,60 @@ export function App() {
 
   return (
     <AppErrorBoundary>
+      <AppearanceProvider>
+        <ThemedConfig cspNonce={cspNonce}>
+          <AppBody state={state} reload={reload} />
+        </ThemedConfig>
+      </AppearanceProvider>
+    </AppErrorBoundary>
+  );
+}
+
+function ThemedConfig({
+  cspNonce,
+  children,
+}: {
+  cspNonce: string | undefined;
+  children: ReactNode;
+}) {
+  const { appearance } = useAppearance();
+  return (
       <ConfigProvider
         csp={cspNonce ? { nonce: cspNonce } : undefined}
         locale={zhCN}
-        theme={theme}
+        theme={{
+          ...theme,
+          algorithm: appearance === 'night'
+            ? antdTheme.darkAlgorithm
+            : antdTheme.defaultAlgorithm,
+        }}
       >
+        {children}
+      </ConfigProvider>
+  );
+}
+
+function AppBody({
+  state,
+  reload,
+}: {
+  state: ReturnType<typeof useSession>['state'];
+  reload: () => void;
+}) {
+  return (
+    <>
         {state.status === 'loading' ? <StatePanel state="loading" /> : null}
         {state.status === 'error' ? (
-          state.error.status === 401 ? (
+          isUnauthenticatedSessionError(state.error.status) ? (
             <>
               <Navigate to="/login" replace />
               <LoginPage onAuthenticated={reload} />
             </>
           ) : (
+            // The request correlation stays on the error object for diagnostics; it is not business UI.
             <StatePanel
               state={state.error.status === 0 ? 'network-error' : 'error'}
-              description={state.error.correlationId
-                ? `${state.error.message}；${translate('error.correlationId', { correlationId: state.error.correlationId })}`
-                : state.error.message}
+              description={state.error.message}
               onRetry={state.error.retryable ? reload : undefined}
             />
           )
@@ -96,19 +156,42 @@ export function App() {
             <AuthorizedApplication session={state.session} reloadSession={reload} />
           )
         ) : null}
-      </ConfigProvider>
-    </AppErrorBoundary>
+    </>
   );
+}
+
+function isUnauthenticatedSessionError(status: number): boolean {
+  // This branch only handles restoration through GET /auth/session. Some
+  // gateways represent an expired, revoked, or no-longer-visible session as
+  // 403/404 instead of 401. In all three cases there is no protected UI that
+  // can be rendered safely, so return the user to the login form.
+  return status === 401 || status === 403 || status === 404;
 }
 
 function AuthorizedApplication({ session, reloadSession }: { session: CurrentCapabilities; reloadSession: () => void }) {
   const menu = authorizedMenu(session);
   const defaultPath = menu[0]?.path;
+  const demoMode = isDemoMode();
+  const location = useLocation();
+  const canReadDashboard = session.capabilities.includes('ATTENDANCE_DASHBOARD:READ');
+  const canReadSelfAttendance = session.capabilities.includes('ATTENDANCE_SELF:READ');
   const rulesLanding = session.capabilities.includes('POLICY:READ')
-    ? <RulesHomePage />
+    ? <RulesHomePage capabilities={session.capabilities} />
     : session.capabilities.includes('ATTENDANCE_SETUP:READ')
       ? <Navigate to="/rules/attendance-groups" replace />
       : <AccessDenied />;
+
+  if (
+    demoMode
+    && canReadDashboard
+    && ['/attendance/screen', '/display/attendance'].includes(location.pathname)
+  ) {
+    return (
+      <Suspense fallback={<StatePanel state="loading" />}>
+        <AttendanceScreenRoute />
+      </Suspense>
+    );
+  }
 
   return (
     <AppShell menu={menu} onSessionChanged={reloadSession}>
@@ -157,6 +240,35 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
               <Route path="/rules/attendance-policy/:versionId" element={<AccessDenied />} />
             </>
           )}
+          {session.capabilities.includes('ATTENDANCE_SOURCE:READ') ? (
+            <>
+              <Route path="/sources/online" element={<SourceOverviewPage />} />
+              <Route path="/sources/oa" element={<OaSourcesPage />} />
+              <Route path="/sources/jobs" element={<SourceJobsPage capabilities={session.capabilities} />} />
+            </>
+          ) : (
+            <>
+              <Route path="/sources/online" element={<AccessDenied />} />
+              <Route path="/sources/oa" element={<AccessDenied />} />
+              <Route path="/sources/jobs" element={<AccessDenied />} />
+            </>
+          )}
+          {session.capabilities.includes('PAPER_OVERTIME:MANAGE') ? (
+            <Route path="/attendance/paper-overtime" element={<PaperOvertimePage />} />
+          ) : (
+            <Route path="/attendance/paper-overtime" element={<AccessDenied />} />
+          )}
+          {session.capabilities.includes('ATTENDANCE_PUNCH_IMPORT:READ') ? (
+            <>
+              <Route path="/sources/attendance-excel" element={<PunchImportsPage capabilities={session.capabilities} />} />
+              <Route path="/sources/attendance-excel/:batchId" element={<PunchImportDetailPage capabilities={session.capabilities} />} />
+            </>
+          ) : (
+            <>
+              <Route path="/sources/attendance-excel" element={<AccessDenied />} />
+              <Route path="/sources/attendance-excel/:batchId" element={<AccessDenied />} />
+            </>
+          )}
           {session.capabilities.includes('ACCOUNT:READ') ? (
             <>
               <Route path="/access/accounts" element={<AccountsPage capabilities={session.capabilities} />} />
@@ -182,6 +294,53 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
               <Route path="/access/audit/:auditEventId" element={<AccessDenied />} />
             </>
           )}
+          <Route
+            path="/workbench"
+            element={canReadDashboard
+              ? <DashboardRoute />
+              : canReadSelfAttendance
+                ? <PersonalAttendanceDashboardRoute />
+                : <AccessDenied />}
+          />
+          {demoMode && session.capabilities.includes('ATTENDANCE_DASHBOARD:READ')
+            ? <Route path="/attendance/screen" element={<AttendanceScreenRoute />} />
+            : <Route path="/attendance/screen" element={<AccessDenied />} />}
+          {demoMode && session.capabilities.includes('ATTENDANCE_DASHBOARD:READ')
+            ? <Route path="/display/attendance" element={<AttendanceScreenRoute />} />
+            : <Route path="/display/attendance" element={<AccessDenied />} />}
+          {session.capabilities.includes('ATTENDANCE_REPORT:READ')
+            ? (
+              <Route
+                path="/attendance/reports"
+                element={<CustomerReportsRoute capabilities={session.capabilities} />}
+              />
+            )
+            : <Route path="/attendance/reports" element={<AccessDenied />} />}
+          {session.capabilities.includes('ATTENDANCE_REPORT_QUERY:READ')
+            ? (
+              <Route
+                path="/attendance/queries/:sheet"
+                element={<QueryReportsRoute capabilities={session.capabilities} />}
+              />
+            )
+            : <Route path="/attendance/queries/:sheet" element={<AccessDenied />} />}
+          {session.capabilities.includes('ATTENDANCE_SELF:READ') ? (
+            <>
+              <Route path="/me/today" element={<EmployeeTodayRoute capabilities={session.capabilities} />} />
+              <Route path="/me/records" element={<EmployeeRecordsRoute capabilities={session.capabilities} />} />
+            </>
+          ) : (
+            <>
+              <Route path="/me/today" element={<AccessDenied />} />
+              <Route path="/me/records" element={<AccessDenied />} />
+            </>
+          )}
+          {session.capabilities.includes('LEAVE_SELF:READ')
+            ? <Route path="/me/leave" element={<EmployeeLeaveRoute capabilities={session.capabilities} />} />
+            : <Route path="/me/leave" element={<AccessDenied />} />}
+          {session.capabilities.includes('ATTENDANCE_FEEDBACK:READ')
+            ? <Route path="/me/feedback" element={<EmployeeFeedbackRoute capabilities={session.capabilities} />} />
+            : <Route path="/me/feedback" element={<AccessDenied />} />}
           {hasAllCapabilities(session, ['PEOPLE_IMPORT:READ', 'PEOPLE_IMPORT:TEMPLATE_DOWNLOAD']) ? (
             <Route path="/people/import" element={<PeopleImportPage capabilities={session.capabilities} />} />
           ) : (

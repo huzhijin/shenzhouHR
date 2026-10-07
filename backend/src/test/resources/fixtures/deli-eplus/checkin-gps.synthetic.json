@@ -1,0 +1,31 @@
+{
+  "fixture_notice": "SYNTHETIC_TEST_ONLY_NOT_VENDOR_DATA",
+  "field_contract": {
+    "check_type": ["gps", "out_work"],
+    "location_text": ["location", "address", "addr"],
+    "latitude": ["lat", "latitude"],
+    "longitude": ["lgt", "lng", "lon", "longitude"],
+    "dropped": ["photo", "wifi"]
+  },
+  "code": 0,
+  "msg": "",
+  "data": {
+    "next_id": 2,
+    "data": [
+      {
+        "id": "SYNTHETIC-GPS-001",
+        "user_id": "SYNTHETIC-USER-GPS-001",
+        "ext_id": "SYNTHETIC-EMPLOYEE-GPS-001",
+        "terminal_id": "SYNTHETIC-PHONE-001",
+        "check_type": "gps",
+        "check_time": 1786843800,
+        "check_data": {
+          "location": "辽宁省大连市甘井子区演示路1号",
+          "lat": "38.914000",
+          "lgt": "121.614000",
+          "photo": "synthetic-photo-ref"
+        }
+      }
+    ]
+  }
+}

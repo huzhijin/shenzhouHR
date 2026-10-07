@@ -47,21 +47,21 @@ class Wave3Wave2PolicyIsolationContractTest {
 
         assertThat(wave2Foundation)
                 .contains("UNIQUE KEY uq_policy_version_number (template_id, version_number)")
-                .doesNotContain("legal_entity_id");
+                .doesNotContain("company_id");
         assertThat(wave3Migration)
                 .doesNotContain(
                         "ALTER TABLE policy_version",
                         "DROP INDEX uq_policy_version_number",
-                        "fk_policy_version_legal_entity",
-                        "MIN(legal_entity_id)");
+                        "fk_policy_version_company",
+                        "MIN(company_id)");
     }
 
     @Test
     void wave2DomainAndRestViewsKeepTheirPreWave3Shape() {
         assertThat(recordComponents(PolicyVersion.class))
                 .containsExactlyInAnyOrderElementsOf(WAVE2_POLICY_VERSION_COLUMNS);
-        assertThat(recordComponents(VersionSummary.class)).doesNotContain("legalEntityId");
-        assertThat(recordComponents(VersionDetail.class)).doesNotContain("legalEntityId");
+        assertThat(recordComponents(VersionSummary.class)).doesNotContain("companyId");
+        assertThat(recordComponents(VersionDetail.class)).doesNotContain("companyId");
     }
 
     @Test
@@ -73,7 +73,7 @@ class Wave3Wave2PolicyIsolationContractTest {
 
         assertThat(policyVersion)
                 .contains("UNIQUE (template_id, version_number)")
-                .doesNotContain("legal_entity_id");
+                .doesNotContain("company_id");
     }
 
     @Test
@@ -88,8 +88,8 @@ class Wave3Wave2PolicyIsolationContractTest {
                         "operationId: getPolicyTemplate",
                         "$ref: '#/components/parameters/TemplateId'")
                 .doesNotContain(
-                        "AttendanceLegalEntityId",
-                        "legalEntityId");
+                        "AttendanceCompanyId",
+                        "companyId");
     }
 
     @Test

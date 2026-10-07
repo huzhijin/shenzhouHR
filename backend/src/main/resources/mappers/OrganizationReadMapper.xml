@@ -30,8 +30,8 @@
           ON data_scope.scope_id = assignment.data_scope_id
         JOIN organization_identity identity
           ON (
-              (data_scope.scope_type = 'LEGAL_ENTITY'
-               AND identity.legal_entity_id = data_scope.legal_entity_id)
+              (data_scope.scope_type = 'COMPANY'
+               AND identity.company_id = data_scope.company_id)
               OR
               (data_scope.scope_type = 'ORGANIZATION'
                AND (

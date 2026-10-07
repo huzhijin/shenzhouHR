@@ -21,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -47,8 +48,8 @@ public class AuthenticationService {
             @Value("${shenzhouhr.security.login.max-failures:5}") int maxFailures,
             @Value("${shenzhouhr.security.login.failure-window:PT15M}") Duration failureWindow,
             @Value("${shenzhouhr.security.login.lock-duration:PT30M}") Duration lockDuration,
-            @Value("${shenzhouhr.security.session.idle-timeout:PT30M}") Duration idleTimeout,
-            @Value("${shenzhouhr.security.session.absolute-timeout:PT8H}") Duration absoluteTimeout) {
+            @Value("${shenzhouhr.security.session.idle-timeout:PT6H}") Duration idleTimeout,
+            @Value("${shenzhouhr.security.session.absolute-timeout:PT12H}") Duration absoluteTimeout) {
         this.repository = repository;
         this.auditService = auditService;
         this.tokenService = tokenService;
@@ -65,11 +66,11 @@ public class AuthenticationService {
     public LoginResult login(String username, String password) {
         Instant now = clock.instant();
         String normalizedUsername = normalizeUsername(username);
-        AccountRecord account = repository.findAccountByNormalizedUsername(normalizedUsername)
+        AccountRecord account = repository.lockAccountByNormalizedUsername(normalizedUsername)
                 .orElse(null);
         CredentialRecord credential = account == null
                 ? null
-                : repository.findCredential(account.accountId()).orElse(null);
+                : repository.lockCredential(account.accountId()).orElse(null);
         boolean passwordMatches = passwordCodec.matches(
                 password,
                 credential == null ? passwordCodec.nonMatchingHash() : credential.passwordHash());
@@ -101,7 +102,7 @@ public class AuthenticationService {
         if ("LOCKED".equals(account.status())) {
             if (account.lockedUntil() != null && !account.lockedUntil().isAfter(now)) {
                 repository.unlockExpiredAccount(account.accountId(), account.principalId(), now);
-                account = repository.findAccountById(account.accountId()).orElseThrow();
+                account = repository.lockAccountById(account.accountId()).orElseThrow();
             } else {
                 auditService.record(
                         account.principalId(),
@@ -196,7 +197,9 @@ public class AuthenticationService {
             boolean firstChangeOnly,
             String currentSessionId) {
         validateNewPassword(newPassword);
-        AccountRecord account = currentAccount();
+        AccountRecord current = currentAccount();
+        AccountRecord account = repository.lockAccountById(current.accountId())
+                .orElseThrow(AuthenticationService::unavailable);
         if (firstChangeOnly && !account.firstPasswordChangeRequired()) {
             throw new ApiProblemException(
                     HttpStatus.CONFLICT,
@@ -209,7 +212,7 @@ public class AuthenticationService {
                     "FIRST_PASSWORD_CHANGE_REQUIRED",
                     "必须先完成首次密码修改");
         }
-        CredentialRecord credential = repository.findCredential(account.accountId())
+        CredentialRecord credential = repository.lockCredential(account.accountId())
                 .orElseThrow(() -> new ApiProblemException(
                         HttpStatus.UNAUTHORIZED,
                         "INVALID_CREDENTIALS",
@@ -242,18 +245,87 @@ public class AuthenticationService {
                 null);
     }
 
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            noRollbackFor = ApiProblemException.class)
+    public void reauthenticateCurrentAccount(
+            String suppliedSecret, String purpose) {
+        if (purpose == null
+                || purpose.isBlank()
+                || purpose.length() > 96
+                || !purpose.matches("[A-Z0-9_]+")) {
+            throw new IllegalArgumentException(
+                    "reauthentication purpose is invalid");
+        }
+        AccountRecord current = currentAccount();
+        AccountRecord account = repository.lockAccountById(current.accountId())
+                .orElseThrow(AuthenticationService::unavailable);
+        if (!"ACTIVE".equals(account.status())) {
+            throw new ApiProblemException(
+                    HttpStatus.UNAUTHORIZED,
+                    "REAUTHENTICATION_FAILED",
+                    "身份复核失败");
+        }
+        CredentialRecord credential = repository
+                .lockCredential(account.accountId())
+                .orElse(null);
+        boolean matches = passwordCodec.matches(
+                suppliedSecret,
+                credential == null
+                        ? passwordCodec.nonMatchingHash()
+                        : credential.passwordHash());
+        if (credential == null || !matches) {
+            Instant now = clock.instant();
+            registerFailure(account, now);
+            auditService.record(
+                    account.principalId(),
+                    purpose + "_REAUTHENTICATION_FAILED",
+                    "LOCAL_ACCOUNT",
+                    account.accountId(),
+                    "DENIED",
+                    "INVALID_CREDENTIALS");
+            throw new ApiProblemException(
+                    HttpStatus.UNAUTHORIZED,
+                    "REAUTHENTICATION_FAILED",
+                    "身份复核失败");
+        }
+        repository.clearLoginFailures(account.accountId());
+        auditService.record(
+                account.principalId(),
+                purpose + "_REAUTHENTICATED",
+                "LOCAL_ACCOUNT",
+                account.accountId(),
+                "SUCCESS",
+                null);
+    }
+
     @Transactional
     public void resetPassword(String grant, String newPassword) {
         validateNewPassword(newPassword);
         Instant now = clock.instant();
-        ResetGrantRecord resetGrant = repository.findResetGrantByDigest(
-                        tokenService.digest(grant),
+        String grantDigest = tokenService.digest(grant);
+        ResetGrantRecord observedGrant = repository.findResetGrantByDigest(
+                        grantDigest,
                         now)
                 .orElseThrow(() -> new ApiProblemException(
                         HttpStatus.UNAUTHORIZED,
                         "INVALID_RESET_GRANT",
                         "密码重置授权无效或已过期"));
-        AccountRecord account = repository.findAccountById(resetGrant.accountId())
+        AccountRecord account = repository.lockAccountById(observedGrant.accountId())
+                .orElseThrow(() -> new ApiProblemException(
+                        HttpStatus.UNAUTHORIZED,
+                        "INVALID_RESET_GRANT",
+                        "密码重置授权无效或已过期"));
+        repository.lockCredential(account.accountId())
+                .orElseThrow(() -> new ApiProblemException(
+                        HttpStatus.UNAUTHORIZED,
+                        "INVALID_RESET_GRANT",
+                        "密码重置授权无效或已过期"));
+        ResetGrantRecord resetGrant = repository.lockResetGrantByDigest(
+                        grantDigest,
+                        now)
+                .filter(currentGrant -> currentGrant.accountId()
+                        .equals(account.accountId()))
                 .orElseThrow(() -> new ApiProblemException(
                         HttpStatus.UNAUTHORIZED,
                         "INVALID_RESET_GRANT",
@@ -335,8 +407,12 @@ public class AuthenticationService {
 
     @Transactional
     public void requestPasswordReset(String username) {
-        AccountRecord account = repository.findAccountByNormalizedUsername(normalizeUsername(username))
+        AccountRecord observed = repository.findAccountByNormalizedUsername(
+                        normalizeUsername(username))
                 .orElse(null);
+        AccountRecord account = observed == null
+                ? null
+                : repository.lockAccountById(observed.accountId()).orElse(null);
         if (account != null) {
             String rawGrant = tokenService.newOpaqueToken();
             repository.issueResetGrant(

@@ -1,0 +1,2 @@
+action_code	result_code	correlation_id	request_id
+LOGIN_FAILED	FAILURE	wave1-proxy-proof	wave1-proxy-proof
