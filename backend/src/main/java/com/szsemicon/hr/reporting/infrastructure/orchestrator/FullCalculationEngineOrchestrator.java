@@ -18,6 +18,7 @@ import com.szsemicon.hr.attendance.domain.LeaveType;
 import com.szsemicon.hr.attendance.domain.OvertimeType;
 import com.szsemicon.hr.evidenceingestion.domain.oa.OaEmployeeNumberCatalog;
 import com.szsemicon.hr.reporting.application.AttendanceReportCalculationOrchestrator;
+import com.szsemicon.hr.reporting.application.AttendanceReportDependencyPlan;
 import com.szsemicon.hr.reporting.application.DepartmentPathNames;
 import com.szsemicon.hr.reporting.application.HrAttendanceOverride;
 import com.szsemicon.hr.reporting.application.AttendanceReportFactProjector;
@@ -62,6 +63,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -129,6 +131,45 @@ public class FullCalculationEngineOrchestrator
         this.mapper = Objects.requireNonNull(mapper, "mapper");
         this.calculator = new DeterministicAttendanceCalculator();
         this.factProjector = new AttendanceReportFactProjector();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.Optional<AttendanceReportDependencyPlan.Baseline> publishedBaseline(
+            String companyId, YearMonth period) {
+        return java.util.Optional.ofNullable(mapper.findDependencyBaseline(companyId,
+                period.atDay(1), period.plusMonths(1).atDay(1)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AttendanceReportDependencyPlan planWindow(String companyId, YearMonth period,
+            String baselineProjectionVersion, Instant dataAsOf, LocalDate writeStart,
+            LocalDate writeEndExclusive, Collection<String> employeeIds) {
+        Objects.requireNonNull(baselineProjectionVersion, "baselineProjectionVersion");
+        Set<String> scoped = employeeIds == null ? Set.of() : new HashSet<>(employeeIds);
+        List<EmployeeIdentityIntervalRow> identities = mapper.findEmployeeIdentityIntervals(
+                companyId, period.atDay(1), period.plusMonths(1).atDay(1));
+        Set<String> companyEmployees = identities.stream()
+                .map(EmployeeIdentityIntervalRow::employeeId)
+                .filter(id -> scoped.isEmpty() || scoped.contains(id))
+                .collect(Collectors.toSet());
+        List<OaDocumentRow> pinned = mapper.findProjectedOaDependencies(companyId, baselineProjectionVersion)
+                .stream().filter(row -> scoped.isEmpty() || scoped.contains(row.employeeId())).toList();
+        List<OaDocumentRow> current = relocateOaEmployees(mapper.findEffectiveOaDocuments(
+                companyId, period.atDay(1).atStartOfDay(BUSINESS_ZONE).toInstant(),
+                period.plusMonths(1).atDay(1).atStartOfDay(BUSINESS_ZONE).toInstant(), dataAsOf))
+                .stream().filter(row -> companyEmployees.contains(row.employeeId())).toList();
+        List<ShiftSegmentRow> shifts = applyPunchWindows(mapper.findScheduledWorkSegments(
+                companyId, period.atDay(1).minusDays(1), period.plusMonths(1).atDay(2), dataAsOf),
+                mapper.findUniquePunchWindows(companyId, period.atDay(1).minusDays(1),
+                        period.plusMonths(1).atDay(2), dataAsOf)).stream()
+                .filter(row -> scoped.isEmpty() || scoped.contains(row.employeeId())).toList();
+        return OaReportDependencyPlanner.plan(companyId, period, writeStart,
+                writeEndExclusive, employeeIds, pinned, current, shifts,
+                new HashSet<>(mapper.findHistoricallyAmendedLeaveKeys(companyId,
+                        period.atDay(1).atStartOfDay(BUSINESS_ZONE).toInstant(),
+                        period.plusMonths(1).atDay(1).atStartOfDay(BUSINESS_ZONE).toInstant(), dataAsOf)));
     }
 
     @Override
@@ -205,6 +246,23 @@ public class FullCalculationEngineOrchestrator
             LocalDate writeStartInclusive,
             LocalDate writeEndExclusive,
             Collection<String> employeeIds) {
+        return assembleInternal(companyId, period, periodState, principalId, dataAsOf,
+                writeStartInclusive, writeEndExclusive, employeeIds, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PublishCommand assemblePlanned(AttendanceReportDependencyPlan plan,
+            PeriodState periodState, String principalId, Instant dataAsOf) {
+        return assembleInternal(plan.companyId(), plan.period(), periodState, principalId,
+                dataAsOf, plan.writeStartInclusive(), plan.writeEndExclusive(),
+                plan.employeeIds(), plan);
+    }
+
+    private PublishCommand assembleInternal(String companyId, YearMonth period,
+            PeriodState periodState, String principalId, Instant dataAsOf,
+            LocalDate writeStartInclusive, LocalDate writeEndExclusive,
+            Collection<String> employeeIds, AttendanceReportDependencyPlan dependencyPlan) {
         Objects.requireNonNull(companyId, "companyId");
         Objects.requireNonNull(period, "period");
         Objects.requireNonNull(periodState, "periodState");
@@ -317,17 +375,25 @@ public class FullCalculationEngineOrchestrator
         if (overnightFetchEnd.isAfter(evidenceWindowEnd)) {
             evidenceWindowEnd = overnightFetchEnd;
         }
+        if (dependencyPlan != null) {
+            evidenceWindowStart = dependencyPlan.evidenceStartInclusive();
+            evidenceWindowEnd = dependencyPlan.evidenceEndExclusive();
+        }
+        Instant punchWindowStart = dependencyPlan == null ? evidenceWindowStart
+                : dependencyPlan.punchStartInclusive();
+        Instant punchWindowEnd = dependencyPlan == null ? evidenceWindowEnd
+                : dependencyPlan.punchEndExclusive();
         List<PunchEventRow> punchRows = employeeIdFilter != null
                 ? mapper.findActivatedPunchEventsForEmployee(
                         companyId,
-                        evidenceWindowStart,
-                        evidenceWindowEnd,
+                        punchWindowStart,
+                        punchWindowEnd,
                         dataAsOf,
                         employeeIdFilter)
                 : mapper.findActivatedPunchEvents(
                         companyId,
-                        evidenceWindowStart,
-                        evidenceWindowEnd,
+                        punchWindowStart,
+                        punchWindowEnd,
                         dataAsOf);
         long punchMs = elapsedMs(stageStarted);
         stageStarted = System.nanoTime();
@@ -437,17 +503,34 @@ public class FullCalculationEngineOrchestrator
         List<OaReportFactRow> reportableOaDocuments = employeeIdFilter != null
                 ? mapper.findReportableOaDocumentsForEmployee(
                         companyId,
-                        windowStart,
+                        factStart.atStartOfDay(BUSINESS_ZONE).toInstant(),
                         windowEnd,
                         dataAsOf,
                         employeeIdFilter)
                 : mapper.findReportableOaDocuments(
                         companyId,
-                        windowStart,
+                        factStart.atStartOfDay(BUSINESS_ZONE).toInstant(),
                         windowEnd,
                         dataAsOf);
         long oaMs = elapsedMs(stageStarted);
         stageStarted = System.nanoTime();
+        // A shared OA source can return another company's matched employee.
+        // Employee numbers (including aliases) are mutable and cannot turn
+        // that immutable attribution into evidence for this roster. Apply the
+        // ID boundary before any grouping, overtime deduplication or punches.
+        // Null IDs are retained only for legacy in-memory callers; production
+        // OA queries join the matched employee and always provide the ID.
+        Set<String> targetOaEmployeeIds = identities.stream()
+                .map(EmployeeIdentityIntervalRow::employeeId)
+                .collect(Collectors.toSet());
+        oaDocuments = oaDocuments.stream()
+                .filter(row -> row.employeeId() == null
+                        || targetOaEmployeeIds.contains(row.employeeId()))
+                .toList();
+        reportableOaDocuments = reportableOaDocuments.stream()
+                .filter(row -> row.employeeId() == null
+                        || targetOaEmployeeIds.contains(row.employeeId()))
+                .toList();
         oaDocuments = relocateOaEmployees(oaDocuments);
         reportableOaDocuments = relocateReportableOaEmployees(reportableOaDocuments);
         List<TimeAccountSnapshotRow> timeAccountSnapshots = employeeIdFilter != null
@@ -479,7 +562,9 @@ public class FullCalculationEngineOrchestrator
                     .filter(number -> number != null && !number.isBlank())
                     .collect(Collectors.toSet());
             oaDocuments = oaDocuments.stream()
-                    .filter(row -> scopedNumbers.contains(row.employeeNumber()))
+                    .filter(row -> row.employeeId() != null
+                            ? scoped.contains(row.employeeId())
+                            : scopedNumbers.contains(row.employeeNumber()))
                     .toList();
             reportableOaDocuments = reportableOaDocuments.stream()
                     .filter(row -> scoped.contains(row.employeeId()))
@@ -694,7 +779,12 @@ public class FullCalculationEngineOrchestrator
                                     identity.employeeId(),
                                     allEmployeeSegments,
                                     calendarDays,
-                                    !fullAttendance),
+                                    !fullAttendance,
+                                    hasMakeup(employeeCorrections, businessDate)
+                                            || hasOaMakeup(
+                                                    oaMakeupByEmployee.get(employeeId),
+                                                    businessDate),
+                                    hrOffOn(employeeHrAdjustments, businessDate)),
                             employeeHrAdjustments));
                 } catch (RuntimeException exception) {
                     log.warn(
@@ -714,11 +804,16 @@ public class FullCalculationEngineOrchestrator
                 projectOaReportFacts(
                         companyId,
                         reportableOaDocuments,
+                        OaDocumentConverter.amendedLeaveIntervals(oaDocuments),
                         identities,
                         shiftSegments,
                         calendarDays,
                         punchRows,
-                        punchExemptionRoles));
+                        punchExemptionRoles,
+                        makeupDates(punchCorrections, oaMakeupByEmployee),
+                        hrOffDutyInstants(hrPunchAdjustments),
+                        periodStart.atStartOfDay(BUSINESS_ZONE).toInstant(),
+                        periodEndExclusive.atStartOfDay(BUSINESS_ZONE).toInstant()));
         oaReportFacts.addAll(projectHrDayTypeOaFacts(
                 companyId,
                 hrPunchAdjustments,
@@ -729,6 +824,20 @@ public class FullCalculationEngineOrchestrator
                 hrPunchAdjustments,
                 identities,
                 dataAsOf));
+        if (writeStartInclusive != null || writeEndExclusive != null) {
+            // OA facts are whole documents: keep the complete interval and
+            // recognised hours, but only replace documents overlapping the
+            // write window. Evidence may include the preceding night and HR
+            // adjustments are loaded for the month; publishing those outside
+            // this window would duplicate facts copied from the prior pin.
+            Instant oaWriteStart = factStart.atStartOfDay(BUSINESS_ZONE).toInstant();
+            Instant oaWriteEnd = factEndExclusive.atStartOfDay(BUSINESS_ZONE).toInstant();
+            oaReportFacts.removeIf(fact -> fact.temporalShape() == OaTemporalShape.POINT
+                    ? fact.pointInstant().isBefore(oaWriteStart)
+                            || !fact.pointInstant().isBefore(oaWriteEnd)
+                    : !fact.intervalStart().isBefore(oaWriteEnd)
+                            || !fact.intervalEndExclusive().isAfter(oaWriteStart));
+        }
         oaReportFacts.sort(Comparator.comparing(
                 VerifiedOaDocumentFact::oaAttendanceDocumentId));
         List<VerifiedTimeAccountFact> timeAccountFacts =
@@ -958,11 +1067,16 @@ public class FullCalculationEngineOrchestrator
     private List<VerifiedOaDocumentFact> projectOaReportFacts(
             String companyId,
             List<OaReportFactRow> rows,
+            Map<String, List<TimeInterval>> amendedLeaveIntervals,
             List<EmployeeIdentityIntervalRow> identities,
             List<ShiftSegmentRow> shiftSegments,
             List<CalendarDayRow> calendarDays,
             List<PunchEventRow> punchRows,
-            List<PunchExemptionRoleIntervalRow> punchExemptionRoles) {
+            List<PunchExemptionRoleIntervalRow> punchExemptionRoles,
+            Map<String, Set<LocalDate>> makeupDates,
+            Map<String, Instant> hrOffDutyByEmployeeDate,
+            Instant periodStartInstant,
+            Instant periodEndExclusiveInstant) {
         List<VerifiedOaDocumentFact> facts = new ArrayList<>();
         for (OaReportFactRow row : uniqueOaReportRows(rows)) {
             if ("PUNCH_CORRECTION".equals(row.documentType())) {
@@ -999,7 +1113,21 @@ public class FullCalculationEngineOrchestrator
             }
             Instant snappedStart = OaIntervalGrid.snap(row.startInstant());
             Instant snappedEnd = OaIntervalGrid.snap(row.endInstant());
-            LocalDate occurrenceDate = snappedStart
+            // Clip the OA interval to the report period so cross-month leave
+            // and overtime docs only contribute minutes that fall inside this
+            // month. Without clipping, a leave that starts in September and
+            // ends in October would have its full span—including October
+            // work-days—counted against September's totals.
+            Instant clippedStart = (periodStartInstant != null
+                    && snappedStart.isBefore(periodStartInstant))
+                    ? periodStartInstant : snappedStart;
+            Instant clippedEnd = (periodEndExclusiveInstant != null
+                    && snappedEnd.isAfter(periodEndExclusiveInstant))
+                    ? periodEndExclusiveInstant : snappedEnd;
+            if (!clippedStart.isBefore(clippedEnd)) {
+                continue;
+            }
+            LocalDate occurrenceDate = clippedStart
                     .atZone(BUSINESS_ZONE)
                     .toLocalDate();
             EmployeeIdentityIntervalRow identity = identityOn(
@@ -1007,10 +1135,12 @@ public class FullCalculationEngineOrchestrator
             if (identity == null) {
                 continue;
             }
-            long recognizedMinutes = recognizedMinutes(
+            LocalDate gateDate = clippedStart.atZone(BUSINESS_ZONE).toLocalDate();
+            long recognizedMinutes = recognizedMinutesForRow(
                     row,
-                    snappedStart,
-                    snappedEnd,
+                    clippedStart,
+                    clippedEnd,
+                    amendedLeaveIntervals,
                     identity.employeeId(),
                     identity.organizationName(),
                     shiftSegments,
@@ -1018,8 +1148,12 @@ public class FullCalculationEngineOrchestrator
                     punchRows,
                     punchRequiredForOvertime(
                             identity,
-                            snappedStart,
-                            punchExemptionRoles));
+                            clippedStart,
+                            punchExemptionRoles),
+                    makeupDates.getOrDefault(identity.employeeId(), Set.of())
+                            .contains(gateDate),
+                    hrOffDutyByEmployeeDate.get(
+                            identity.employeeId() + "|" + gateDate));
             facts.add(new VerifiedOaDocumentFact(
                     companyId,
                     row.oaAttendanceDocumentId(),
@@ -1119,7 +1253,9 @@ public class FullCalculationEngineOrchestrator
                     document.firstSubmittedAt(),
                     document.effectiveCandidate(),
                     document.leaveSerial(),
-                    document.originalLeaveSerial());
+                    document.originalLeaveSerial(),
+                    document.sourceId(),
+                    document.employeeId());
         }).toList();
     }
 
@@ -1188,6 +1324,55 @@ public class FullCalculationEngineOrchestrator
         return true;
     }
 
+    private long recognizedMinutesForRow(
+            OaReportFactRow document,
+            Instant snappedStart,
+            Instant snappedEnd,
+            Map<String, List<TimeInterval>> amendedLeaveIntervals,
+            String employeeId,
+            String organizationName,
+            List<ShiftSegmentRow> shiftSegments,
+            List<CalendarDayRow> calendarDays,
+            List<PunchEventRow> punchRows,
+            boolean punchRequired,
+            boolean makeupOffDuty,
+            Instant hrOffDuty) {
+        List<TimeInterval> amended = amendedLeaveIntervals == null
+                ? null
+                : amendedLeaveIntervals.get(document.sourceBusinessKey());
+        if (amended == null
+                || !"LEAVE".equalsIgnoreCase(document.documentType())) {
+            return recognizedMinutes(
+                    document,
+                    snappedStart,
+                    snappedEnd,
+                    employeeId,
+                    organizationName,
+                    shiftSegments,
+                    calendarDays,
+                    punchRows,
+                    punchRequired,
+                    makeupOffDuty,
+                    hrOffDuty);
+        }
+        long minutes = 0L;
+        for (TimeInterval interval : amended) {
+            minutes += recognizedMinutes(
+                    document,
+                    interval.start(),
+                    interval.end(),
+                    employeeId,
+                    organizationName,
+                    shiftSegments,
+                    calendarDays,
+                    punchRows,
+                    punchRequired,
+                    makeupOffDuty,
+                    hrOffDuty);
+        }
+        return minutes;
+    }
+
     private long recognizedMinutes(
             OaReportFactRow document,
             Instant snappedStart,
@@ -1197,7 +1382,9 @@ public class FullCalculationEngineOrchestrator
             List<ShiftSegmentRow> shiftSegments,
             List<CalendarDayRow> calendarDays,
             List<PunchEventRow> punchRows,
-            boolean punchRequired) {
+            boolean punchRequired,
+            boolean makeupOffDuty,
+            Instant hrOffDuty) {
         String documentType = document.documentType() == null
                 ? ""
                 : document.documentType().toUpperCase();
@@ -1213,28 +1400,35 @@ public class FullCalculationEngineOrchestrator
             if (punchRequired) {
                 var lookup = OvertimeMealDeductions.lookup(
                         employeeId, shiftSegments, calendarDays);
-                Instant last = OvertimeMealDeductions.lastCoveringOffPunch(
-                        punchRows == null
-                                ? List.of()
-                                : punchRows.stream()
-                                        .filter(row -> employeeId.equals(
-                                                row.employeeId()))
-                                        .map(PunchEventRow::pointInstant)
-                                        .toList(),
-                        snapped,
-                        lookup.shiftOff(
-                                snapped.start()
-                                        .atZone(BUSINESS_ZONE)
-                                        .toLocalDate()));
-                if (last != null) {
-                    snapped = OvertimeMealDeductions.capToSnappedLastPunch(
-                            snapped, last);
+                LocalDate gateDate = snapped.start()
+                        .atZone(BUSINESS_ZONE)
+                        .toLocalDate();
+                List<Instant> punches = punchRows == null
+                        ? List.of()
+                        : punchRows.stream()
+                                .filter(row -> employeeId.equals(row.employeeId()))
+                                .map(PunchEventRow::pointInstant)
+                                .toList();
+                if (OvertimeMealDeductions.requiresPairedOffDuty(gateDate)) {
+                    snapped = septemberOffDuty(
+                            gateDate, snapped, punches, makeupOffDuty, hrOffDuty, lookup);
                     if (snapped == null) {
                         return 0L;
                     }
-                } else if (!august2026AllowsFormWithoutPunch(
-                        snapped.start().atZone(BUSINESS_ZONE).toLocalDate())) {
-                    return 0L;
+                } else {
+                    Instant last = OvertimeMealDeductions.lastCoveringOffPunch(
+                            punches,
+                            snapped,
+                            lookup.shiftOff(gateDate));
+                    if (last != null) {
+                        snapped = OvertimeMealDeductions.capToSnappedLastPunch(
+                                snapped, last);
+                        if (snapped == null) {
+                            return 0L;
+                        }
+                    } else if (!august2026AllowsFormWithoutPunch(gateDate)) {
+                        return 0L;
+                    }
                 }
             }
             return OvertimeMealDeductions.recognizedMinutes(
@@ -1493,6 +1687,20 @@ public class FullCalculationEngineOrchestrator
             List<ShiftSegmentRow> segments,
             Instant dataAsOf) {
         if (segments.isEmpty()) {
+            for (PunchCorrectionRow correction : corrections) {
+                if (!businessDate.equals(correction.businessDate())
+                        || correction.reviewedAt().isAfter(dataAsOf)
+                        || correction.punchSide() == PunchSide.ENTRY) {
+                    continue;
+                }
+                target.add(supplementedPunch(
+                        correction,
+                        PunchDirection.EXIT,
+                        businessDate.plusDays(1)
+                                .atTime(5, 59)
+                                .atZone(BUSINESS_ZONE)
+                                .toInstant()));
+            }
             return;
         }
         Instant entryInstant = segments.stream()
@@ -2200,7 +2408,7 @@ public class FullCalculationEngineOrchestrator
             return false;
         }
         return switch (sourceStatus.toUpperCase()) {
-            case "APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN" -> true;
+            case "APPROVED", "MODIFIED", "SUPPLEMENTED", "PENDING" -> true;
             default -> false;
         };
     }
@@ -2576,16 +2784,28 @@ public class FullCalculationEngineOrchestrator
     private Map<String, List<IntervalEvidence>> mapOaToEmployeeId(
             Map<String, List<OaDocumentRow>> oaByEmployeeNumber,
             List<EmployeeIdentityIntervalRow> identities) {
-        Map<String, List<IntervalEvidence>> result = new HashMap<>();
+        Map<String, List<OaDocumentRow>> byEmployeeId = new LinkedHashMap<>();
         for (Map.Entry<String, List<OaDocumentRow>> entry :
                 oaByEmployeeNumber.entrySet()) {
             for (OaDocumentRow document : entry.getValue()) {
+                if ("LEAVE_REVOCATION".equals(document.documentType())
+                        && document.employeeId() != null) {
+                    // A correction belongs to its matched original employee.
+                    // Its actual end/zero point may be outside this report
+                    // window or after the employee's assignment ended.
+                    boolean includedEmployee = identities.stream().anyMatch(
+                            identity -> identity.employeeId().equals(document.employeeId()));
+                    if (includedEmployee) {
+                        byEmployeeId.computeIfAbsent(document.employeeId(),
+                                ignored -> new ArrayList<>()).add(document);
+                    }
+                    continue;
+                }
                 LocalDate occurrenceDate = document.startInstant()
                         .atZone(BUSINESS_ZONE)
                         .toLocalDate();
                 List<String> employeeIds = identities.stream()
-                        .filter(identity -> identity.employeeNumber()
-                                .equals(entry.getKey()))
+                        .filter(identity -> matchesOaIdentity(identity, document))
                         .filter(identity -> identity.validOn(occurrenceDate))
                         .map(EmployeeIdentityIntervalRow::employeeId)
                         .distinct()
@@ -2598,15 +2818,33 @@ public class FullCalculationEngineOrchestrator
                             "OA employee identity is missing or ambiguous: "
                                     + entry.getKey());
                 }
-                result.computeIfAbsent(
-                                employeeIds.getFirst(),
-                                ignored -> new ArrayList<>())
-                        .addAll(OaDocumentConverter.toIntervalEvidence(
-                                List.of(document)));
+                byEmployeeId.computeIfAbsent(
+                        employeeIds.getFirst(), ignored -> new ArrayList<>())
+                        .add(document);
             }
         }
-        result.replaceAll((ignored, evidence) -> List.copyOf(evidence));
+        Map<String, List<IntervalEvidence>> result = new LinkedHashMap<>();
+        for (Map.Entry<String, List<OaDocumentRow>> entry :
+                byEmployeeId.entrySet()) {
+            result.put(
+                    entry.getKey(),
+                    OaDocumentConverter.toIntervalEvidence(entry.getValue()));
+        }
         return Map.copyOf(result);
+    }
+
+    private static boolean matchesOaIdentity(
+            EmployeeIdentityIntervalRow identity, OaDocumentRow document) {
+        if (document.employeeId() == null) {
+            return identity.employeeNumber().equals(document.employeeNumber());
+        }
+        // The matched ID confines number aliases to the same employee. The
+        // daily evidence path must recognize the aliases already supported
+        // by OA report facts, otherwise the detail shows hours but daily has 0.
+        return identity.employeeId().equals(document.employeeId())
+                && (identity.employeeNumber().equals(document.employeeNumber())
+                    || identity.employeeNumber().equals(
+                            OaEmployeeNumberCatalog.alias(document.employeeNumber())));
     }
 
     private Map<String, List<PunchEventRow>> mapOaMakeupPunches(
@@ -2625,8 +2863,7 @@ public class FullCalculationEngineOrchestrator
                         .atZone(BUSINESS_ZONE)
                         .toLocalDate();
                 List<String> employeeIds = identities.stream()
-                        .filter(identity -> identity.employeeNumber()
-                                .equals(entry.getKey()))
+                        .filter(identity -> matchesOaIdentity(identity, document))
                         .filter(identity -> identity.validOn(occurrenceDate))
                         .map(EmployeeIdentityIntervalRow::employeeId)
                         .distinct()
@@ -2982,7 +3219,9 @@ public class FullCalculationEngineOrchestrator
             String employeeId,
             List<ShiftSegmentRow> daySegments,
             List<CalendarDayRow> calendarDays,
-            boolean punchRequired) {
+            boolean punchRequired,
+            boolean makeupOffDuty,
+            Instant hrOffDuty) {
         var lookup = OvertimeMealDeductions.lookup(
                 employeeId, daySegments, calendarDays);
         FormOvertimeMinutes result = FormOvertimeMinutes.zero();
@@ -3023,18 +3262,31 @@ public class FullCalculationEngineOrchestrator
                 continue;
             }
             if (punchRequired) {
-                Instant last = OvertimeMealDeductions.lastCoveringOffPunch(
-                        punchInstants,
-                        snapped,
-                        lookup.shiftOff(businessDate));
-                if (last != null) {
-                    snapped = OvertimeMealDeductions.capToSnappedLastPunch(
-                            snapped, last);
+                if (OvertimeMealDeductions.requiresPairedOffDuty(businessDate)) {
+                    snapped = septemberOffDuty(
+                            businessDate,
+                            snapped,
+                            realPunchInstants(dayPunches),
+                            makeupOffDuty,
+                            hrOffDuty,
+                            lookup);
                     if (snapped == null) {
                         continue;
                     }
-                } else if (!august2026AllowsFormWithoutPunch(businessDate)) {
-                    continue;
+                } else {
+                    Instant last = OvertimeMealDeductions.lastCoveringOffPunch(
+                            punchInstants,
+                            snapped,
+                            lookup.shiftOff(businessDate));
+                    if (last != null) {
+                        snapped = OvertimeMealDeductions.capToSnappedLastPunch(
+                                snapped, last);
+                        if (snapped == null) {
+                            continue;
+                        }
+                    } else if (!august2026AllowsFormWithoutPunch(businessDate)) {
+                        continue;
+                    }
                 }
             }
             long minutes = OvertimeMealDeductions.recognizedMinutes(
@@ -3042,6 +3294,129 @@ public class FullCalculationEngineOrchestrator
             result = result.plus(evidence.overtimeType(), minutes);
         }
         return result;
+    }
+
+    private TimeInterval septemberOffDuty(
+            LocalDate date,
+            TimeInterval snapped,
+            List<Instant> realPunches,
+            boolean makeup,
+            Instant hrOff,
+            OvertimeMealDeductions.DayLookup lookup) {
+        Instant paired = OvertimeMealDeductions.pairedOffDutyPunch(realPunches, date);
+        if (paired != null) {
+            return OvertimeMealDeductions.capToSnappedLastPunch(snapped, paired);
+        }
+        if (hrOff != null) {
+            return OvertimeMealDeductions.capToSnappedLastPunch(snapped, hrOff);
+        }
+        if (!makeup) {
+            return null;
+        }
+        if (lookup.workSegments(date).isEmpty()) {
+            return snapped;
+        }
+        LocalTime off = lookup.shiftOff(date);
+        if (off == null) {
+            return snapped;
+        }
+        return OvertimeMealDeductions.capToSnappedLastPunch(
+                snapped, date.atTime(off).atZone(BUSINESS_ZONE).toInstant());
+    }
+
+    private static List<Instant> realPunchInstants(List<PunchEvent> punches) {
+        if (punches == null) {
+            return List.of();
+        }
+        return punches.stream()
+                .filter(punch -> !isSupplemented(punch) && !isHrAdjust(punch))
+                .map(PunchEvent::instant)
+                .toList();
+    }
+
+    private static boolean isSupplemented(PunchEvent punch) {
+        return punch.direction() == PunchDirection.EXIT
+                && punch.evidenceReference().startsWith("supplemented:");
+    }
+
+    private static boolean isHrAdjust(PunchEvent punch) {
+        return punch.evidenceReference().startsWith("hr-adjust:");
+    }
+
+    private static boolean hasMakeup(
+            List<PunchCorrectionRow> corrections, LocalDate businessDate) {
+        if (corrections == null) {
+            return false;
+        }
+        return corrections.stream().anyMatch(correction ->
+                businessDate.equals(correction.businessDate())
+                        && correction.punchSide() != PunchSide.ENTRY);
+    }
+
+    private static boolean hasOaMakeup(
+            List<PunchEventRow> punches, LocalDate businessDate) {
+        if (punches == null) {
+            return false;
+        }
+        return punches.stream().anyMatch(punch -> businessDate.equals(
+                punch.pointInstant().atZone(BUSINESS_ZONE).toLocalDate()));
+    }
+
+    private static Instant hrOffOn(
+            List<HrPunchAdjustmentRow> adjustments, LocalDate businessDate) {
+        if (adjustments == null) {
+            return null;
+        }
+        return adjustments.stream()
+                .filter(adjustment -> businessDate.equals(adjustment.businessDate()))
+                .map(HrPunchAdjustmentRow::offDutyAt)
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+    }
+
+    private static Map<String, Set<LocalDate>> makeupDates(
+            List<PunchCorrectionRow> corrections,
+            Map<String, List<PunchEventRow>> oaMakeupByEmployee) {
+        Map<String, Set<LocalDate>> dates = new HashMap<>();
+        if (corrections != null) {
+            for (PunchCorrectionRow correction : corrections) {
+                if (correction.punchSide() == PunchSide.ENTRY) {
+                    continue;
+                }
+                dates.computeIfAbsent(correction.employeeId(), ignored -> new HashSet<>())
+                        .add(correction.businessDate());
+            }
+        }
+        if (oaMakeupByEmployee != null) {
+            for (Map.Entry<String, List<PunchEventRow>> entry
+                    : oaMakeupByEmployee.entrySet()) {
+                for (PunchEventRow punch : entry.getValue()) {
+                    dates.computeIfAbsent(entry.getKey(), ignored -> new HashSet<>())
+                            .add(punch.pointInstant()
+                                    .atZone(BUSINESS_ZONE)
+                                    .toLocalDate());
+                }
+            }
+        }
+        return dates;
+    }
+
+    private static Map<String, Instant> hrOffDutyInstants(
+            List<HrPunchAdjustmentRow> adjustments) {
+        Map<String, Instant> instants = new HashMap<>();
+        if (adjustments == null) {
+            return instants;
+        }
+        for (HrPunchAdjustmentRow adjustment : adjustments) {
+            if (adjustment.offDutyAt() == null) {
+                continue;
+            }
+            instants.put(
+                    adjustment.employeeId() + "|" + adjustment.businessDate(),
+                    adjustment.offDutyAt());
+        }
+        return instants;
     }
 
     private record EmployeeBusinessDate(

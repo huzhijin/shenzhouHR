@@ -179,14 +179,18 @@ public enum LeaveType {
 
     /**
      * Weekend and public-holiday hours are included for calendar leave types
-     * (产假, 陪产假, 丧假, 病假, 计生假, and others) and excluded for 年休假,
-     * 调休假, 事假, 婚假, and 哺乳假.
+     * (产假, 陪产假, 丧假, 计生假, and others) and excluded for 年休假,
+     * 调休假, 事假, 病假, 婚假, and 哺乳假.
+     *
+     * <p>病假 uses WORKDAY basis per the szsc OA contract: weekends inside a
+     * sick-leave interval must not contribute recognized minutes.</p>
      */
     public boolean includesWeekendHours() {
         return this != ANNUAL
                 && this != COMPENSATORY
                 && this != PERSONAL
                 && this != BREASTFEEDING
-                && this != MARRIAGE;
+                && this != MARRIAGE
+                && this != SICK;
     }
 }
