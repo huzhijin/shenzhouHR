@@ -64,6 +64,66 @@ export function isoWeekdayBucket(date: string): 'weekday' | 'weekend' {
   return weekday >= 6 ? 'weekend' : 'weekday';
 }
 
+// Exact statutory holiday dates for 2026, matching StatutoryHolidayCalendar.java BY_YEAR.
+// For a configured year: PUBLIC_HOLIDAY/HOLIDAY days in this set → holiday, others → weekend.
+// For unconfigured years: all PUBLIC_HOLIDAY/HOLIDAY → holiday (legacy behaviour).
+const STATUTORY_HOLIDAY_DATES_2026 = new Set([
+  '2026-01-01',
+  '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19',
+  '2026-04-05',
+  '2026-05-01', '2026-05-02',
+  '2026-06-19',
+  '2026-09-25',
+  '2026-10-01', '2026-10-02', '2026-10-03',
+]);
+
+const CONFIGURED_YEARS = new Set([2026]);
+
+/**
+ * Classify a date for finance overtime bucketing.
+ * Mirrors StatutoryHolidayCalendar.classify() in the backend exactly.
+ *   SATURDAY/SUNDAY/WEEKEND             → weekend  (wins over holiday check)
+ *   PUBLIC_HOLIDAY/HOLIDAY, configured year in statutory set → holiday
+ *   PUBLIC_HOLIDAY/HOLIDAY, configured year not in set       → weekend
+ *   PUBLIC_HOLIDAY/HOLIDAY, unconfigured year                → holiday
+ *   WORKDAY/WEEKDAY/SPECIAL_WORKDAY/ADJUSTED_WORKDAY         → weekday
+ *   no dayType                          → ISO weekday fallback
+ */
+export function financeOvertimeDateBucket(
+  date: string,
+  dayType?: string,
+): 'weekday' | 'weekend' | 'holiday' {
+  const type = dayType ? dayType.trim().toUpperCase() : '';
+
+  if (type === 'SATURDAY' || type === 'SUNDAY' || type === 'WEEKEND') {
+    return 'weekend';
+  }
+
+  if (type === 'PUBLIC_HOLIDAY' || type === 'HOLIDAY') {
+    const dateKey = String(date).slice(0, 10);
+    const year = parseInt(dateKey.slice(0, 4), 10);
+    if (!CONFIGURED_YEARS.has(year)) {
+      return 'holiday';
+    }
+    return STATUTORY_HOLIDAY_DATES_2026.has(dateKey) ? 'holiday' : 'weekend';
+  }
+
+  if (
+    type === 'WORKDAY' || type === 'WEEKDAY' ||
+    type === 'SPECIAL_WORKDAY' || type === 'ADJUSTED_WORKDAY'
+  ) {
+    return 'weekday';
+  }
+
+  // Non-empty unrecognised dayType: backend classify() defaults to WEEKDAY.
+  if (type !== '') {
+    return 'weekday';
+  }
+
+  // No dayType: ISO weekday fallback.
+  return isoWeekdayBucket(String(date).slice(0, 10));
+}
+
 export const FINANCE_OVERTIME_CALENDAR_SHEETS = [
   'finance-overtime',
   'overtime-fee-daily',

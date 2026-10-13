@@ -4,12 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.evidenceingestion.application.OaDocumentSyncApplicationService;
+import com.szsemicon.hr.reporting.application.ScheduledSourceCompletionListener;
 import java.lang.reflect.Method;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.AnnotatedElementUtils;
@@ -78,5 +84,48 @@ class OaAutoSyncJobTest {
         assertThatCode(job::triggerScheduledSync).doesNotThrowAnyException();
 
         verify(service, times(1)).runScheduled();
+    }
+
+    @Test
+    void failedSourceDoesNotMarkTheOaRecalculationSlotSuccessful() {
+        var service = mock(OaDocumentSyncApplicationService.class);
+        var listener = mock(ScheduledSourceCompletionListener.class);
+        when(service.runScheduled()).thenReturn(false);
+
+        new OaAutoSyncJob(service, listener,
+                Clock.fixed(Instant.parse("2026-10-02T04:05:00Z"), ZoneOffset.UTC))
+                .triggerScheduledSync();
+
+        verify(listener, never()).onScheduledOaSuccess();
+    }
+
+    @Test
+    void successfulSyncMarksOaSuccessOnlyDuringTheRecalculationHour() {
+        var service = mock(OaDocumentSyncApplicationService.class);
+        var listener = mock(ScheduledSourceCompletionListener.class);
+        when(service.runScheduled()).thenReturn(true);
+
+        new OaAutoSyncJob(service, listener,
+                Clock.fixed(Instant.parse("2026-10-02T05:05:00Z"), ZoneOffset.UTC))
+                .triggerScheduledSync();
+        verify(listener, never()).onScheduledOaSuccess();
+
+        new OaAutoSyncJob(service, listener,
+                Clock.fixed(Instant.parse("2026-10-02T04:05:00Z"), ZoneOffset.UTC))
+                .triggerScheduledSync();
+        verify(listener).onScheduledOaSuccess();
+    }
+
+    @Test
+    void thrownSyncFailureCannotMarkOaSuccess() {
+        var service = mock(OaDocumentSyncApplicationService.class);
+        var listener = mock(ScheduledSourceCompletionListener.class);
+        when(service.runScheduled()).thenThrow(new IllegalStateException("OA unavailable"));
+        var job = new OaAutoSyncJob(service, listener,
+                Clock.fixed(Instant.parse("2026-10-02T04:05:00Z"), ZoneOffset.UTC));
+
+        assertThatCode(job::triggerScheduledSync).doesNotThrowAnyException();
+
+        verify(listener, never()).onScheduledOaSuccess();
     }
 }

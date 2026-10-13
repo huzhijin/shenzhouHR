@@ -379,7 +379,7 @@ class OaDocumentPageTransactionOvertimeTest {
                 true,
                 OvertimeType.PAID);
         String digest = AttendanceEvidenceDigests.sha256(
-                "OA_RAW_FACT_V1",
+                "OA_RAW_FACT_V2",
                 "source-1",
                 "company-1",
                 negative.sourceBusinessKey(),
@@ -392,7 +392,7 @@ class OaDocumentPageTransactionOvertimeTest {
                 "OVERTIME",
                 "APPROVED",
                 "PAID",
-                "");
+                "", "", "");
         when(evidenceRepository.findRawBySourceIdentity(
                         "source-1",
                         negative.sourceBusinessKey(),
@@ -452,9 +452,9 @@ class OaDocumentPageTransactionOvertimeTest {
         employeeMatches();
         publishedRuntimeContract();
         OaDocumentRecord pending = overtime(
-                SourceStatus.UNKNOWN,
+                SourceStatus.PENDING,
                 "2026-08-15T12:00:00:state=0",
-                false,
+                true,
                 OvertimeType.PAID);
         OaDocumentRecord approved = overtime(
                 SourceStatus.APPROVED,
@@ -487,11 +487,11 @@ class OaDocumentPageTransactionOvertimeTest {
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple(
                                 "2026-08-15T12:00:00:state=0",
-                                "UNKNOWN"),
+                                "PENDING"),
                         org.assertj.core.groups.Tuple.tuple(
                                 "2026-08-15T13:00:00:state=3",
                                 "APPROVED"));
-        verify(evidenceRepository, times(1))
+        verify(evidenceRepository, times(2))
                 .insertOaAttendanceDocumentContext(any());
     }
 
@@ -565,7 +565,7 @@ class OaDocumentPageTransactionOvertimeTest {
     }
 
     @Test
-    void digestChangeOnExistingDocumentKeepsFirstWriteAndContinuesPage() {
+    void digestChangeOnExistingDocumentAppendsImmutableRevisionAndContinuesPage() {
         employeeMatches();
         publishedRuntimeContract();
         OaDocumentRecord record = overtime(OvertimeType.PAID);
@@ -610,8 +610,10 @@ class OaDocumentPageTransactionOvertimeTest {
 
         assertThat(result.acceptedCount()).isEqualTo(1);
         assertThat(result.quarantinedCount()).isZero();
-        verify(evidenceRepository, never()).insertRawFact(any());
-        verify(evidenceRepository, never()).insertOaAttendanceDocument(any());
+        ArgumentCaptor<EvidenceRows.RawFactRow> revised = ArgumentCaptor.forClass(EvidenceRows.RawFactRow.class);
+        verify(evidenceRepository).insertRawFact(revised.capture());
+        assertThat(revised.getValue().sourceVersion()).startsWith(record.sourceVersion() + ":obs=");
+        verify(evidenceRepository).insertOaAttendanceDocument(any());
         verify(syncRepository).insertCommittedPage(any());
         verify(syncRepository).advanceWatermark(
                 "source-1", 7L, "next-1", "e".repeat(64), NOW);
@@ -685,7 +687,7 @@ class OaDocumentPageTransactionOvertimeTest {
     }
 
     @Test
-    void rematchRecordsPromotesQuarantinedOvertimeWithoutWatermark() {
+    void rematchRecordsPromotesQuarantinedOvertimeWithoutAdvancingCursor() {
         employeeMatches();
         publishedRuntimeContract();
         OaDocumentRecord record = overtime(OvertimeType.PAID);
@@ -743,8 +745,10 @@ class OaDocumentPageTransactionOvertimeTest {
 
         assertThat(result.acceptedCount()).isEqualTo(1);
         verify(evidenceRepository).insertOaAttendanceDocument(any());
-        verify(syncRepository, never()).advanceWatermark(
-                any(), anyLong(), any(), any(), any());
+        assertThat(result.changedCount()).isEqualTo(1);
+        verify(syncRepository).advanceWatermark(
+                org.mockito.ArgumentMatchers.eq("source-1"), org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.isNull(), any(), org.mockito.ArgumentMatchers.eq(NOW));
         verify(syncRepository, never()).insertCommittedPage(any());
         verify(syncRepository).incrementJobCounters("job-1", 1, 0);
     }

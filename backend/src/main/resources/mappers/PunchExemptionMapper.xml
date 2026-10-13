@@ -9,7 +9,8 @@
             FROM punch_exemption_assignment assignment
             WHERE assignment.employee_id = #{employeeId}
               AND assignment.source = 'STANDING_LIST'
-              AND assignment.valid_to IS NULL
+              AND assignment.valid_from &lt;= CURRENT_TIMESTAMP(6)
+              AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; CURRENT_TIMESTAMP(6))
         ) THEN TRUE ELSE FALSE END
     </select>
 
@@ -23,6 +24,7 @@
               ON role.role_id = assignment.role_id
              AND role.role_code = 'EXECUTIVE'
             WHERE principal.employee_id = #{employeeId}
+              AND assignment.valid_from &lt;= CURRENT_TIMESTAMP(6)
               AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; CURRENT_TIMESTAMP(6))
         ) THEN TRUE ELSE FALSE END
     </select>

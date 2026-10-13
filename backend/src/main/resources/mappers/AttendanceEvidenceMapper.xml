@@ -35,6 +35,541 @@
           AND source_version = #{sourceVersion}
     </select>
 
+    <resultMap id="oaObservation" type="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$OaObservationRow">
+        <constructor>
+            <arg name="rawAttendanceFactId" column="raw_attendance_fact_id" javaType="java.lang.String"/>
+            <arg name="sourceVersion" column="source_version" javaType="java.lang.String"/>
+            <arg name="canonicalPayloadDigest" column="canonical_payload_digest" javaType="java.lang.String"/>
+            <arg name="receivedAt" column="received_at" javaType="java.time.Instant"/>
+            <arg name="knowledgeRank" column="knowledge_rank" javaType="java.lang.Long"/>
+            <arg name="oaAttendanceDocumentId" column="oa_attendance_document_id" javaType="java.lang.String"/>
+            <arg name="documentType" column="document_type" javaType="java.lang.String"/>
+            <arg name="sourceStatus" column="source_status" javaType="java.lang.String"/>
+            <arg name="startInstant" column="start_instant" javaType="java.time.Instant"/>
+            <arg name="endInstant" column="end_instant" javaType="java.time.Instant"/>
+            <arg name="employeeId" column="employee_id" javaType="java.lang.String"/>
+            <arg name="employmentPeriodId" column="employment_period_id" javaType="java.lang.String"/>
+            <arg name="resolverSnapshotDigest" column="resolver_snapshot_digest" javaType="java.lang.String"/>
+            <arg name="overtimeType" column="overtime_type" javaType="com.szsemicon.hr.attendance.domain.OvertimeType"/>
+            <arg name="leaveType" column="leave_type" javaType="com.szsemicon.hr.attendance.domain.LeaveType"/>
+            <arg name="leaveSerial" column="leave_serial" javaType="java.lang.String"/>
+            <arg name="originalLeaveSerial" column="original_leave_serial" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <!-- The source job/watermark is locked before this read. Include quarantined
+         observations so edits cannot replay an older accepted source identity. -->
+    <select id="findLatestOaObservation" resultMap="oaObservation">
+        SELECT raw.raw_attendance_fact_id, raw.source_version, raw.canonical_payload_digest,
+               raw.received_at, oa.knowledge_rank, oa.oa_attendance_document_id,
+               oa.document_type, oa.source_status,
+               COALESCE(raw.interval_start, raw.source_instant) AS start_instant,
+               COALESCE(raw.interval_end, raw.source_instant) AS end_instant,
+               matched.employee_id, matched.employment_period_id, matched.resolver_snapshot_digest,
+               context.overtime_type, oa.leave_type, oa.leave_serial, oa.original_leave_serial
+        FROM raw_attendance_fact raw
+        LEFT JOIN normalized_attendance_record normalized
+          ON normalized.raw_attendance_fact_id = raw.raw_attendance_fact_id
+         AND normalized.normalization_revision = (
+             SELECT MAX(revision.normalization_revision) FROM normalized_attendance_record revision
+             WHERE revision.raw_attendance_fact_id = raw.raw_attendance_fact_id)
+        LEFT JOIN oa_attendance_document oa
+          ON oa.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id = oa.oa_attendance_document_id
+        LEFT JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        WHERE raw.attendance_source_id = #{sourceId}
+          AND raw.source_business_key = #{sourceBusinessKey}
+          AND raw.fact_kind = 'OA_DOCUMENT'
+          <if test="resolvedOnly">AND oa.oa_attendance_document_id IS NOT NULL AND matched.match_status = 'MATCHED'</if>
+        ORDER BY
+        <if test="!resolvedOnly">raw.received_at DESC,</if>
+        oa.knowledge_rank DESC, oa.created_at DESC, oa.oa_attendance_document_id DESC,
+        raw.received_at DESC, raw.raw_attendance_fact_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findOaBusinessKeysOverlapping" resultType="string">
+        SELECT source_business_key FROM (
+            SELECT source_business_key FROM raw_attendance_fact
+            WHERE attendance_source_id = #{sourceId} AND fact_kind = 'OA_DOCUMENT'
+              AND ((interval_start &lt; #{toExclusive} AND interval_end &gt; #{fromInclusive})
+                OR (source_instant &gt;= #{fromInclusive} AND source_instant &lt; #{toExclusive}))
+            UNION
+            <!-- Preserve historical links, not only today's source join: a
+                 correction can move, lose its serial, or be revoked while its
+                 last accepted version still amends a leave in this window. -->
+            SELECT amendment_raw.source_business_key
+            FROM raw_attendance_fact original_raw
+            JOIN normalized_attendance_record original_normalized
+              ON original_normalized.raw_attendance_fact_id = original_raw.raw_attendance_fact_id
+            JOIN oa_attendance_document original
+              ON original.normalized_attendance_record_id = original_normalized.normalized_attendance_record_id
+             AND original.attendance_source_id = #{sourceId}
+             AND original.document_type = 'LEAVE'
+            JOIN employee_match_decision original_match
+              ON original_match.normalized_attendance_record_id = original_normalized.normalized_attendance_record_id
+             AND original_match.match_status = 'MATCHED'
+            JOIN oa_attendance_document amendment
+              ON amendment.attendance_source_id = original.attendance_source_id
+             AND amendment.document_type = 'LEAVE_REVOCATION'
+            JOIN normalized_attendance_record amendment_normalized
+              ON amendment_normalized.normalized_attendance_record_id = amendment.normalized_attendance_record_id
+            JOIN raw_attendance_fact amendment_raw
+              ON amendment_raw.raw_attendance_fact_id = amendment_normalized.raw_attendance_fact_id
+             AND amendment_raw.attendance_source_id = #{sourceId}
+             AND amendment_raw.fact_kind = 'OA_DOCUMENT'
+            JOIN employee_match_decision amendment_match
+              ON amendment_match.normalized_attendance_record_id = amendment_normalized.normalized_attendance_record_id
+             AND amendment_match.match_status = 'MATCHED'
+             AND amendment_match.employee_id = original_match.employee_id
+            WHERE original_raw.attendance_source_id = #{sourceId}
+              AND original_raw.fact_kind = 'OA_DOCUMENT'
+              AND original_raw.interval_start &lt; #{toExclusive}
+              AND original_raw.interval_end &gt; #{fromInclusive}
+              AND (
+                  (NULLIF(TRIM(amendment.original_leave_serial), '') IS NOT NULL
+                   AND TRIM(original.leave_serial) = TRIM(amendment.original_leave_serial))
+                  OR (NULLIF(TRIM(amendment.original_leave_serial), '') IS NULL
+                      AND COALESCE(amendment_raw.interval_start, amendment_raw.source_instant)
+                            &gt;= original_raw.interval_start
+                      AND COALESCE(amendment_raw.interval_end, amendment_raw.source_instant)
+                            &lt;= original_raw.interval_end)
+              )
+        ) dependencies
+        ORDER BY source_business_key
+    </select>
+
+    <!-- Proof input only: retain every raw version and normalization revision.
+         INNER/latest-only joins would conceal an unresolved newer observation. -->
+    <select id="findMissingOaKeyScopeRows"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$MissingOaKeyScopeRow">
+        SELECT raw.source_business_key AS sourceBusinessKey,
+               raw.raw_attendance_fact_id AS rawAttendanceFactId,
+               raw.fact_kind AS factKind,
+               normalized.normalized_attendance_record_id AS normalizedAttendanceRecordId,
+               normalized.validation_status AS validationStatus,
+               normalized.record_kind AS recordKind,
+               document.oa_attendance_document_id AS oaAttendanceDocumentId,
+               document.document_type AS documentType,
+               CASE WHEN document.attendance_source_id = raw.attendance_source_id
+                          AND document.source_business_key = raw.source_business_key
+                          AND document.source_version = raw.source_version
+                    THEN TRUE ELSE FALSE END AS documentIdentityConsistent,
+               matched.match_status AS matchStatus,
+               employee.employee_id AS employeeId,
+               employee.company_id AS employeeCompanyId,
+               employee.employee_number AS employeeNumber,
+               employee_history.employee_number AS historicalEmployeeNumber,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM attendance_report_oa_fact prior_fact
+                   JOIN oa_attendance_document prior_document
+                     ON prior_document.oa_attendance_document_id = prior_fact.oa_attendance_document_id
+                   WHERE prior_fact.company_id = #{targetCompanyId}
+                     AND prior_document.attendance_source_id = raw.attendance_source_id
+                     AND prior_document.source_business_key = raw.source_business_key
+               ) OR EXISTS (
+                   SELECT 1 FROM evidence_link linked
+                   WHERE linked.raw_attendance_fact_id = raw.raw_attendance_fact_id
+               ) THEN TRUE ELSE FALSE END AS hasTargetReportFact
+        FROM raw_attendance_fact raw
+        LEFT JOIN normalized_attendance_record normalized
+          ON normalized.raw_attendance_fact_id = raw.raw_attendance_fact_id
+        LEFT JOIN oa_attendance_document document
+          ON document.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN employee employee ON employee.employee_id = matched.employee_id
+        LEFT JOIN employee_version employee_history ON employee_history.employee_id = employee.employee_id
+        WHERE raw.attendance_source_id = #{sourceId}
+          AND raw.source_business_key IN
+          <foreach collection="sourceBusinessKeys" item="key" open="(" separator="," close=")">
+              #{key}
+          </foreach>
+        ORDER BY raw.source_business_key, raw.raw_attendance_fact_id,
+                 normalized.normalized_attendance_record_id, employee_history.employee_version_id
+    </select>
+
+    <!-- Employee-window proof still examines every version. Only the historical
+         report owner check narrows; any independently linked punch stays strict. -->
+    <select id="findMissingOaKeyEmployeeScopeRows"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$MissingOaKeyScopeRow">
+        SELECT raw.source_business_key AS sourceBusinessKey,
+               raw.raw_attendance_fact_id AS rawAttendanceFactId,
+               raw.fact_kind AS factKind,
+               normalized.normalized_attendance_record_id AS normalizedAttendanceRecordId,
+               normalized.validation_status AS validationStatus,
+               normalized.record_kind AS recordKind,
+               document.oa_attendance_document_id AS oaAttendanceDocumentId,
+               document.document_type AS documentType,
+               CASE WHEN document.attendance_source_id = raw.attendance_source_id
+                          AND document.source_business_key = raw.source_business_key
+                          AND document.source_version = raw.source_version
+                    THEN TRUE ELSE FALSE END AS documentIdentityConsistent,
+               matched.match_status AS matchStatus,
+               employee.employee_id AS employeeId,
+               employee.company_id AS employeeCompanyId,
+               employee.employee_number AS employeeNumber,
+               employee_history.employee_number AS historicalEmployeeNumber,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM attendance_report_oa_fact prior_fact
+                   JOIN oa_attendance_document prior_document
+                     ON prior_document.oa_attendance_document_id = prior_fact.oa_attendance_document_id
+                   WHERE prior_fact.company_id = #{targetCompanyId}
+                     <choose>
+                         <when test="targetEmployeeIds != null and !targetEmployeeIds.isEmpty()">
+                             AND prior_fact.employee_id IN
+                             <foreach collection="targetEmployeeIds" item="employeeId" open="(" separator="," close=")">
+                                 #{employeeId}
+                             </foreach>
+                         </when>
+                         <otherwise>AND 1 = 0</otherwise>
+                     </choose>
+                     AND prior_document.attendance_source_id = raw.attendance_source_id
+                     AND prior_document.source_business_key = raw.source_business_key
+               ) OR EXISTS (
+                   SELECT 1 FROM evidence_link linked
+                   WHERE linked.raw_attendance_fact_id = raw.raw_attendance_fact_id
+               ) THEN TRUE ELSE FALSE END AS hasTargetReportFact
+        FROM raw_attendance_fact raw
+        LEFT JOIN normalized_attendance_record normalized
+          ON normalized.raw_attendance_fact_id = raw.raw_attendance_fact_id
+        LEFT JOIN oa_attendance_document document
+          ON document.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN employee employee ON employee.employee_id = matched.employee_id
+        LEFT JOIN employee_version employee_history ON employee_history.employee_id = employee.employee_id
+        WHERE raw.attendance_source_id = #{sourceId}
+          <choose>
+              <when test="targetEmployeeIds != null and !targetEmployeeIds.isEmpty()
+                          and sourceBusinessKeys != null and !sourceBusinessKeys.isEmpty()">
+                  AND raw.source_business_key IN
+                  <foreach collection="sourceBusinessKeys" item="key" open="(" separator="," close=")">
+                      #{key}
+                  </foreach>
+              </when>
+              <otherwise>AND 1 = 0</otherwise>
+          </choose>
+        ORDER BY raw.source_business_key, raw.raw_attendance_fact_id,
+                 normalized.normalized_attendance_record_id, employee_history.employee_version_id
+    </select>
+
+    <!-- Match all four calculation readers' precedence BEFORE inspecting the
+         activation context or an exact audited report exclusion. This metadata
+         alone is not proof: Java also validates every raw/normalization/identity
+         history row from findMissingOaKeyEmployeeScopeRows. -->
+    <select id="findMissingOaCurrentEligibilityRows"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$MissingOaCurrentEligibilityRow">
+        <bind name="companyEligibilityScope" value="false"/>
+        <include refid="missingOaCurrentEligibilityQuery"/>
+    </select>
+
+    <select id="findMissingOaCompanyCurrentEligibilityRows"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$MissingOaCompanyCurrentEligibilityRow">
+        <bind name="companyEligibilityScope" value="true"/>
+        <include refid="missingOaCurrentEligibilityQuery"/>
+    </select>
+
+    <sql id="missingOaCurrentEligibilityQuery">
+        WITH ranked_document AS (
+            SELECT document.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY document.attendance_source_id, document.source_business_key
+                       ORDER BY document.knowledge_rank DESC, document.created_at DESC,
+                                document.oa_attendance_document_id DESC
+                   ) AS version_rank
+            FROM oa_attendance_document document
+            WHERE document.attendance_source_id = #{sourceId}
+              AND document.created_at &lt;= #{dataAsOf}
+              <choose>
+                  <when test="(companyEligibilityScope or (targetEmployeeIds != null and !targetEmployeeIds.isEmpty()))
+                              and sourceBusinessKeys != null and !sourceBusinessKeys.isEmpty()">
+                      AND document.source_business_key IN
+                      <foreach collection="sourceBusinessKeys" item="key" open="(" separator="," close=")">
+                          #{key}
+                      </foreach>
+                  </when>
+                  <otherwise>AND 1 = 0</otherwise>
+              </choose>
+        )
+        SELECT latest.source_business_key AS sourceBusinessKey,
+               latest.oa_attendance_document_id AS oaAttendanceDocumentId,
+               latest.document_type AS documentType,
+               latest.created_at AS createdAt,
+               context.activation_decision AS activationDecision,
+               context.overtime_type AS overtimeType,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM raw_attendance_fact raw
+                   JOIN evidence_link linked ON linked.raw_attendance_fact_id = raw.raw_attendance_fact_id
+                   WHERE raw.attendance_source_id = latest.attendance_source_id
+                     AND raw.source_business_key = latest.source_business_key
+               ) THEN TRUE ELSE FALSE END AS hasIndependentEvidenceLink,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM attendance_report_oa_fact prior_fact
+                   JOIN oa_attendance_document prior_document
+                     ON prior_document.oa_attendance_document_id = prior_fact.oa_attendance_document_id
+                   WHERE prior_document.attendance_source_id = latest.attendance_source_id
+                     AND prior_document.source_business_key = latest.source_business_key
+                     AND (prior_fact.company_id IS NULL OR prior_fact.company_id != #{targetCompanyId}
+                          OR prior_fact.employee_id IS NULL OR matched.employee_id IS NULL
+                          OR prior_fact.employee_id != matched.employee_id)
+               ) THEN TRUE ELSE FALSE END AS hasConflictingReportIdentity,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM attendance_report_oa_evidence_exclusion excluded
+                   WHERE excluded.company_id = #{targetCompanyId}
+                     AND excluded.employee_id = matched.employee_id
+                     AND excluded.attendance_source_id = latest.attendance_source_id
+                     AND excluded.source_business_key = latest.source_business_key
+                     AND excluded.source_version = latest.source_version
+                     AND excluded.oa_attendance_document_id = latest.oa_attendance_document_id
+                     AND excluded.knowledge_at &lt;= #{dataAsOf}
+                     AND (excluded.reversed_at IS NULL OR excluded.reversed_at &gt; #{dataAsOf})
+               ) THEN TRUE ELSE FALSE END AS hasApplicableReportExclusion,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM oa_attendance_document future_document
+                   WHERE future_document.attendance_source_id = latest.attendance_source_id
+                     AND future_document.source_business_key = latest.source_business_key
+                     AND future_document.created_at &gt; #{dataAsOf}
+               ) THEN TRUE ELSE FALSE END AS hasFutureDocument,
+               CASE WHEN context.activation_decision = 'ACTIVATED' AND context.overtime_type IS NOT NULL
+                    THEN TRUE ELSE FALSE END AS hasConsumableOvertimeContext
+        <if test="companyEligibilityScope">
+             , CASE WHEN latest.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+                         OR (latest.source_status = 'UNKNOWN' AND latest.source_version REGEXP
+                             '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$')
+                    THEN TRUE
+                    WHEN latest.source_status IN ('REVOKED', 'REJECTED', 'DRAFT') THEN FALSE
+                    ELSE NULL END AS hasConsumableSourceStatus
+             , CASE WHEN latest.document_type = 'LEAVE' AND latest.source_status = 'DRAFT'
+                         AND NOT EXISTS (
+                             SELECT 1 FROM oa_attendance_document history_document
+                             WHERE history_document.attendance_source_id = latest.attendance_source_id
+                               AND history_document.source_business_key = latest.source_business_key
+                               AND (history_document.source_status IS NULL OR history_document.source_status != 'DRAFT'
+                                    OR history_document.document_type IS NULL OR history_document.document_type != 'LEAVE')
+                         ) THEN TRUE ELSE FALSE END AS hasOnlyExplicitDraftLeaveHistory
+             , CASE WHEN EXISTS (
+                   SELECT 1 FROM attendance_report_oa_fact any_fact
+                   JOIN oa_attendance_document fact_document
+                     ON fact_document.oa_attendance_document_id = any_fact.oa_attendance_document_id
+                   WHERE fact_document.attendance_source_id = latest.attendance_source_id
+                     AND fact_document.source_business_key = latest.source_business_key
+               ) THEN TRUE ELSE FALSE END AS hasAnyReportFact
+        </if>
+        FROM ranked_document latest
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id = latest.oa_attendance_document_id
+        LEFT JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id = latest.normalized_attendance_record_id
+        WHERE latest.version_rank = 1
+          AND latest.document_type IN ('OVERTIME', 'PUNCH_CORRECTION'
+              <if test="companyEligibilityScope">, 'LEAVE'</if>)
+        ORDER BY latest.source_business_key
+    </sql>
+
+    <select id="findReportEmployeeNumbers" resultType="string">
+        SELECT DISTINCT scoped.employee_number
+        FROM (
+            SELECT employee_id, employee_number FROM employee WHERE company_id = #{companyId}
+            UNION ALL
+            SELECT history.employee_id, history.employee_number FROM employee_version history
+            JOIN employee ON employee.employee_id = history.employee_id
+            WHERE employee.company_id = #{companyId}
+        ) scoped
+        <choose>
+            <when test="targetEmployeeIds != null and !targetEmployeeIds.isEmpty()">
+                <bind name="targetEmployeeCount" value="targetEmployeeIds.size()"/>
+                WHERE scoped.employee_id IN
+                <foreach collection="targetEmployeeIds" item="employeeId" open="(" separator="," close=")">
+                    #{employeeId}
+                </foreach>
+                AND (SELECT COUNT(*) FROM employee membership
+                     WHERE membership.company_id = #{companyId} AND membership.employee_id IN
+                     <foreach collection="targetEmployeeIds" item="employeeId" open="(" separator="," close=")">
+                         #{employeeId}
+                     </foreach>
+                     AND NULLIF(TRIM(membership.employee_number), '') IS NOT NULL
+                     AND EXISTS (SELECT 1 FROM employee_version known_history
+                                 WHERE known_history.employee_id = membership.employee_id)
+                     AND NOT EXISTS (SELECT 1 FROM employee_version unknown_number
+                                     WHERE unknown_number.employee_id = membership.employee_id
+                                       AND NULLIF(TRIM(unknown_number.employee_number), '') IS NULL)
+                ) = #{targetEmployeeCount}
+            </when>
+            <otherwise>WHERE 1 = 0</otherwise>
+        </choose>
+    </select>
+
+    <!-- Fail closed if historical amendment identity/serial is unavailable. -->
+    <select id="findUnparseableLeaveScopeRows"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$UnparseableLeaveScopeRow">
+        SELECT raw.source_business_key AS sourceBusinessKey,
+               raw.raw_attendance_fact_id AS rawAttendanceFactId,
+               raw.fact_kind AS factKind,
+               normalized.normalized_attendance_record_id AS normalizedAttendanceRecordId,
+               normalized.validation_status AS validationStatus,
+               normalized.record_kind AS recordKind,
+               document.oa_attendance_document_id AS oaAttendanceDocumentId,
+               document.document_type AS documentType,
+               CASE WHEN document.attendance_source_id = raw.attendance_source_id
+                          AND document.source_business_key = raw.source_business_key
+                          AND document.source_version = raw.source_version
+                    THEN TRUE ELSE FALSE END AS documentIdentityConsistent,
+               matched.match_status AS matchStatus,
+               employee.employee_id AS employeeId,
+               employee.company_id AS employeeCompanyId,
+               employee.employee_number AS employeeNumber,
+               employee_history.employee_number AS historicalEmployeeNumber,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM attendance_report_oa_fact prior_fact
+                   JOIN oa_attendance_document prior_document
+                     ON prior_document.oa_attendance_document_id = prior_fact.oa_attendance_document_id
+                   WHERE prior_fact.company_id = #{targetCompanyId}
+                     AND prior_document.attendance_source_id = raw.attendance_source_id
+                     AND prior_document.source_business_key = raw.source_business_key
+               ) OR EXISTS (
+                   SELECT 1 FROM evidence_link linked
+                   WHERE linked.raw_attendance_fact_id = raw.raw_attendance_fact_id
+               ) THEN TRUE ELSE FALSE END AS hasTargetReportFact,
+               raw.source_version AS sourceVersion,
+               document.source_status AS sourceStatus,
+               document.leave_serial AS leaveSerial,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM oa_attendance_document amendment
+                   WHERE amendment.attendance_source_id = raw.attendance_source_id
+                     AND amendment.document_type = 'LEAVE_REVOCATION'
+                     AND (NULLIF(TRIM(amendment.original_leave_serial), '') IS NULL
+                          OR TRIM(amendment.original_leave_serial) = TRIM(document.leave_serial))
+               ) OR EXISTS (
+                   SELECT 1 FROM raw_attendance_fact amendment_raw
+                   LEFT JOIN normalized_attendance_record amendment_normalized
+                     ON amendment_normalized.raw_attendance_fact_id = amendment_raw.raw_attendance_fact_id
+                   LEFT JOIN oa_attendance_document amendment_document
+                     ON amendment_document.normalized_attendance_record_id = amendment_normalized.normalized_attendance_record_id
+                    AND amendment_document.document_type = 'LEAVE_REVOCATION'
+                    AND amendment_document.attendance_source_id = amendment_raw.attendance_source_id
+                    AND amendment_document.source_business_key = amendment_raw.source_business_key
+                    AND amendment_document.source_version = amendment_raw.source_version
+                   WHERE amendment_raw.attendance_source_id = raw.attendance_source_id
+                     AND amendment_raw.source_business_key LIKE 'LEAVE_REVOCATION:%'
+                     AND amendment_document.oa_attendance_document_id IS NULL
+               ) THEN TRUE ELSE FALSE END AS hasRelatedRevocation
+        FROM raw_attendance_fact raw
+        LEFT JOIN normalized_attendance_record normalized
+          ON normalized.raw_attendance_fact_id = raw.raw_attendance_fact_id
+        LEFT JOIN oa_attendance_document document
+          ON document.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN employee employee ON employee.employee_id = matched.employee_id
+        LEFT JOIN employee_version employee_history ON employee_history.employee_id = employee.employee_id
+        WHERE raw.attendance_source_id = #{sourceId}
+          AND raw.source_business_key IN
+          <foreach collection="sourceBusinessKeys" item="key" open="(" separator="," close=")">
+              #{key}
+          </foreach>
+        ORDER BY raw.source_business_key, raw.raw_attendance_fact_id,
+                 normalized.normalized_attendance_record_id, employee_history.employee_version_id
+    </select>
+
+    <!-- Explicit employee-window draft proof: preserve all historical identity and
+         amendment checks; only the report-owner dependency is employee-scoped. -->
+    <select id="findUnparseableLeaveEmployeeScopeRows"
+            resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$UnparseableLeaveScopeRow">
+        SELECT raw.source_business_key AS sourceBusinessKey,
+               raw.raw_attendance_fact_id AS rawAttendanceFactId,
+               raw.fact_kind AS factKind,
+               normalized.normalized_attendance_record_id AS normalizedAttendanceRecordId,
+               normalized.validation_status AS validationStatus,
+               normalized.record_kind AS recordKind,
+               document.oa_attendance_document_id AS oaAttendanceDocumentId,
+               document.document_type AS documentType,
+               CASE WHEN document.attendance_source_id = raw.attendance_source_id
+                          AND document.source_business_key = raw.source_business_key
+                          AND document.source_version = raw.source_version
+                    THEN TRUE ELSE FALSE END AS documentIdentityConsistent,
+               matched.match_status AS matchStatus,
+               employee.employee_id AS employeeId,
+               employee.company_id AS employeeCompanyId,
+               employee.employee_number AS employeeNumber,
+               employee_history.employee_number AS historicalEmployeeNumber,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM attendance_report_oa_fact prior_fact
+                   JOIN oa_attendance_document prior_document
+                     ON prior_document.oa_attendance_document_id = prior_fact.oa_attendance_document_id
+                   WHERE prior_fact.company_id = #{targetCompanyId}
+                     <choose>
+                         <when test="targetEmployeeIds != null and !targetEmployeeIds.isEmpty()">
+                             AND prior_fact.employee_id IN
+                             <foreach collection="targetEmployeeIds" item="employeeId" open="(" separator="," close=")">
+                                 #{employeeId}
+                             </foreach>
+                         </when>
+                         <otherwise>AND 1 = 0</otherwise>
+                     </choose>
+                     AND prior_document.attendance_source_id = raw.attendance_source_id
+                     AND prior_document.source_business_key = raw.source_business_key
+               ) OR EXISTS (
+                   SELECT 1 FROM evidence_link linked
+                   WHERE linked.raw_attendance_fact_id = raw.raw_attendance_fact_id
+               ) THEN TRUE ELSE FALSE END AS hasTargetReportFact,
+               raw.source_version AS sourceVersion,
+               document.source_status AS sourceStatus,
+               document.leave_serial AS leaveSerial,
+               CASE WHEN EXISTS (
+                   SELECT 1 FROM oa_attendance_document amendment
+                   WHERE amendment.attendance_source_id = raw.attendance_source_id
+                     AND amendment.document_type = 'LEAVE_REVOCATION'
+                     AND (NULLIF(TRIM(amendment.original_leave_serial), '') IS NULL
+                          OR TRIM(amendment.original_leave_serial) = TRIM(document.leave_serial))
+               ) OR EXISTS (
+                   SELECT 1 FROM raw_attendance_fact amendment_raw
+                   LEFT JOIN normalized_attendance_record amendment_normalized
+                     ON amendment_normalized.raw_attendance_fact_id = amendment_raw.raw_attendance_fact_id
+                   LEFT JOIN oa_attendance_document amendment_document
+                     ON amendment_document.normalized_attendance_record_id = amendment_normalized.normalized_attendance_record_id
+                    AND amendment_document.document_type = 'LEAVE_REVOCATION'
+                    AND amendment_document.attendance_source_id = amendment_raw.attendance_source_id
+                    AND amendment_document.source_business_key = amendment_raw.source_business_key
+                    AND amendment_document.source_version = amendment_raw.source_version
+                   WHERE amendment_raw.attendance_source_id = raw.attendance_source_id
+                     AND amendment_raw.source_business_key LIKE 'LEAVE_REVOCATION:%'
+                     AND amendment_document.oa_attendance_document_id IS NULL
+               ) THEN TRUE ELSE FALSE END AS hasRelatedRevocation
+        FROM raw_attendance_fact raw
+        LEFT JOIN normalized_attendance_record normalized
+          ON normalized.raw_attendance_fact_id = raw.raw_attendance_fact_id
+        LEFT JOIN oa_attendance_document document
+          ON document.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+        LEFT JOIN employee employee ON employee.employee_id = matched.employee_id
+        LEFT JOIN employee_version employee_history ON employee_history.employee_id = employee.employee_id
+        WHERE raw.attendance_source_id = #{sourceId}
+          <choose>
+              <when test="targetEmployeeIds != null and !targetEmployeeIds.isEmpty()
+                          and sourceBusinessKeys != null and !sourceBusinessKeys.isEmpty()">
+                  AND raw.source_business_key IN
+                  <foreach collection="sourceBusinessKeys" item="key" open="(" separator="," close=")">
+                      #{key}
+                  </foreach>
+              </when>
+              <otherwise>AND 1 = 0</otherwise>
+          </choose>
+        ORDER BY raw.source_business_key, raw.raw_attendance_fact_id,
+                 normalized.normalized_attendance_record_id, employee_history.employee_version_id
+    </select>
+
+    <select id="findCompanyEmployeeNumbers" resultType="string">
+        SELECT employee_number FROM employee WHERE company_id = #{companyId}
+        UNION
+        SELECT history.employee_number FROM employee_version history
+        JOIN employee ON employee.employee_id = history.employee_id
+        WHERE employee.company_id = #{companyId}
+    </select>
+
     <select id="findReplayStateBySourceIdentity"
             resultType="com.szsemicon.hr.evidenceingestion.application.EvidenceRows$ReplayStateRow">
         SELECT raw.raw_attendance_fact_id,
@@ -124,6 +659,37 @@
         )
     </insert>
 
+    <insert id="insertRawFacts">
+        INSERT INTO raw_attendance_fact (
+            raw_attendance_fact_id, attendance_source_id, company_id,
+            fact_kind, source_business_key, source_version,
+            stable_fingerprint, source_time_text, source_time_zone,
+            source_instant, interval_start, interval_end,
+            verification_method, location_summary,
+            longitude_raw, latitude_raw, source_coordinate_system,
+            coordinate_validation_status, coordinate_conversion_status,
+            map_longitude, map_latitude, map_coordinate_system,
+            canonical_payload_digest, raw_object_ref, request_id,
+            received_at, created_by
+        ) VALUES
+        <foreach collection="rows" item="r" separator=",">
+        (
+            #{r.rawAttendanceFactId}, #{r.attendanceSourceId}, #{r.companyId},
+            #{r.factKind}, #{r.sourceBusinessKey}, #{r.sourceVersion},
+            #{r.stableFingerprint}, #{r.sourceTimeText}, #{r.sourceTimeZone},
+            #{r.sourceInstant}, #{r.intervalStart}, #{r.intervalEnd},
+            #{r.verificationMethod}, #{r.locationSummary},
+            #{r.longitudeRaw}, #{r.latitudeRaw},
+            COALESCE(#{r.sourceCoordinateSystem}, 'UNKNOWN'),
+            COALESCE(#{r.coordinateValidationStatus}, 'MISSING'),
+            COALESCE(#{r.coordinateConversionStatus}, 'NOT_APPLICABLE'),
+            #{r.mapLongitude}, #{r.mapLatitude}, #{r.mapCoordinateSystem},
+            #{r.canonicalPayloadDigest}, #{r.rawObjectRef}, #{r.requestId},
+            #{r.receivedAt}, #{r.createdBy}
+        )
+        </foreach>
+    </insert>
+
     <insert id="insertNormalizedRecord">
         INSERT INTO normalized_attendance_record (
             normalized_attendance_record_id, raw_attendance_fact_id,
@@ -140,6 +706,25 @@
         )
     </insert>
 
+    <insert id="insertNormalizedRecords">
+        INSERT INTO normalized_attendance_record (
+            normalized_attendance_record_id, raw_attendance_fact_id,
+            normalization_revision, schema_version, record_kind,
+            normalized_direction, point_instant, interval_start, interval_end,
+            validation_status, issue_code, canonical_digest,
+            supersedes_normalized_record_id, created_at
+        ) VALUES
+        <foreach collection="rows" item="r" separator=",">
+        (
+            #{r.normalizedAttendanceRecordId}, #{r.rawAttendanceFactId},
+            #{r.normalizationRevision}, #{r.schemaVersion}, #{r.recordKind},
+            #{r.normalizedDirection}, #{r.pointInstant}, #{r.intervalStart},
+            #{r.intervalEnd}, #{r.validationStatus}, #{r.issueCode},
+            #{r.canonicalDigest}, #{r.supersedesNormalizedRecordId}, #{r.createdAt}
+        )
+        </foreach>
+    </insert>
+
     <insert id="insertMatchDecision">
         INSERT INTO employee_match_decision (
             employee_match_decision_id, normalized_attendance_record_id,
@@ -151,6 +736,22 @@
             #{employmentPeriodId}, #{devicePersonBindingId},
             #{resolverSnapshotDigest}, #{createdAt}
         )
+    </insert>
+
+    <insert id="insertMatchDecisions">
+        INSERT INTO employee_match_decision (
+            employee_match_decision_id, normalized_attendance_record_id,
+            match_status, match_reason, employee_id, employment_period_id,
+            device_person_binding_id, resolver_snapshot_digest, created_at
+        ) VALUES
+        <foreach collection="rows" item="r" separator=",">
+        (
+            #{r.employeeMatchDecisionId}, #{r.normalizedAttendanceRecordId},
+            #{r.matchStatus}, #{r.matchReason}, #{r.employeeId},
+            #{r.employmentPeriodId}, #{r.devicePersonBindingId},
+            #{r.resolverSnapshotDigest}, #{r.createdAt}
+        )
+        </foreach>
     </insert>
 
     <select id="findExactEvents"
@@ -348,8 +949,8 @@
     </select>
 
     <!-- Insert one row into oa_attendance_document.
-         knowledge_rank uses the sequence generated by the INSERT itself
-         via the current max + 1 so that newer versions are always higher. -->
+         The caller holds the source watermark lock and assigns a strictly
+         increasing knowledge_rank for each source business key. -->
     <insert id="insertOaAttendanceDocument">
         INSERT INTO oa_attendance_document (
             oa_attendance_document_id,

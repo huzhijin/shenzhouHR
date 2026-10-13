@@ -175,6 +175,59 @@ class XlsxAttendanceReportExportEncoderTest {
     }
 
     @Test
+    void workHoursExportsVoluntaryOvertimeAlignedWithItsHeader() throws Exception {
+        List<ReportField> fields = List.of(
+                ReportField.EMPLOYEE_NAME,
+                ReportField.ORGANIZATION,
+                ReportField.SCHEDULED_HOURS,
+                ReportField.PAID_OVERTIME_HOURS,
+                ReportField.VOLUNTARY_OVERTIME_HOURS,
+                ReportField.LEAVE_HOURS,
+                ReportField.ANNUAL_LEAVE_HOURS,
+                ReportField.COMPENSATORY_OVERTIME_HOURS,
+                ReportField.TIME_OFF_HOURS,
+                ReportField.ACTUAL_WORK_HOURS);
+        var dataSet = new ReportDataSet(
+                ReportType.WORK_HOURS,
+                "个人月度工时",
+                fields.stream().map(ReportColumn::new).toList(),
+                fields,
+                List.of(new ReportRow(
+                        "row-1",
+                        Map.of(
+                                ReportField.EMPLOYEE_NAME, "陈思远",
+                                ReportField.ORGANIZATION, "制造中心",
+                                ReportField.SCHEDULED_HOURS, "176.00",
+                                ReportField.PAID_OVERTIME_HOURS, "8.00",
+                                ReportField.VOLUNTARY_OVERTIME_HOURS, "1.50",
+                                ReportField.LEAVE_HOURS, "8.00",
+                                ReportField.ANNUAL_LEAVE_HOURS, "8.00",
+                                ReportField.COMPENSATORY_OVERTIME_HOURS, "4.00",
+                                ReportField.TIME_OFF_HOURS, "8.00",
+                                ReportField.ACTUAL_WORK_HOURS, "165.50"),
+                        null)),
+                "formula-v1");
+        var encoded = new XlsxAttendanceReportExportEncoder()
+                .encode(dataSet, contextFor(YearMonth.of(2026, 9), fields, null));
+        try (var workbook = new XSSFWorkbook(
+                new ByteArrayInputStream(encoded.content()))) {
+            var sheet = workbook.getSheetAt(0);
+            var header = sheet.getRow(0);
+            var body = sheet.getRow(1);
+            List<String> titles = new java.util.ArrayList<>();
+            for (int i = 0; i < header.getLastCellNum(); i++) {
+                titles.add(header.getCell(i).getStringCellValue());
+            }
+            assertThat(titles).containsExactly(
+                    "姓名", "部门", "9月应出勤工时", "加班时数", "义务加班",
+                    "事假+病假+其他假期", "年假", "加班换调休", "实际调休", "个人实际出勤工时");
+            assertThat(body.getLastCellNum()).isEqualTo(header.getLastCellNum());
+            assertThat(body.getCell(4).getStringCellValue()).isEqualTo("1.50");
+            assertThat(body.getCell(9).getStringCellValue()).isEqualTo("165.50");
+        }
+    }
+
+    @Test
     void monthMatrixPaintsAfternoonAnnualLeave() throws Exception {
         var date = java.time.LocalDate.of(2026, 6, 8);
         var matrix = new com.szsemicon.hr.reporting.application.AttendanceMonthMatrixPage(

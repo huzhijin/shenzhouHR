@@ -1,5 +1,6 @@
 package com.szsemicon.hr.reporting.application;
 
+import com.szsemicon.hr.reporting.infrastructure.export.QueryPageExcelEncoder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
@@ -13,19 +14,20 @@ import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.R
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
 import com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportQueryPageMapper;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.DailyCellRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.DirectoryEmployeeRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.ExceptionRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.LeaveStatAccountRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.MonthlyLeaveUsageRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.TimeAccountRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.DailyJournalRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.DailyMetricCellRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.FactQuery;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.FinanceOvertimeCellRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.LeaveSummaryRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.OaRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.PinRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows;
+import com.szsemicon.hr.reporting.application.QueryPageRows.DailyCellRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.DirectoryEmployeeRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.ExceptionRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.LeaveStatAccountRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.MonthlyLeaveUsageRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.TimeAccountRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.DailyJournalRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.DailyMetricCellRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.FactQuery;
+import com.szsemicon.hr.reporting.application.QueryPageRows.FinanceOvertimeCellRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.LeaveSummaryRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.OaRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.PinRow;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
@@ -37,9 +39,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -68,6 +76,7 @@ class AttendanceReportQueryPageServiceTest {
                 principals,
                 sources,
                 mapper,
+                new QueryPageExcelEncoder(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
         org.mockito.Mockito.lenient()
                 .when(principals.currentPrincipalId())
@@ -283,8 +292,9 @@ class AttendanceReportQueryPageServiceTest {
                 .containsExactly(2.5d, 0.0d);
     }
 
-    @Test
-    void leaveQueryDropsCoveringUnknownPersonalHeader() {
+    @ParameterizedTest
+    @ValueSource(strings = {"PENDING", "APPROVED"})
+    void leaveQueryKeepsIndependentLeaveAndContainedApprovedDocuments(String status) {
         authorize();
         when(mapper.findLatestPin(
                         COMPANY,
@@ -310,7 +320,7 @@ class AttendanceReportQueryPageServiceTest {
                                 Instant.parse("2026-08-31T00:30:00Z"),
                                 Instant.parse("2026-08-31T04:00:00Z"),
                                 210L,
-                                "UNKNOWN",
+                                status,
                                 "OA"),
                         new OaRow(
                                 "time-off",
@@ -343,10 +353,34 @@ class AttendanceReportQueryPageServiceTest {
 
         var page = service.query(command("leave", YearMonth.of(2026, 8)));
 
-        assertThat(page.rowCount()).isEqualTo(2);
+        assertThat(page.rowCount()).isEqualTo(3);
         assertThat(page.rows())
                 .extracting(row -> row.get("documentId"))
-                .containsExactlyInAnyOrder("time-off", "personal");
+                .containsExactlyInAnyOrder("covering", "time-off", "personal");
+    }
+
+    @Test
+    void leaveQueryDeduplicatesOnlyIdenticalCopiesOfTheSameDocument() {
+        authorize();
+        when(mapper.findLatestPin(COMPANY, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 1)))
+                .thenReturn(new PinRow("proj-1", "ARP1-" + "a".repeat(64), "OPEN", NOW, "[]"));
+        var original = new OaRow("same-document", "employee-1", "001", "员工", "org-1", "工程部",
+                "LEAVE", "PERSONAL", NOW, NOW.plusSeconds(10800), 120, "APPROVED", "OA");
+        var independent = new OaRow("different-document", "employee-1", "001", "员工", "org-1", "工程部",
+                "LEAVE", "PERSONAL", NOW, NOW.plusSeconds(10800), 120, "APPROVED", "OA");
+        when(mapper.listOaDocuments(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(original, original, independent));
+
+        var page = service.query(command("leave", YearMonth.of(2026, 8)));
+
+        assertThat(page.rowCount()).isEqualTo(2);
+        assertThat(page.rows()).extracting(row -> row.get("documentId"))
+                .containsExactly("same-document", "different-document");
+        assertThat(page.rows()).allSatisfy(row -> {
+            assertThat(row.get("startAt")).isEqualTo(NOW);
+            assertThat(row.get("endAt")).isEqualTo(NOW.plusSeconds(10800));
+            assertThat(row.get("hours")).isEqualTo(2.0d);
+        });
     }
 
     @Test
@@ -544,6 +578,52 @@ class AttendanceReportQueryPageServiceTest {
     }
 
     @Test
+    void financeOvertimeCellsKeepOccurrenceDayAndAuthorizedDepartmentScope() {
+        authorize();
+        when(mapper.findLatestPin(COMPANY,
+                        LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1)))
+                .thenReturn(new PinRow("proj-1", "ARP1-" + "a".repeat(64),
+                        "OPEN", NOW, "[]"));
+        when(mapper.listDescendantOrganizationIds("office"))
+                .thenReturn(List.of("office", "office-shanghai"));
+        when(mapper.countFinanceOvertimePeople(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(1L);
+        when(mapper.listFinanceOvertimePeople(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(new DirectoryEmployeeRow(
+                        "he-weihao", "SZST-HE", "何伟豪", "office-shanghai", "上海办事处")));
+        when(mapper.listFinanceOvertimeCells(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(new FinanceOvertimeCellRow(
+                        "he-weihao", LocalDate.of(2026, 9, 25), "PUBLIC_HOLIDAY",
+                        510L, 510L, 0L, 0L)));
+
+        var page = service.query(new AttendanceReportQueryPageService.QueryCommand(
+                "finance-overtime", COMPANY, "office", "he-weihao", "SZST-HE",
+                YearMonth.of(2026, 9), null, null, 0, 50,
+                null, null, null, null, null, null, 25,
+                null, null, null, null, null, null, null, null, null, null));
+
+        ArgumentCaptor<FactQuery> peopleQuery = ArgumentCaptor.forClass(FactQuery.class);
+        ArgumentCaptor<FactQuery> cellsQuery = ArgumentCaptor.forClass(FactQuery.class);
+        verify(mapper).listFinanceOvertimePeople(peopleQuery.capture());
+        verify(mapper).listFinanceOvertimeCells(cellsQuery.capture());
+        assertThat(cellsQuery.getValue()).usingRecursiveComparison()
+                .ignoringFields("employeeIds", "limit")
+                .isEqualTo(peopleQuery.getValue());
+        assertThat(cellsQuery.getValue().occurrenceDay()).isEqualTo(25);
+        assertThat(cellsQuery.getValue().organizationIds())
+                .containsExactly("office", "office-shanghai");
+        assertThat(cellsQuery.getValue().employeeIds()).containsExactly("he-weihao");
+        assertThat(cellsQuery.getValue().limit()).isEqualTo(1);
+        assertThat(page.rows().getFirst()).containsEntry("paidOvertimeHours", 8.5d)
+                .containsEntry("holidayOvertimeHours", 8.5d);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> days =
+                (List<Map<String, Object>>) page.rows().getFirst().get("days");
+        assertThat(days).hasSize(1);
+        assertThat(days.getFirst()).containsEntry("date", LocalDate.of(2026, 9, 25));
+    }
+
+    @Test
     void financeOvertimeAggregatesOneRowPerPersonAndKeepsHolidayOffWeekend() {
         authorize();
         when(mapper.findLatestPin(
@@ -579,7 +659,7 @@ class AttendanceReportQueryPageServiceTest {
                                 450L),
                         new FinanceOvertimeCellRow(
                                 "employee-1",
-                                LocalDate.of(2026, 8, 15),
+                                LocalDate.of(2026, 5, 1),
                                 "PUBLIC_HOLIDAY",
                                 480L)));
 
@@ -921,6 +1001,84 @@ class AttendanceReportQueryPageServiceTest {
                 .containsExactly(
                         LocalDate.of(2026, 8, 4),
                         LocalDate.of(2026, 8, 5));
+    }
+
+    @Test
+    void dailyJournalExemptWorkdayDoesNotInventMissingPunches() {
+        var row = journalDisplay(new DailyJournalRow(
+                "he-weihao", "SZST-HE", "何伟豪", "office-shanghai", "上海办事处",
+                LocalDate.of(2026, 9, 17), "WORKDAY", "白班", null,
+                null, null, 0, 0, 0, 0, 150L, 480, 0));
+
+        assertThat(row).containsEntry("onDuty", "")
+                .containsEntry("offDuty", "")
+                .containsEntry("remark", "")
+                .containsEntry("overtimeHours", 2.5d)
+                .containsEntry("absenceHours", "");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("journalPunchCases")
+    void dailyJournalRespectsCalculatedMissingPunchesAndLeaveCoverage(
+            String scenario, String dayType, long scheduled, long leave, int missing,
+            String first, String last, String expectedOn, String expectedOff,
+            String expectedRemark) {
+        var row = journalDisplay(new DailyJournalRow(
+                "employee-1", "TEST001", "员工", "org-1", "测试部门",
+                LocalDate.of(2026, 9, 17), dayType, "白班", leave > 0 ? "PERSONAL" : null,
+                first == null ? null : Instant.parse(first),
+                last == null ? null : Instant.parse(last),
+                0, 0, 0, leave, 150L, scheduled, missing));
+
+        assertThat(row).containsEntry("onDuty", expectedOn)
+                .containsEntry("offDuty", expectedOff)
+                .containsEntry("remark", expectedRemark)
+                .containsEntry("overtimeHours", 2.5d)
+                .containsEntry("leaveType", leave > 0 ? "事假" : "");
+    }
+
+    private static Stream<Arguments> journalPunchCases() {
+        String on = "2026-09-17T00:30:00Z";
+        String off = "2026-09-17T10:00:00Z";
+        return Stream.of(
+                Arguments.of("同卡但已计算无缺卡", "WORKDAY", 480, 0, 0,
+                        on, on, "08:30", "", ""),
+                Arguments.of("只有下班卡但已计算无缺卡", "WORKDAY", 480, 0, 0,
+                        null, off, "", "18:00", ""),
+                Arguments.of("普通工作日两次缺卡", "WORKDAY", 480, 0, 2,
+                        null, null, "漏刷", "漏刷", "漏刷"),
+                Arguments.of("普通工作日缺下班卡", "WORKDAY", 480, 0, 1,
+                        on, null, "08:30", "漏刷", "下班漏刷"),
+                Arguments.of("普通工作日缺上班卡", "WORKDAY", 480, 0, 1,
+                        null, off, "漏刷", "18:00", "上班漏刷"),
+                Arguments.of("同卡且已计算缺一次卡", "WORKDAY", 480, 0, 1,
+                        on, on, "08:30", "漏刷", "下班漏刷"),
+                Arguments.of("半天请假仍有真实缺卡", "WORKDAY", 480, 240, 1,
+                        on, null, "08:30", "漏刷", "下班漏刷"),
+                Arguments.of("半天请假无缺卡", "WORKDAY", 480, 240, 0,
+                        on, on, "08:30", "", ""),
+                Arguments.of("整班请假抑制历史缺卡", "WORKDAY", 480, 480, 2,
+                        null, null, "", "", ""),
+                Arguments.of("无排班休息日不造漏刷", "SUNDAY", 0, 0, 2,
+                        null, null, "", "", ""),
+                Arguments.of("休息日实际卡照常显示", "SUNDAY", 0, 0, 0,
+                        on, off, "08:30", "18:00", ""),
+                Arguments.of("休息日有排班保留真实缺卡", "SUNDAY", 480, 0, 1,
+                        on, null, "08:30", "漏刷", "下班漏刷"),
+                Arguments.of("无排班但有加班不等于缺卡", "WORKDAY", 0, 0, 0,
+                        null, null, "", "", ""));
+    }
+
+    private Map<String, Object> journalDisplay(DailyJournalRow row) {
+        authorize();
+        when(mapper.findLatestPin(COMPANY,
+                        LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1)))
+                .thenReturn(new PinRow("proj-1", "ARP1-" + "a".repeat(64),
+                        "OPEN", NOW, "[]"));
+        when(mapper.countDailyJournal(org.mockito.ArgumentMatchers.any())).thenReturn(1L);
+        when(mapper.listDailyJournal(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(row));
+        return service.query(command("daily-journal", YearMonth.of(2026, 9)))
+                .rows().getFirst();
     }
 
     @Test
@@ -1341,6 +1499,7 @@ class AttendanceReportQueryPageServiceTest {
 
         var page = service.query(command("missed-punch-stat", YearMonth.of(2026, 8)));
 
+        assertThat(page.rowCount()).isEqualTo(1);
         assertThat(page.rows()).extracting(row -> row.get("employeeNumber"))
                 .containsExactly("SZST0001");
         assertThat(page.rows().getFirst().get("sequence")).isEqualTo(1);
@@ -1385,8 +1544,8 @@ class AttendanceReportQueryPageServiceTest {
                         new java.math.BigDecimal("40.00"),
                         LocalDate.of(2020, 3, 1),
                         0)));
-        when(mapper.listMonthlyLeaveUsage(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(List.of(new MonthlyLeaveUsageRow("employee-1", 8, 0)));
+        when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
 
         var page = service.query(command("annual-leave-stat", YearMonth.of(2026, 8)));
 
@@ -1435,7 +1594,7 @@ class AttendanceReportQueryPageServiceTest {
                         new java.math.BigDecimal("40.00"),
                         LocalDate.of(2020, 3, 1),
                         0)));
-        when(mapper.listMonthlyLeaveUsage(org.mockito.ArgumentMatchers.any()))
+        when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of());
 
         var page = service.query(command(
@@ -1510,8 +1669,8 @@ class AttendanceReportQueryPageServiceTest {
                         java.math.BigDecimal.ZERO,
                         java.math.BigDecimal.ZERO,
                         new java.math.BigDecimal("40.00"))));
-        when(mapper.listMonthlyLeaveUsage(org.mockito.ArgumentMatchers.any()))
-                .thenThrow(new org.apache.ibatis.exceptions.PersistenceException("convert_tz"));
+        when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
 
         var page = service.query(command("annual-leave-stat", YearMonth.of(2026, 8)));
 
@@ -1521,6 +1680,342 @@ class AttendanceReportQueryPageServiceTest {
         assertThat(page.rows().getFirst().get("usedMonth7")).isEqualTo("/");
         assertThat((java.math.BigDecimal) page.rows().getFirst().get("usedMonth8"))
                 .isEqualByComparingTo("0.00");
+    }
+
+    @Test
+    void missedPunchStatFiltersNormalCandidatesBeforeEveryPageAndCount() {
+        authorize();
+        pinAugust();
+        List<DirectoryEmployeeRow> candidates = List.of(
+                new DirectoryEmployeeRow("covered", "001", "covered", "org-1", "工程部"),
+                new DirectoryEmployeeRow("a", "002", "a", "org-1", "工程部"),
+                new DirectoryEmployeeRow("normal", "003", "normal", "org-1", "工程部"),
+                new DirectoryEmployeeRow("b", "004", "b", "org-1", "工程部"));
+        when(mapper.countMissedPunchStatEmployees(org.mockito.ArgumentMatchers.any())).thenReturn(4L);
+        when(mapper.listMissedPunchStatEmployees(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> {
+                    FactQuery query = invocation.getArgument(0);
+                    return candidates.subList(Math.min(query.offset(), candidates.size()),
+                            Math.min(query.offset() + query.limit(), candidates.size()));
+                });
+        when(mapper.listDailyCells(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
+                missedStatCell("covered", "ANNUAL", 1),
+                missedStatCell("a", null, 1),
+                missedStatCell("normal", null, 0),
+                missedStatCell("b", null, 1)));
+        when(mapper.listOaForEmployees(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        for (int index = 0; index < 3; index++) {
+            var page = service.query(command("missed-punch-stat", YearMonth.of(2026, 8))
+                    .withPaging(index, 1));
+            assertThat(page.rowCount()).isEqualTo(2);
+            assertThat(page.rows()).extracting(row -> row.get("employeeId"))
+                    .containsExactlyElementsOf(index < 2 ? List.of(index == 0 ? "a" : "b") : List.of());
+            if (index < 2) assertThat(page.rows().getFirst().get("sequence")).isEqualTo(index + 1);
+        }
+    }
+
+    private static DailyCellRow missedStatCell(String employee, String leaveType, int missing) {
+        return new DailyCellRow(employee, LocalDate.of(2026, 8, 4), "WEEKDAY", leaveType,
+                0, 0, missing, Instant.parse("2026-08-04T09:00:00Z"),
+                Instant.parse("2026-08-04T09:00:00Z"), 0, 0);
+    }
+
+    @Test
+    void missedPunchStatRejectsOversizedCandidatesRatherThanReturningPartialSuccess() {
+        authorize();
+        pinAugust();
+        when(mapper.countMissedPunchStatEmployees(org.mockito.ArgumentMatchers.any())).thenReturn(50001L);
+        assertThatThrownBy(() -> service.query(command("missed-punch-stat", YearMonth.of(2026, 8))))
+                .isInstanceOf(ApiProblemException.class).hasMessageContaining("候选人数过多");
+        verify(mapper, never()).listMissedPunchStatEmployees(org.mockito.ArgumentMatchers.any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"annual-leave-stat", "time-off-stat"})
+    void monthlyUsageReadFailureCannotBecomeAZeroUsageReport(String sheet) {
+        authorize();
+        pinAugust();
+        when(mapper.countLeaveStatAccounts(org.mockito.ArgumentMatchers.any())).thenReturn(1L);
+        when(mapper.listLeaveStatAccounts(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
+                new LeaveStatAccountRow("employee-1", "001", "张三", "org-1", "工程部",
+                        "ANNUAL_LEAVE", java.math.BigDecimal.TEN, java.math.BigDecimal.ZERO,
+                        java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.TEN,
+                        LocalDate.of(2020, 1, 1), 0)));
+        when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new org.apache.ibatis.exceptions.PersistenceException("database detail not user-safe"));
+        assertThatThrownBy(() -> service.query(command(sheet, YearMonth.of(2026, 8))))
+                .isInstanceOf(ApiProblemException.class).hasMessageContaining("请假使用统计暂时读取失败")
+                .hasMessageNotContaining("database detail");
+    }
+
+    // ── workHoursRow period-filter regression tests ──────────────────────────
+    //
+    // Real-data basis:
+    //   唐勇 SZST0026: sick-leave docs spanning Aug–Sep and Sep–Oct,
+    //     byDate maps include weekends → 543.5 h anomaly before the fix.
+    //   陈书傲 SZJN0015: 调休 doc Sep 25–Oct 10, UI showed 96 h instead of
+    //     88 h because the full recognizedMinutes was used without clipping.
+    //   Cross-month same-doc dedup: one OA document can appear in two
+    //     projection rows; projectionStart/End intersection prevents double-count.
+    //   销假 amended interval: OA interval may lie outside the query window
+    //     while the dayMap date falls inside it — must still count.
+
+    @Test
+    void workHoursRowFullMonthLeaveCountsEntireDayMap() {
+        // Sick leave entirely within September (workdays only, no weekends).
+        // 22 workdays × 480 = 10560 min = 176 h; scheduled also 176 h → actual 0.
+        var aggregate = workHoursAggregate(10560L); // 176 h scheduled
+        String dayMap = "{\"2026-09-01\":480,\"2026-09-02\":480,\"2026-09-03\":480,"
+                + "\"2026-09-04\":480,\"2026-09-07\":480,\"2026-09-08\":480,"
+                + "\"2026-09-09\":480,\"2026-09-10\":480,\"2026-09-11\":480,"
+                + "\"2026-09-14\":480,\"2026-09-15\":480,\"2026-09-16\":480,"
+                + "\"2026-09-17\":480,\"2026-09-18\":480,\"2026-09-21\":480,"
+                + "\"2026-09-22\":480,\"2026-09-23\":480,\"2026-09-24\":480,"
+                + "\"2026-09-25\":480,\"2026-09-28\":480,\"2026-09-29\":480,"
+                + "\"2026-09-30\":480}";
+        var doc = oaLeaveRow("leave-sep", "SICK",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                10560L, dayMap);
+
+        var row = AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1));
+
+        assertThat(row.get("leaveHours")).isEqualTo(176.0d);
+        assertThat(row.get("actualHours")).isEqualTo(0.0d);
+    }
+
+    @Test
+    void workHoursRowCrossMonthLeaveClipsToQueryWindow() {
+        // 陈书傲 SZJN0015: 调休 doc Aug 31 → Sep 4 (real data).
+        // Full dayMap: Aug 31 + Sep 1–4 = 5 days × 480 = 2400 min.
+        // Sep projection (Sep 1 → Oct 1) clips to Sep 1–4 only = 4 × 480 = 1920 min = 32 h.
+        // Before the fix workHoursRow used the whole recognizedMinutes (2400 min = 40 h).
+        var aggregate = workHoursAggregate(11040L); // 184 h scheduled, actual = 184 − 32 = 152
+        String dayMap = "{\"2026-08-31\":480,"
+                + "\"2026-09-01\":480,\"2026-09-02\":480,"
+                + "\"2026-09-03\":480,\"2026-09-04\":480}";
+        var doc = oaTimeOffRow("leave-cross", "TIME_OFF",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                2400L, dayMap);
+
+        var row = AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1));
+
+        // Sep days only: 4 × 480 = 1920 min = 32 h (not 40 h from full dayMap)
+        assertThat(row.get("timeOffHours")).isEqualTo(32.0d);
+        assertThat(row.get("actualHours")).isEqualTo(184.0d - 32.0d);
+    }
+
+    @Test
+    void workHoursRowCrossMonthDocInTwoProjectionsCountsEachMonthOnce() {
+        // A cross-month OA document produces one OaRow per projection.
+        // Each row carries the full dayMap; projectionStart/End intersection
+        // must prevent double-counting: Sep row counts Sep days only,
+        // Oct row counts Oct days only, total = 4 × 480 = 32 h, not 64 h.
+        var aggregate = workHoursAggregate(22080L);
+        String dayMap = "{\"2026-09-29\":480,\"2026-09-30\":480,"
+                + "\"2026-10-08\":480,\"2026-10-09\":480}";
+        var sepDoc = oaLeaveRow("leave-dup", "ANNUAL_LEAVE",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                1920L, dayMap);
+        var octDoc = oaLeaveRow("leave-dup", "ANNUAL_LEAVE",
+                LocalDate.of(2026, 10, 1), LocalDate.of(2026, 11, 1),
+                1920L, dayMap);
+
+        var row = AttendanceReportQueryPageService.workHoursRow(
+                aggregate, List.of(sepDoc, octDoc),
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 11, 1));
+
+        assertThat(row.get("annualLeaveHours")).isEqualTo(32.0d);
+    }
+
+    @Test
+    void workHoursRowAmendedLeaveIntervalOutsideWindowCountedViaDayMap() {
+        // 销假 scenario: the OA interval is in August, but the dayMap carries
+        // a September date (the amended/moved working day).
+        // The SQL oaBusinessDateWindow already selects this row via REGEXP;
+        // workHoursRow must count the Sep day from the dayMap.
+        var aggregate = workHoursAggregate(11040L);
+        String dayMap = "{\"2026-09-03\":480}";
+        var doc = new OaRow(
+                "amended-1", "emp-1", "SZST0285", "汪立青", "org-1", "研发部",
+                "LEAVE", "PERSONAL",
+                Instant.parse("2026-08-24T16:00:00Z"),
+                Instant.parse("2026-08-25T16:00:00Z"),
+                480L, "APPROVED", "OA",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                dayMap);
+
+        var row = AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1));
+
+        assertThat(row.get("leaveHours")).isEqualTo(8.0d);
+    }
+
+    @Test
+    void workHoursRowLegacyNullByDateJsonFallsBackToRecognizedMinutes() {
+        // Legacy fact: no byDate JSON, interval wholly within Sep projection.
+        // Same month, fully within window → safe to return recognizedMinutes.
+        var aggregate = workHoursAggregate(11040L);
+        var doc = new OaRow(
+                "legacy-1", "emp-1", "SZST0001", "张三", "org-1", "工程部",
+                "LEAVE", "PERSONAL",
+                Instant.parse("2026-09-01T16:00:00Z"), // 2026-09-02 00:00 CST
+                Instant.parse("2026-09-02T16:00:00Z"), // 2026-09-03 00:00 CST
+                480L, "APPROVED", "OA",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                null);
+
+        var row = AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1));
+
+        assertThat(row.get("leaveHours")).isEqualTo(8.0d);
+    }
+
+    @Test
+    void workHoursRowLegacyCrossMonthNullByDateJsonThrows503() {
+        // Legacy fact: no byDate JSON, interval spans Aug–Sep.
+        // Attribution between months is ambiguous → 503 REQUIRED, not silent 0.
+        var aggregate = workHoursAggregate(11040L);
+        var doc = new OaRow(
+                "legacy-cross", "emp-1", "SZST0001", "张三", "org-1", "工程部",
+                "LEAVE", "PERSONAL",
+                Instant.parse("2026-08-30T16:00:00Z"), // 2026-08-31 CST
+                Instant.parse("2026-09-02T16:00:00Z"), // 2026-09-03 CST
+                960L, "APPROVED", "OA",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                null);
+
+        assertThatThrownBy(() ->
+                AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                        LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1)))
+                .isInstanceOf(ApiProblemException.class)
+                .hasMessageContaining("逐日使用明细");
+    }
+
+    @Test
+    void workHoursRowInvalidByDateJsonThrows503() {
+        // Malformed byDate JSON must throw 503, not silently return 0 or full total.
+        var aggregate = workHoursAggregate(11040L);
+        var doc = new OaRow(
+                "bad-json", "emp-1", "SZST0001", "张三", "org-1", "工程部",
+                "LEAVE", "PERSONAL",
+                Instant.parse("2026-09-01T16:00:00Z"),
+                Instant.parse("2026-09-02T16:00:00Z"),
+                480L, "APPROVED", "OA",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                "{not-valid-json}");
+
+        assertThatThrownBy(() ->
+                AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                        LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1)))
+                .isInstanceOf(ApiProblemException.class)
+                .hasMessageContaining("校验失败");
+    }
+
+    @Test
+    void workHoursRowDuplicateDayDifferentValueThrows503() {
+        // OaRecognizedDayMinutes.decode returns a single-entry map per day,
+        // so duplicate keys in the JSON with differing values should be caught
+        // by the decoder itself (Jackson last-write-wins) which then fails
+        // the sum validation — verify the 503 surfaces to the caller.
+        // We simulate the scenario that would arise if two different decoded
+        // Maps were merged for the same document (shouldn't happen in practice
+        // but the seen-map guard must detect it).
+        // Use a day-map where the total declared (480) does not match the sum
+        // of individual entries (480+480=960) so OaRecognizedDayMinutes.decode
+        // throws due to validation mismatch.
+        var aggregate = workHoursAggregate(11040L);
+        var doc = new OaRow(
+                "mismatch", "emp-1", "SZST0001", "张三", "org-1", "工程部",
+                "LEAVE", "PERSONAL",
+                Instant.parse("2026-09-01T16:00:00Z"),
+                Instant.parse("2026-09-03T16:00:00Z"),
+                480L, // declared total = 480, but map sums to 960
+                "APPROVED", "OA",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1),
+                "{\"2026-09-02\":480,\"2026-09-03\":480}"); // sum=960 ≠ 480
+
+        assertThatThrownBy(() ->
+                AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                        LocalDate.of(2026, 9, 1), LocalDate.of(2026, 10, 1)))
+                .isInstanceOf(ApiProblemException.class);
+    }
+
+    // ── helpers for workHoursRow unit tests ──────────────────────────────────
+
+    private static QueryPageRows.EmployeeDailyAggregateRow workHoursAggregate(
+            long scheduledMinutes) {
+        return new QueryPageRows.EmployeeDailyAggregateRow(
+                "emp-1", "SZST0001", "测试员工", "org-1", "测试部门",
+                0, 0, 0, 0,
+                scheduledMinutes,
+                0, 0, 0,
+                0, 0, 0, 0,
+                scheduledMinutes / 480,
+                java.math.BigDecimal.ZERO,
+                null);
+    }
+
+    private static OaRow oaLeaveRow(
+            String docId, String leaveType,
+            LocalDate projStart, LocalDate projEnd,
+            long recognizedMinutes, String byDateJson) {
+        return new OaRow(
+                docId, "emp-1", "SZST0001", "测试员工", "org-1", "测试部门",
+                "LEAVE", leaveType,
+                projStart.atStartOfDay(java.time.ZoneOffset.UTC).toInstant(),
+                projEnd.atStartOfDay(java.time.ZoneOffset.UTC).toInstant(),
+                recognizedMinutes, "APPROVED", "OA",
+                projStart, projEnd, byDateJson);
+    }
+
+    private static OaRow oaTimeOffRow(
+            String docId, String leaveType,
+            LocalDate projStart, LocalDate projEnd,
+            long recognizedMinutes, String byDateJson) {
+        return new OaRow(
+                docId, "emp-1", "SZST0001", "测试员工", "org-1", "测试部门",
+                "TIME_OFF", leaveType,
+                projStart.atStartOfDay(java.time.ZoneOffset.UTC).toInstant(),
+                projEnd.atStartOfDay(java.time.ZoneOffset.UTC).toInstant(),
+                recognizedMinutes, "APPROVED", "OA",
+                projStart, projEnd, byDateJson);
+    }
+
+    @Test
+    void naturalYearStatReadsProvenLegacyAugustShareWithoutRewritingThePin() {
+        authorize();
+        when(mapper.findLatestPin(org.mockito.ArgumentMatchers.eq(COMPANY),
+                org.mockito.ArgumentMatchers.any(LocalDate.class),
+                org.mockito.ArgumentMatchers.any(LocalDate.class))).thenAnswer(invocation -> {
+                    LocalDate start = invocation.getArgument(1);
+                    LocalDate end = invocation.getArgument(2);
+                    assertThat(end).isEqualTo(start.plusMonths(1));
+                    return start.equals(LocalDate.of(2026,8,1))
+                            ? new PinRow("proj-1","ARP1-" + "a".repeat(64),"OPEN",NOW,"[]") : null;
+                });
+        when(mapper.countLeaveStatAccounts(org.mockito.ArgumentMatchers.any())).thenReturn(1L);
+        when(mapper.listLeaveStatAccounts(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
+                new LeaveStatAccountRow("employee-1", "001", "张三", "org-1", "工程部",
+                        "ANNUAL_LEAVE", java.math.BigDecimal.TEN, java.math.BigDecimal.ZERO,
+                        java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.TEN,
+                        LocalDate.of(2020, 1, 1), 0)));
+        when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
+                new QueryPageRows.OaUsageDocumentRow("legacy-form","employee-1",
+                        LocalDate.of(2026,8,1),LocalDate.of(2026,9,1),
+                        Instant.parse("2026-08-31T00:30:00Z"),Instant.parse("2026-09-01T10:00:00Z"),960,"ANNUAL",null)));
+        when(mapper.listLegacyLeaveDayEvidence(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(List.of("legacy-form")))).thenReturn(List.of(
+                        new QueryPageRows.LegacyLeaveDayEvidenceRow("legacy-form","employee-1",
+                                LocalDate.of(2026,8,1),LocalDate.of(2026,8,31),480L,"ANNUAL",1)));
+        var page = service.query(command("annual-leave-stat",YearMonth.of(2026,8),
+                LocalDate.of(2026,1,1),LocalDate.of(2026,12,31)));
+        assertThat((java.math.BigDecimal) page.rows().getFirst().get("usedMonth8"))
+                .isEqualByComparingTo("1.00");
+        verify(mapper).listLegacyLeaveDayEvidence(org.mockito.ArgumentMatchers.argThat(q ->
+                q.employeeIds().equals(List.of("employee-1")) && q.projectionIds().equals(List.of("proj-1"))),
+                org.mockito.ArgumentMatchers.eq(List.of("legacy-form")));
     }
 
     private void pinAugust() {

@@ -163,7 +163,7 @@ class OaMysqlOrgMemberDirectoryAdapterTest {
     }
 
     @Test
-    void rejectsNonPositiveIdsBeforeOpeningAConnection() {
+    void rejectsNullOrZeroIdBeforeOpeningAConnection() {
         var connections = mock(OaReadOnlyConnectionProvider.class);
         var adapter = new OaMysqlOrgMemberDirectoryAdapter(
                 connections, 3);

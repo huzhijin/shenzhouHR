@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EmployeeDeliBindingMapper;
 import com.szsemicon.hr.reporting.application.AttendanceReportQueryService;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
@@ -25,7 +24,7 @@ class DeliPunchReplayApplicationServiceTest {
                 false,
                 mock(CurrentCapabilityService.class),
                 mock(CurrentPrincipalProvider.class),
-                mock(EmployeeDeliBindingMapper.class),
+                mock(EmployeeDeliBindingPort.class),
                 mock(EmployeeDeliBindingSeedService.class),
                 mock(DeliPunchPageTransaction.class),
                 List.of(),

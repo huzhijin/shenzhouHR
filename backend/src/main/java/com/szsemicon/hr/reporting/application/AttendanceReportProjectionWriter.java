@@ -18,7 +18,7 @@ import java.util.Optional;
  */
 public interface AttendanceReportProjectionWriter {
 
-    boolean lockCompany(String companyId);
+    boolean lockCompany(String companyId, LocalDate periodStart);
 
     Optional<StoredProjection> findByDigest(
             String companyId,
@@ -155,6 +155,56 @@ public interface AttendanceReportProjectionWriter {
                 single);
     }
 
+    /**
+     * Same as above, and never copies a document this publication re-emits:
+     * a windowed run may re-emit a form outside its window when it shares
+     * working time with a form inside it.
+     */
+    default void copyOaDocumentFactsExceptEmployeeWindow(
+            String sourceProjectionId,
+            String targetProjectionId,
+            Instant windowStart,
+            Instant windowEndExclusive,
+            Instant createdAt,
+            String employeeId,
+            java.util.Collection<String> employeeIds,
+            java.util.Collection<String> replacedDocumentIds) {
+        copyOaDocumentFactsExceptEmployeeWindow(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                employeeId,
+                employeeIds);
+    }
+
+    /**
+     * When replaceWholeMonthLeave is true, selected employees' LEAVE/TIME_OFF
+     * for the whole month are replaced (not copied), regardless of window.
+     */
+    default void copyOaDocumentFactsExceptEmployeeWindow(
+            String sourceProjectionId,
+            String targetProjectionId,
+            Instant windowStart,
+            Instant windowEndExclusive,
+            Instant createdAt,
+            String employeeId,
+            java.util.Collection<String> employeeIds,
+            java.util.Collection<String> replacedDocumentIds,
+            boolean replaceWholeMonthLeave) {
+        // Delegate to 8-param (which delegates to 7-param) - one-way chain
+        copyOaDocumentFactsExceptEmployeeWindow(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                employeeId,
+                employeeIds,
+                replacedDocumentIds);
+    }
+
     default void copyTimeAccountFactsExceptEmployee(
             String sourceProjectionId,
             String targetProjectionId,
@@ -252,7 +302,46 @@ public interface AttendanceReportProjectionWriter {
             long recognizedMinutes,
             String sourceStatus,
             String sourceVersion,
-            Instant createdAt) {
+            Instant createdAt,
+            String recognizedMinutesByDateJson,
+            String allocationSemantics,
+            String sourceOrigin,
+            String hrAdjustmentId,
+            String hrSourceKind) {
+
+        /** Legacy rows: no allocation semantics. */
+        public OaDocumentFactWrite(
+                String rowId, String projectionId, String companyId,
+                String oaAttendanceDocumentId, String employeeId, String employeeVersionId,
+                String employmentAssignmentId, String organizationId,
+                String organizationVersionId, String documentType, String leaveTypeCode,
+                OaTemporalShape temporalShape, Instant pointInstant, Instant intervalStart,
+                Instant intervalEndExclusive, long recognizedMinutes, String sourceStatus,
+                String sourceVersion, Instant createdAt, String recognizedMinutesByDateJson) {
+            this(rowId, projectionId, companyId, oaAttendanceDocumentId, employeeId,
+                    employeeVersionId, employmentAssignmentId, organizationId,
+                    organizationVersionId, documentType, leaveTypeCode, temporalShape,
+                    pointInstant, intervalStart, intervalEndExclusive, recognizedMinutes,
+                    sourceStatus, sourceVersion, createdAt, recognizedMinutesByDateJson, null, "OA", null, null);
+        }
+
+        /** 22-parameter version for NET with sourceOrigin. */
+        public OaDocumentFactWrite(
+                String rowId, String projectionId, String companyId,
+                String oaAttendanceDocumentId, String employeeId, String employeeVersionId,
+                String employmentAssignmentId, String organizationId,
+                String organizationVersionId, String documentType, String leaveTypeCode,
+                OaTemporalShape temporalShape, Instant pointInstant, Instant intervalStart,
+                Instant intervalEndExclusive, long recognizedMinutes, String sourceStatus,
+                String sourceVersion, Instant createdAt, String recognizedMinutesByDateJson,
+                String allocationSemantics, String sourceOrigin) {
+            this(rowId, projectionId, companyId, oaAttendanceDocumentId, employeeId,
+                    employeeVersionId, employmentAssignmentId, organizationId,
+                    organizationVersionId, documentType, leaveTypeCode, temporalShape,
+                    pointInstant, intervalStart, intervalEndExclusive, recognizedMinutes,
+                    sourceStatus, sourceVersion, createdAt, recognizedMinutesByDateJson,
+                    allocationSemantics, sourceOrigin, null, null);
+        }
     }
 
     record TimeAccountFactWrite(

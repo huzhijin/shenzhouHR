@@ -120,8 +120,8 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("organization_current_closure closure");
 
         assertThat(count(xml, "<include refid=\"reportFactVisibility\"/>"))
-                .as("all enumerated fact reads must share one scope predicate")
-                .isEqualTo(FACT_QUERY_IDS.size());
+                .as("all enumerated fact reads must share one scope predicate; listAuthorizedOaFacts has 2 (OA+HR after V78)")
+                .isEqualTo(FACT_QUERY_IDS.size() + 1);  // +1 for HR UNION branch in listAuthorizedOaFacts
         for (String queryId : FACT_QUERY_IDS) {
             assertThat(select(xml, queryId))
                     .as("fact query %s", queryId)

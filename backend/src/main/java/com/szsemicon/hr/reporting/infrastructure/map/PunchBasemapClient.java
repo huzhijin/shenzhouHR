@@ -1,6 +1,7 @@
 package com.szsemicon.hr.reporting.infrastructure.map;
 
 import com.szsemicon.hr.reporting.application.MapBasemapProperties;
+import com.szsemicon.hr.reporting.application.PunchBasemapPort;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -19,7 +20,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /** Fetches exactly one map after authorization. Keys and provider URLs never reach the browser. */
 @Component
-public class PunchBasemapClient {
+public class PunchBasemapClient implements PunchBasemapPort {
     private static final Duration TIMEOUT = Duration.ofSeconds(3);
     private static final int MAX_IMAGE_BYTES = 2 * 1024 * 1024;
     private final MapBasemapProperties properties;
@@ -38,6 +39,7 @@ public class PunchBasemapClient {
         this.http = http;
     }
 
+    @Override
     public Optional<String> renderWgs84(BigDecimal longitude, BigDecimal latitude) {
         if (!properties.configured() || !inBounds(longitude, latitude)) {
             return Optional.empty();

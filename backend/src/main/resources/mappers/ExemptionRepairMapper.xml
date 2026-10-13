@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.ExemptionRepairMapper">
+
+    <!-- Records have no setters; constructor binding is required. -->
+    <resultMap id="exemptionRowMap"
+               type="com.szsemicon.hr.reporting.application.PunchExemptionRepairService$ExemptionRow">
+        <constructor>
+            <arg name="exemptionId"          column="exemption_id"          javaType="java.lang.String"/>
+            <arg name="employeeId"           column="employee_id"           javaType="java.lang.String"/>
+            <arg name="listedEmployeeNumber" column="listed_employee_number" javaType="java.lang.String"/>
+            <arg name="companyId"            column="company_id"            javaType="java.lang.String"/>
+            <arg name="source"               column="source"                javaType="java.lang.String"/>
+            <arg name="validFrom"            column="valid_from"            javaType="java.time.Instant"/>
+            <arg name="validTo"              column="valid_to"              javaType="java.time.Instant"/>
+            <arg name="createdAt"            column="created_at"            javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="repairReceiptMap"
+               type="com.szsemicon.hr.reporting.application.PunchExemptionRepairService$RepairReceipt">
+        <constructor>
+            <arg name="receiptId"               column="receipt_id"               javaType="java.lang.String"/>
+            <arg name="requestId"               column="request_id"               javaType="java.lang.String"/>
+            <arg name="exemptionId"             column="exemption_id"             javaType="java.lang.String"/>
+            <arg name="companyId"               column="company_id"               javaType="java.lang.String"/>
+            <arg name="employeeId"              column="employee_id"              javaType="java.lang.String"/>
+            <arg name="operation"               column="operation"                javaType="java.lang.String"/>
+            <arg name="originalValidFrom"       column="original_valid_from"      javaType="java.time.Instant"/>
+            <arg name="repairedValidFrom"       column="repaired_valid_from"      javaType="java.time.Instant"/>
+            <arg name="approvalEvidenceDigest"  column="approval_evidence_digest" javaType="java.lang.String"/>
+            <arg name="payloadDigest"           column="payload_digest"           javaType="java.lang.String"/>
+            <arg name="repairedAt"              column="repaired_at"              javaType="java.time.Instant"/>
+            <arg name="repairedBy"              column="repaired_by"              javaType="java.lang.String"/>
+            <arg name="beforeDigest"            column="before_digest"            javaType="java.lang.String"/>
+            <arg name="afterDigest"             column="after_digest"             javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <!-- FOR UPDATE holds the row for the duration of the enclosing transaction.
+         source and valid_to guard: only open STANDING_LIST records are repairable.
+         JOIN employee to carry out company_id and created_at for ownership validation and full-row digest — V53 has no company_id column. -->
+    <select id="findByExemptionId" resultMap="exemptionRowMap">
+        SELECT
+            a.exemption_id,
+            a.employee_id,
+            a.listed_employee_number,
+            e.company_id,
+            a.source,
+            a.valid_from,
+            a.valid_to,
+            a.created_at
+        FROM punch_exemption_assignment a
+        JOIN employee e ON e.employee_id = a.employee_id
+        WHERE a.exemption_id = #{exemptionId}
+          AND a.source       = 'STANDING_LIST'
+          AND a.valid_to IS NULL
+        FOR UPDATE
+    </select>
+
+    <!-- CAS: only updates when the caller's expected old value is still in place -->
+    <update id="updateValidFrom">
+        UPDATE punch_exemption_assignment
+        SET valid_from = #{newValidFrom}
+        WHERE exemption_id = #{exemptionId}
+          AND valid_from   = #{expectedValidFrom}
+    </update>
+
+    <select id="findReceipt" resultMap="repairReceiptMap">
+        SELECT
+            receipt_id,
+            request_id,
+            exemption_id,
+            company_id,
+            employee_id,
+            operation,
+            original_valid_from,
+            repaired_valid_from,
+            approval_evidence_digest,
+            payload_digest,
+            repaired_at,
+            repaired_by,
+            before_digest,
+            after_digest
+        FROM punch_exemption_repair_receipt
+        WHERE exemption_id = #{exemptionId}
+          AND operation    = #{operation}
+    </select>
+
+    <insert id="insertReceipt">
+        INSERT INTO punch_exemption_repair_receipt (
+            receipt_id,
+            request_id,
+            exemption_id,
+            company_id,
+            employee_id,
+            operation,
+            original_valid_from,
+            repaired_valid_from,
+            approval_evidence_digest,
+            payload_digest,
+            repaired_at,
+            repaired_by,
+            before_digest,
+            after_digest
+        ) VALUES (
+            #{receiptId},
+            #{requestId},
+            #{exemptionId},
+            #{companyId},
+            #{employeeId},
+            #{operation},
+            #{originalValidFrom},
+            #{repairedValidFrom},
+            #{approvalEvidenceDigest},
+            #{payloadDigest},
+            #{repairedAt},
+            #{repairedBy},
+            #{beforeDigest},
+            #{afterDigest}
+        )
+    </insert>
+
+</mapper>

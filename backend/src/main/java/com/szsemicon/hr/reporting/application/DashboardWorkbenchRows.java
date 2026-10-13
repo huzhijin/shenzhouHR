@@ -1,4 +1,4 @@
-package com.szsemicon.hr.reporting.infrastructure.persistence;
+package com.szsemicon.hr.reporting.application;
 
 import java.time.Instant;
 

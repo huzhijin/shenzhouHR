@@ -4,6 +4,31 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.szsemicon.hr.evidenceingestion.infrastructure.persistence.AttendanceSourceReadMapper">
 
+    <!-- Records must bind constructor arguments by column name. The OA list
+         projection is intentionally not in constructor order. -->
+    <resultMap id="oaDocumentView"
+               type="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$OaDocumentView"
+               autoMapping="false">
+        <constructor>
+            <arg name="documentId" column="document_id" javaType="java.lang.String"/>
+            <arg name="sourceDocumentId" column="source_document_id" javaType="java.lang.String"/>
+            <arg name="sourceVersion" column="source_version" javaType="java.lang.String"/>
+            <arg name="documentType" column="document_type" javaType="java.lang.String"/>
+            <arg name="sourceStatus" column="source_status" javaType="java.lang.String"/>
+            <arg name="effectiveCandidate" column="effective_candidate" javaType="_boolean"/>
+            <arg name="employeeNumber" column="employee_number" javaType="java.lang.String"/>
+            <arg name="intervalStart" column="interval_start" javaType="java.time.Instant"/>
+            <arg name="intervalEndExclusive" column="interval_end_exclusive" javaType="java.time.Instant"/>
+            <arg name="employeeName" column="employee_name" javaType="java.lang.String"/>
+            <arg name="department" column="department" javaType="java.lang.String"/>
+            <arg name="leaveType" column="leave_type" javaType="java.lang.String"/>
+            <arg name="overtimeTreatment" column="overtime_treatment" javaType="java.lang.String"/>
+            <arg name="payrollCreditMinutes" column="payroll_credit_minutes" javaType="java.lang.Integer"/>
+            <arg name="timeOffCreditMinutes" column="time_off_credit_minutes" javaType="java.lang.Integer"/>
+            <arg name="recognizedWorkMinutes" column="recognized_work_minutes" javaType="java.lang.Integer"/>
+        </constructor>
+    </resultMap>
+
     <sql id="sourceVisibility">
         EXISTS (
             SELECT 1
@@ -279,15 +304,22 @@
           </if>
     </select>
 
-    <select id="listOaDocuments"
-            resultType="com.szsemicon.hr.evidenceingestion.application.AttendanceSourceReadModels$OaDocumentView">
+    <select id="listOaDocuments" resultMap="oaDocumentView">
         SELECT document.oa_attendance_document_id AS document_id,
                document.source_business_key AS source_document_id,
                document.source_version,
                document.document_type,
                document.source_status,
                CASE WHEN document.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
-                    THEN 1 ELSE 0 END AS effective_candidate,
+                    THEN 1
+                    WHEN document.document_type &lt;&gt; 'LEAVE_REVOCATION'
+                     AND (
+                         document.source_status = 'PENDING'
+                         OR (
+                             document.source_status = 'UNKNOWN'
+                             AND document.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+                         )
+                     ) THEN 1 ELSE 0 END AS effective_candidate,
                employee.employee_number,
                ANY_VALUE(employee_version.display_name) AS employee_name,
                ANY_VALUE(organization_version.name) AS department,

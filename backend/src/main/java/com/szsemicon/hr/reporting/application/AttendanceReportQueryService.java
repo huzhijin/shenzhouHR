@@ -444,6 +444,7 @@ public class AttendanceReportQueryService {
                 || businessDate == null) {
             throw new IllegalArgumentException("employee day recalc requires period, employee, and date");
         }
+        validateRecalculationDates(period, businessDate, businessDate, true);
         if (realtimeSnapshots == null) {
             throw new ApiProblemException(
                     HttpStatus.SERVICE_UNAVAILABLE,
@@ -479,6 +480,51 @@ public class AttendanceReportQueryService {
                 realtimeSnapshots.sourcesNewerThanPin(snapshot, at));
     }
 
+    /** Recalculate exactly the requested company business dates, inclusive. */
+    public AttendanceReportRecalculateResult recalculateCompanyDays(
+            YearMonth period, String companyId, LocalDate fromDate,
+            LocalDate toDateInclusive) {
+        if (companyId == null || companyId.isBlank()) {
+            throw new IllegalArgumentException("company is required");
+        }
+        validateRecalculationDates(period, fromDate, toDateInclusive, true);
+        capabilities.require(CapabilityCodes.ATTENDANCE_REPORT_REFRESH);
+        if (realtimeSnapshots == null) {
+            throw new ApiProblemException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "CALCULATION_ENGINE_NOT_AVAILABLE",
+                    "考勤核算引擎尚未接入，无法重新计算报表",
+                    false);
+        }
+        ReportFilter filter = new ReportFilter(period, companyId, null, null, null);
+        String principalId = principalProvider.currentPrincipalId();
+        Instant at = currentDatabaseInstant();
+        var snapshot = realtimeSnapshots.recalculateRange(
+                principalId, CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                filter, at, fromDate, toDateInclusive.plusDays(1));
+        return new AttendanceReportRecalculateResult(
+                snapshot.projectionVersion(), snapshot.dataAsOf(),
+                snapshot.sourceVersions(),
+                realtimeSnapshots.sourcesNewerThanPin(snapshot, at));
+    }
+
+    public static void validateRecalculationDates(
+            YearMonth period, LocalDate fromDate, LocalDate toDateInclusive,
+            boolean required) {
+        if (!required && fromDate == null && toDateInclusive == null) {
+            return;
+        }
+        if (period == null || fromDate == null || toDateInclusive == null
+                || fromDate.isAfter(toDateInclusive)
+                || !YearMonth.from(fromDate).equals(period)
+                || !YearMonth.from(toDateInclusive).equals(period)) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "重算起止日期须成对填写，且必须位于所选月份内、开始不晚于结束",
+                    false);
+        }
+    }
+
     public AttendanceReportRecalculateResult recalculateEmployees(
             YearMonth period,
             String companyId,
@@ -492,6 +538,7 @@ public class AttendanceReportQueryService {
         if (employeeIds == null || employeeIds.isEmpty()) {
             throw new IllegalArgumentException("employeeIds is required");
         }
+        validateRecalculationDates(period, fromDate, toDateInclusive, false);
         if (employeeIds.size() > 200) {
             throw new ApiProblemException(
                     HttpStatus.BAD_REQUEST,

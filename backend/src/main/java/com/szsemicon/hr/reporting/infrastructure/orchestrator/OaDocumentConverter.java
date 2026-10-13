@@ -13,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Converts OA attendance documents to calculation engine evidence.
@@ -22,6 +24,8 @@ import java.util.Objects;
  * unioned so overlapping minutes are not counted twice.
  */
 final class OaDocumentConverter {
+
+    private static final Logger log = LoggerFactory.getLogger(OaDocumentConverter.class);
 
     static final String UNRESOLVED_LEAVE_REVOCATION =
             "OA_LEAVE_REVOCATION_UNRESOLVED";
@@ -59,6 +63,58 @@ final class OaDocumentConverter {
         return List.copyOf(evidence);
     }
 
+    /**
+     * Leave business keys whose approved 销假 replaces the original interval.
+     * The replacement is the 销假 form's actual leave start/end. An empty list
+     * means the leave was fully returned and must count as zero hours.
+     */
+    static Map<String, List<TimeInterval>> amendedLeaveIntervals(
+            List<OaDocumentRow> documents) {
+        if (documents == null || documents.isEmpty()) {
+            return Map.of();
+        }
+        List<OaDocumentRow> leaves = new ArrayList<>();
+        List<OaDocumentRow> revocations = new ArrayList<>();
+        for (OaDocumentRow document : documents) {
+            if (document == null || !document.effectiveCandidate()) {
+                continue;
+            }
+            switch (document.documentType()) {
+                case "LEAVE" -> leaves.add(document);
+                case "LEAVE_REVOCATION" -> revocations.add(document);
+                default -> {
+                }
+            }
+        }
+        if (revocations.isEmpty()) {
+            return Map.of();
+        }
+        Map<OaDocumentRow, List<OaDocumentRow>> revocationsByLeave =
+                associateRevocations(leaves, revocations);
+        Map<String, List<TimeInterval>> amended = new LinkedHashMap<>();
+        for (OaDocumentRow leave : leaves) {
+            List<OaDocumentRow> matched = revocationsByLeave.getOrDefault(
+                    leave, List.of());
+            if (matched.isEmpty()) {
+                continue;
+            }
+            // The report's legacy map is keyed by the business key. Never
+            // silently reuse a correction if two source/employee identities
+            // happen to publish that same key.
+            long identitiesForKey = leaves.stream()
+                    .filter(candidate -> Objects.equals(
+                            candidate.sourceBusinessKey(), leave.sourceBusinessKey()))
+                    .map(OaDocumentConverter::subject)
+                    .distinct()
+                    .count();
+            if (identitiesForKey > 1) {
+                throw unresolved("ambiguous report business key", leave);
+            }
+            amended.put(leave.sourceBusinessKey(), unionIntervals(matched));
+        }
+        return Map.copyOf(amended);
+    }
+
     private static List<IntervalEvidence> resolveLeaveEvidence(
             List<OaDocumentRow> leaves,
             List<OaDocumentRow> revocations) {
@@ -69,12 +125,12 @@ final class OaDocumentConverter {
             }
             return List.copyOf(expanded);
         }
-        Map<String, List<OaDocumentRow>> revocationsByKey = groupRevocations(
-                revocations);
+        Map<OaDocumentRow, List<OaDocumentRow>> revocationsByLeave =
+                associateRevocations(leaves, revocations);
         List<IntervalEvidence> resolved = new ArrayList<>();
         for (OaDocumentRow leave : leaves) {
-            List<OaDocumentRow> matched = matchingRevocations(
-                    leave, revocationsByKey);
+            List<OaDocumentRow> matched = revocationsByLeave.getOrDefault(
+                    leave, List.of());
             if (matched.isEmpty()) {
                 resolved.addAll(toLeaveEvidence(leave));
                 continue;
@@ -91,52 +147,105 @@ final class OaDocumentConverter {
         return resolved;
     }
 
-    private static Map<String, List<OaDocumentRow>> groupRevocations(
-            List<OaDocumentRow> revocations) {
-        Map<String, List<OaDocumentRow>> grouped = new LinkedHashMap<>();
-        for (OaDocumentRow revocation : revocations) {
-            grouped.computeIfAbsent(
-                    revocationKey(revocation), ignored -> new ArrayList<>())
-                    .add(revocation);
-        }
-        return grouped;
+    private record Subject(String sourceId, String employeeId, String legacyNumber) {
     }
 
-    private static List<OaDocumentRow> matchingRevocations(
-            OaDocumentRow leave,
-            Map<String, List<OaDocumentRow>> revocationsByKey) {
-        String serial = trimToNull(leave.leaveSerial());
-        if (serial != null) {
-            List<OaDocumentRow> bySerial = revocationsByKey.get(serialKey(serial));
-            if (bySerial != null && !bySerial.isEmpty()) {
-                return bySerial;
+    private record LeaveReference(Subject subject, String serial) {
+    }
+
+    private static Map<OaDocumentRow, List<OaDocumentRow>> associateRevocations(
+            List<OaDocumentRow> leaves,
+            List<OaDocumentRow> revocations) {
+        Map<LeaveReference, List<OaDocumentRow>> byReference = new LinkedHashMap<>();
+        Map<Subject, List<OaDocumentRow>> bySubject = new LinkedHashMap<>();
+        for (OaDocumentRow leave : leaves) {
+            Subject subject = subject(leave);
+            if (subject == null) {
+                continue;
+            }
+            bySubject.computeIfAbsent(subject, ignored -> new ArrayList<>()).add(leave);
+            String serial = trimToNull(leave.leaveSerial());
+            if (serial != null) {
+                byReference.computeIfAbsent(new LeaveReference(subject, serial),
+                        ignored -> new ArrayList<>()).add(leave);
             }
         }
-        String employee = trimToNull(leave.employeeNumber());
-        if (employee == null) {
-            return List.of();
+        Map<OaDocumentRow, List<OaDocumentRow>> matched = new LinkedHashMap<>();
+        for (OaDocumentRow revocation : revocations) {
+            Subject subject = subject(revocation);
+            if (subject == null) {
+                continue;
+            }
+            String serial = trimToNull(revocation.originalLeaveSerial());
+            List<OaDocumentRow> candidates;
+            if (serial != null) {
+                candidates = byReference.getOrDefault(
+                        new LeaveReference(subject, serial), List.of());
+            } else {
+                List<OaDocumentRow> employeeLeaves = bySubject.getOrDefault(
+                        subject, List.of());
+                // Historical forms can lack the original serial. Accept only
+                // one containing original within this exact source/employee;
+                // never apply one revocation to every leave of an employee.
+                candidates = employeeLeaves.stream()
+                        .filter(leave -> containsActualInterval(leave, revocation))
+                        .toList();
+            }
+            candidates = candidates.stream().distinct().toList();
+            if (serial == null && candidates.size() != 1) {
+                log.warn("{}: missing original reference has {} containing candidates ({})",
+                        UNRESOLVED_LEAVE_REVOCATION, candidates.size(),
+                        revocation.sourceBusinessKey());
+                continue;
+            }
+            if (candidates.size() > 1) {
+                throw unresolved("ambiguous original leave reference", revocation);
+            }
+            if (candidates.isEmpty()) {
+                continue;
+            }
+            OaDocumentRow leave = candidates.getFirst();
+            if (leave.startInstant() == null || leave.endInstant() == null
+                    || !leave.startInstant().isBefore(leave.endInstant())
+                    || revocation.startInstant() == null || revocation.endInstant() == null
+                    || revocation.endInstant().isBefore(revocation.startInstant())) {
+                throw unresolved("invalid original or actual leave interval", revocation);
+            }
+            // An explicit, unique source/employee/original-serial reference is
+            // authoritative for approved changes to leave information: the
+            // actual interval can move to another day or extend the request.
+            // Containment is only the safe association rule for historical
+            // forms without an original serial (the fallback above).
+            matched.computeIfAbsent(leave, ignored -> new ArrayList<>()).add(revocation);
         }
-        return revocationsByKey.getOrDefault(employeeKey(employee), List.of());
+        return matched;
     }
 
-    private static String revocationKey(OaDocumentRow revocation) {
-        String serial = trimToNull(revocation.originalLeaveSerial());
-        if (serial != null) {
-            return serialKey(serial);
+    private static Subject subject(OaDocumentRow row) {
+        String sourceId = trimToNull(row.sourceId());
+        String employeeId = trimToNull(row.employeeId());
+        if (sourceId != null || employeeId != null) {
+            if (sourceId == null || employeeId == null) {
+                throw unresolved("incomplete source/employee identity", row);
+            }
+            return new Subject(sourceId, employeeId, null);
         }
-        String employee = trimToNull(revocation.employeeNumber());
-        if (employee == null) {
-            return "unmatched:" + revocation.sourceBusinessKey();
-        }
-        return employeeKey(employee);
+        String employeeNumber = trimToNull(row.employeeNumber());
+        return employeeNumber == null ? null : new Subject(null, null, employeeNumber);
     }
 
-    private static String serialKey(String serial) {
-        return "serial:" + serial;
+    private static boolean containsActualInterval(
+            OaDocumentRow leave, OaDocumentRow revocation) {
+        return leave.startInstant() != null && leave.endInstant() != null
+                && revocation.startInstant() != null && revocation.endInstant() != null
+                && !revocation.endInstant().isBefore(revocation.startInstant())
+                && !revocation.startInstant().isBefore(leave.startInstant())
+                && !revocation.endInstant().isAfter(leave.endInstant());
     }
 
-    private static String employeeKey(String employeeNumber) {
-        return "employee:" + employeeNumber;
+    private static IllegalStateException unresolved(String reason, OaDocumentRow row) {
+        return new IllegalStateException(UNRESOLVED_LEAVE_REVOCATION
+                + ": " + reason + " (" + row.sourceBusinessKey() + ")");
     }
 
     private static List<TimeInterval> unionIntervals(List<OaDocumentRow> rows) {

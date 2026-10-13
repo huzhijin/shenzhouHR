@@ -10,6 +10,70 @@ public final class EvidenceRows {
     private EvidenceRows() {
     }
 
+    /** Every raw/normalization history row is retained, including incomplete rows.
+     * hasTargetReportFact also rejects any linked effective evidence: such events
+     * can be consumed independently of the OA document's matched identity.
+     */
+    public record MissingOaKeyScopeRow(
+            String sourceBusinessKey, String rawAttendanceFactId, String factKind,
+            String normalizedAttendanceRecordId, String validationStatus, String recordKind,
+            String oaAttendanceDocumentId, String documentType, Boolean documentIdentityConsistent,
+            String matchStatus, String employeeId, String employeeCompanyId,
+            String employeeNumber, String historicalEmployeeNumber, Boolean hasTargetReportFact) { }
+
+    /** Latest-reader metadata supplements, but never replaces, the complete identity history. */
+    public record MissingOaCurrentEligibilityRow(
+            String sourceBusinessKey, String oaAttendanceDocumentId, String documentType,
+            Instant createdAt, String activationDecision, String overtimeType,
+            Boolean hasIndependentEvidenceLink, Boolean hasConflictingReportIdentity,
+            Boolean hasApplicableReportExclusion, Boolean hasFutureDocument,
+            Boolean hasConsumableOvertimeContext) { }
+
+    /** Company refresh additionally requires a known source-status decision from the reader's SQL. */
+    public record MissingOaCompanyCurrentEligibilityRow(
+            String sourceBusinessKey, String oaAttendanceDocumentId, String documentType,
+            Instant createdAt, String activationDecision, String overtimeType,
+            Boolean hasIndependentEvidenceLink, Boolean hasConflictingReportIdentity,
+            Boolean hasApplicableReportExclusion, Boolean hasFutureDocument,
+            Boolean hasConsumableOvertimeContext, Boolean hasConsumableSourceStatus,
+            Boolean hasOnlyExplicitDraftLeaveHistory, Boolean hasAnyReportFact) {
+        public MissingOaCurrentEligibilityRow readerEligibility() {
+            Boolean consumable = hasConsumableSourceStatus == null ? null
+                    : Boolean.FALSE.equals(hasConsumableSourceStatus)
+                            || Boolean.FALSE.equals(hasConsumableOvertimeContext) ? Boolean.FALSE
+                            : hasConsumableOvertimeContext;
+            return new MissingOaCurrentEligibilityRow(sourceBusinessKey, oaAttendanceDocumentId, documentType,
+                    createdAt, activationDecision, overtimeType, hasIndependentEvidenceLink,
+                    hasConflictingReportIdentity, hasApplicableReportExclusion, hasFutureDocument, consumable);
+        }
+    }
+
+    /** Full history for an unparseable pending leave; never a claim about current ownership. */
+    public record UnparseableLeaveScopeRow(
+            String sourceBusinessKey, String rawAttendanceFactId, String factKind,
+            String normalizedAttendanceRecordId, String validationStatus, String recordKind,
+            String oaAttendanceDocumentId, String documentType, Boolean documentIdentityConsistent,
+            String matchStatus, String employeeId, String employeeCompanyId,
+            String employeeNumber, String historicalEmployeeNumber, Boolean hasTargetReportFact,
+            String sourceVersion, String sourceStatus, String leaveSerial, Boolean hasRelatedRevocation) {
+        public MissingOaKeyScopeRow identityHistory() {
+            return new MissingOaKeyScopeRow(sourceBusinessKey, rawAttendanceFactId, factKind,
+                    normalizedAttendanceRecordId, validationStatus, recordKind, oaAttendanceDocumentId,
+                    documentType, documentIdentityConsistent, matchStatus, employeeId, employeeCompanyId,
+                    employeeNumber, historicalEmployeeNumber, hasTargetReportFact);
+        }
+    }
+
+    /** Last immutable observation of one source business key, including its safe prior attribution. */
+    public record OaObservationRow(
+            String rawAttendanceFactId, String sourceVersion, String canonicalPayloadDigest,
+            Instant receivedAt, Long knowledgeRank, String oaAttendanceDocumentId,
+            String documentType, String sourceStatus, Instant startInstant, Instant endInstant,
+            String employeeId, String employmentPeriodId, String resolverSnapshotDigest,
+            OvertimeType overtimeType, LeaveType leaveType,
+            String leaveSerial, String originalLeaveSerial) {
+    }
+
     public record RawFactRow(
             String rawAttendanceFactId,
             String attendanceSourceId,

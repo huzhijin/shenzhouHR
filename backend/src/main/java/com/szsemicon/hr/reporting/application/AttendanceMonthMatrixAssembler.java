@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 final class AttendanceMonthMatrixAssembler {
 
@@ -41,7 +43,7 @@ final class AttendanceMonthMatrixAssembler {
     private static final String[] WEEKDAYS = {
             "日", "一", "二", "三", "四", "五", "六"};
     private static final Set<String> EFFECTIVE_OA_STATUSES = Set.of(
-            "APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN");
+            "APPROVED", "MODIFIED", "SUPPLEMENTED", "PENDING");
     private static final Set<String> BLOCKED_SLOT_LABELS = Set.of(
             "驻外", "不打卡", "离职", "入职", "停职留薪");
 
@@ -90,7 +92,7 @@ final class AttendanceMonthMatrixAssembler {
                                 || isPunchCorrection(fact)))
                 .sorted(Comparator
                         .comparing((OaDocumentFact fact) ->
-                                unknownOaStatus(fact.sourceStatus()))
+                                pendingOaStatus(fact.sourceStatus()))
                         .thenComparing((OaDocumentFact fact) ->
                                 Duration.between(
                                         fact.start(),
@@ -110,23 +112,18 @@ final class AttendanceMonthMatrixAssembler {
                             fact.organizationId(),
                             fact.organizationName(),
                             firstDate);
-                    LocalDate lastDate = fact.endExclusive() == null
-                            ? firstDate
-                            : fact.endExclusive()
-                                    .minusNanos(1)
-                                    .atZone(BUSINESS_ZONE)
-                                    .toLocalDate();
-                    LocalDate from = later(periodStart, firstDate);
-                    LocalDate through = earlier(periodEnd, lastDate);
-                    if (from.isAfter(through)) {
-                        return;
-                    }
-                    for (LocalDate date = from;
-                            !date.isAfter(through);
-                            date = date.plusDays(1)) {
+
+                    // Determine dates to process based on whether we have a daymap
+                    Set<LocalDate> datesToProcess = getEffectiveDates(
+                            fact, periodStart, periodEnd);
+
+                    for (LocalDate date : datesToProcess) {
                         DayAccumulator accumulator = cell(
                                 cells, fact.employeeId(), date);
                         if (skipWorkdayOnlyLeaveOnRest(accumulator, fact, date)) {
+                            continue;
+                        }
+                        if (!hasPositiveContributionOnDate(fact, date)) {
                             continue;
                         }
                         accumulator.badges.add(oaBadge(fact));
@@ -215,7 +212,23 @@ final class AttendanceMonthMatrixAssembler {
         if (type == null || type.includesWeekendHours()) {
             return false;
         }
-        return accumulator.restDay || isCalendarWeekend(date);
+
+        // REST44: SICK with explicit 0-minute coverage on REST_DAY should NOT be skipped
+        // Check if this is SICK with valid 0-coverage on this date
+        if (type == LeaveType.SICK
+                && fact.recognizedMinutesByDateJson() != null
+                && !fact.recognizedMinutesByDateJson().isBlank()) {
+            Map<LocalDate, Long> dateMap = OaRecognizedDayMinutes.decode(
+                    fact.recognizedMinutesByDateJson(), fact.recognizedMinutes());
+            if (dateMap != null && dateMap.containsKey(date)) {
+                Long minutes = dateMap.get(date);
+                if (minutes != null && minutes == 0) {
+                    return false;  // Do NOT skip: show SICK badge with 0 working hours
+                }
+            }
+        }
+
+        return accumulator.restDay || (!accumulator.hasDailyFact && isCalendarWeekend(date));
     }
 
     private static LeaveType resolvedLeaveType(OaDocumentFact fact) {
@@ -398,6 +411,24 @@ final class AttendanceMonthMatrixAssembler {
             LocalDate date,
             LocalTime start,
             LocalTime end) {
+        // For SICK on REST_DAY with 0-minute daymap: show badge but 0 hours
+        if ("SICK".equals(resolvedLeaveType(fact))
+                && fact.recognizedMinutesByDateJson() != null
+                && !fact.recognizedMinutesByDateJson().isBlank()
+                && !fact.recognizedMinutesByDateJson().equals("{}")) {
+            Map<LocalDate, Long> byDate = OaRecognizedDayMinutes.decode(
+                    fact.recognizedMinutesByDateJson(), fact.recognizedMinutes());
+            if (byDate != null && byDate.containsKey(date)) {
+                Long minutes = byDate.get(date);
+                // 0-minute SICK on REST_DAY: display in both slots
+                if (minutes != null && minutes == 0) {
+                    return true;
+                }
+                // Positive minutes: fall through to original logic
+            }
+        }
+
+        // Original interval matching for all other cases
         Instant windowStart = date.atTime(start)
                 .atZone(BUSINESS_ZONE)
                 .toInstant();
@@ -433,6 +464,19 @@ final class AttendanceMonthMatrixAssembler {
 
     private static boolean overlapsCalendarDate(
             OaDocumentFact fact, LocalDate date) {
+        // For SICK with daymap: check date key exists
+        if ("SICK".equals(resolvedLeaveType(fact))
+                && fact.recognizedMinutesByDateJson() != null
+                && !fact.recognizedMinutesByDateJson().isBlank()
+                && !fact.recognizedMinutesByDateJson().equals("{}")) {
+            Map<LocalDate, Long> byDate = OaRecognizedDayMinutes.decode(
+                    fact.recognizedMinutesByDateJson(), fact.recognizedMinutes());
+            if (byDate != null) {
+                return byDate.containsKey(date);
+            }
+        }
+
+        // Fall back to original interval matching
         Instant dayStart = date.atStartOfDay(BUSINESS_ZONE).toInstant();
         Instant dayEnd = date.plusDays(1)
                 .atStartOfDay(BUSINESS_ZONE)
@@ -559,19 +603,6 @@ final class AttendanceMonthMatrixAssembler {
                 && !outingOrTripCoversDay(day)
                 && !isHireDay(day)
                 && !isLeaveDay(day);
-        if (day.overtimeTone() && outingOrTripCoversDay(day)) {
-            Instant clock = morning ? day.overtimeStart : day.overtimeEnd;
-            if (clock == null) {
-                clock = punch;
-            }
-            String text = clock == null
-                    ? "加班"
-                    : formatTime(date, clock);
-            return new SlotDisplay(
-                    text,
-                    BadgeCode.RECOGNIZED_OVERTIME.name(),
-                    clock == null ? punch : clock);
-        }
         if (slot.label != null) {
             String text = slot.label;
             if (slot.correction) {
@@ -592,7 +623,10 @@ final class AttendanceMonthMatrixAssembler {
             Instant offAt = leaveDayOffDutyAt(date, day);
             return new SlotDisplay(formatTime(date, offAt), null, offAt);
         }
-        if (missing && !day.overtimeTone()) {
+        // 修复：漏刷不可被加班色覆盖
+        // 工作日单晚卡+认定加班，上午应显示漏刷（不受overtimeTone影响）
+        // 下午显示21:00+加班色
+        if (missing) {
             return new SlotDisplay("漏刷", BadgeCode.MISSING_PUNCH.name(), punch);
         }
         if (slot.correction) {
@@ -622,14 +656,20 @@ final class AttendanceMonthMatrixAssembler {
             }
             return new SlotDisplay(formatTime(date, punch), tone, punch);
         }
-        if (day.overtimeTone()
+        // 修复：休息日单晨卡缺下班的漏刷判断，与是否有认定加班分开
+        // 有申请且缺下班证据 → 漏刷（即使认定为0）
+        // 已认定加班 → 着色
+        boolean hasOvertimeApplication = day.badges.contains(BadgeCode.OVERTIME_APPLICATION);
+        if (hasOvertimeApplication
                 && !morning
+                && !day.exempt
                 && !leaveCoversSlot
                 && !day.hasDistinctOffDutyPunch()
                 && day.morningPunchAt() != null
                 && !outingOrTripCoversDay(day)) {
-            return new SlotDisplay(
-                    "漏刷", BadgeCode.MISSING_PUNCH.name(), null);
+            // 修复：缺卡必须永远显示MISSING_PUNCH色，不能被认可加班覆盖
+            // 认可加班通过day badges/hover体现，不应夺取单格缺卡颜色
+            return new SlotDisplay("漏刷", BadgeCode.MISSING_PUNCH.name(), null);
         }
         if (day.overtimeTone()) {
             return new SlotDisplay(
@@ -1004,6 +1044,97 @@ final class AttendanceMonthMatrixAssembler {
                 && "PUNCH_CORRECTION".equalsIgnoreCase(fact.documentType());
     }
 
+    /**
+     * Get the effective dates to process for an OA fact.
+     * If recognizedMinutesByDateJson is present, use those dates (filtered to period).
+     * Otherwise, use the original traced interval (filtered to period).
+     */
+    private static Set<LocalDate> getEffectiveDates(
+            OaDocumentFact fact, LocalDate periodStart, LocalDate periodEnd) {
+        // Try to use recognizedMinutesByDateJson if present
+        if (fact.recognizedMinutesByDateJson() != null
+                && !fact.recognizedMinutesByDateJson().isBlank()) {
+            Map<LocalDate, Long> dateMap = OaRecognizedDayMinutes.decode(
+                    fact.recognizedMinutesByDateJson(), fact.recognizedMinutes());
+            if (dateMap != null) {
+                // Use dates from the map (even if empty {}), filtered to the period
+                // Empty map means fully revoked: no effective dates
+                return dateMap.keySet().stream()
+                        .filter(date -> !date.isBefore(periodStart) && !date.isAfter(periodEnd))
+                        .collect(java.util.stream.Collectors.toSet());
+            }
+        }
+
+        // Fall back to original traced interval ONLY if no valid daymap JSON
+        LocalDate firstDate = fact.start()
+                .atZone(BUSINESS_ZONE)
+                .toLocalDate();
+        LocalDate lastDate = fact.endExclusive() == null
+                ? firstDate
+                : fact.endExclusive()
+                        .minusNanos(1)
+                        .atZone(BUSINESS_ZONE)
+                        .toLocalDate();
+        LocalDate from = later(periodStart, firstDate);
+        LocalDate through = earlier(periodEnd, lastDate);
+
+        if (from.isAfter(through)) {
+            return Set.of();
+        }
+
+        Set<LocalDate> dates = new java.util.HashSet<>();
+        for (LocalDate date = from; !date.isAfter(through); date = date.plusDays(1)) {
+            dates.add(date);
+        }
+        return dates;
+    }
+
+    /**
+     * Check if an OA fact has positive contribution on the given date.
+     * For NET_WORK_V1 allocation semantics with recognizedMinutesByDateJson,
+     * parse the JSON and check minutes for that specific date.
+     * Otherwise, fall back to checking if recognizedMinutes > 0 (legacy behavior).
+     * HR DAY_TYPE facts are always considered to have contribution (even with 0 minutes).
+     */
+    private static boolean hasPositiveContributionOnDate(
+            OaDocumentFact fact, LocalDate date) {
+        if (fact == null) {
+            return false;
+        }
+
+        // Check document type FIRST - some types are always valid even with 0 minutes
+        String documentType = fact.documentType();
+        if (documentType != null) {
+            String upperType = documentType.toUpperCase(Locale.ROOT);
+            if ("PUNCH_CORRECTION".equals(upperType) || "EXEMPT_PUNCH".equals(upperType)) {
+                return true;  // Always show these even with 0 minutes
+            }
+        }
+
+        // Use recognizedMinutesByDateJson if present (both NET_WORK_V1 and legacy)
+        if (fact.recognizedMinutesByDateJson() != null
+                && !fact.recognizedMinutesByDateJson().isBlank()) {
+            Map<LocalDate, Long> dateMap = OaRecognizedDayMinutes.decode(
+                    fact.recognizedMinutesByDateJson(), fact.recognizedMinutes());
+            if (dateMap != null && dateMap.containsKey(date)) {
+                Long minutes = dateMap.get(date);
+                // REST_DAY SICK with explicit 0-minute coverage shows "病假"
+                if (minutes != null && minutes == 0) {
+                    String leaveType = fact.leaveType();
+                    if (leaveType != null && "SICK".equalsIgnoreCase(leaveType)) {
+                        return true;  // Show SICK label on REST_DAY with 0 minutes
+                    }
+                }
+                return minutes != null && minutes > 0;
+            }
+            // If map exists but date not in map, no contribution
+            return false;
+        }
+
+        // Legacy: no daymap, require positive recognizedMinutes
+        return fact.recognizedMinutes() > 0;
+    }
+
     private static BadgeCode oaBadge(OaDocumentFact fact) {
         String documentType = fact.documentType().toUpperCase(Locale.ROOT);
         return switch (documentType) {
@@ -1046,7 +1177,7 @@ final class AttendanceMonthMatrixAssembler {
         if (resolved != null && BLOCKED_SLOT_LABELS.contains(resolved.label())) {
             return null;
         }
-        if (resolved != null && unknownOaStatus(fact.sourceStatus())) {
+        if (resolved != null && pendingOaStatus(fact.sourceStatus())) {
             return new DocumentAppearance(
                     resolved.label(),
                     resolved.tone(),
@@ -1056,8 +1187,8 @@ final class AttendanceMonthMatrixAssembler {
         return resolved;
     }
 
-    private static boolean unknownOaStatus(String status) {
-        return status != null && "UNKNOWN".equalsIgnoreCase(status.strip());
+    private static boolean pendingOaStatus(String status) {
+        return status != null && "PENDING".equalsIgnoreCase(status.strip());
     }
 
     static String leaveLabel(String leaveType) {
@@ -1334,21 +1465,9 @@ final class AttendanceMonthMatrixAssembler {
         }
 
         private boolean overtimeTone() {
-            if (recognizedOvertimeMinutes > 0) {
-                return true;
-            }
-            if (!overtimeDocument) {
-                return false;
-            }
-            if (firstPunchAt == null && lastPunchAt == null) {
-                return true;
-            }
-            if (restDay) {
-                return true;
-            }
-            return overtimeStart != null
-                    && lastPunchAt != null
-                    && lastPunchAt.isAfter(overtimeStart);
+            // 只有真正认定的加班才返回true，避免将加班申请时间误显示为打卡时间
+            // 修复：徐芳芳/金凯雯9/19显示虚假"13:00"/"17:00"的问题
+            return recognizedOvertimeMinutes > 0;
         }
 
         private Instant morningPunchAt() {

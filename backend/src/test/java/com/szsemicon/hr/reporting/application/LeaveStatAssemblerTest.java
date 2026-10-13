@@ -2,8 +2,8 @@ package com.szsemicon.hr.reporting.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.LeaveStatAccountRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.MonthlyLeaveUsageRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.LeaveStatAccountRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.MonthlyLeaveUsageRow;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;

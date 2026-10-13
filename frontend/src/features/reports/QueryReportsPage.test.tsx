@@ -1,5 +1,6 @@
 import dayjs from 'dayjs';
 import { describe, expect, it } from 'vitest';
+import { leaveTypeCases } from '../../test/fixtures/leaveTypeFixtures';
 
 import {
   DAY_UPDATED_TOAST,
@@ -17,6 +18,19 @@ import {
 import { defaultQueryPeriod, isWholeCalendarMonth } from './queryPeriod';
 
 describe('QueryReportsPage presentation', () => {
+  it.each(leaveTypeCases)('labels %s consistently in leave detail and summary', (code, label) => {
+    for (const sheet of ['leave', 'leave-summary'] as const) {
+      const entries = detailEntries(sheet, { leaveType: code, hours: 1 });
+      expect(entries.find((entry) => entry.key === 'leaveType')?.value).toBe(label);
+    }
+  });
+
+  it('distinguishes compensatory leave from overtime converted to time off', () => {
+    const row = { leaveType: 'COMPENSATORY' };
+    expect(detailEntries('leave', row).find((entry) => entry.key === 'leaveType')?.value).toBe('调休');
+    expect(detailEntries('overtime', row).find((entry) => entry.key === 'leaveType')?.value).toBe('转调休');
+  });
+
   it('keeps work-hours drawer on Chinese business columns', () => {
     const entries = detailEntries('work-hours', {
       employeeNumber: 'SZST0048',

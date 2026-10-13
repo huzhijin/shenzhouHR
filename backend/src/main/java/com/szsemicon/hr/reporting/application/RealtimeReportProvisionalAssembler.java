@@ -10,9 +10,8 @@ import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DayType;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionSeverity;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionState;
-import com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceDashboardWorkbenchMapper;
-import com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows.PunchRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows.RosterRow;
+import com.szsemicon.hr.reporting.application.DashboardWorkbenchRows.PunchRow;
+import com.szsemicon.hr.reporting.application.DashboardWorkbenchRows.RosterRow;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -43,7 +42,7 @@ final class RealtimeReportProvisionalAssembler {
     }
 
     static PublishCommand assemble(
-            AttendanceDashboardWorkbenchMapper mapper,
+            DashboardWorkbenchReadPort mapper,
             String companyId,
             YearMonth period,
             String principalId,

@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 
@@ -228,6 +229,64 @@ class QueryPageExcelEncoderTest {
     }
 
     @Test
+    void financeOvertimePublicHolidayBucketFollowsStatutoryCalendar() throws Exception {
+        // 2026-09-25 is in the statutory set → holiday; 2026-09-26 is not → weekend.
+        // Both arrive with dayType=PUBLIC_HOLIDAY; encoder must classify correctly.
+        var page = new QueryPage(
+                "finance-overtime",
+                "company-1",
+                "2026-09-25",
+                "2026-09-26",
+                "proj-1",
+                Instant.parse("2026-10-06T00:00:00Z"),
+                "OPEN",
+                List.of(),
+                null,
+                1,
+                0,
+                50,
+                List.of(Map.of(
+                        "employeeNumber", "SZST9999",
+                        "employeeName", "测试员",
+                        "department", "测试部",
+                        "weekdayOvertimeHours", 0,
+                        "weekendOvertimeHours", 4,
+                        "holidayOvertimeHours", 8,
+                        "days", List.of(
+                                Map.of("date", LocalDate.of(2026, 9, 25),
+                                        "dayType", "PUBLIC_HOLIDAY",
+                                        "hours", 8),
+                                Map.of("date", LocalDate.of(2026, 9, 26),
+                                        "dayType", "PUBLIC_HOLIDAY",
+                                        "hours", 4)))),
+                List.of(),
+                "a".repeat(64),
+                "scope-1",
+                List.of());
+        var encoded = new QueryPageExcelEncoder().encode(page);
+        try (var workbook = new XSSFWorkbook(
+                new ByteArrayInputStream(encoded.content()))) {
+            var sheet = workbook.getSheetAt(0);
+            // Row 2 (0-indexed) is the data row
+            var dataRow = sheet.getRow(2);
+            // D=weekday(col3), E=weekend(col4), F=holiday(col5)
+            // 9/25 → holiday (J=col9), 9/26 → weekend (K=col10)
+            assertThat(dataRow.getCell(9).getNumericCellValue()).isEqualTo(8.0);
+            assertThat(dataRow.getCell(10).getNumericCellValue()).isEqualTo(4.0);
+            // weekend formula references 9/26 (K column)
+            assertThat(dataRow.getCell(4).getCellFormula()).contains("K");
+            // holiday formula references 9/25 (J column)
+            assertThat(dataRow.getCell(5).getCellFormula()).contains("J");
+            var evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+            evaluator.evaluateAll();
+            // After evaluation: weekend=4, holiday=8, weekday=0
+            assertThat(dataRow.getCell(3).getNumericCellValue()).isEqualTo(0.0);
+            assertThat(dataRow.getCell(4).getNumericCellValue()).isEqualTo(4.0);
+            assertThat(dataRow.getCell(5).getNumericCellValue()).isEqualTo(8.0);
+        }
+    }
+
+    @Test
     void overtimeFeeDailyExportsOnlyPaidColumn() throws Exception {
         var page = new QueryPage(
                 "overtime-fee-daily",
@@ -322,39 +381,72 @@ class QueryPageExcelEncoderTest {
                 1,
                 0,
                 50,
-                List.of(Map.ofEntries(
-                        Map.entry("employeeNumber", "SZST0487"),
-                        Map.entry("employeeName", "赵俊杰"),
-                        Map.entry("department", "DC部-软件设计组"),
-                        Map.entry("scheduledHours", 168.0),
-                        Map.entry("paidOvertimeHours", 4.5),
-                        Map.entry("voluntaryOvertimeHours", 3.5),
-                        Map.entry("leaveHours", 0.0),
-                        Map.entry("annualLeaveHours", 0.0),
-                        Map.entry("compensatoryOvertimeHours", 0.0),
-                        Map.entry("timeOffHours", 0.0),
-                        Map.entry("actualHours", 176.0),
-                        Map.entry("note", ""))),
+                List.of(
+                        Map.ofEntries(
+                                Map.entry("employeeNumber", "SZST0487"),
+                                Map.entry("employeeName", "赵俊杰"),
+                                Map.entry("department", "DC部-软件设计组"),
+                                Map.entry("scheduledHours", 168.0),
+                                Map.entry("paidOvertimeHours", 4.25),
+                                Map.entry("voluntaryOvertimeHours", 3.125),
+                                Map.entry("leaveHours", 0.5),
+                                Map.entry("annualLeaveHours", 0.25),
+                                Map.entry("compensatoryOvertimeHours", 1.75),
+                                Map.entry("timeOffHours", 0.125),
+                                Map.entry("actualHours", 176.25),
+                                Map.entry("note", "")),
+                        Map.ofEntries(
+                                Map.entry("employeeNumber", "SZST0001"),
+                                Map.entry("employeeName", "测试员工"),
+                                Map.entry("department", "测试部门"),
+                                Map.entry("scheduledHours", 0.0),
+                                Map.entry("paidOvertimeHours", 0.0),
+                                Map.entry("voluntaryOvertimeHours", 0.0),
+                                Map.entry("leaveHours", 0.0),
+                                Map.entry("annualLeaveHours", 0.0),
+                                Map.entry("compensatoryOvertimeHours", 0.0),
+                                Map.entry("timeOffHours", 0.0),
+                                Map.entry("actualHours", 0.0),
+                                Map.entry("note", ""))),
                 List.of(),
                 "a".repeat(64),
                 "scope-1",
                 List.of());
         var encoded = new QueryPageExcelEncoder().encode(page);
+
+        // Verify formula and cached result WITHOUT calling evaluateAll
         try (var workbook = new XSSFWorkbook(
                 new ByteArrayInputStream(encoded.content()))) {
             var sheet = workbook.getSheetAt(0);
-            assertThat(sheet.getRow(0).getCell(5).getStringCellValue())
-                    .isEqualTo("义务加班");
-            assertThat(sheet.getRow(1).getCell(10).getCellFormula())
-                    .isEqualTo("D2+E2+F2-G2-H2+I2-J2");
-            assertThat(sheet.getRow(2).getCell(0).getStringCellValue())
+
+            // Row 1: formula and cached result with non-half-hour decimals
+            var row1K = sheet.getRow(1).getCell(10);
+            assertThat(row1K.getCellType()).isEqualTo(CellType.FORMULA);
+            assertThat(row1K.getCellFormula()).isEqualTo("D2+E2+F2-G2-H2+I2-J2");
+            assertThat(row1K.getCachedFormulaResultType()).isEqualTo(CellType.NUMERIC);
+            assertThat(row1K.getNumericCellValue()).isEqualTo(176.25);
+
+            // Row 2: all zeros, cached result must be 0
+            var row2K = sheet.getRow(2).getCell(10);
+            assertThat(row2K.getCellType()).isEqualTo(CellType.FORMULA);
+            assertThat(row2K.getCachedFormulaResultType()).isEqualTo(CellType.NUMERIC);
+            assertThat(row2K.getNumericCellValue()).isEqualTo(0.0);
+
+            // Total row: SUM formula with cached result
+            assertThat(sheet.getRow(3).getCell(0).getStringCellValue())
                     .isEqualTo("总计");
-            assertThat(sheet.getRow(2).getCell(10).getCellFormula())
-                    .isEqualTo("SUM(K2:K2)");
-            var evaluator = workbook.getCreationHelper().createFormulaEvaluator();
-            evaluator.evaluateAll();
-            assertThat(sheet.getRow(1).getCell(10).getNumericCellValue())
-                    .isEqualTo(176.0);
+            var totalK = sheet.getRow(3).getCell(10);
+            assertThat(totalK.getCellFormula()).isEqualTo("SUM(K2:K3)");
+            assertThat(totalK.getCachedFormulaResultType()).isEqualTo(CellType.NUMERIC);
+            assertThat(totalK.getNumericCellValue()).isEqualTo(176.25);
+
+            // Verify D:J columns preserve non-half-hour precision
+            assertThat(sheet.getRow(1).getCell(4).getNumericCellValue()).isEqualTo(4.25);
+            assertThat(sheet.getRow(1).getCell(5).getNumericCellValue()).isEqualTo(3.125);
+            assertThat(sheet.getRow(1).getCell(6).getNumericCellValue()).isEqualTo(0.5);
+            assertThat(sheet.getRow(1).getCell(7).getNumericCellValue()).isEqualTo(0.25);
+            assertThat(sheet.getRow(1).getCell(8).getNumericCellValue()).isEqualTo(1.75);
+            assertThat(sheet.getRow(1).getCell(9).getNumericCellValue()).isEqualTo(0.125);
         }
     }
 
@@ -538,6 +630,75 @@ class QueryPageExcelEncoderTest {
             assertThat(sheet.getRow(1).getCell(2).getStringCellValue()).isEqualTo("张三");
             assertThat(sheet.getRow(1).getCell(3).getStringCellValue()).isEqualTo("1");
             assertThat(sheet.getRow(1).getCell(4).getStringCellValue()).isEqualTo("8月3日（上班）");
+        }
+    }
+
+    @Test
+    void financeOvertimeClassifiesDayTypePerEmployee() throws Exception {
+        // Bug reproduction: same date, different employees have different dayTypes
+        // Employee A: 2026-08-10 is SUNDAY with 8 hours
+        // Employee B: 2026-08-10 is WORKDAY with 8 hours
+        // Each row's category subtotals must use that person's own classification
+        var page = new QueryPage(
+                "finance-overtime",
+                "company-1",
+                "2026-08-10",
+                "2026-08-10",
+                "proj-1",
+                Instant.parse("2026-08-20T00:00:00Z"),
+                "OPEN",
+                List.of(),
+                null,
+                2,
+                0,
+                50,
+                List.of(
+                        Map.of(
+                                "employeeNumber", "SZST0001",
+                                "employeeName", "员工A",
+                                "department", "工程一部",
+                                "weekdayOvertimeHours", 0.0,
+                                "weekendOvertimeHours", 8.0,
+                                "holidayOvertimeHours", 0.0,
+                                "days", List.of(Map.of(
+                                        "date", LocalDate.of(2026, 8, 10),
+                                        "dayType", "SUNDAY",
+                                        "hours", 8.0))),
+                        Map.of(
+                                "employeeNumber", "SZST0002",
+                                "employeeName", "员工B",
+                                "department", "工程二部",
+                                "weekdayOvertimeHours", 8.0,
+                                "weekendOvertimeHours", 0.0,
+                                "holidayOvertimeHours", 0.0,
+                                "days", List.of(Map.of(
+                                        "date", LocalDate.of(2026, 8, 10),
+                                        "dayType", "WORKDAY",
+                                        "hours", 8.0)))),
+                List.of(),
+                "a".repeat(64),
+                "scope-1",
+                List.of());
+        var encoded = new QueryPageExcelEncoder().encode(page);
+        try (var workbook = new XSSFWorkbook(
+                new ByteArrayInputStream(encoded.content()))) {
+            var sheet = workbook.getSheetAt(0);
+            var evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+            evaluator.evaluateAll();
+
+            // Row 2: Employee A has SUNDAY, so 8/10 should sum to weekend (col 4)
+            var employeeA = sheet.getRow(2);
+            assertThat(employeeA.getCell(2).getStringCellValue()).isEqualTo("员工A");
+            assertThat(employeeA.getCell(3).getNumericCellValue()).isEqualTo(0.0); // weekday
+            assertThat(employeeA.getCell(4).getNumericCellValue()).isEqualTo(8.0); // weekend
+            assertThat(employeeA.getCell(5).getNumericCellValue()).isEqualTo(0.0); // holiday
+
+            // Row 3: Employee B has WORKDAY, so 8/10 should sum to weekday (col 3)
+            var employeeB = sheet.getRow(3);
+            assertThat(employeeB.getCell(2).getStringCellValue()).isEqualTo("员工B");
+            assertThat(employeeB.getCell(3).getNumericCellValue()).isEqualTo(8.0); // weekday
+            assertThat(employeeB.getCell(4).getNumericCellValue()).isEqualTo(0.0); // weekend
+            assertThat(employeeB.getCell(5).getNumericCellValue()).isEqualTo(0.0); // holiday
         }
     }
 }

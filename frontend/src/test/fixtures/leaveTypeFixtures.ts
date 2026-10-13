@@ -1,0 +1,15 @@
+export const leaveTypeCases = [
+  ['ANNUAL', '年假'],
+  ['SICK', '病假'],
+  ['MARRIAGE', '婚假'],
+  ['MATERNITY', '产假'],
+  ['PATERNITY', '陪产假'],
+  ['BEREAVEMENT', '丧假'],
+  ['WORK_INJURY', '工伤假'],
+  ['PRENATAL_NURSING', '孕检假'],
+  ['BREASTFEEDING', '哺乳假'],
+  ['PERSONAL', '事假'],
+  ['COMPENSATORY', '调休'],
+  ['FAMILY_PLANNING', '计生假'],
+  ['OTHER', '其他假'],
+] as const;

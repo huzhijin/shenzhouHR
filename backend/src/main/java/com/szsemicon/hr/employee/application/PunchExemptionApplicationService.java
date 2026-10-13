@@ -1,8 +1,6 @@
 package com.szsemicon.hr.employee.application;
 
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.employee.infrastructure.persistence.EmployeeReadMapper;
-import com.szsemicon.hr.employee.infrastructure.persistence.PunchExemptionMapper;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.security.ResourceNotAvailableAccessDeniedException;
 import java.time.Clock;
@@ -16,17 +14,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class PunchExemptionApplicationService {
 
     private final CurrentPrincipalProvider principalProvider;
-    private final EmployeeReadMapper employeeReadMapper;
-    private final PunchExemptionMapper punchExemptionMapper;
+    private final EmployeeAuthorizationPort employeeAuthorizationPort;
+    private final PunchExemptionPort punchExemptionMapper;
     private final Clock clock;
 
     public PunchExemptionApplicationService(
             CurrentPrincipalProvider principalProvider,
-            EmployeeReadMapper employeeReadMapper,
-            PunchExemptionMapper punchExemptionMapper,
+            EmployeeAuthorizationPort employeeAuthorizationPort,
+            PunchExemptionPort punchExemptionMapper,
             Clock clock) {
         this.principalProvider = principalProvider;
-        this.employeeReadMapper = employeeReadMapper;
+        this.employeeAuthorizationPort = employeeAuthorizationPort;
         this.punchExemptionMapper = punchExemptionMapper;
         this.clock = clock;
     }
@@ -65,7 +63,7 @@ public class PunchExemptionApplicationService {
 
     private void requireAccess(String employeeId, String capability) {
         Objects.requireNonNull(employeeId, "employeeId");
-        boolean allowed = employeeReadMapper.canAccessEmployee(
+        boolean allowed = employeeAuthorizationPort.canAccessEmployee(
                 principalProvider.currentPrincipalId(),
                 capability,
                 clock.instant(),

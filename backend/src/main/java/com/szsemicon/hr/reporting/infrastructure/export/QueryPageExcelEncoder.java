@@ -1,8 +1,12 @@
 package com.szsemicon.hr.reporting.infrastructure.export;
 
+import org.springframework.stereotype.Component;
+import com.szsemicon.hr.reporting.application.QueryPageWorkbookExportPort.WorkbookFile;
+import com.szsemicon.hr.reporting.application.QueryPageWorkbookExportPort;
 import com.szsemicon.hr.reporting.application.AttendanceReportQueryPageService.QueryPage;
 import com.szsemicon.hr.reporting.application.CustomerReportLegendColors;
 import com.szsemicon.hr.reporting.application.DepartmentPathNames;
+import com.szsemicon.hr.reporting.domain.StatutoryHolidayCalendar;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,7 +36,8 @@ import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFFont;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
-public final class QueryPageExcelEncoder {
+@Component
+public final class QueryPageExcelEncoder implements QueryPageWorkbookExportPort {
 
     static final String CONTENT_TYPE =
             "application/vnd.openxmlformats-officedocument"
@@ -48,10 +53,7 @@ public final class QueryPageExcelEncoder {
     private static final String[] WEEKDAYS = {
             "一", "二", "三", "四", "五", "六", "日"};
 
-    public record WorkbookFile(
-            String fileName, String contentType, byte[] content) {
-    }
-
+    @Override
     public WorkbookFile encode(QueryPage page) {
         if (page == null) {
             throw new IllegalArgumentException("query page is required");
@@ -74,6 +76,7 @@ public final class QueryPageExcelEncoder {
             } else {
                 writeTable(workbook.createSheet(sheetName(page)), page, styles);
             }
+            workbook.getCreationHelper().createFormulaEvaluator().evaluateAll();
             workbook.write(output);
             return new WorkbookFile(
                     fileName(page), CONTENT_TYPE, output.toByteArray());
@@ -224,16 +227,16 @@ public final class QueryPageExcelEncoder {
             return;
         }
         int rowIndex = 2;
-        List<Integer>[] dateColumns = overtimeDateColumns(
-                dates, page.rows(), identity.size());
-        List<Integer> weekdayCols = dateColumns[0];
-        List<Integer> weekendCols = dateColumns[1];
-        List<Integer> holidayCols = dateColumns[2];
         boolean paidCol = identity.contains("加班费");
         boolean compensatoryCol = identity.contains("转调休");
         boolean voluntaryCol = identity.contains("义务加班");
         for (Map<String, Object> employee : page.rows()) {
             Map<LocalDate, Map<String, Object>> byDate = daysByDate(employee);
+            List<Integer>[] dateColumns = overtimeDateColumnsForEmployee(
+                    dates, byDate, identity.size());
+            List<Integer> weekdayCols = dateColumns[0];
+            List<Integer> weekendCols = dateColumns[1];
+            List<Integer> holidayCols = dateColumns[2];
             Row row = sheet.createRow(rowIndex++);
             String wrapped = DepartmentPathNames.excelWrappedDepartment(
                     visibleDepartment(employee.get("department")));
@@ -325,6 +328,30 @@ public final class QueryPageExcelEncoder {
         return overtimeDateColumns(dates, employees, 9);
     }
 
+    private static List<Integer>[] overtimeDateColumnsForEmployee(
+            List<LocalDate> dates,
+            Map<LocalDate, Map<String, Object>> daysByDate,
+            int dateStart) {
+        List<Integer> weekday = new ArrayList<>();
+        List<Integer> weekend = new ArrayList<>();
+        List<Integer> holiday = new ArrayList<>();
+        for (int d = 0; d < dates.size(); d++) {
+            LocalDate date = dates.get(d);
+            Map<String, Object> day = daysByDate.get(date);
+            String type = day == null ? "" : text(day.get("dayType"));
+            String bucket = overtimeDateBucket(date, type);
+            int column = dateStart + d;
+            switch (bucket) {
+                case "weekend" -> weekend.add(column);
+                case "holiday" -> holiday.add(column);
+                default -> weekday.add(column);
+            }
+        }
+        @SuppressWarnings("unchecked")
+        List<Integer>[] grouped = new List[] {weekday, weekend, holiday};
+        return grouped;
+    }
+
     private static List<Integer>[] overtimeDateColumns(
             List<LocalDate> dates,
             List<Map<String, Object>> employees,
@@ -363,17 +390,13 @@ public final class QueryPageExcelEncoder {
     }
 
     private static String overtimeDateBucket(LocalDate date, String dayType) {
-        String type = dayType == null ? "" : dayType.toUpperCase(Locale.ROOT);
-        if (type.contains("HOLIDAY")) {
-            return "holiday";
-        }
-        if (type.equals("SATURDAY")
-                || type.equals("SUNDAY")
-                || type.equals("WEEKEND")) {
-            return "weekend";
-        }
+        String type = dayType == null ? "" : dayType.trim();
         if (!type.isBlank()) {
-            return "weekday";
+            return switch (StatutoryHolidayCalendar.classify(date, type)) {
+                case HOLIDAY -> "holiday";
+                case WEEKEND -> "weekend";
+                default -> "weekday";
+            };
         }
         DayOfWeek weekday = date.getDayOfWeek();
         return weekday == DayOfWeek.SATURDAY || weekday == DayOfWeek.SUNDAY
@@ -1003,21 +1026,31 @@ public final class QueryPageExcelEncoder {
     }
 
     private static String formatNumber(String key, Object value) {
-        if (value instanceof Number number
-                && (key.equals("hours") || key.toLowerCase(Locale.ROOT).endsWith("hours")
-                || key.equals("attendanceRate") || key.endsWith("Days"))) {
-            double amount = number.doubleValue();
-            if ("attendanceRate".equals(key)) {
-                return BigDecimal.valueOf(amount)
+        boolean isHoursOrDays = key.equals("hours")
+                || key.toLowerCase(Locale.ROOT).endsWith("hours")
+                || key.endsWith("Days");
+        if (isHoursOrDays || key.equals("attendanceRate")) {
+            if ("attendanceRate".equals(key) && value instanceof Number number) {
+                return BigDecimal.valueOf(number.doubleValue())
                         .setScale(1, RoundingMode.HALF_UP)
                         .toPlainString() + "%";
             }
-            double half = Math.round(amount * 2.0) / 2.0;
-            if (Math.rint(half) == half) {
-                return Integer.toString((int) half);
+            if (isHoursOrDays) {
+                // BigDecimal first to avoid precision loss via doubleValue().
+                if (value instanceof BigDecimal decimal) {
+                    BigDecimal stripped = decimal.stripTrailingZeros();
+                    return stripped.scale() <= 0
+                            ? stripped.toBigInteger().toString()
+                            : stripped.toPlainString();
+                }
+                if (value instanceof Number number) {
+                    BigDecimal bd = BigDecimal.valueOf(number.doubleValue())
+                            .stripTrailingZeros();
+                    return bd.scale() <= 0
+                            ? bd.toBigInteger().toString()
+                            : bd.toPlainString();
+                }
             }
-            return BigDecimal.valueOf(half).setScale(1, RoundingMode.HALF_UP)
-                    .toPlainString();
         }
         if (value instanceof BigDecimal decimal) {
             return decimal.stripTrailingZeros().toPlainString();

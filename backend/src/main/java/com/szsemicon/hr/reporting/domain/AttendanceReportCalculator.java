@@ -20,6 +20,7 @@ import com.szsemicon.hr.reporting.domain.AttendanceReportModels.TimeAccountFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.TimeAccountType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -41,7 +42,7 @@ public final class AttendanceReportCalculator {
     private static final DateTimeFormatter CLOCK =
             DateTimeFormatter.ofPattern("HH:mm").withZone(BUSINESS_ZONE);
     private static final Set<String> EFFECTIVE_OA_STATUSES = Set.of(
-            "APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN");
+            "APPROVED", "MODIFIED", "SUPPLEMENTED", "PENDING");
 
     public ReportDataSet calculate(
             ReportType type, ReportSourceSnapshot snapshot) {
@@ -263,6 +264,9 @@ public final class AttendanceReportCalculator {
                 ReportField.ORGANIZATION,
                 ReportField.SCHEDULED_HOURS,
                 ReportField.PAID_OVERTIME_HOURS,
+                // Actual work hours add voluntary overtime, so it has to be a visible part
+                // as well. Without it, a consumer that sums the parts lands below the total.
+                ReportField.VOLUNTARY_OVERTIME_HOURS,
                 ReportField.LEAVE_HOURS,
                 ReportField.ANNUAL_LEAVE_HOURS,
                 ReportField.COMPENSATORY_OVERTIME_HOURS,
@@ -270,7 +274,9 @@ public final class AttendanceReportCalculator {
                 ReportField.ACTUAL_WORK_HOURS);
         Map<String, EmployeeAggregate> aggregates =
                 aggregateDaily(visibleDaily(snapshot));
-        applyLeaveBreakdown(aggregates, visibleOa(snapshot));
+        // Keep the existing hours breakdown independent of document visibility.
+        applyLeaveBreakdown(aggregates,
+                CoveringLeaveDocuments.dropCoveringFacts(visibleOa(snapshot)));
         List<ReportRow> rows = aggregates.values()
                 .stream()
                 .map(value -> row(
@@ -286,6 +292,8 @@ public final class AttendanceReportCalculator {
                                         hours(value.scheduled)),
                                 entry(ReportField.PAID_OVERTIME_HOURS,
                                         hours(value.paidOvertime)),
+                                entry(ReportField.VOLUNTARY_OVERTIME_HOURS,
+                                        hours(value.voluntaryOvertime)),
                                 entry(ReportField.LEAVE_HOURS,
                                         hours(value.otherLeaveHours())),
                                 entry(ReportField.ANNUAL_LEAVE_HOURS,
@@ -559,7 +567,7 @@ public final class AttendanceReportCalculator {
                 .plusDays(1)
                 .atStartOfDay(BUSINESS_ZONE)
                 .toInstant();
-        return CoveringLeaveDocuments.dropCoveringFacts(
+        return CoveringLeaveDocuments.distinctFacts(
                 snapshot.oaDocumentFacts().stream()
                         .filter(value -> value.start().isBefore(windowEnd)
                                 && value.endExclusive().isAfter(windowStart))
@@ -703,7 +711,7 @@ public final class AttendanceReportCalculator {
             case "LATE", "EARLY_DEPARTURE",
                     "MISSING_PUNCH_PENDING", "MISSING_PUNCH_OVERDUE",
                     "MISSING_PUNCH", "MISSING_ON_DUTY", "MISSING_OFF_DUTY",
-                    "ABSENCE", "FAKE_OVERTIME",
+                    "ABSENCE", "LATE_CONVERTED_TO_ABSENCE", "FAKE_OVERTIME",
                     "OVERTIME_FORM_BEYOND_LAST_PUNCH",
                     "NEGATIVE_LEAVE_BALANCE",
                     "NEGATIVE_ANNUAL_LEAVE_BALANCE",
@@ -953,15 +961,18 @@ public final class AttendanceReportCalculator {
             lateMinutes += fact.lateMinutes();
             penalizedLateMinutes += fact.penalizedLateMinutes();
             missingPunches += fact.missingPunchCount();
-            switch (fact.dayType()) {
-                case WEEKDAY, ADJUSTED_WORKDAY ->
-                        weekdayOvertime += fact.recognizedOvertimeMinutes();
-                case SATURDAY ->
-                        saturdayOvertime += fact.recognizedOvertimeMinutes();
-                case SUNDAY ->
-                        sundayOvertime += fact.recognizedOvertimeMinutes();
-                case PUBLIC_HOLIDAY ->
-                        holidayOvertime += fact.recognizedOvertimeMinutes();
+            long overtimeMinutes = fact.recognizedOvertimeMinutes();
+            switch (StatutoryHolidayCalendar.classify(
+                    fact.businessDate(), fact.dayType().name())) {
+                case HOLIDAY -> holidayOvertime += overtimeMinutes;
+                case WEEKEND -> {
+                    if (fact.businessDate().getDayOfWeek() == DayOfWeek.SUNDAY) {
+                        sundayOvertime += overtimeMinutes;
+                    } else {
+                        saturdayOvertime += overtimeMinutes;
+                    }
+                }
+                case WEEKDAY -> weekdayOvertime += overtimeMinutes;
             }
         }
 

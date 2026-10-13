@@ -9154,7 +9154,7 @@ components:
         documentType: { type: string, minLength: 1, maxLength: 64 }
         sourceStatus:
           type: string
-          enum: [APPROVED, DRAFT, REJECTED, UNKNOWN, MODIFIED, SUPPLEMENTED, REVOKED]
+          enum: [APPROVED, PENDING, DRAFT, REJECTED, UNKNOWN, MODIFIED, SUPPLEMENTED, REVOKED]
         effectiveCandidate: { type: boolean }
         employeeNumber: { type: [string, 'null'] }
         intervalStart: { type: [string, 'null'], format: date-time }
@@ -10217,6 +10217,7 @@ components:
         $ref: '#/components/schemas/PaperOvertimeSavedLine'
     AttendanceReportRecalculateRequest:
       type: object
+      description: 起止日期须同时省略或同时提供同一所选月份内的有效日期（含结束日）；提供日期且未选择员工时重算该公司日期范围。空字符串、显式 null、跨月及倒序日期均拒绝，不回退为整月重算。
       additionalProperties: false
       required: [companyId, period]
       properties:
@@ -10231,8 +10232,8 @@ components:
           type: [array, 'null']
           maxItems: 200
           items: { type: string, maxLength: 36 }
-        fromDate: { type: [string, 'null'], format: date }
-        toDate: { type: [string, 'null'], format: date }
+        fromDate: { type: string, format: date }
+        toDate: { type: string, format: date }
     AttendanceReportRecalculateView:
       type: object
       additionalProperties: false

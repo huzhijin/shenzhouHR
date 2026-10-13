@@ -27,6 +27,27 @@ import java.time.YearMonth;
  */
 public interface AttendanceReportCalculationOrchestrator {
 
+    default java.util.Optional<AttendanceReportDependencyPlan.Baseline> publishedBaseline(
+            String companyId, YearMonth period) {
+        return java.util.Optional.empty();
+    }
+
+    /** Plan partial-write dependencies against the publication being replaced. */
+    default AttendanceReportDependencyPlan planWindow(
+            String companyId, YearMonth period, String baselineProjectionVersion, Instant dataAsOf,
+            java.time.LocalDate writeStart, java.time.LocalDate writeEndExclusive,
+            java.util.Collection<String> employeeIds) {
+        return AttendanceReportDependencyPlan.bounded(companyId, period, writeStart,
+                writeEndExclusive, employeeIds);
+    }
+
+    default PublishCommand assemblePlanned(
+            AttendanceReportDependencyPlan plan, PeriodState periodState,
+            String principalId, Instant dataAsOf) {
+        return assemble(plan.companyId(), plan.period(), periodState, principalId, dataAsOf,
+                plan.writeStartInclusive(), plan.writeEndExclusive(), plan.employeeIds());
+    }
+
     /**
      * Calculates the current committed input snapshot for the company-month.
      *

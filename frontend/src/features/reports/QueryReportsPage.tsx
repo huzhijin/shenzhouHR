@@ -45,8 +45,10 @@ import { DayPunchLocationPanel } from './DayPunchLocationPanel';
 import { defaultQueryPeriod, monthDateRange } from './queryPeriod';
 import { getCurrentOrganizationTree, type OrganizationNode } from '../organization/organizationApi';
 import './customerReports.css';
+import { LEAVE_TYPE_OPTIONS, leaveTypeLabel as formatLeaveType, matchesLeaveTypeFilter } from '../../shared/leaveTypes';
 
 const ALL_DEPARTMENTS = '全部部门';
+const EMPTY_SHEET_FILTERS: Record<string, string> = {};
 
 const sheets = [
   { key: 'exceptions', label: '异常总览' },
@@ -150,13 +152,17 @@ export function QueryReportsPage({
   const [result, setResult] = useState<QueryPageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [directory, setDirectory] = useState<DirectoryResponse['employees']>([]);
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  // Some pages reuse a parameter name with a different meaning (for example
+  // rateBelow is a percentage on attendance-rate, but hours on finance).
+  const [filtersBySheet, setFiltersBySheet] = useState<Partial<Record<SheetKey, Record<string, string>>>>({});
+  const filters = filtersBySheet[sheet] ?? EMPTY_SHEET_FILTERS;
+  const setFilters = (next: Record<string, string>) => {
+    setFiltersBySheet((current) => ({ ...current, [sheet]: next }));
+  };
   const [detailIndex, setDetailIndex] = useState<number | null>(null);
   const [matrixView, setMatrixView] = useState<'calendar' | 'list'>('calendar');
   const [exporting, setExporting] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
-  const sheetRef = useRef(sheet);
-  sheetRef.current = sheet;
   const canExport = (capabilities ?? []).includes('ATTENDANCE_REPORT:EXPORT_CREATE');
   const canDownload = (capabilities ?? []).includes('ATTENDANCE_REPORT:EXPORT_DOWNLOAD');
   const canAdjust = (capabilities ?? []).includes('ATTENDANCE_ADJUST:MANAGE');
@@ -179,6 +185,27 @@ export function QueryReportsPage({
   const canViewLocation = (capabilities ?? []).includes('ATTENDANCE_LOCATION:READ');
 
   const currentMonth = period.format('YYYY-MM');
+  const queryScope = JSON.stringify([
+    sheet, companyId, organizationId, employeeNumber.trim(), currentMonth,
+    range?.[0].format('YYYY-MM-DD'), range?.[1].format('YYYY-MM-DD'), filters,
+  ]);
+  const queryScopeRef = useRef(queryScope);
+  queryScopeRef.current = queryScope;
+  const queryGeneration = useRef(0);
+  const directoryScope = `${companyId}:${currentMonth}`;
+  const directoryScopeRef = useRef(directoryScope);
+  directoryScopeRef.current = directoryScope;
+  const directoryGeneration = useRef(0);
+
+  useEffect(() => {
+    queryGeneration.current += 1;
+    setResult(null);
+    setError(null);
+    setLoading(false);
+    setPage(0);
+    setDetailIndex(null);
+    return () => { queryGeneration.current += 1; };
+  }, [queryScope]);
 
   useEffect(() => {
     const company = searchParams.get('companyId');
@@ -186,8 +213,11 @@ export function QueryReportsPage({
     const fromDate = searchParams.get('fromDate');
     const toDate = searchParams.get('toDate');
     const periodValue = searchParams.get('period');
-    if (company) {
+    if (company && company !== companyId) {
       setCompanyId(company);
+      setOrganizationId(undefined);
+      setEmployeeNumber(employee ?? '');
+      setDirectory([]);
     }
     if (employee) {
       setEmployeeNumber(employee);
@@ -226,13 +256,16 @@ export function QueryReportsPage({
       setDirectory(employees);
       return;
     }
+    let cancelled = false;
     const applyScopes = (nextScopes: readonly CustomerReportDataScope[]) => {
+      if (cancelled) return;
       setScopes(nextScopes);
       setCompanyId((current) => current
         ?? pickPreferredCompany(nextScopes, (item) => item.label)?.reference
         ?? nextScopes[0]?.reference);
     };
     void loadCustomerReportScopes(currentMonth).then(applyScopes).catch(() => {
+      if (cancelled) return;
       void requestJson<DirectoryResponse>(
         `/api/v1/attendance-report-queries/directory?period=${currentMonth}`,
       ).then((body) => {
@@ -248,17 +281,26 @@ export function QueryReportsPage({
         /* keep last successful company list */
       });
     });
+    return () => { cancelled = true; };
   }, [currentMonth]);
 
   useEffect(() => {
     if (isDemoMode() || !companyId) return;
+    const generation = ++directoryGeneration.current;
+    const requestedScope = `${companyId}:${currentMonth}`;
+    let cancelled = false;
+    const current = () => !cancelled
+      && generation === directoryGeneration.current
+      && requestedScope === directoryScopeRef.current;
+    setDirectory([]);
     void requestJson<DirectoryResponse>(
       `/api/v1/attendance-report-queries/directory?period=${currentMonth}&companyId=${encodeURIComponent(companyId)}`,
     ).then((body) => {
-      setDirectory(body.employees ?? []);
+      if (current()) setDirectory(body.employees ?? []);
     }).catch(() => {
-      setDirectory([]);
+      if (current()) setDirectory([]);
     });
+    return () => { cancelled = true; };
   }, [companyId, currentMonth]);
 
   useEffect(() => {
@@ -282,6 +324,10 @@ export function QueryReportsPage({
   const query = async (nextPage = 0, nextSize = pageSize, options?: { keepDetail?: boolean }) => {
     if (!companyId) return;
     const requestedSheet = sheet;
+    const requestedScope = queryScope;
+    const generation = ++queryGeneration.current;
+    const isCurrent = () => generation === queryGeneration.current
+      && requestedScope === queryScopeRef.current;
     setLoading(true);
     setError(null);
     setResult((current) => (current?.sheet === requestedSheet ? current : null));
@@ -317,19 +363,19 @@ export function QueryReportsPage({
         : await requestJson<QueryPageResponse>(
             `/api/v1/attendance-report-queries/${sheet}?${parameters.toString()}`,
           );
-      if (requestedSheet !== sheetRef.current) {
+      if (!isCurrent()) {
         return;
       }
       setResult(body);
       setPage(nextPage);
     } catch (cause: unknown) {
-      if (requestedSheet !== sheetRef.current) {
+      if (!isCurrent()) {
         return;
       }
       setError(cause instanceof Error ? cause.message : '查询失败');
       setResult(null);
     } finally {
-      if (requestedSheet === sheetRef.current) {
+      if (isCurrent()) {
         setLoading(false);
       }
     }
@@ -351,7 +397,7 @@ export function QueryReportsPage({
     const exportSize = exportScope === 'PAGE' ? pageSize : 50_000;
     try {
       if (isDemoMode()) {
-        const { downloadQuerySheetWorkbook } = await import('./queryReportWorkbook');
+        const { downloadQuerySheetWorkbook, buildWorkHoursExportRow } = await import('./queryReportWorkbook');
         const exportResult = demoQueryPage(sheet, currentMonth, exportPage, exportSize, {
           organizationId,
           employeeNumber,
@@ -372,26 +418,15 @@ export function QueryReportsPage({
             ...identityHeaders,
             ...dates.map(financeOvertimeDateLabel),
           ];
-          const body = (exportResult.rows ?? []).map((row, index) => {
+          const body = (exportResult.rows ?? []).map((row) => {
             const byDate = financeOvertimeHoursByDate(row.days);
-            const excelRow = index + 2;
-            const weekdayCols: string[] = [];
-            const weekendCols: string[] = [];
-            dates.forEach((date, dateIndex) => {
-              const col = excelColumnLetter(identityHeaders.length + dateIndex);
-              if (isoWeekdayBucket(date) === 'weekend') {
-                weekendCols.push(`${col}${excelRow}`);
-              } else {
-                weekdayCols.push(`${col}${excelRow}`);
-              }
-            });
             return [
               visibleDepartmentPath(String(row.department ?? '')) || '',
               String(row.employeeNumber ?? ''),
               String(row.employeeName ?? ''),
-              weekdayCols.length ? `=${weekdayCols.length === 1 ? weekdayCols[0] : `SUM(${weekdayCols.join(',')})`}` : '0',
-              weekendCols.length ? `=${weekendCols.length === 1 ? weekendCols[0] : `SUM(${weekendCols.join(',')})`}` : '0',
-              '0',
+              String(row.weekdayOvertimeHours ?? 0),
+              String(row.weekendOvertimeHours ?? 0),
+              String(row.holidayOvertimeHours ?? 0),
               ...(feeColumns.paid ? [formatFinanceHours(Number(row.paidOvertimeHours ?? 0))] : []),
               ...(feeColumns.compensatory ? [formatFinanceHours(Number(row.compensatoryOvertimeHours ?? 0))] : []),
               ...(feeColumns.voluntary ? [formatFinanceHours(Number(row.voluntaryOvertimeHours ?? 0))] : []),
@@ -403,6 +438,16 @@ export function QueryReportsPage({
             month: exportResult.fromDate.slice(0, 7),
             headers,
             rows: body,
+            financeOvertime: {
+              dates,
+              dayRows: (exportResult.rows ?? []).map((row) => (
+                Array.isArray(row.days) ? row.days.map((day: Record<string, unknown>) => ({
+                  date: String(day.date ?? ''),
+                  hours: Number(day.hours ?? 0),
+                  dayType: typeof day.dayType === 'string' ? day.dayType : undefined,
+                })) : []
+              )),
+            },
           });
         } else if (wideMetricSheets.has(sheet)) {
           const dates = financeOvertimeDates(exportResult.fromDate, exportResult.toDate);
@@ -433,14 +478,14 @@ export function QueryReportsPage({
             title,
             month: exportResult.fromDate.slice(0, 7),
             headers: exportColumns.map((column) => column.title),
-            rows: (exportResult.rows ?? []).map((row, index) => {
-              const excelRow = index + 2;
-              return exportColumns.map((column) => (
-                column.key === 'actualHours'
-                  ? `=D${excelRow}+E${excelRow}+F${excelRow}-G${excelRow}-H${excelRow}+I${excelRow}-J${excelRow}`
-                  : formatCell(sheet, column.key, row[column.key])
-              ));
-            }),
+            rows: (exportResult.rows ?? []).map((row, index) =>
+              buildWorkHoursExportRow(
+                row,
+                exportColumns.map((column) => column.key),
+                index + 2,
+                (key, value) => formatCell(sheet, key, value),
+              )
+            ),
           });
         } else {
           const exportColumns = visibleExportColumns(sheet, filters.overtimeTreatment);
@@ -611,8 +656,6 @@ export function QueryReportsPage({
   };
 
   useEffect(() => {
-    setFilters({});
-    setRange(null);
     setDetailIndex(null);
     setMatrixView('calendar');
     setExportFeedback(null);
@@ -770,7 +813,12 @@ export function QueryReportsPage({
                 <Select
                   value={companyId}
                   options={scopes.map((scope) => ({ value: scope.reference, label: scope.label }))}
-                  onChange={(value) => setCompanyId(value)}
+                  onChange={(value) => {
+                    setCompanyId(value);
+                    setOrganizationId(undefined);
+                    setEmployeeNumber('');
+                    setDirectory([]);
+                  }}
                   placeholder="请选择公司"
                   notFoundContent={scopes.length === 0 ? '正在加载公司…' : '暂无数据'}
                   popupMatchSelectWidth={false}
@@ -1358,7 +1406,7 @@ function demoQueryPage(
     case 'leave':
       rows = demo.leaveRows
         .filter((row) => matchesPerson(row))
-        .filter((row) => !options.filters.leaveType || row.type.includes(options.filters.leaveType))
+        .filter((row) => !options.filters.leaveType || matchesLeaveTypeFilter(row.type, options.filters.leaveType))
         .map((row) => ({
           employeeNumber: personNo(row),
           employeeName: row.employee,
@@ -2254,18 +2302,10 @@ function documentTypeLabel(value: string): string {
 }
 
 function leaveTypeLabel(value: string, sheet: SheetKey): string {
+  if (sheet === 'overtime' && value.trim().toUpperCase() === 'COMPENSATORY') return '转调休';
+  const leaveLabel = formatLeaveType(value);
+  if (leaveLabel !== value) return leaveLabel;
   const mapped = ({
-    ANNUAL: '年假',
-    SICK: '病假',
-    MARRIAGE: '婚假',
-    MATERNITY: '产假',
-    PATERNITY: '陪产假',
-    BEREAVEMENT: '丧假',
-    WORK_INJURY: '工伤假',
-    PRENATAL_NURSING: '产检假',
-    PERSONAL: '事假',
-    COMPENSATORY: '转调休',
-    TIME_OFF: '调休',
     PAID: '加班费',
     COMPENSATED_OVERTIME: '加班费',
     TIME_OFF_IN_LIEU: '转调休',
@@ -2942,17 +2982,6 @@ function leaveToneHex(raw: string): string | undefined {
   return undefined;
 }
 
-function excelColumnLetter(index: number): string {
-  let remaining = index + 1;
-  let letters = '';
-  while (remaining > 0) {
-    const modulo = (remaining - 1) % 26;
-    letters = String.fromCharCode(65 + modulo) + letters;
-    remaining = Math.floor((remaining - 1) / 26);
-  }
-  return letters;
-}
-
 function financeOvertimeDay(days: unknown, date: string): Record<string, unknown> | undefined {
   if (!Array.isArray(days)) return undefined;
   const match = days.find((item) => {
@@ -3166,16 +3195,7 @@ function SheetFilters({
             allowClear
             placeholder="全部假别"
             value={filters.leaveType || undefined}
-            options={[
-              { value: 'PERSONAL', label: '事假' },
-              { value: 'SICK', label: '病假' },
-              { value: 'ANNUAL', label: '年假' },
-              { value: 'COMPENSATORY', label: '调休' },
-              { value: 'MARRIAGE', label: '婚假' },
-              { value: 'BEREAVEMENT', label: '丧假' },
-              { value: 'PATERNITY', label: '陪产假' },
-              { value: 'MATERNITY', label: '产假' },
-            ]}
+            options={LEAVE_TYPE_OPTIONS}
             onChange={(value) => set('leaveType', value ?? '')}
             popupMatchSelectWidth={false}
           />

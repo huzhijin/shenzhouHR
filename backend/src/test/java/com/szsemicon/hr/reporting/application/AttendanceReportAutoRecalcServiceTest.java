@@ -45,6 +45,17 @@ class AttendanceReportAutoRecalcServiceTest {
                 .update(
                         org.mockito.ArgumentMatchers.anyString(),
                         org.mockito.ArgumentMatchers.<Object[]>any());
+        org.mockito.Mockito.lenient().when(snapshots.refreshSources(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
+        org.mockito.Mockito.lenient().when(jdbc.query(
+                org.mockito.ArgumentMatchers.contains("WITH current_pin"),
+                org.mockito.ArgumentMatchers.any(RowMapper.class),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
     }
 
     @Test
@@ -97,7 +108,9 @@ class AttendanceReportAutoRecalcServiceTest {
 
         service.processDueSlots();
 
-        verify(snapshots).materializeCompanyMonthWindow(
+        var order = org.mockito.Mockito.inOrder(snapshots);
+        order.verify(snapshots).refreshSources("company-a", YearMonth.of(2026, 8), NOON);
+        order.verify(snapshots).materializeCompanyMonthWindow(
                 "company-a",
                 YearMonth.of(2026, 8),
                 RecalcWindow.MONTH,
@@ -134,6 +147,16 @@ class AttendanceReportAutoRecalcServiceTest {
 
         service.processDueSlots();
 
+        verify(jdbc).query(
+                org.mockito.ArgumentMatchers.contains("SELECT period_state"),
+                org.mockito.ArgumentMatchers.any(RowMapper.class),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        verify(snapshots, never()).refreshSources(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
         verify(snapshots, never()).materializeCompanyMonthWindow(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),

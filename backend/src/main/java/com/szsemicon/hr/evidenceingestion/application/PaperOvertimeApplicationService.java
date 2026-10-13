@@ -8,8 +8,8 @@ import com.szsemicon.hr.evidenceingestion.application.paper.PaperOvertimeCandida
 import com.szsemicon.hr.evidenceingestion.application.paper.PaperOvertimeFormParser;
 import com.szsemicon.hr.evidenceingestion.application.paper.PaperOvertimeOverlap;
 import com.szsemicon.hr.evidenceingestion.domain.EvidenceResolutionPolicy;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeMapper;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeRows;
+import com.szsemicon.hr.evidenceingestion.port.PaperOvertimePort;
+import com.szsemicon.hr.evidenceingestion.port.PaperOvertimeRows;
 import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort;
 import com.szsemicon.hr.reporting.application.RealtimeAttendanceReportSnapshotService;
 import com.szsemicon.hr.reporting.application.RecalcWindow;
@@ -51,7 +51,7 @@ public class PaperOvertimeApplicationService {
 
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principals;
-    private final PaperOvertimeMapper mapper;
+    private final PaperOvertimePort mapper;
     private final OcrPort ocr;
     private final EmployeeEmploymentResolverPort employees;
     private final AttendanceEvidenceRepository evidence;
@@ -61,7 +61,7 @@ public class PaperOvertimeApplicationService {
     public PaperOvertimeApplicationService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
-            PaperOvertimeMapper mapper,
+            PaperOvertimePort mapper,
             OcrPort ocr,
             EmployeeEmploymentResolverPort employees,
             AttendanceEvidenceRepository evidence,

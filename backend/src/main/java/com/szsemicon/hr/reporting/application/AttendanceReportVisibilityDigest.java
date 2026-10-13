@@ -40,7 +40,7 @@ final class AttendanceReportVisibilityDigest {
     private static final ZoneId BUSINESS_ZONE =
             ZoneId.of("Asia/Shanghai");
     private static final Set<String> EFFECTIVE_OA_STATUSES = Set.of(
-            "APPROVED", "MODIFIED", "SUPPLEMENTED");
+            "APPROVED", "MODIFIED", "SUPPLEMENTED", "PENDING");
 
     private AttendanceReportVisibilityDigest() {
     }

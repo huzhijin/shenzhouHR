@@ -160,9 +160,13 @@
         ) THEN TRUE ELSE FALSE END
     </select>
 
+    <insert id="upsertPeopleWriteLock">
+        INSERT IGNORE INTO company_people_write_lock (company_id) VALUES (#{companyId})
+    </insert>
+
     <select id="lockCompany" resultType="string">
         SELECT company_id
-        FROM company
+        FROM company_people_write_lock
         WHERE company_id = #{companyId}
         FOR UPDATE
     </select>

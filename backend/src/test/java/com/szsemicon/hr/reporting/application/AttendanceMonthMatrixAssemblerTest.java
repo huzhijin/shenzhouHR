@@ -725,6 +725,7 @@ class AttendanceMonthMatrixAssemblerTest {
 
     @Test
     void paintsOvertimeWhenEffectiveOaDocumentExists() {
+        // 有认定加班120分钟 + OA文档 → 显示打卡时间 + 认定色
         var withDocument = monthSnapshot(
                 List.of(punches(
                         LocalDate.of(2026, 7, 1),
@@ -748,6 +749,7 @@ class AttendanceMonthMatrixAssemblerTest {
         assertThat(overtimeDay.merged()).isFalse();
         assertThat(overtimeDay.hover()).contains("加班");
 
+        // 无认定加班 + 无OA文档 → 显示打卡时间，无认定色
         var lateCheckout = monthSnapshot(
                 List.of(punches(
                         LocalDate.of(2026, 7, 1),
@@ -762,6 +764,8 @@ class AttendanceMonthMatrixAssemblerTest {
         assertThat(normalDay.afternoon().tone()).isNull();
         assertThat(normalDay.hover()).doesNotContain("加班");
 
+        // 修复前：有OA文档但无认定 → 会显示申请时间"18:30"
+        // 修复后：有OA文档但无认定(0分钟) → 显示真实打卡，无认定色
         var formWithoutMinutes = monthSnapshot(
                 List.of(punches(
                         LocalDate.of(2026, 7, 1),
@@ -784,7 +788,7 @@ class AttendanceMonthMatrixAssemblerTest {
     }
 
     @Test
-    void approvedPaternityBeatsUnknownAnnualOnTheSameDay() {
+    void approvedPaternityBeatsPendingAnnualOnTheSameDay() {
         var snapshot = monthSnapshot(
                 List.of(),
                 List.of(
@@ -792,7 +796,7 @@ class AttendanceMonthMatrixAssemblerTest {
                                 "oa-annual-unknown",
                                 "LEAVE",
                                 "ANNUAL",
-                                "UNKNOWN",
+                                "PENDING",
                                 "2026-07-24T00:30:00Z",
                                 "2026-07-24T10:00:00Z"),
                         oaInterval(
@@ -810,11 +814,15 @@ class AttendanceMonthMatrixAssemblerTest {
 
     @Test
     void showsSaturdayPunchTimesAndOvertimeColorWhenFormExists() {
+        // 修复前：休息日有OA申请即显示认定色
+        // 修复后：必须有recognizedOvertimeMinutes > 0才显示认定色
+        // 这个测试的restPunches没有传overtime参数，默认为0，需要修复
         var snapshot = monthSnapshot(
                 List.of(restPunches(
                         LocalDate.of(2026, 7, 4),
                         "2026-07-04T00:30:00Z",
-                        "2026-07-04T07:00:00Z")),
+                        "2026-07-04T07:00:00Z",
+                        180)), // 添加180分钟认定加班
                 List.of(oaInterval(
                         "oa-saturday-ot",
                         "OVERTIME",
@@ -833,8 +841,14 @@ class AttendanceMonthMatrixAssemblerTest {
 
     @Test
     void marksSaturdayOvertimeFormWithoutPunches() {
+        // 修复前：休息日有OA申请无打卡 → 显示申请时间"08:30"/"15:00"
+        // 修复后：休息日有认定加班无打卡 → 显示"加班"文字，不伪造时间
         var snapshot = monthSnapshot(
-                List.of(restPunches(LocalDate.of(2026, 7, 4), null, null)),
+                List.of(restPunches(
+                        LocalDate.of(2026, 7, 4),
+                        null,
+                        null,
+                        180)), // 添加180分钟认定加班
                 List.of(oaInterval(
                         "oa-saturday-ot-empty",
                         "OVERTIME",
@@ -851,6 +865,107 @@ class AttendanceMonthMatrixAssemblerTest {
         assertThat(day.merged()).isTrue();
         assertThat(day.hover()).contains("加班");
         assertThat(day.hover()).doesNotContain("漏刷");
+    }
+
+    @Test
+    void overtimeApplicationWithoutRecognitionShowsNoOvertimeTone() {
+        // 回归测试：零认定不亮认定色
+        // 场景：有OA加班申请但recognizedOvertimeMinutes=0
+        var date = LocalDate.of(2026, 9, 19);
+        var snapshot = monthSnapshot(
+                YearMonth.of(2026, 9),
+                List.of(restPunches(date, null, null, 0)), // 无打卡，0认定
+                List.of(
+                        oaInterval(
+                                "oa-outing",
+                                "OUTING",
+                                null,
+                                "APPROVED",
+                                "2026-09-19T05:00:00Z",
+                                "2026-09-19T09:00:00Z"),
+                        oaInterval(
+                                "oa-overtime-app",
+                                "OVERTIME",
+                                null,
+                                "APPROVED",
+                                "2026-09-19T05:00:00Z",
+                                "2026-09-19T09:00:00Z")),
+                List.of());
+
+        var day = dayOn(snapshot, date);
+        // 不应显示申请时间"13:00"/"17:00"
+        assertThat(day.morning().text()).doesNotContain("13:00");
+        assertThat(day.afternoon().text()).doesNotContain("17:00");
+        // 不应有认定加班色
+        assertThat(day.morning().tone()).isNotEqualTo("RECOGNIZED_OVERTIME");
+        assertThat(day.afternoon().tone()).isNotEqualTo("RECOGNIZED_OVERTIME");
+        // 应显示外出或空
+        assertThat(day.badges()).contains(BadgeCode.OUTING);
+    }
+
+    @Test
+    void recognizedOvertimeWithoutPunchShowsOvertimeTextNotApplicationTime() {
+        // 回归测试：认定加班4h无打卡不造时钟
+        // 场景：有240分钟认定，无打卡，不应显示申请时间
+        var date = LocalDate.of(2026, 9, 19);
+        var snapshot = monthSnapshot(
+                YearMonth.of(2026, 9),
+                List.of(restPunches(date, null, null, 240)), // 无打卡，240分钟认定
+                List.of(oaInterval(
+                        "oa-overtime",
+                        "OVERTIME",
+                        "COMPENSATORY",
+                        "APPROVED",
+                        "2026-09-19T05:00:00Z",
+                        "2026-09-19T09:00:00Z")),
+                List.of());
+
+        var day = dayOn(snapshot, date);
+        // 应显示"加班"文字，不是申请时间
+        assertThat(day.morning().text()).isEqualTo("加班");
+        assertThat(day.afternoon().text()).isEqualTo("加班");
+        // 不应显示申请时间
+        assertThat(day.morning().text()).doesNotContain("13:00");
+        assertThat(day.afternoon().text()).doesNotContain("17:00");
+        // 应有认定加班色
+        assertThat(day.morning().tone()).isEqualTo("RECOGNIZED_OVERTIME");
+        assertThat(day.afternoon().tone()).isEqualTo("RECOGNIZED_OVERTIME");
+        assertThat(day.merged()).isTrue();
+    }
+
+    @Test
+    void recognizedOvertimeWithRealPunchPreservesPunchTime() {
+        // 回归测试：真实打卡保留
+        // 场景：有认定加班 + 有真实打卡 → 显示打卡时间，不是申请时间
+        var date = LocalDate.of(2026, 9, 2);
+        var snapshot = monthSnapshot(
+                YearMonth.of(2026, 9),
+                List.of(punches(
+                        date,
+                        "2026-09-02T00:44:00Z", // 08:44
+                        "2026-09-02T10:09:00Z", // 18:09
+                        150, // 150分钟认定加班
+                        0,
+                        0)),
+                List.of(oaInterval(
+                        "oa-overtime",
+                        "OVERTIME",
+                        "COMPENSATORY",
+                        "APPROVED",
+                        "2026-09-02T10:30:00Z", // 18:30 申请开始
+                        "2026-09-02T13:00:00Z")), // 21:00 申请结束
+                List.of());
+
+        var day = dayOn(snapshot, date);
+        // 应显示真实打卡时间
+        assertThat(day.morning().text()).isEqualTo("08:44");
+        assertThat(day.afternoon().text()).isEqualTo("18:09");
+        // 不应显示申请时间
+        assertThat(day.afternoon().text()).doesNotContain("18:30");
+        assertThat(day.afternoon().text()).doesNotContain("21:00");
+        // 应有认定加班色
+        assertThat(day.morning().tone()).isEqualTo("RECOGNIZED_OVERTIME");
+        assertThat(day.afternoon().tone()).isEqualTo("RECOGNIZED_OVERTIME");
     }
 
     @Test
@@ -906,8 +1021,7 @@ class AttendanceMonthMatrixAssemblerTest {
         var day = dayOn(snapshot, LocalDate.of(2026, 7, 4));
         assertThat(day.morning().text()).isEqualTo("08:17");
         assertThat(day.afternoon().text()).isEqualTo("11:36");
-        assertThat(day.afternoon().text()).isNotEqualTo("漏刷");
-        assertThat(day.afternoon().tone()).isEqualTo("RECOGNIZED_OVERTIME");
+        assertThat(day.afternoon().tone()).isEqualTo("REST_DAY");
         assertThat(day.hover()).doesNotContain("下班：漏刷");
     }
 
@@ -1242,7 +1356,14 @@ class AttendanceMonthMatrixAssemblerTest {
         assertThat(futureWeekday.badges()).isEmpty();
         var otDay = rows.getFirst().days().getFirst();
         assertThat(otDay.date()).isEqualTo(saturday);
-        assertThat(otDay.morning().tone()).isEqualTo("RECOGNIZED_OVERTIME");
+        assertThat(otDay.morning().text()).isEmpty();
+        assertThat(otDay.afternoon().text()).isEmpty();
+        assertThat(otDay.morning().tone()).isNull();
+        assertThat(otDay.afternoon().tone()).isNull();
+        assertThat(otDay.firstPunchAt()).isNull();
+        assertThat(otDay.lastPunchAt()).isNull();
+        assertThat(otDay.badges()).contains(BadgeCode.OVERTIME_APPLICATION);
+        assertThat(otDay.badges()).doesNotContain(BadgeCode.RECOGNIZED_OVERTIME);
     }
 
     @Test
@@ -1294,10 +1415,10 @@ class AttendanceMonthMatrixAssemblerTest {
                 .filter(day -> day.date().equals(saturday))
                 .findFirst()
                 .orElseThrow();
-        assertThat(saturdayCell.morning().tone())
-                .isEqualTo("RECOGNIZED_OVERTIME");
-        assertThat(saturdayCell.afternoon().tone())
-                .isEqualTo("RECOGNIZED_OVERTIME");
+        assertThat(saturdayCell.morning().tone()).isNull();
+        assertThat(saturdayCell.afternoon().tone()).isNull();
+        assertThat(saturdayCell.badges()).contains(BadgeCode.OVERTIME_APPLICATION);
+        assertThat(saturdayCell.badges()).doesNotContain(BadgeCode.RECOGNIZED_OVERTIME);
     }
 
     @Test
@@ -1320,7 +1441,34 @@ class AttendanceMonthMatrixAssemblerTest {
                 "OPEN",
                 Instant.parse("2026-08-10T00:00:00Z"),
                 List.of("oa:v2"),
-                List.of(),
+                List.of(new DailyFact(
+                        "fact-dalian-saturday-ot",
+                        "company-a",
+                        "employee-a",
+                        "SZST0445",
+                        "霍岩",
+                        "org-a",
+                        "org-version-a",
+                        "客户现场服务部-大连办事处",
+                        saturday,
+                        DayType.SATURDAY,
+                        "休息",
+                        0,
+                        0,
+                        60,
+                        0,
+                        0,
+                        60,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        null,
+                        null,
+                        "calculation-a",
+                        "digest-a")),
                 List.of(
                         new OaDocumentFact(
                                 "oa-huoyan-ot",
@@ -1359,8 +1507,12 @@ class AttendanceMonthMatrixAssemblerTest {
                 .filter(day -> day.date().equals(saturday))
                 .findFirst()
                 .orElseThrow();
+        assertThat(otDay.morning().text()).isEqualTo("加班");
+        assertThat(otDay.afternoon().text()).isEqualTo("加班");
         assertThat(otDay.morning().tone()).isEqualTo("RECOGNIZED_OVERTIME");
         assertThat(otDay.afternoon().tone()).isEqualTo("RECOGNIZED_OVERTIME");
+        assertThat(otDay.firstPunchAt()).isNull();
+        assertThat(otDay.lastPunchAt()).isNull();
         var leaveDay = days.stream()
                 .filter(day -> day.date().equals(monday))
                 .findFirst()
@@ -1533,7 +1685,7 @@ class AttendanceMonthMatrixAssemblerTest {
                         date,
                         "2026-07-01T00:32:00Z",
                         "2026-07-01T13:38:00Z",
-                        0,
+                        120,
                         2,
                         0,
                         0)),
@@ -1725,14 +1877,17 @@ class AttendanceMonthMatrixAssemblerTest {
                                 "2026-07-08T12:00:00Z")),
                 yangzhouSummerWindows(date));
         var day = dayOn(snapshot, date);
-        assertThat(day.morning().text()).isEqualTo("18:00");
-        assertThat(day.afternoon().text()).isEqualTo("20:00");
-        assertThat(day.morning().tone()).isEqualTo(
-                BadgeCode.RECOGNIZED_OVERTIME.name());
-        assertThat(day.afternoon().tone()).isEqualTo(
-                BadgeCode.RECOGNIZED_OVERTIME.name());
+        assertThat(day.morning().text()).isEqualTo("外出");
+        assertThat(day.afternoon().text()).isEqualTo("外出");
+        assertThat(day.morning().tone()).isEqualTo("OUTING");
+        assertThat(day.afternoon().tone()).isEqualTo("OUTING");
+        assertThat(day.firstPunchAt())
+                .isEqualTo(Instant.parse("2026-07-08T00:21:00Z"));
+        assertThat(day.lastPunchAt())
+                .isEqualTo(Instant.parse("2026-07-08T10:00:00Z"));
+        assertThat(day.badges()).contains(BadgeCode.RECOGNIZED_OVERTIME);
+        assertThat(day.badges()).doesNotContain(BadgeCode.MISSING_PUNCH);
         assertThat(day.afternoon().text()).doesNotContain("漏刷");
-        assertThat(day.hover()).contains("加班");
     }
 
     @Test
@@ -1757,13 +1912,17 @@ class AttendanceMonthMatrixAssemblerTest {
                                 "2026-07-28T14:30:00Z")),
                 yangzhouSummerWindows(date));
         var day = dayOn(snapshot, date);
-        assertThat(day.morning().text()).isEqualTo("18:30");
-        assertThat(day.afternoon().text()).isEqualTo("22:30");
-        assertThat(day.afternoon().tone()).isEqualTo(
-                BadgeCode.RECOGNIZED_OVERTIME.name());
+        assertThat(day.morning().text()).isEqualTo("外出");
+        assertThat(day.afternoon().text()).isEqualTo("外出");
+        assertThat(day.morning().tone()).isEqualTo("OUTING");
+        assertThat(day.afternoon().tone()).isEqualTo("OUTING");
+        assertThat(day.firstPunchAt()).isNull();
+        assertThat(day.lastPunchAt()).isNull();
         assertThat(day.morning().text()).doesNotContain("漏刷");
         assertThat(day.afternoon().text()).doesNotContain("漏刷");
         assertThat(day.badges()).doesNotContain(BadgeCode.MISSING_PUNCH);
+        assertThat(day.badges()).contains(BadgeCode.RECOGNIZED_OVERTIME);
+        assertThat(day.hover()).contains("加班");
     }
 
     @Test
@@ -1788,11 +1947,14 @@ class AttendanceMonthMatrixAssemblerTest {
                                 "2026-07-04T10:00:00Z")),
                 List.of());
         var day = dayOn(snapshot, saturday);
-        assertThat(day.morning().text()).isEqualTo("09:00");
-        assertThat(day.afternoon().text()).isEqualTo("18:00");
-        assertThat(day.morning().tone()).isEqualTo(
-                BadgeCode.RECOGNIZED_OVERTIME.name());
-        assertThat(day.afternoon().tone()).isNotEqualTo("REST_DAY");
+        assertThat(day.morning().text()).isEqualTo("外出");
+        assertThat(day.afternoon().text()).isEqualTo("外出");
+        assertThat(day.morning().tone()).isEqualTo("OUTING");
+        assertThat(day.afternoon().tone()).isEqualTo("OUTING");
+        assertThat(day.firstPunchAt()).isNull();
+        assertThat(day.lastPunchAt()).isNull();
+        assertThat(day.badges()).contains(BadgeCode.OUTING, BadgeCode.OVERTIME_APPLICATION);
+        assertThat(day.badges()).doesNotContain(BadgeCode.RECOGNIZED_OVERTIME);
     }
 
     @Test
@@ -1822,7 +1984,7 @@ class AttendanceMonthMatrixAssemblerTest {
                         "oa-ju-jun-outing",
                         "OUTING",
                         null,
-                        "UNKNOWN",
+                        "PENDING",
                         "2026-08-19T00:30:00Z",
                         "2026-08-20T10:00:00Z")),
                 List.of(),
@@ -1956,6 +2118,14 @@ class AttendanceMonthMatrixAssemblerTest {
             List<DailyFact> dailyFacts,
             List<OaDocumentFact> oaFacts,
             List<WorkWindowFact> workWindows) {
+        return monthSnapshot(YearMonth.of(2026, 7), dailyFacts, oaFacts, workWindows);
+    }
+
+    private static ReportSourceSnapshot monthSnapshot(
+            YearMonth period,
+            List<DailyFact> dailyFacts,
+            List<OaDocumentFact> oaFacts,
+            List<WorkWindowFact> workWindows) {
         return new ReportSourceSnapshot(
                 new AuthorizedScope(
                         ScopeType.COMPANY,
@@ -1963,7 +2133,7 @@ class AttendanceMonthMatrixAssemblerTest {
                         "公司范围",
                         "scope-digest"),
                 new ReportFilter(
-                        YearMonth.of(2026, 7),
+                        period,
                         "company-a",
                         null,
                         null,
@@ -2015,6 +2185,19 @@ class AttendanceMonthMatrixAssemblerTest {
             LocalDate date, String start, String end) {
         return new WorkWindowFact(
                 "employee-a",
+                date,
+                date.atTime(java.time.LocalTime.parse(start))
+                        .atZone(java.time.ZoneId.of("Asia/Shanghai"))
+                        .toInstant(),
+                date.atTime(java.time.LocalTime.parse(end))
+                        .atZone(java.time.ZoneId.of("Asia/Shanghai"))
+                        .toInstant());
+    }
+
+    private static WorkWindowFact window(
+            String employeeId, LocalDate date, String start, String end) {
+        return new WorkWindowFact(
+                employeeId,
                 date,
                 date.atTime(java.time.LocalTime.parse(start))
                         .atZone(java.time.ZoneId.of("Asia/Shanghai"))
@@ -2284,5 +2467,545 @@ class AttendanceMonthMatrixAssemblerTest {
                 60,
                 status,
                 "oa-source-a");
+    }
+
+    @Test
+    void sickLeaveOnAdjustedWorkdayShowsBadge() {
+        // 9/20 is Saturday but marked as ADJUSTED_WORKDAY in production calendar
+        // Morning sick leave + afternoon punches should display sick leave badge in morning
+        LocalDate sept20 = LocalDate.of(2026, 9, 20);
+        var snapshot = new ReportSourceSnapshot(
+                new AuthorizedScope(
+                        ScopeType.COMPANY,
+                        "scope-a",
+                        "公司范围",
+                        "scope-digest"),
+                new ReportFilter(
+                        YearMonth.of(2026, 9),
+                        "company-a",
+                        null,
+                        null,
+                        null),
+                "projection-a",
+                "OPEN",
+                Instant.parse("2026-10-01T00:00:00Z"),
+                List.of("attendance:v1"),
+                List.of(new DailyFact(
+                        "fact-920",
+                        "company-a",
+                        "employee-test",
+                        "TEST001",
+                        "测试员工",
+                        "org-test",
+                        "org-version-test",
+                        "测试部门",
+                        sept20,
+                        DayType.ADJUSTED_WORKDAY,  // Calendar weekend adjusted to workday
+                        "标准班次",
+                        480,  // scheduledMinutes
+                        270,  // confirmedMinutes (afternoon only)
+                        0,    // overtimeMinutes
+                        210,  // leaveMinutes (morning sick leave)
+                        0,    // absenceMinutes
+                        270,  // actualWorkMinutes = confirmed + recognized
+                        1,    // scheduledAttendanceDays
+                        0.5,  // actualAttendanceDays (half day worked)
+                        0, 0, 0, 0,  // late, penalizedLate, early, missing
+                        Instant.parse("2026-09-20T05:25:00Z"),  // 13:25 Shanghai
+                        Instant.parse("2026-09-20T10:01:00Z"),  // 18:01 Shanghai
+                        "calculation-test",
+                        "digest-test")),
+                List.of(new OaDocumentFact(
+                        "oa-sick-920-morning",
+                        "employee-test",
+                        "TEST001",
+                        "测试员工",
+                        "org-test",
+                        "测试部门",
+                        "LEAVE",
+                        "SICK",
+                        Instant.parse("2026-09-20T00:30:00Z"),  // 08:30 Shanghai
+                        Instant.parse("2026-09-20T04:00:00Z"),  // 12:00 Shanghai
+                        210,
+                        "APPROVED",
+                        "oa-source-a")),
+                List.of(),
+                List.of(),
+                List.of(
+                        new WorkWindowFact(
+                                "employee-test",
+                                sept20,
+                                Instant.parse("2026-09-20T00:30:00Z"),  // 08:30
+                                Instant.parse("2026-09-20T04:00:00Z")), // 12:00
+                        new WorkWindowFact(
+                                "employee-test",
+                                sept20,
+                                Instant.parse("2026-09-20T05:30:00Z"),  // 13:30
+                                Instant.parse("2026-09-20T10:00:00Z")))); // 18:00
+
+        var day = AttendanceMonthMatrixAssembler.assemble(snapshot)
+                .rows()
+                .getFirst()
+                .days()
+                .get(19);  // 0-indexed, so day 20 is index 19
+
+        // Morning should show sick leave badge, not first punch time
+        assertThat(day.morning().text()).contains("病假");
+        assertThat(day.morning().tone()).isEqualTo("SICK_LEAVE");
+
+        // Afternoon should show punch time
+        assertThat(day.afternoon().text()).isEqualTo("18:01");
+    }
+
+    @Test
+    void sickLeaveOnTrueRestDayDoesNotShowBadge() {
+        // Regular Sunday (9/20) with no scheduled work - sick leave should not display
+        LocalDate sept20 = LocalDate.of(2026, 9, 20);
+        var snapshot = new ReportSourceSnapshot(
+                new AuthorizedScope(
+                        ScopeType.COMPANY,
+                        "scope-a",
+                        "公司范围",
+                        "scope-digest"),
+                new ReportFilter(
+                        YearMonth.of(2026, 9),
+                        "company-a",
+                        null,
+                        null,
+                        null),
+                "projection-a",
+                "OPEN",
+                Instant.parse("2026-10-01T00:00:00Z"),
+                List.of("attendance:v1"),
+                List.of(new DailyFact(
+                        "fact-920-rest",
+                        "company-a",
+                        "employee-test",
+                        "TEST001",
+                        "测试员工",
+                        "org-test",
+                        "org-version-test",
+                        "测试部门",
+                        sept20,
+                        DayType.SUNDAY,  // True rest day
+                        "标准班次",
+                        0,    // scheduledMinutes = 0
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        null,  // no punches
+                        null,
+                        "calculation-test",
+                        "digest-test")),
+                List.of(new OaDocumentFact(
+                        "oa-sick-920-rest",
+                        "employee-test",
+                        "TEST001",
+                        "测试员工",
+                        "org-test",
+                        "测试部门",
+                        "LEAVE",
+                        "SICK",
+                        Instant.parse("2026-09-20T00:00:00Z"),
+                        Instant.parse("2026-09-20T15:59:00Z"),
+                        480,
+                        "APPROVED",
+                        "oa-source-a")),
+                List.of(),
+                List.of(),
+                List.of());
+
+        var day = AttendanceMonthMatrixAssembler.assemble(snapshot)
+                .rows()
+                .getFirst()
+                .days()
+                .get(19);  // 0-indexed, day 20 is index 19
+
+        // Rest day should not show sick leave badge
+        assertThat(day.morning().text()).isNotEqualTo("病假");
+        assertThat(day.morning().tone()).isEqualTo("REST_DAY");
+        assertThat(day.afternoon().tone()).isEqualTo("REST_DAY");
+    }
+
+    @Test
+    void fullyRevokedLeaveShouldNotShowBadge() {
+        // Regression test for bug: fully revoked leave still shows badge
+        // Employee 96c50da3, document 38563eed, Sept 14 annual leave 3.5 hours
+        // APPROVED then fully revoked (销假)
+        // Real Pan data: allocation_semantics=NULL, recognized_minutes_by_date_json={}
+        // After revocation: recognized_minutes=0, recognized_minutes_by_date_json={}
+        // Matrix cell should NOT show annual leave badge
+        LocalDate sept14 = LocalDate.of(2026, 9, 14);
+        var snapshot = new ReportSourceSnapshot(
+                new AuthorizedScope(
+                        ScopeType.COMPANY,
+                        "scope-a",
+                        "公司范围",
+                        "scope-digest"),
+                new ReportFilter(
+                        YearMonth.of(2026, 9),
+                        "company-a",
+                        null,
+                        null,
+                        null),
+                "projection-613",
+                "OPEN",
+                Instant.parse("2026-09-15T00:00:00Z"),
+                List.of("oa:v2", "attendance:v1"),
+                List.of(new DailyFact(
+                        "fact-914",
+                        "company-a",
+                        "96c50da3-42ca-5f81-9a8f-bfac1fb1e114",
+                        "TEST001",
+                        "潘员工",
+                        "org-test",
+                        "org-version-test",
+                        "测试部门",
+                        sept14,
+                        DayType.WEEKDAY,
+                        "扬州总部班次",
+                        480L,  // scheduled
+                        480L,  // confirmed (worked full day after revocation)
+                        0L,    // overtime
+                        0L,    // leave_or_time_off_minutes = 0 after revocation
+                        0L,    // absence
+                        480L,  // actual work = confirmed + overtime
+                        1, 1.0,
+                        0L, 0L, 0L, 0,
+                        Instant.parse("2026-09-14T00:30:00Z"),
+                        Instant.parse("2026-09-14T10:00:00Z"),
+                        "calculation-a",
+                        "digest-a")),
+                List.of(new OaDocumentFact(
+                        "38563eed-5a25-4e01-b0a4-099855d123ec",
+                        "96c50da3-42ca-5f81-9a8f-bfac1fb1e114",
+                        "TEST001",
+                        "潘员工",
+                        "org-test",
+                        "测试部门",
+                        "LEAVE",
+                        "ANNUAL",
+                        Instant.parse("2026-09-14T05:30:00Z"),  // 13:30 Shanghai
+                        Instant.parse("2026-09-14T09:00:00Z"),  // 17:00 Shanghai
+                        0,  // recognizedMinutes = 0 after full revocation
+                        "APPROVED",
+                        "QJD-20260911018",
+                        "OA",
+                        null,  // allocation_semantics=NULL (legacy, matches real Pan data)
+                        "{}")),  // recognizedMinutesByDateJson = {} (empty map after full revocation)
+                List.of(),
+                List.of(),
+                List.of(
+                        window("96c50da3-42ca-5f81-9a8f-bfac1fb1e114", sept14, "08:30", "12:00"),
+                        window("96c50da3-42ca-5f81-9a8f-bfac1fb1e114", sept14, "13:30", "18:00")));
+
+        var day = AttendanceMonthMatrixAssembler.assemble(snapshot)
+                .rows()
+                .getFirst()
+                .days()
+                .get(13);  // 0-indexed, Sept 14 is index 13
+
+        // Fully revoked leave should NOT show annual leave badge
+        assertThat(day.badges()).doesNotContain(BadgeCode.ANNUAL_LEAVE);
+        assertThat(day.morning().text()).doesNotContain("年假");
+        assertThat(day.afternoon().text()).doesNotContain("年假");
+        assertThat(day.morning().tone()).isNotEqualTo("ANNUAL_LEAVE");
+        assertThat(day.afternoon().tone()).isNotEqualTo("ANNUAL_LEAVE");
+    }
+
+    @Test
+    void partiallyRevokedLeaveShowsBadgeOnlyOnDatesWithPositiveMinutes() {
+        // Test partial revocation: original 9/14-9/15, revoked 9/14 only
+        // 9/14 should have NO badge (0 minutes)
+        // 9/15 should still show annual leave badge (210 minutes)
+        LocalDate sept14 = LocalDate.of(2026, 9, 14);
+        LocalDate sept15 = LocalDate.of(2026, 9, 15);
+        var snapshot = new ReportSourceSnapshot(
+                new AuthorizedScope(
+                        ScopeType.COMPANY,
+                        "scope-a",
+                        "公司范围",
+                        "scope-digest"),
+                new ReportFilter(
+                        YearMonth.of(2026, 9),
+                        "company-a",
+                        null,
+                        null,
+                        null),
+                "projection-test",
+                "OPEN",
+                Instant.parse("2026-09-16T00:00:00Z"),
+                List.of("oa:v2", "attendance:v1"),
+                List.of(
+                        new DailyFact(
+                                "fact-914",
+                                "company-a",
+                                "employee-test",
+                                "TEST002",
+                                "测试员工2",
+                                "org-test",
+                                "org-version-test",
+                                "测试部门",
+                                sept14,
+                                DayType.WEEKDAY,
+                                "扬州总部班次",
+                                480L, 480L, 0L, 0L, 0L, 480L,
+                                1, 1.0,
+                                0L, 0L, 0L, 0,
+                                Instant.parse("2026-09-14T00:30:00Z"),
+                                Instant.parse("2026-09-14T10:00:00Z"),
+                                "calculation-a",
+                                "digest-a"),
+                        new DailyFact(
+                                "fact-915",
+                                "company-a",
+                                "employee-test",
+                                "TEST002",
+                                "测试员工2",
+                                "org-test",
+                                "org-version-test",
+                                "测试部门",
+                                sept15,
+                                DayType.WEEKDAY,
+                                "扬州总部班次",
+                                480L, 270L, 0L, 210L, 0L, 270L,
+                                1, 1.0,
+                                0L, 0L, 0L, 0,
+                                Instant.parse("2026-09-15T00:30:00Z"),
+                                Instant.parse("2026-09-15T10:00:00Z"),
+                                "calculation-a",
+                                "digest-a")),
+                List.of(new OaDocumentFact(
+                        "oa-partial-revoke",
+                        "employee-test",
+                        "TEST002",
+                        "测试员工2",
+                        "org-test",
+                        "测试部门",
+                        "LEAVE",
+                        "ANNUAL",
+                        Instant.parse("2026-09-14T05:30:00Z"),  // Original start
+                        Instant.parse("2026-09-15T09:00:00Z"),  // Original end
+                        210,  // Total recognized minutes (only 9/15)
+                        "APPROVED",
+                        "QJD-partial",
+                        "OA",
+                        OaDocumentFact.NET_WORK_V1,
+                        "{\"2026-09-14\": 0, \"2026-09-15\": 210}")),  // 9/14 revoked
+                List.of(),
+                List.of(),
+                List.of(
+                        window("employee-test", sept14, "08:30", "12:00"),
+                        window("employee-test", sept14, "13:30", "18:00"),
+                        window("employee-test", sept15, "08:30", "12:00"),
+                        window("employee-test", sept15, "13:30", "18:00")));
+
+        var matrix = AttendanceMonthMatrixAssembler.assemble(snapshot);
+        var day14 = matrix.rows().getFirst().days().get(13);  // Sept 14
+        var day15 = matrix.rows().getFirst().days().get(14);  // Sept 15
+
+        // Sept 14 should NOT show annual leave badge (revoked, 0 minutes)
+        assertThat(day14.badges()).doesNotContain(BadgeCode.ANNUAL_LEAVE);
+        assertThat(day14.morning().tone()).isNotEqualTo("ANNUAL_LEAVE");
+        assertThat(day14.afternoon().tone()).isNotEqualTo("ANNUAL_LEAVE");
+
+        // Sept 15 should still show annual leave badge (210 minutes)
+        assertThat(day15.badges()).contains(BadgeCode.ANNUAL_LEAVE);
+    }
+
+    @Test
+    void effectiveDateOutsideOriginalTracedIntervalStillShowsBadge() {
+        // Test scenario where revocation moves effective date OUTSIDE original traced interval
+        // Original traced: 9/14 only (start=9/14 05:30, end=9/14 09:00)
+        // After revocation: effective date is 9/15 (outside original interval)
+        // recognizedMinutesByDateJson = {"2026-09-14": 0, "2026-09-15": 210}
+        // Badge should appear on 9/15 even though it's outside the original traced interval
+        LocalDate sept14 = LocalDate.of(2026, 9, 14);
+        LocalDate sept15 = LocalDate.of(2026, 9, 15);
+        var snapshot = new ReportSourceSnapshot(
+                new AuthorizedScope(
+                        ScopeType.COMPANY,
+                        "scope-a",
+                        "公司范围",
+                        "scope-digest"),
+                new ReportFilter(
+                        YearMonth.of(2026, 9),
+                        "company-a",
+                        null,
+                        null,
+                        null),
+                "projection-test",
+                "OPEN",
+                Instant.parse("2026-09-16T00:00:00Z"),
+                List.of("oa:v2", "attendance:v1"),
+                List.of(
+                        new DailyFact(
+                                "fact-914",
+                                "company-a",
+                                "employee-outside",
+                                "TEST003",
+                                "测试员工3",
+                                "org-test",
+                                "org-version-test",
+                                "测试部门",
+                                sept14,
+                                DayType.WEEKDAY,
+                                "扬州总部班次",
+                                480L, 480L, 0L, 0L, 0L, 480L,
+                                1, 1.0,
+                                0L, 0L, 0L, 0,
+                                Instant.parse("2026-09-14T00:30:00Z"),
+                                Instant.parse("2026-09-14T10:00:00Z"),
+                                "calculation-a",
+                                "digest-a"),
+                        new DailyFact(
+                                "fact-915",
+                                "company-a",
+                                "employee-outside",
+                                "TEST003",
+                                "测试员工3",
+                                "org-test",
+                                "org-version-test",
+                                "测试部门",
+                                sept15,
+                                DayType.WEEKDAY,
+                                "扬州总部班次",
+                                480L, 270L, 0L, 210L, 0L, 270L,
+                                1, 1.0,
+                                0L, 0L, 0L, 0,
+                                Instant.parse("2026-09-15T00:30:00Z"),
+                                Instant.parse("2026-09-15T10:00:00Z"),
+                                "calculation-a",
+                                "digest-a")),
+                List.of(new OaDocumentFact(
+                        "oa-outside-interval",
+                        "employee-outside",
+                        "TEST003",
+                        "测试员工3",
+                        "org-test",
+                        "测试部门",
+                        "LEAVE",
+                        "ANNUAL",
+                        Instant.parse("2026-09-14T05:30:00Z"),  // Original traced start: 9/14
+                        Instant.parse("2026-09-14T09:00:00Z"),  // Original traced end: 9/14
+                        210,  // Total recognized minutes
+                        "APPROVED",
+                        "QJD-outside",
+                        "OA",
+                        OaDocumentFact.NET_WORK_V1,
+                        "{\"2026-09-14\": 0, \"2026-09-15\": 210}")),  // Effective date moved to 9/15
+                List.of(),
+                List.of(),
+                List.of(
+                        window("employee-outside", sept14, "08:30", "12:00"),
+                        window("employee-outside", sept14, "13:30", "18:00"),
+                        window("employee-outside", sept15, "08:30", "12:00"),
+                        window("employee-outside", sept15, "13:30", "18:00")));
+
+        var matrix = AttendanceMonthMatrixAssembler.assemble(snapshot);
+        var day14 = matrix.rows().getFirst().days().get(13);  // Sept 14
+        var day15 = matrix.rows().getFirst().days().get(14);  // Sept 15
+
+        // Sept 14 should NOT show badge (0 minutes in daymap)
+        assertThat(day14.badges()).doesNotContain(BadgeCode.ANNUAL_LEAVE);
+
+        // Sept 15 MUST show badge even though it's outside original traced interval
+        // daymap shows 210 minutes on Sept 15, so badge should appear
+        assertThat(day15.badges()).contains(BadgeCode.ANNUAL_LEAVE);
+
+        // Note: daymap only provides date + total minutes, not which AM/PM slot
+        // So we only verify the badge is present, not which slot has the tone
+    }
+
+    @Test
+    void sickLeaveRestDayZeroMinuteShowsTwoSlotsWithZeroHours() {
+        // REST44: SICK with daymap containing 0-minute REST_DAY entry
+        // Original interval: 9/10 workday, effective date moved to 9/13 weekend with 0 minutes
+        // Morning and afternoon should both show "病假" text, but 0 hours
+        LocalDate sept10 = LocalDate.of(2026, 9, 10);
+        LocalDate sept13 = LocalDate.of(2026, 9, 13);  // Weekend
+        var snapshot = new ReportSourceSnapshot(
+                new AuthorizedScope(ScopeType.COMPANY, "scope", "公司", "digest"),
+                new ReportFilter(YearMonth.of(2026, 9), "company", null, null, null),
+                "projection",
+                "OPEN",
+                Instant.parse("2026-09-16T00:00:00Z"),
+                List.of("oa:v2"),
+                List.of(
+                        new DailyFact("daily-910", "company", "emp-rest", "E999", "员工",
+                                "org", "org-v", "部门", sept10, DayType.WEEKDAY, "班次",
+                                480L, 480L, 0L, 0L, 0L, 480L, 1, 1.0, 0L, 0L, 0L, 0,
+                                Instant.parse("2026-09-10T00:30:00Z"),
+                                Instant.parse("2026-09-10T10:00:00Z"),
+                                "calc", "digest"),
+                        new DailyFact("daily-913", "company", "emp-rest", "E999", "员工",
+                                "org", "org-v", "部门", sept13, DayType.SUNDAY, "休息",
+                                0L, 0L, 0L, 0L, 0L, 0L, 0, 0.0, 0L, 0L, 0L, 0,
+                                null, null,
+                                "calc", "digest")),
+                List.of(
+                        new OaDocumentFact("oa-sick", "emp-rest", "E999", "员工",
+                                "org", "部门", "LEAVE", "SICK",
+                                Instant.parse("2026-09-10T00:30:00Z"),  // Original: 9/10
+                                Instant.parse("2026-09-10T10:00:00Z"),
+                                0, "APPROVED", "QJD", "OA", OaDocumentFact.NET_WORK_V1,
+                                "{\"2026-09-13\": 0}")),  // Moved to 9/13 weekend with 0 minutes
+                List.of(), List.of(), List.of());
+
+        var matrix = AttendanceMonthMatrixAssembler.assemble(snapshot);
+        var day13 = matrix.rows().getFirst().days().get(12);  // Sept 13 (0-indexed)
+
+        // Both morning and afternoon should show "病假" text
+        assertThat(day13.morning().text()).contains("病假");
+        assertThat(day13.afternoon().text()).contains("病假");
+        // Badge should be present
+        assertThat(day13.badges()).contains(BadgeCode.SICK_LEAVE);
+
+        // Empty daymap {} should NOT show on original date
+        var snapshotEmpty = new ReportSourceSnapshot(
+                new AuthorizedScope(ScopeType.COMPANY, "scope", "公司", "digest"),
+                new ReportFilter(YearMonth.of(2026, 9), "company", null, null, null),
+                "projection", "OPEN", Instant.parse("2026-09-16T00:00:00Z"), List.of("oa:v2"),
+                List.of(
+                        new DailyFact("daily-910b", "company", "emp2", "E998", "员工2",
+                                "org", "org-v", "部门", sept10, DayType.WEEKDAY, "班次",
+                                480L, 480L, 0L, 0L, 0L, 480L, 1, 1.0, 0L, 0L, 0L, 0,
+                                Instant.parse("2026-09-10T00:30:00Z"),
+                                Instant.parse("2026-09-10T10:00:00Z"), "calc", "digest")),
+                List.of(
+                        new OaDocumentFact("oa-cancelled", "emp2", "E998", "员工2",
+                                "org", "部门", "LEAVE", "ANNUAL",
+                                Instant.parse("2026-09-10T00:30:00Z"),
+                                Instant.parse("2026-09-10T10:00:00Z"),
+                                0, "APPROVED", "QJD", "OA", OaDocumentFact.NET_WORK_V1, "{}")),  // Fully cancelled
+                List.of(), List.of(), List.of());
+        var matrix2 = AttendanceMonthMatrixAssembler.assemble(snapshotEmpty);
+        var day10cancelled = matrix2.rows().getFirst().days().get(9);
+        // {} should NOT show badge
+        assertThat(day10cancelled.badges()).doesNotContain(BadgeCode.ANNUAL_LEAVE);
+
+        // Half-day SICK on workday should still show in correct slot
+        var snapshotHalfDay = new ReportSourceSnapshot(
+                new AuthorizedScope(ScopeType.COMPANY, "scope", "公司", "digest"),
+                new ReportFilter(YearMonth.of(2026, 9), "company", null, null, null),
+                "projection", "OPEN", Instant.parse("2026-09-16T00:00:00Z"), List.of("oa:v2"),
+                List.of(
+                        new DailyFact("daily-911", "company", "emp3", "E997", "员工3",
+                                "org", "org-v", "部门", LocalDate.of(2026, 9, 11), DayType.WEEKDAY, "班次",
+                                480L, 270L, 0L, 210L, 0L, 270L, 1, 1.0, 0L, 0L, 0L, 0,
+                                Instant.parse("2026-09-11T00:30:00Z"),
+                                Instant.parse("2026-09-11T10:00:00Z"), "calc", "digest")),
+                List.of(
+                        new OaDocumentFact("oa-half", "emp3", "E997", "员工3",
+                                "org", "部门", "LEAVE", "SICK",
+                                Instant.parse("2026-09-11T00:30:00Z"),  // Morning half
+                                Instant.parse("2026-09-11T04:00:00Z"),
+                                210, "APPROVED", "QJD", "OA", null, null)),  // No daymap: use original time
+                List.of(), List.of(), List.of(
+                        window("emp3", LocalDate.of(2026, 9, 11), "08:30", "12:00"),
+                        window("emp3", LocalDate.of(2026, 9, 11), "13:30", "18:00")));
+        var matrix3 = AttendanceMonthMatrixAssembler.assemble(snapshotHalfDay);
+        var day11 = matrix3.rows().getFirst().days().get(10);
+        // Only morning should show SICK
+        assertThat(day11.morning().text()).contains("病假");
+        assertThat(day11.afternoon().text()).doesNotContain("病假");
     }
 }

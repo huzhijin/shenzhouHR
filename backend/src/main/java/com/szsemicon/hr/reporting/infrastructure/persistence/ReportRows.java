@@ -231,7 +231,20 @@ final class ReportRows {
                     lastPunchAt,
                     calculationVersionId,
                     resultDigest,
-                    LeaveType.fromLeaveCode(leaveType));
+                    leaveTypeFromStored(leaveType));
+        }
+
+        private static LeaveType leaveTypeFromStored(String stored) {
+            if (stored == null || stored.isBlank()) {
+                return null;
+            }
+            // Persisted values are enum.name() (e.g. "SICK", "ANNUAL").
+            // Try enum.name() first; fall back to OA leave-code (e.g. "SICK_LEAVE").
+            try {
+                return LeaveType.valueOf(stored.strip());
+            } catch (IllegalArgumentException ignored) {
+                return LeaveType.fromLeaveCode(stored);
+            }
         }
 
         private static double snapAttendanceDays(double days) {
@@ -265,7 +278,11 @@ final class ReportRows {
             long recognizedMinutes,
             String sourceStatus,
             String sourceVersion,
-            String sourceOrigin) {
+            String sourceOrigin,
+            String allocationSemantics,
+            String recognizedMinutesByDateJson,
+            String hrAdjustmentId,
+            String hrSourceKind) {
 
         OaDocumentFact toDomain() {
             return new OaDocumentFact(
@@ -282,7 +299,11 @@ final class ReportRows {
                     recognizedMinutes,
                     sourceStatus,
                     sourceVersion,
-                    sourceOrigin);
+                    sourceOrigin,
+                    allocationSemantics,
+                    recognizedMinutesByDateJson,
+                    hrAdjustmentId,
+                    hrSourceKind);
         }
     }
 

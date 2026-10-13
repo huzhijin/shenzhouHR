@@ -16,6 +16,7 @@ import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.
 import com.szsemicon.hr.reporting.application.AttendanceReportPublicationModels.VerifiedTimeAccountFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.DailyFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionFact;
+import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -30,10 +31,12 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -115,27 +118,84 @@ public class AttendanceReportProjectionPublisher
             LocalDate copyBefore,
             LocalDate copyFromExclusive,
             java.util.Collection<String> employeeIds) {
+        return publishInternal(command, copyBefore, copyFromExclusive, employeeIds, null);
+    }
+
+    @Transactional
+    @Override
+    public PublicationResult publishScoped(
+            PublishCommand command,
+            LocalDate copyBefore,
+            LocalDate copyFromExclusive,
+            java.util.Collection<String> employeeIds,
+            String expectedBaseProjectionVersion) {
+        if (expectedBaseProjectionVersion == null || expectedBaseProjectionVersion.isBlank()) {
+            throw new IllegalArgumentException("partial publication requires an expected baseline");
+        }
+        if (copyBefore == null || copyFromExclusive == null) {
+            throw new IllegalArgumentException("partial publication requires a write window");
+        }
+        return publishInternal(command, copyBefore, copyFromExclusive,
+                employeeIds, expectedBaseProjectionVersion);
+    }
+
+    private PublicationResult publishInternal(
+            PublishCommand command,
+            LocalDate copyBefore,
+            LocalDate copyFromExclusive,
+            java.util.Collection<String> employeeIds,
+            String expectedBaseProjectionVersion) {
         CanonicalPublication publication = canonicalize(command);
         VerifiedProjectionMetadata metadata = publication.metadata();
+        boolean partial = copyBefore != null || copyFromExclusive != null;
+        if (partial && (copyBefore == null || copyFromExclusive == null
+                || !copyBefore.isBefore(copyFromExclusive)
+                || copyBefore.isBefore(metadata.period().atDay(1))
+                || copyFromExclusive.isAfter(metadata.period().plusMonths(1).atDay(1)))) {
+            throw new IllegalArgumentException("partial publication write window is invalid");
+        }
         Instant observedNow = clock.instant();
         if (metadata.dataAsOf().isAfter(observedNow)) {
             throw new IllegalArgumentException(
                     "report projection dataAsOf cannot be in the future");
         }
-        if (!writer.lockCompany(metadata.companyId())) {
+        if (!writer.lockCompany(metadata.companyId(), metadata.period().atDay(1))) {
             throw new IllegalArgumentException(
                     "report projection company does not exist");
+        }
+        Optional<StoredProjection> latest = Optional.empty();
+        if (partial) {
+            latest = writer.findLatestPublished(metadata.companyId(), metadata.period().atDay(1));
+            if (latest.isEmpty()) {
+                throw new ApiProblemException(HttpStatus.CONFLICT,
+                        "ATTENDANCE_REPORT_BASE_PROJECTION_REQUIRED",
+                        "日期重算需要已有整月报表作为基线，请先完成整月计算", false);
+            }
+            String baselineVersion = expectedBaseProjectionVersion == null
+                    ? latest.orElseThrow().projectionVersion() : expectedBaseProjectionVersion;
+            publication = bindPartialScope(publication, baselineVersion,
+                    copyBefore, copyFromExclusive, employeeIds);
         }
         var existing = writer.findByDigest(
                 metadata.companyId(),
                 metadata.period().atDay(1),
                 publication.projectionDigest());
         if (existing.isPresent()) {
+            if (partial && !latest.orElseThrow().projectionId()
+                    .equals(existing.orElseThrow().projectionId())) {
+                throw changedBaseline();
+            }
             return idempotent(existing.orElseThrow(), publication);
         }
-        var latest = writer.findLatestPublished(
+        if (partial && expectedBaseProjectionVersion != null
+                && !latest.orElseThrow().projectionVersion().equals(expectedBaseProjectionVersion)) {
+            throw changedBaseline();
+        }
+        if (!partial) {
+            latest = writer.findLatestPublished(
                         metadata.companyId(),
                         metadata.period().atDay(1));
+        }
         latest.ifPresent(value -> validateSuccessor(value, metadata));
         Instant now = monotonicPublicationTime(
                 clock.instant(),
@@ -174,21 +234,30 @@ public class AttendanceReportProjectionPublisher
                     now,
                     employeeId,
                     scopedEmployees);
+            Instant windowStart = copyBefore
+                    .atStartOfDay(BUSINESS_ZONE)
+                    .toInstant();
+            Instant windowEnd = copyFromExclusive
+                    .atStartOfDay(BUSINESS_ZONE)
+                    .toInstant();
+            // Whole-month plan: planner expanded window to cover whole month for
+            // LEAVE/TIME_OFF replacement (shares depend on WORK inputs month-wide).
+            boolean isWholeMonthPlan = windowStart.equals(metadata.period().atDay(1).atStartOfDay(BUSINESS_ZONE).toInstant())
+                    && windowEnd.equals(metadata.period().plusMonths(1).atDay(1).atStartOfDay(BUSINESS_ZONE).toInstant());
+            writer.copyOaDocumentFactsExceptEmployeeWindow(
+                    latest.orElseThrow().projectionId(),
+                    projectionId,
+                    windowStart,
+                    windowEnd,
+                    now,
+                    employeeId,
+                    scopedEmployees,
+                    publication.oaDocumentFacts().stream()
+                            .map(VerifiedOaDocumentFact::oaAttendanceDocumentId)
+                            .distinct()
+                            .toList(),
+                    isWholeMonthPlan);
             if (!scopedEmployees.isEmpty()) {
-                Instant windowStart = copyBefore
-                        .atStartOfDay(BUSINESS_ZONE)
-                        .toInstant();
-                Instant windowEnd = copyFromExclusive
-                        .atStartOfDay(BUSINESS_ZONE)
-                        .toInstant();
-                writer.copyOaDocumentFactsExceptEmployeeWindow(
-                        latest.orElseThrow().projectionId(),
-                        projectionId,
-                        windowStart,
-                        windowEnd,
-                        now,
-                        employeeId,
-                        scopedEmployees);
                 writer.copyTimeAccountFactsExceptEmployee(
                         latest.orElseThrow().projectionId(),
                         projectionId,
@@ -257,7 +326,12 @@ public class AttendanceReportProjectionPublisher
                     oa.recognizedMinutes(),
                     oa.sourceStatus(),
                     oa.sourceVersion(),
-                    now));
+                    now,
+                    OaRecognizedDayMinutes.encode(oa.recognizedMinutesByDate()),
+                    oa.allocationSemantics(),
+                    oa.sourceOrigin(),
+                    oa.hrAdjustmentId(),
+                    oa.hrSourceKind()));
         }
         for (VerifiedTimeAccountFact account :
                 publication.timeAccountFacts()) {
@@ -305,6 +379,32 @@ public class AttendanceReportProjectionPublisher
             return databaseCandidate;
         }
         return latestPublishedAt.plusNanos(1_000);
+    }
+
+    private static ApiProblemException changedBaseline() {
+        return new ApiProblemException(HttpStatus.CONFLICT,
+                "ATTENDANCE_REPORT_BASE_PROJECTION_CHANGED",
+                "报表已被另一任务更新，本次日期重算未发布，请重新读取报表后重试", true);
+    }
+
+    private CanonicalPublication bindPartialScope(
+            CanonicalPublication publication, String baselineVersion,
+            LocalDate fromInclusive, LocalDate toExclusive,
+            java.util.Collection<String> employeeIds) {
+        List<String> employees = employeeIds == null ? List.of()
+                : employeeIds.stream().distinct().sorted().toList();
+        CanonicalDigest digest = new CanonicalDigest();
+        digest.add("ATTENDANCE_REPORT_PARTIAL_PROJECTION_V1");
+        digest.add(publication.projectionDigest());
+        digest.add(baselineVersion);
+        digest.add(fromInclusive.toString());
+        digest.add(toExclusive.toString());
+        digest.add(Integer.toString(employees.size()));
+        employees.forEach(digest::add);
+        String projectionDigest = digest.finish();
+        return new CanonicalPublication(publication.metadata(), publication.calculatedFacts(),
+                publication.currentExceptionFacts(), publication.oaDocumentFacts(),
+                publication.timeAccountFacts(), projectionDigest, "ARP1-" + projectionDigest);
     }
 
     private PublicationResult idempotent(
@@ -720,6 +820,12 @@ public class AttendanceReportProjectionPublisher
         digest.add(fact.sourceStatus());
         digest.add(fact.sourceVersion());
         digest.add(fact.sourceOrigin());
+        String daily = OaRecognizedDayMinutes.encode(fact.recognizedMinutesByDate());
+        digest.add(daily == null ? "OA_DAY_MINUTES_UNAVAILABLE_V1" : daily);
+        // Legacy rows add nothing so existing projection digests stay stable.
+        if (fact.allocationSemantics() != null) {
+            digest.add("OA_ALLOCATION:" + fact.allocationSemantics());
+        }
     }
 
     private static void appendCurrentException(

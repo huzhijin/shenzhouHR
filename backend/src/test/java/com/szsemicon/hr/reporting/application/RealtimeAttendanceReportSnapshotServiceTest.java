@@ -163,6 +163,76 @@ class RealtimeAttendanceReportSnapshotServiceTest {
     }
 
     @Test
+    void recalculationRefreshesOaBeforeAssemblyAndUsesPostSyncCutoff() {
+        authorize(companyAuthorization());
+        var refresh = org.mockito.Mockito.mock(AttendanceReportSourceRefreshPort.class);
+        Instant committed = NOW.plusSeconds(5);
+        when(refresh.refresh(COMPANY_ID, PERIOD, NOW)).thenReturn(committed);
+        service.configureSourceRefresh(refresh);
+        when(orchestrator.assemble(COMPANY_ID, PERIOD, PeriodState.OPEN, PRINCIPAL_ID, committed))
+                .thenReturn(command(COMPANY_ID, PERIOD, committed, "a".repeat(64), List.of(dailyFact())));
+        var result = service.recalculate(PRINCIPAL_ID, CAPABILITY,
+                filter(COMPANY_ID, null, null), NOW);
+        var order = org.mockito.Mockito.inOrder(refresh, orchestrator);
+        order.verify(refresh).refresh(COMPANY_ID, PERIOD, NOW);
+        order.verify(orchestrator).assemble(COMPANY_ID, PERIOD, PeriodState.OPEN, PRINCIPAL_ID, committed);
+        assertThat(result.dataAsOf()).isEqualTo(committed);
+    }
+
+    @Test
+    void failedOaRefreshDoesNotCalculateOrPublishAndExistingPinRemainsReadable() {
+        authorize(companyAuthorization());
+        var pinned = snapshotFromCommand(command());
+        when(repository.loadAuthorizedSnapshot(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Optional.of(pinned));
+        var refresh = org.mockito.Mockito.mock(AttendanceReportSourceRefreshPort.class);
+        when(refresh.refresh(COMPANY_ID, PERIOD, NOW)).thenThrow(
+                new com.szsemicon.hr.shared.web.ApiProblemException(
+                        org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                        "OA_REPORT_SOURCE_REFRESH_FAILED", "OA unavailable", true));
+        service.configureSourceRefresh(refresh);
+        assertThatThrownBy(() -> service.recalculate(PRINCIPAL_ID, CAPABILITY,
+                filter(COMPANY_ID, null, null), NOW))
+                .extracting("code").isEqualTo("OA_REPORT_SOURCE_REFRESH_FAILED");
+        org.mockito.Mockito.verifyNoInteractions(orchestrator);
+        assertThat(service.loadAuthorizedSnapshot(PRINCIPAL_ID, CAPABILITY,
+                filter(COMPANY_ID, null, null), null, NOW).orElseThrow()).isEqualTo(pinned);
+    }
+
+    @Test
+    void employeeWindowRefreshesTheSamePlanConsumedByAssembly() {
+        authorize(companyAuthorization());
+        var refresh = org.mockito.Mockito.mock(AttendanceReportSourceRefreshPort.class);
+        Instant committed = NOW.plusSeconds(5);
+        LocalDate start = PERIOD.atDay(17);
+        var plan = AttendanceReportDependencyPlan.bounded(COMPANY_ID, PERIOD, start,
+                start.plusDays(1), List.of("employee-1"));
+        when(orchestrator.publishedBaseline(COMPANY_ID, PERIOD)).thenReturn(Optional.of(
+                new AttendanceReportDependencyPlan.Baseline("old-pin", NOW.minusSeconds(1), "OPEN")));
+        when(orchestrator.planWindow(org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                org.mockito.ArgumentMatchers.eq(PERIOD), org.mockito.ArgumentMatchers.eq("old-pin"),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(start),
+                org.mockito.ArgumentMatchers.eq(start.plusDays(1)), org.mockito.ArgumentMatchers.eq(List.of("employee-1"))))
+                .thenReturn(plan);
+        when(refresh.refreshRange(COMPANY_ID, plan.refreshFromInclusive(), plan.refreshToExclusive(), NOW,
+                List.of("employee-1")))
+                .thenReturn(committed);
+        service.configureSourceRefresh(refresh);
+        when(orchestrator.assemblePlanned(plan, PeriodState.OPEN, PRINCIPAL_ID, committed))
+                .thenReturn(command(COMPANY_ID, PERIOD, committed, "b".repeat(64), List.of(dailyFact())));
+        service.recalculateEmployee(PRINCIPAL_ID, CAPABILITY, filter(COMPANY_ID, null, null),
+                NOW, "employee-1", start, start.plusDays(1));
+        var order = org.mockito.Mockito.inOrder(refresh, orchestrator);
+        order.verify(refresh).refreshRange(COMPANY_ID, plan.refreshFromInclusive(), plan.refreshToExclusive(), NOW,
+                List.of("employee-1"));
+        order.verify(orchestrator).assemblePlanned(plan, PeriodState.OPEN, PRINCIPAL_ID, committed);
+        verify(refresh, never()).refresh(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void retainsThePinnedSnapshotAcrossTheNextTimeBucket() {
         authorize(companyAuthorization());
         var pinned = snapshotFromCommand(command());
@@ -798,21 +868,20 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                         true);
         LocalDate writeStart = LocalDate.of(2026, 8, 10);
         LocalDate writeEndExclusive = LocalDate.of(2026, 8, 13);
-        when(orchestrator.assemble(
-                        COMPANY_ID,
-                        PERIOD,
-                        PeriodState.OPEN,
-                        PRINCIPAL_ID,
-                        NOW,
-                        writeStart,
-                        writeEndExclusive,
-                        "emp-1"))
+        var plan = AttendanceReportDependencyPlan.bounded(COMPANY_ID, PERIOD,
+                writeStart, writeEndExclusive, List.of("emp-1"));
+        when(orchestrator.publishedBaseline(COMPANY_ID, PERIOD)).thenReturn(Optional.of(
+                new AttendanceReportDependencyPlan.Baseline("old-pin", NOW.minusSeconds(1), "OPEN")));
+        when(orchestrator.planWindow(org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                org.mockito.ArgumentMatchers.eq(PERIOD), org.mockito.ArgumentMatchers.eq("old-pin"),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(writeStart),
+                org.mockito.ArgumentMatchers.eq(writeEndExclusive), org.mockito.ArgumentMatchers.eq(List.of("emp-1"))))
+                .thenReturn(plan);
+        when(orchestrator.assemblePlanned(plan, PeriodState.OPEN, PRINCIPAL_ID, NOW))
                 .thenReturn(command());
-        when(publisher.publish(
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.eq(writeStart),
-                        org.mockito.ArgumentMatchers.eq(writeEndExclusive),
-                        org.mockito.ArgumentMatchers.eq("emp-1")))
+        when(publisher.publishScoped(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(writeStart), org.mockito.ArgumentMatchers.eq(writeEndExclusive),
+                org.mockito.ArgumentMatchers.eq(List.of("emp-1")), org.mockito.ArgumentMatchers.eq("old-pin")))
                 .thenReturn(published);
         RealtimeAttendanceReportSnapshotService pinning =
                 new RealtimeAttendanceReportSnapshotService(
@@ -829,11 +898,9 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
         assertThat(snapshot.projectionVersion()).startsWith("ARP1-");
         assertThat(pinning.cacheMetrics().entries()).isZero();
-        verify(publisher).publish(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.eq(writeStart),
-                org.mockito.ArgumentMatchers.eq(writeEndExclusive),
-                org.mockito.ArgumentMatchers.eq("emp-1"));
+        verify(publisher).publishScoped(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(writeStart), org.mockito.ArgumentMatchers.eq(writeEndExclusive),
+                org.mockito.ArgumentMatchers.eq(List.of("emp-1")), org.mockito.ArgumentMatchers.eq("old-pin"));
     }
 
     @Test
@@ -978,6 +1045,47 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                 org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void newOrReversedAuditDecisionMakesPinStaleEvenWithoutNewProviderData() {
+        var snapshot = new com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot(
+                scope(ScopeType.COMPANY), filter(COMPANY_ID, null, null), "ARP1-" + "a".repeat(64), "OPEN", NOW,
+                List.of(), List.of(), List.of(), List.of(), List.of());
+        var provider = org.mockito.Mockito.mock(AttendanceReportDecisionVersionProvider.class);
+        service.configureDecisionVersions(provider);
+        String active = "DECISION.OT:recognition:" + "a".repeat(64);
+        String reversed = "DECISION.OT:recognition:" + "b".repeat(64);
+        when(provider.versions(COMPANY_ID, PERIOD, NOW)).thenReturn(List.of(active));
+        assertThat(service.sourcesNewerThanPin(snapshot, NOW)).isTrue();
+        var applied = new com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot(
+                snapshot.scope(), snapshot.filter(), snapshot.projectionVersion(), snapshot.periodState(), NOW,
+                List.of(active), List.of(), List.of(), List.of(), List.of());
+        assertThat(service.sourcesNewerThanPin(applied, NOW)).isFalse();
+        when(provider.versions(COMPANY_ID, PERIOD, NOW)).thenReturn(List.of(reversed));
+        assertThat(service.sourcesNewerThanPin(applied, NOW)).isTrue();
+        verify(provider, times(3)).versions(COMPANY_ID, PERIOD, NOW);
+        verify(orchestrator, never()).assemble(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void exclusionMarkerChangeAlsoInvalidatesPin() {
+        var snapshot = new com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot(
+                scope(ScopeType.COMPANY), filter(COMPANY_ID, null, null), "ARP1-" + "a".repeat(64), "OPEN", NOW,
+                List.of(), List.of(), List.of(), List.of(), List.of());
+        var provider = org.mockito.Mockito.mock(AttendanceReportDecisionVersionProvider.class);
+        service.configureDecisionVersions(provider);
+        String exclusionActive = "DECISION.EXCLUSION:exclusion-1:2026-10-06T01:00:00Z:" + "a".repeat(64);
+        String exclusionReversed = "DECISION.EXCLUSION:exclusion-1:2026-10-06T01:00:00Z:" + "b".repeat(64);
+        when(provider.versions(COMPANY_ID, PERIOD, NOW)).thenReturn(List.of(exclusionActive));
+        assertThat(service.sourcesNewerThanPin(snapshot, NOW)).isTrue();
+        var pinned = new com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot(
+                snapshot.scope(), snapshot.filter(), snapshot.projectionVersion(), snapshot.periodState(), NOW,
+                List.of(exclusionActive), List.of(), List.of(), List.of(), List.of());
+        assertThat(service.sourcesNewerThanPin(pinned, NOW)).isFalse();
+        when(provider.versions(COMPANY_ID, PERIOD, NOW)).thenReturn(List.of(exclusionReversed));
+        assertThat(service.sourcesNewerThanPin(pinned, NOW)).isTrue();
+        verify(provider, times(3)).versions(COMPANY_ID, PERIOD, NOW);
+    }
+
     private static com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot
             snapshotFromCommand(PublishCommand command) {
         var daily = command.calculatedFacts().getFirst().facts().dailyFact();
@@ -1010,6 +1118,79 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                         org.mockito.ArgumentMatchers.eq(COMPANY_ID),
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(Optional.of(companyAuthorization()));
+    }
+
+    @Test
+    void dateRangeWithoutPublishedBaseDoesNotReadOrPublishSource() {
+        authorize(companyAuthorization());
+        var refresh = org.mockito.Mockito.mock(AttendanceReportSourceRefreshPort.class);
+        service.configureSourceRefresh(refresh);
+        assertThatThrownBy(() -> service.recalculateRange(PRINCIPAL_ID, CAPABILITY,
+                filter(COMPANY_ID, null, null), NOW, PERIOD.atDay(17), PERIOD.atDay(18)))
+                .extracting("code").isEqualTo("ATTENDANCE_REPORT_BASE_PROJECTION_REQUIRED");
+        org.mockito.Mockito.verifyNoInteractions(refresh);
+    }
+
+    @Test
+    void rangeRefreshExpansionIsReadAgainBeforeCalculationAndUsesLatestCutoff() {
+        authorize(companyAuthorization());
+        var first = AttendanceReportDependencyPlan.bounded(COMPANY_ID, PERIOD,
+                PERIOD.atDay(16), PERIOD.atDay(18), List.of());
+        var expanded = AttendanceReportDependencyPlan.bounded(COMPANY_ID, PERIOD,
+                PERIOD.atDay(12), PERIOD.atDay(18), List.of());
+        when(orchestrator.publishedBaseline(COMPANY_ID, PERIOD)).thenReturn(Optional.of(
+                new AttendanceReportDependencyPlan.Baseline("base-pin", NOW.minusSeconds(1), "OPEN")));
+        when(orchestrator.planWindow(org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                org.mockito.ArgumentMatchers.eq(PERIOD), org.mockito.ArgumentMatchers.eq("base-pin"),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(List.of())))
+                .thenReturn(first, expanded, expanded);
+        var refresh = org.mockito.Mockito.mock(AttendanceReportSourceRefreshPort.class);
+        when(refresh.refreshRange(COMPANY_ID, first.refreshFromInclusive(), first.refreshToExclusive(), NOW))
+                .thenReturn(NOW.plusSeconds(1));
+        when(refresh.refreshRange(COMPANY_ID, expanded.refreshFromInclusive(), expanded.refreshToExclusive(), NOW.plusSeconds(1)))
+                .thenReturn(NOW.plusSeconds(2));
+        service.configureSourceRefresh(refresh);
+        when(orchestrator.assemblePlanned(expanded, PeriodState.OPEN, PRINCIPAL_ID, NOW.plusSeconds(2)))
+                .thenReturn(command(COMPANY_ID, PERIOD, NOW.plusSeconds(2), "c".repeat(64), List.of()));
+        var result = service.recalculateRange(PRINCIPAL_ID, CAPABILITY,
+                filter(COMPANY_ID, null, null), NOW, PERIOD.atDay(17), PERIOD.atDay(18));
+        assertThat(result.dataAsOf()).isEqualTo(NOW.plusSeconds(2));
+        var order = org.mockito.Mockito.inOrder(refresh, orchestrator);
+        order.verify(refresh).refreshRange(COMPANY_ID, first.refreshFromInclusive(), first.refreshToExclusive(), NOW);
+        order.verify(refresh).refreshRange(COMPANY_ID, expanded.refreshFromInclusive(), expanded.refreshToExclusive(), NOW.plusSeconds(1));
+        order.verify(orchestrator).assemblePlanned(expanded, PeriodState.OPEN, PRINCIPAL_ID, NOW.plusSeconds(2));
+    }
+
+    @Test
+    void reopenedRangePreservesReopenedPeriodState() {
+        authorize(companyAuthorization());
+        var plan = AttendanceReportDependencyPlan.bounded(COMPANY_ID, PERIOD,
+                PERIOD.atDay(16), PERIOD.atDay(18), List.of());
+        when(orchestrator.publishedBaseline(COMPANY_ID, PERIOD)).thenReturn(Optional.of(
+                new AttendanceReportDependencyPlan.Baseline("base-pin", NOW.minusSeconds(1), "REOPENED")));
+        when(orchestrator.planWindow(org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                org.mockito.ArgumentMatchers.eq(PERIOD), org.mockito.ArgumentMatchers.eq("base-pin"),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(List.of())))
+                .thenReturn(plan);
+        var original = command();
+        var metadata = original.metadata();
+        var reopened = new PublishCommand(new VerifiedProjectionMetadata(COMPANY_ID, PERIOD,
+                PeriodState.REOPENED, metadata.formulaCatalogVersion(), metadata.sourceVersions(),
+                metadata.sourceSnapshotDigest(), NOW, PRINCIPAL_ID), List.of(), List.of(), List.of(), List.of());
+        when(orchestrator.assemblePlanned(plan, PeriodState.REOPENED, PRINCIPAL_ID, NOW)).thenReturn(reopened);
+        assertThat(service.recalculateRange(PRINCIPAL_ID, CAPABILITY,
+                filter(COMPANY_ID, null, null), NOW, PERIOD.atDay(17), PERIOD.atDay(18)).periodState())
+                .isEqualTo("REOPENED");
+    }
+
+    @Test
+    void internalFullMonthBoundsKeepMonthRefreshAndDoNotRequireExistingPin() {
+        when(orchestrator.assemble(COMPANY_ID, PERIOD, PeriodState.OPEN, "SYSTEM", NOW)).thenReturn(command());
+        service.materializeCompanyMonthWindow(COMPANY_ID, PERIOD, RecalcWindow.MONTH, NOW);
+        verify(orchestrator).assemble(COMPANY_ID, PERIOD, PeriodState.OPEN, "SYSTEM", NOW);
+        verify(orchestrator, never()).publishedBaseline(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     private void authorize(RealtimeAuthorization authorization) {

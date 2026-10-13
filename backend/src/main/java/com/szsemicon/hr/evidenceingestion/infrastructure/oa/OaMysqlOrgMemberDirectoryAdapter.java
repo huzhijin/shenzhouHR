@@ -31,9 +31,9 @@ public final class OaMysqlOrgMemberDirectoryAdapter
 
     @Override
     public List<OrgMemberRecord> findById(BigInteger orgMemberId) {
-        if (orgMemberId == null || orgMemberId.signum() <= 0) {
+        if (orgMemberId == null || orgMemberId.signum() == 0) {
             throw new IllegalArgumentException(
-                    "OA org_member.id must be a positive integer");
+                    "OA org_member.id must not be null or zero");
         }
         try (var connection = connections.openConnection()) {
             connection.setReadOnly(true);

@@ -28,6 +28,12 @@ class OaMysqlAttendanceDocumentAdapterCursorTest {
                     .atStartOfDay(ZoneId.of("Asia/Shanghai"))
                     .toInstant();
 
+    private static OaMysqlProperties january2026Properties() {
+        var properties = new OaMysqlProperties();
+        properties.setSyncNotBefore(LocalDate.of(2026, 1, 1));
+        return properties;
+    }
+
     @Test
     void firstFetchStartsAtJanuary2026InsteadOfEpoch() throws Exception {
         Connection connection = mock(Connection.class);
@@ -36,7 +42,7 @@ class OaMysqlAttendanceDocumentAdapterCursorTest {
                 .thenReturn(emptyStatement);
         OaMysqlAttendanceDocumentAdapter adapter =
                 new OaMysqlAttendanceDocumentAdapter(
-                        () -> connection, new OaMysqlProperties());
+                        () -> connection, january2026Properties());
 
         adapter.fetchPage("oa-source", null);
 
@@ -61,7 +67,7 @@ class OaMysqlAttendanceDocumentAdapterCursorTest {
                 .thenReturn(emptyStatement);
         OaMysqlAttendanceDocumentAdapter adapter =
                 new OaMysqlAttendanceDocumentAdapter(
-                        () -> connection, new OaMysqlProperties());
+                        () -> connection, january2026Properties());
 
         adapter.fetchPage("oa-source", committed.encode());
 
@@ -98,7 +104,7 @@ class OaMysqlAttendanceDocumentAdapterCursorTest {
                 });
         OaMysqlAttendanceDocumentAdapter adapter =
                 new OaMysqlAttendanceDocumentAdapter(
-                        () -> connection, new OaMysqlProperties());
+                        () -> connection, january2026Properties());
 
         OaPage page = adapter.fetchPage("oa-source", null);
 
@@ -182,7 +188,7 @@ class OaMysqlAttendanceDocumentAdapterCursorTest {
                             throw new AssertionError(
                                     "invalid cursor must fail before database access");
                         },
-                        new OaMysqlProperties());
+                        january2026Properties());
 
         OaReadOnlyQueryException failure = catchThrowableOfType(
                 () -> adapter.fetchPage("oa-source", "not-a-cursor"),

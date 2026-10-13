@@ -5,6 +5,8 @@ import com.szsemicon.hr.reporting.domain.AttendanceReportModels.TimeAccountType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Map;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -37,6 +39,7 @@ public final class AttendanceReportPublicationModels {
             "DRAFT",
             "REJECTED",
             "UNKNOWN",
+            "PENDING",
             "MODIFIED",
             "SUPPLEMENTED",
             "REVOKED");
@@ -132,7 +135,58 @@ public final class AttendanceReportPublicationModels {
             long recognizedMinutes,
             String sourceStatus,
             String sourceVersion,
-            String sourceOrigin) {
+            String sourceOrigin,
+            Map<LocalDate, Long> recognizedMinutesByDate,
+            String allocationSemantics,
+            String hrAdjustmentId,
+            String hrSourceKind) {
+
+        /** Leave/time-off shares a person's working time once across same-type forms. */
+        public static final String NET_WORK_V1 = "NET_WORK_V1";
+
+        /** Legacy facts: no allocation semantics, read with the original per-form rules. */
+        public VerifiedOaDocumentFact(
+                String companyId, String oaAttendanceDocumentId, String employeeId,
+                String employeeVersionId, String employmentAssignmentId, String organizationId,
+                String organizationVersionId, String documentType, String leaveTypeCode,
+                OaTemporalShape temporalShape, Instant pointInstant, Instant intervalStart,
+                Instant intervalEndExclusive, long recognizedMinutes, String sourceStatus,
+                String sourceVersion, String sourceOrigin, Map<LocalDate, Long> recognizedMinutesByDate) {
+            this(companyId, oaAttendanceDocumentId, employeeId, employeeVersionId,
+                    employmentAssignmentId, organizationId, organizationVersionId, documentType,
+                    leaveTypeCode, temporalShape, pointInstant, intervalStart, intervalEndExclusive,
+                    recognizedMinutes, sourceStatus, sourceVersion, sourceOrigin,
+                    recognizedMinutesByDate, null, null, null);
+        }
+
+        public VerifiedOaDocumentFact withAllocationSemantics(String semantics) {
+            return new VerifiedOaDocumentFact(companyId, oaAttendanceDocumentId, employeeId,
+                    employeeVersionId, employmentAssignmentId, organizationId, organizationVersionId,
+                    documentType, leaveTypeCode, temporalShape, pointInstant, intervalStart,
+                    intervalEndExclusive, recognizedMinutes, sourceStatus, sourceVersion,
+                    sourceOrigin, recognizedMinutesByDate, semantics, hrAdjustmentId, hrSourceKind);
+        }
+
+        public VerifiedOaDocumentFact(
+                String companyId, String oaAttendanceDocumentId, String employeeId,
+                String employeeVersionId, String employmentAssignmentId, String organizationId,
+                String organizationVersionId, String documentType, String leaveTypeCode,
+                OaTemporalShape temporalShape, Instant pointInstant, Instant intervalStart,
+                Instant intervalEndExclusive, long recognizedMinutes, String sourceStatus,
+                String sourceVersion, String sourceOrigin) {
+            this(companyId, oaAttendanceDocumentId, employeeId, employeeVersionId,
+                    employmentAssignmentId, organizationId, organizationVersionId, documentType,
+                    leaveTypeCode, temporalShape, pointInstant, intervalStart, intervalEndExclusive,
+                    recognizedMinutes, sourceStatus, sourceVersion, sourceOrigin, null);
+        }
+
+        public VerifiedOaDocumentFact withRecognizedMinutesByDate(Map<LocalDate, Long> byDate) {
+            return new VerifiedOaDocumentFact(companyId, oaAttendanceDocumentId, employeeId,
+                    employeeVersionId, employmentAssignmentId, organizationId, organizationVersionId,
+                    documentType, leaveTypeCode, temporalShape, pointInstant, intervalStart,
+                    intervalEndExclusive, recognizedMinutes, sourceStatus, sourceVersion,
+                    sourceOrigin, byDate, allocationSemantics, hrAdjustmentId, hrSourceKind);
+        }
 
         public VerifiedOaDocumentFact(
                 String companyId,
@@ -168,7 +222,11 @@ public final class AttendanceReportPublicationModels {
                     recognizedMinutes,
                     sourceStatus,
                     sourceVersion,
-                    "OA");
+                    "OA",
+                    null,
+                    null,
+                    null,
+                    null);
         }
 
         public VerifiedOaDocumentFact {
@@ -207,9 +265,12 @@ public final class AttendanceReportPublicationModels {
                 }
             }
             unsignedInt(recognizedMinutes, "recognizedMinutes");
+            recognizedMinutesByDate = OaRecognizedDayMinutes.validated(
+                    recognizedMinutesByDate, recognizedMinutes);
             sourceStatus = exactCode(
-                    sourceStatus, "sourceStatus", OA_SOURCE_STATUSES);
-            if (!Set.of("APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN")
+                    com.szsemicon.hr.attendance.domain.OaApprovalStatus.normalizeLegacy(
+                            sourceStatus, sourceVersion), "sourceStatus", OA_SOURCE_STATUSES);
+            if (!Set.of("APPROVED", "MODIFIED", "SUPPLEMENTED", "PENDING")
                             .contains(sourceStatus)
                     && recognizedMinutes != 0) {
                 throw new IllegalArgumentException(
@@ -221,6 +282,37 @@ public final class AttendanceReportPublicationModels {
                     : sourceOrigin;
             if (!Set.of("OA", "PAPER").contains(sourceOrigin)) {
                 throw new IllegalArgumentException("sourceOrigin is invalid");
+            }
+            // HR identity: explicit adjustment ID
+            if (hrAdjustmentId != null && !hrAdjustmentId.isBlank()) {
+                hrAdjustmentId = databaseId(hrAdjustmentId, "hrAdjustmentId");
+                if (hrSourceKind == null || hrSourceKind.isBlank()) {
+                    throw new IllegalArgumentException("hrAdjustmentId requires hrSourceKind");
+                }
+                if (!hrSourceKind.equals("ENTRY") && !hrSourceKind.equals("EXIT")
+                        && !hrSourceKind.startsWith("DAY_TYPE:")) {
+                    throw new IllegalArgumentException("hrSourceKind is invalid");
+                }
+                // HR facts must be PAPER origin
+                if (!"PAPER".equals(sourceOrigin)) {
+                    throw new IllegalArgumentException("hrAdjustmentId requires PAPER origin");
+                }
+            } else {
+                // No HR adjustment - must not have hrSourceKind
+                if (hrSourceKind != null && !hrSourceKind.isBlank()) {
+                    throw new IllegalArgumentException("hrSourceKind requires hrAdjustmentId");
+                }
+            }
+            if (allocationSemantics != null) {
+                if (!NET_WORK_V1.equals(allocationSemantics)) {
+                    throw new IllegalArgumentException("allocationSemantics is invalid");
+                }
+                if (!Set.of("LEAVE", "TIME_OFF").contains(documentType)
+                        || temporalShape != OaTemporalShape.INTERVAL
+                        || recognizedMinutesByDate == null) {
+                    throw new IllegalArgumentException(
+                            "net work allocation requires a leave interval with day shares");
+                }
             }
         }
     }

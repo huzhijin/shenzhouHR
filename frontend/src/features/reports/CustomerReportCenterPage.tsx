@@ -4,12 +4,13 @@ import {
   IconRefresh,
   IconShieldCheck,
 } from '@tabler/icons-react';
-import { Button, DatePicker, Modal, Select, Tooltip, TreeSelect } from 'antd';
+import { Button, DatePicker, Modal, Select, TreeSelect } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import dayjs from 'dayjs';
 import type { DataNode } from 'antd/es/tree';
 import type { CSSProperties, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { statusLabel } from '../../shared/components/FeedbackComponents';
 
 import {
   applyCustomerReportSpecificFilters,
@@ -41,7 +42,10 @@ import {
   scopeTypeLabel,
   type CustomerReportDataScope,
 } from './customerReportAccess';
-import { downloadCustomerReportWorkbook } from './customerReportWorkbook';
+import {
+  INCOMPLETE_REPORT_EXPORT_MESSAGE,
+  downloadCustomerReportWorkbook,
+} from './customerReportWorkbook';
 import { departmentPathNodes, visibleDepartmentPath } from './departmentPath';
 import { formatFinanceHours, overtimeCellFill, overtimeFeeColumns, overtimeTreatmentHover } from './financeOvertimeLayout';
 import { isProvisionalRealtimeSource, realtimeSourceCutoff } from './reportSourceFreshness';
@@ -51,7 +55,10 @@ import {
   loadCustomerReport,
   loadCustomerReportDirectory,
   loadCustomerReportScopes,
-  recalculateCustomerReport,
+  checkAfterUnknownSubmit,
+  loadPublishedReportPin,
+  recalculateCustomerReportAndWait,
+  type PublishedReportPin,
   type CustomerReportDirectoryEntry,
 } from './customerReportApi';
 import { isDemoMode } from '../../shared/config/runtimeMode';
@@ -148,7 +155,9 @@ export function CustomerReportCenterPage({
   const [activeReport, setActiveReport] = useState<CustomerReportKey>(
     () => deepLink.reportKey ?? 'attendance-detail',
   );
-  const expectedProjectionVersion = deepLink.expectedProjectionVersion;
+  const [expectedProjectionVersion, setExpectedProjectionVersion] = useState(
+    deepLink.expectedProjectionVersion,
+  );
   const [exportFeedback, setExportFeedback] = useState('');
   const [specificFeedback, setSpecificFeedback] = useState('');
   const [draftSpecificFilters, setDraftSpecificFilters] = useState<CustomerReportSpecificFilters>({
@@ -167,6 +176,13 @@ export function CustomerReportCenterPage({
   // Live API state (only used when !isDemoMode())
   const [liveReport, setLiveReport] = useState<CustomerReportDemo | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  /**
+   * A paged load publishes each page to the screen and clears the spinner on the first one, so
+   * the spinner cannot say whether every page arrived. Export needs that distinction: it stays
+   * false from the moment a load starts until the load resolves, and a load that fails part-way
+   * leaves it false so the pages that did arrive are never exported as a complete roster.
+   */
+  const [reportComplete, setReportComplete] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [directoryError, setDirectoryError] = useState<string | null>(null);
   // Directory cache: unique departments and employees extracted from the
@@ -376,6 +392,7 @@ export function CustomerReportCenterPage({
       setReportLoading(true);
       provisionalPolls.current = 0;
     }
+    setReportComplete(false);
     setReportError(null);
     loadCustomerReport(
       activeReport,
@@ -392,6 +409,7 @@ export function CustomerReportCenterPage({
         if (cancelled) return;
         setLiveReport(data);
         setReportLoading(false);
+        setReportComplete(true);
         if (
           isProvisionalRealtimeSource(data.metadata.sourceVersions)
           && provisionalPolls.current < 30
@@ -436,6 +454,9 @@ export function CustomerReportCenterPage({
   const activeTab = customerReportTabs.find((tab) => tab.key === activeReport)!;
   const canExport = capabilities === undefined
     || capabilities.includes('ATTENDANCE_REPORT:EXPORT_CREATE');
+  // Demo data is generated whole. Live data is exportable only once the last load resolved
+  // with every page, and never while a later load for a new filter or month is running.
+  const exportReady = isDemoMode() || (reportComplete && liveReport !== null && reportError === null);
   const canRecalculate = !isDemoMode()
     && (
       capabilities === undefined
@@ -444,31 +465,156 @@ export function CustomerReportCenterPage({
           || (sourceReport.metadata.allowedActions ?? []).includes('REPORT_RECALCULATE')
     );
   const [recalculateLoading, setRecalculateLoading] = useState(false);
+  // A newer publish supersedes any pin a dashboard deep link carried. The reload must not be
+  // forced back to that old snapshot, so the pin leaves both state and URL before reloading.
+  const clearSupersededPinAndReload = useCallback(() => {
+    setExpectedProjectionVersion(undefined);
+    const currentUrl = new URL(globalThis.location.href);
+    currentUrl.searchParams.delete('expectedProjectionVersion');
+    globalThis.history.replaceState(globalThis.history.state, '', currentUrl);
+    refreshReport();
+  }, [refreshReport]);
+  const [recalculateNotice, setRecalculateNotice] = useState<string | null>(null);
+  // Set while a submit's outcome is unknown. The recalculate buttons stay disabled until the user
+  // refreshes or changes company/month, so an unknown submit is never followed by a blind repeat.
+  const [recalculateUncertain, setRecalculateUncertain] = useState(false);
+  const uncertainBeforeVersion = useRef<string | null>(null);
+  const [uncertainCheckRunning, setUncertainCheckRunning] = useState(false);
+  // One tracker per company and month. Switching either, or leaving the page, aborts it so a
+  // late result for the old selection never refreshes or overwrites the new view.
+  const recalculateTracker = useRef<AbortController | null>(null);
+  // Reset only when the selection really changes. The effect also runs on mount and on any
+  // re-render that keeps the same company and month; those must not cancel a tracker that a
+  // click just started, so the last selection is compared explicitly.
+  const trackedSelection = useRef(`${activeDataScope.reference}|${filters.month}`);
+  useEffect(() => {
+    const selection = `${activeDataScope.reference}|${filters.month}`;
+    if (trackedSelection.current === selection) return;
+    trackedSelection.current = selection;
+    recalculateTracker.current?.abort();
+    recalculateTracker.current = null;
+    uncertainBeforeVersion.current = null;
+    setRecalculateLoading(false);
+    setRecalculateNotice(null);
+    setRecalculateUncertain(false);
+    setUncertainCheckRunning(false);
+  }, [activeDataScope.reference, filters.month]);
+  useEffect(() => () => recalculateTracker.current?.abort(), []);
   const handleRecalculate = useCallback(async (
     window: 'LAST_3_DAYS' | 'LAST_7_DAYS' | 'MONTH',
   ) => {
-    if (!canRecalculate || recalculateLoading) return;
+    if (!canRecalculate || recalculateLoading || recalculateUncertain) return;
+    const tracker = new AbortController();
+    recalculateTracker.current?.abort();
+    recalculateTracker.current = tracker;
+    trackedSelection.current = `${activeDataScope.reference}|${filters.month}`;
     setRecalculateLoading(true);
+    setRecalculateNotice(null);
     setReportError(null);
     try {
-      await recalculateCustomerReport(
+      const outcome = await recalculateCustomerReportAndWait(
         activeDataScope.reference,
         filters.month,
         window,
+        {
+          signal: tracker.signal,
+          onWaiting: (beforeVersion) => {
+            if (!tracker.signal.aborted) {
+              // Record the baseline now, while polling is still running, so a later manual
+              // check compares against this submit's own pre-submit version.
+              uncertainBeforeVersion.current = beforeVersion;
+              setRecalculateUncertain(true);
+              setRecalculateNotice(
+                '提交后未收到明确答复，结果未知，正在只读核对是否已有新版本，请勿重复提交。',
+              );
+            }
+          },
+        },
       );
-      refreshReport();
+      if (tracker.signal.aborted) return;
+      if (outcome.kind === 'unconfirmed') {
+        // An unconfirmed outcome is unknown by definition, whether or not onWaiting fired.
+        uncertainBeforeVersion.current = outcome.beforeVersion;
+        setRecalculateUncertain(true);
+        // The submit's outcome is unknown and no new version appeared in time. Nothing is known
+        // about whether the server is still working or gave up, so say exactly that.
+        setRecalculateNotice(
+          '重新计算的结果尚未确认：提交后未收到明确答复，期间也未看到新的报表版本。'
+            + '请稍后点击“刷新数据”核对，确认前请勿重复提交。',
+        );
+        return;
+      }
+      setRecalculateUncertain(false);
+      setRecalculateNotice(outcome.kind === 'updated'
+        // A new version appeared, but without the submit's answer it is not tied to this request.
+        ? '该公司本月报表已有新版本，已刷新显示。由于未收到本次提交的明确答复，无法确认它就是这次重新计算的结果。'
+        : null);
+      clearSupersededPinAndReload();
     } catch (error: unknown) {
+      if (tracker.signal.aborted) return;
+      setRecalculateUncertain(false);
+      setRecalculateNotice(null);
       setReportError(
         error instanceof Error ? error.message : '重新计算失败，请稍后重试。',
       );
     } finally {
-      setRecalculateLoading(false);
+      if (recalculateTracker.current === tracker) {
+        recalculateTracker.current = null;
+        setRecalculateLoading(false);
+      }
     }
   }, [
     activeDataScope.reference,
     canRecalculate,
     filters.month,
     recalculateLoading,
+    recalculateUncertain,
+    refreshReport,
+    clearSupersededPinAndReload,
+  ]);
+  /**
+   * Refresh is always a plain reload. While a submit's outcome is unknown it first reads the
+   * published pin; the lock and notice change only from what that read actually returned, and a
+   * failed or cancelled read keeps the outcome unknown and the recalculate buttons locked.
+   */
+  const handleRefreshClick = useCallback(async () => {
+    if (recalculateLoading) return;
+    if (!recalculateUncertain) {
+      refreshReport();
+      return;
+    }
+    const tracker = new AbortController();
+    recalculateTracker.current?.abort();
+    recalculateTracker.current = tracker;
+    setUncertainCheckRunning(true);
+    setRecalculateNotice('正在核对报表版本，重新计算结果仍未知，请勿重复提交。');
+    let read: { ok: true; pin: PublishedReportPin | null } | { ok: false };
+    try {
+      read = { ok: true, pin: await loadPublishedReportPin(
+        activeDataScope.reference, filters.month, tracker.signal) };
+    } catch {
+      read = { ok: false };
+    }
+    if (tracker.signal.aborted) return;
+    recalculateTracker.current = null;
+    setUncertainCheckRunning(false);
+    const check = checkAfterUnknownSubmit(uncertainBeforeVersion.current, read);
+    setRecalculateNotice(check.message);
+    if (!check.unlock) return;
+    setRecalculateUncertain(false);
+    const sawNewVersion = read.ok && read.pin !== null
+      && read.pin.projectionVersion !== uncertainBeforeVersion.current;
+    if (sawNewVersion) {
+      clearSupersededPinAndReload();
+    } else {
+      refreshReport();
+    }
+  }, [
+    activeDataScope.reference,
+    clearSupersededPinAndReload,
+    filters.month,
+    recalculateLoading,
+    recalculateUncertain,
     refreshReport,
   ]);
   const capabilityMode = capabilities === undefined
@@ -592,56 +738,23 @@ export function CustomerReportCenterPage({
     organizationTree,
   ]);
 
-  const changeFilter = <K extends keyof CustomerReportFilters>(
-    key: K,
-    value: CustomerReportFilters[K],
-  ) => {
-    setExportFeedback('');
-    setSpecificFeedback('');
-    if (key === 'department') {
-      setDraftSpecificFilters((specificFilters) => (
-        normalizeAnnualLeaveFilters(
-          specificFilters,
-          String(value),
-          activeDataScope.allowedDepartments,
-        )
-      ));
-      setAppliedSpecificFilters((specificFilters) => (
-        normalizeAnnualLeaveFilters(
-          specificFilters,
-          String(value),
-          activeDataScope.allowedDepartments,
-        )
-      ));
-    }
-    setFilters((current) => {
-      if (key === 'department') {
-        return {
-          ...current,
-          department: String(value),
-          employee: '全部员工',
-          organizationId: undefined,
-          employeeId: undefined,
-        };
-      }
-      if (key === 'month') {
-        const month = String(value);
-        const bounds = monthBounds(month);
-        return {
-          ...current,
-          month,
-          fromDate: bounds.fromDate,
-          toDate: bounds.toDate,
-        };
-      }
-      return { ...current, [key]: value };
-    });
-  };
-
   const handleExport = () => {
     if (!canExport) {
       setSpecificFeedback('');
       setExportFeedback('当前角色只有报表查看权限，不能创建导出任务。');
+      return;
+    }
+    // Paged loads publish each page to the screen, so an export started here would
+    // write out whichever pages have arrived. Keep a failed load from exporting the
+    // rows that did arrive before the error, and wait for a running load to finish.
+    if (reportError !== null && !isDemoMode()) {
+      setSpecificFeedback('');
+      setExportFeedback('报表加载失败，请重新加载成功后再导出，避免导出不完整的名单。');
+      return;
+    }
+    if (!exportReady) {
+      setSpecificFeedback('');
+      setExportFeedback(INCOMPLETE_REPORT_EXPORT_MESSAGE);
       return;
     }
     const generatedAt = new Date().toISOString();
@@ -787,7 +900,8 @@ export function CustomerReportCenterPage({
                 icon={reportLoading
                   ? undefined
                   : <IconRefresh aria-hidden="true" stroke={2} />}
-                onClick={refreshReport}
+                disabled={uncertainCheckRunning || recalculateLoading}
+                onClick={() => { void handleRefreshClick(); }}
               >
                 刷新数据
               </Button>
@@ -797,6 +911,7 @@ export function CustomerReportCenterPage({
                 <Button
                   size="large"
                   loading={recalculateLoading}
+                  disabled={recalculateLoading || recalculateUncertain}
                   onClick={() => { void handleRecalculate('LAST_3_DAYS'); }}
                 >
                   重新计算近3天
@@ -804,6 +919,7 @@ export function CustomerReportCenterPage({
                 <Button
                   size="large"
                   loading={recalculateLoading}
+                  disabled={recalculateLoading || recalculateUncertain}
                   onClick={() => { void handleRecalculate('LAST_7_DAYS'); }}
                 >
                   重新计算近一周
@@ -811,9 +927,10 @@ export function CustomerReportCenterPage({
                 <Button
                   size="large"
                   loading={recalculateLoading}
+                  disabled={recalculateLoading || recalculateUncertain}
                   onClick={() => { void handleRecalculate('MONTH'); }}
                 >
-                  重新计算本月
+                  重新计算所选月份
                 </Button>
               </>
             ) : null}
@@ -823,8 +940,10 @@ export function CustomerReportCenterPage({
               icon={<IconDownload aria-hidden="true" stroke={2} />}
               onClick={handleExport}
               data-capability-mode={capabilityMode}
-              disabled={!canExport}
-              title={canExport ? undefined : '当前账号没有导出权限'}
+              disabled={!canExport || !exportReady}
+              title={canExport
+                ? (exportReady ? undefined : '报表尚未全部加载完成，加载完成后可导出')
+                : '当前账号没有导出权限'}
             >
               导出当前报表
             </Button>
@@ -1142,6 +1261,13 @@ export function CustomerReportCenterPage({
         <div className="customer-report__load-status" role="status" aria-live="polite">
           <IconInfoCircle aria-hidden="true" stroke={2} />
           正在汇总本月花名册和打卡。先出的是预览，漏刷可能还会变；完整核算完成后会自动刷新成同一份结果。
+        </div>
+      ) : null}
+
+      {!isDemoMode() && recalculateNotice !== null ? (
+        <div className="customer-report__load-status" role="status" aria-live="polite">
+          <IconInfoCircle aria-hidden="true" stroke={2} />
+          <span>{recalculateNotice}</span>
         </div>
       ) : null}
 
@@ -1706,7 +1832,7 @@ function AttendanceDetailReport({ report }: { report: CustomerReportDemo }) {
   );
 }
 
-function AttendanceMatrixRow({ row }: { row: AttendanceDetailRow }) {
+const AttendanceMatrixRow = React.memo(function AttendanceMatrixRow({ row }: { row: AttendanceDetailRow }) {
   return (
     <tr>
       <td>{row.employeeNo}</td>
@@ -1736,23 +1862,14 @@ function AttendanceMatrixRow({ row }: { row: AttendanceDetailRow }) {
             </div>
           );
         return (
-          <td key={day.day} className={day.status || day.merged ? 'has-status' : undefined}>
-            <Tooltip
-              title={(
-                <div className="customer-report__cell-tooltip">
-                  {day.note ?? `${day.primary || '无'} / ${day.secondary || '无'}`}
-                </div>
-              )}
-              placement="top"
-            >
-              {content}
-            </Tooltip>
+          <td key={day.day} className={day.status || day.merged ? 'has-status' : undefined} title={day.note ?? `${day.primary || '无'} / ${day.secondary || '无'}`}>
+            {content}
           </td>
         );
       })}
     </tr>
   );
-}
+});
 
 function slotClassName(
   base: string,
@@ -1776,7 +1893,7 @@ function LeaveReport({ report }: { report: CustomerReportDemo }) {
   return (
     <ReportSheet
       title={`${report.metadata.company}${report.metadata.monthLabel}请假统计`}
-      subtitle="已通过审批的请假记录，统一折算为小时"
+      subtitle="计入考勤的请假记录，包含审批中的普通请假，统一折算为小时"
       meta={`合计 ${sum(report.leaveRows.map((row) => row.hours)).toFixed(1)} 小时`}
     >
       <ScrollTable>
@@ -2451,11 +2568,12 @@ function StatusPill({ label }: { label: string }) {
 }
 
 function StatePill({ label }: { label: string }) {
-  const waiting = label.includes('待');
+  const translated = label === 'PENDING' ? '审批中' : statusLabel(label);
+  const waiting = translated.includes('待') || translated === '审批中';
   return (
     <span className={`customer-report__state${waiting ? ' is-waiting' : ''}`}>
       <i aria-hidden="true" />
-      {label}
+      {translated}
     </span>
   );
 }

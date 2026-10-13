@@ -507,7 +507,79 @@ public final class AttendanceReportModels {
             long recognizedMinutes,
             String sourceStatus,
             String sourceVersion,
-            String sourceOrigin) {
+            String sourceOrigin,
+            String allocationSemantics,
+            String recognizedMinutesByDateJson,
+            String hrAdjustmentId,
+            String hrSourceKind) {
+
+        /** NET_WORK_V1: same-type leave already shares effective work time with other rows. */
+        public static final String NET_WORK_V1 = "NET_WORK_V1";
+
+        public OaDocumentFact(
+                String documentId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationName,
+                String documentType,
+                String leaveType,
+                Instant start,
+                Instant endExclusive,
+                long recognizedMinutes,
+                String sourceStatus,
+                String sourceVersion,
+                String sourceOrigin) {
+            this(documentId, employeeId, employeeNumber, employeeName, organizationId,
+                    organizationName, documentType, leaveType, start, endExclusive,
+                    recognizedMinutes, sourceStatus, sourceVersion, sourceOrigin, null, null, null, null);
+        }
+
+        public OaDocumentFact(
+                String documentId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationName,
+                String documentType,
+                String leaveType,
+                Instant start,
+                Instant endExclusive,
+                long recognizedMinutes,
+                String sourceStatus,
+                String sourceVersion,
+                String sourceOrigin,
+                String allocationSemantics) {
+            this(documentId, employeeId, employeeNumber, employeeName, organizationId,
+                    organizationName, documentType, leaveType, start, endExclusive,
+                    recognizedMinutes, sourceStatus, sourceVersion, sourceOrigin,
+                    allocationSemantics, null, null, null);
+        }
+
+        public OaDocumentFact(
+                String documentId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationName,
+                String documentType,
+                String leaveType,
+                Instant start,
+                Instant endExclusive,
+                long recognizedMinutes,
+                String sourceStatus,
+                String sourceVersion,
+                String sourceOrigin,
+                String allocationSemantics,
+                String recognizedMinutesByDateJson) {
+            this(documentId, employeeId, employeeNumber, employeeName, organizationId,
+                    organizationName, documentType, leaveType, start, endExclusive,
+                    recognizedMinutes, sourceStatus, sourceVersion, sourceOrigin,
+                    allocationSemantics, recognizedMinutesByDateJson, null, null);
+        }
 
         public OaDocumentFact(
                 String documentId,
@@ -537,7 +609,11 @@ public final class AttendanceReportModels {
                     recognizedMinutes,
                     sourceStatus,
                     sourceVersion,
-                    "OA");
+                    "OA",
+                    null,
+                    null,
+                    null,
+                    null);
         }
 
         public OaDocumentFact {
@@ -557,11 +633,21 @@ public final class AttendanceReportModels {
                         "OA report interval must be half-open");
             }
             requireNonNegative(recognizedMinutes);
-            sourceStatus = requireText(sourceStatus, "sourceStatus");
+            sourceStatus = requireText(
+                    com.szsemicon.hr.attendance.domain.OaApprovalStatus.normalizeLegacy(
+                            sourceStatus, sourceVersion), "sourceStatus");
             sourceVersion = requireText(sourceVersion, "sourceVersion");
             sourceOrigin = sourceOrigin == null || sourceOrigin.isBlank()
                     ? "OA"
                     : sourceOrigin;
+            allocationSemantics = allocationSemantics == null || allocationSemantics.isBlank()
+                    ? null
+                    : allocationSemantics;
+        }
+
+        /** True when this row's minutes are already net of same-type overlaps. */
+        public boolean netWorkAllocated() {
+            return NET_WORK_V1.equals(allocationSemantics);
         }
 
         public OaDocumentFact withOrganizationName(String organizationName) {
@@ -582,7 +668,11 @@ public final class AttendanceReportModels {
                     recognizedMinutes,
                     sourceStatus,
                     sourceVersion,
-                    sourceOrigin);
+                    sourceOrigin,
+                    allocationSemantics,
+                    recognizedMinutesByDateJson,
+                    hrAdjustmentId,
+                    hrSourceKind);
         }
     }
 

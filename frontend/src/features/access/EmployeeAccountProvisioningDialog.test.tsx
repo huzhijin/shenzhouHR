@@ -5,8 +5,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
-import { Modal } from 'antd';
+import { message, Modal } from 'antd';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
@@ -52,22 +53,33 @@ vi.mock('../referenceData', () => ({
   ),
 }));
 
+const realConfirm = Modal.confirm.bind(Modal);
+
 describe('EmployeeAccountProvisioningDialog', () => {
   beforeEach(() => {
+    expect(document.querySelectorAll('.ant-modal-confirm')).toHaveLength(0);
+    api.listEmployeeAccountCandidates.mockReset();
+    api.createEmployeeAccounts.mockReset();
     api.listEmployeeAccountCandidates.mockResolvedValue(candidatePage);
     api.createEmployeeAccounts.mockResolvedValue({
       credentials: [],
       created: 1,
       replayed: false,
     });
+    vi.spyOn(Modal, 'confirm').mockImplementation((config) =>
+      realConfirm({ ...config, transitionName: '', maskTransitionName: '' })
+    );
   });
 
-  afterEach(() => {
-    Modal.destroyAll();
-    cleanup();
-    document.querySelectorAll('.ant-modal-confirm').forEach((node) => {
-      node.closest('.ant-modal-root')?.remove();
+  afterEach(async () => {
+    await act(async () => {
+      Modal.destroyAll();
+      message.destroy();
     });
+    await waitFor(() => {
+      expect(document.querySelectorAll('.ant-modal-confirm')).toHaveLength(0);
+    });
+    cleanup();
     vi.restoreAllMocks();
     vi.clearAllMocks();
   });
@@ -82,13 +94,11 @@ describe('EmployeeAccountProvisioningDialog', () => {
 
     fireEvent.click(provisionAll);
 
-    await waitFor(() => {
-      expect(document.querySelector('.ant-modal-confirm')).toBeInTheDocument();
-    });
-    expect(screen.getAllByText('确认开通 1 个员工账号？')).not.toHaveLength(0);
+    const confirmDialog = await waitForConfirmDialog(1);
+    expect(Modal.confirm).toHaveBeenCalledOnce();
     expect(api.createEmployeeAccounts).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: '返回核对' }));
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: '返回核对' }));
 
     expect(api.createEmployeeAccounts).not.toHaveBeenCalled();
   });
@@ -99,7 +109,10 @@ describe('EmployeeAccountProvisioningDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '选择测试公司' }));
 
     fireEvent.click(await screen.findByRole('button', { name: '开通全部 1 人' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认开通 1 人' }));
+    {
+      const dialog = await waitForConfirmDialog(1);
+      fireEvent.click(within(dialog).getByRole('button', { name: '确认开通 1 人' }));
+    }
 
     await waitFor(() => {
       expect(api.createEmployeeAccounts).toHaveBeenCalledWith(
@@ -111,6 +124,9 @@ describe('EmployeeAccountProvisioningDialog', () => {
     await waitFor(() => {
       expect(onCreated).toHaveBeenCalledOnce();
     });
+    // Wait for provision() to fully settle (including its trailing load()) so
+    // async state updates don't leak into subsequent tests.
+    await screen.findByRole('button', { name: '开通全部 1 人' });
   });
 
   it('retries an uncertain request with the same idempotency key', async () => {
@@ -124,7 +140,10 @@ describe('EmployeeAccountProvisioningDialog', () => {
     renderDialog();
     fireEvent.click(screen.getByRole('button', { name: '选择测试公司' }));
     fireEvent.click(await screen.findByRole('button', { name: '开通全部 1 人' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认开通 1 人' }));
+    {
+      const dialog = await waitForConfirmDialog(1);
+      fireEvent.click(within(dialog).getByRole('button', { name: '确认开通 1 人' }));
+    }
 
     await waitFor(() => expect(api.createEmployeeAccounts).toHaveBeenCalledTimes(2));
     const firstKey = api.createEmployeeAccounts.mock.calls[0]?.[1];
@@ -149,7 +168,10 @@ describe('EmployeeAccountProvisioningDialog', () => {
     renderDialog(onCreated, onClose);
     fireEvent.click(screen.getByRole('button', { name: '选择测试公司' }));
     fireEvent.click(await screen.findByRole('button', { name: '开通全部 1 人' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认开通 1 人' }));
+    {
+      const dialog = await waitForConfirmDialog(1);
+      fireEvent.click(within(dialog).getByRole('button', { name: '确认开通 1 人' }));
+    }
 
     await waitFor(() => expect(api.createEmployeeAccounts).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('上次批次结果尚未确认')).toBeInTheDocument();
@@ -284,8 +306,29 @@ describe('EmployeeAccountProvisioningDialog', () => {
 
     renderDialog(onCreated);
     fireEvent.click(screen.getByRole('button', { name: '选择测试公司' }));
-    fireEvent.click(await screen.findByRole('button', { name: '开通全部 21 人' }));
-    fireEvent.click(await screen.findByRole('button', { name: '确认开通 21 人' }));
+
+    const provisionAllBtn = await screen.findByRole('button', { name: '开通全部 21 人' });
+    expect(provisionAllBtn).toBeEnabled();
+    expect(api.createEmployeeAccounts).not.toHaveBeenCalled();
+
+    fireEvent.click(provisionAllBtn);
+
+    // Wait for provisionAll() to complete the size:100 precheck fetch for company-1
+    await waitFor(() => {
+      expect(api.listEmployeeAccountCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({ companyId: 'company-1', size: 100 }),
+      );
+    });
+
+    // Wait for the freshly mounted confirm dialog via its unique body title node
+    const confirmDialog = await waitForConfirmDialog(21);
+
+    // Scope the confirm button query to this specific dialog
+    const confirmBtn = within(confirmDialog).getByRole('button', {
+      name: '确认开通 21 人',
+    });
+    expect(api.createEmployeeAccounts).not.toHaveBeenCalled();
+    fireEvent.click(confirmBtn);
 
     const resultTitle = await screen.findByText(/已开通 20 个账号，后续批次未完成/);
     expect(resultTitle.closest('.ant-alert')).toHaveClass('ant-alert-warning');
@@ -352,6 +395,21 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, reject, resolve };
+}
+
+async function waitForConfirmDialog(count: number): Promise<HTMLElement> {
+  return waitFor(() => {
+    const dialogs = document.querySelectorAll<HTMLElement>(
+      '.ant-modal-confirm[role="dialog"]',
+    );
+    expect(dialogs).toHaveLength(1);
+    const dialog = dialogs[0]!;
+    expect(dialog.querySelector('.ant-modal-confirm-title'))
+      .toHaveTextContent(new RegExp(`^确认开通 ${count} 个员工账号？$`));
+    expect(within(dialog).getByRole('button', { name: `确认开通 ${count} 人` }))
+      .toBeEnabled();
+    return dialog;
+  });
 }
 
 function renderDialog(onCreated = vi.fn(), onClose = vi.fn()) {

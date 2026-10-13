@@ -26,15 +26,24 @@ class RoleGrantCompanyLockSqlContractTest {
         assertThat(adapter)
                 .contains("SortedSet<String> targetCompanyIds = new TreeSet<>()")
                 .contains("for (String companyId : targetCompanyIds)");
+        // Role-grant now locks company_people_write_lock (same as PeopleMapper),
+        // not the company ACTIVE row, so DAY_CONTEXT_SQL FOR SHARE is unblocked.
+        assertThat(normalizeWhitespace(adapter))
+                .contains(
+                        "INSERT IGNORE INTO company_people_write_lock (company_id) VALUES (?)")
+                .contains(
+                        "SELECT company_id FROM company_people_write_lock "
+                                + "WHERE company_id = ? FOR UPDATE");
+        // ACTIVE existence is still verified, but without a FOR UPDATE on company.
         assertThat(normalizeWhitespace(adapter))
                 .contains(
                         "SELECT company_id FROM company "
                                 + "WHERE company_id = ? "
-                                + "AND status = 'ACTIVE' FOR UPDATE");
+                                + "AND status = 'ACTIVE'");
         assertThat(normalizeWhitespace(peopleMapper))
                 .contains(
                         "<select id=\"lockCompany\" resultType=\"string\"> "
-                                + "SELECT company_id FROM company "
+                                + "SELECT company_id FROM company_people_write_lock "
                                 + "WHERE company_id = #{companyId} "
                                 + "FOR UPDATE </select>");
     }

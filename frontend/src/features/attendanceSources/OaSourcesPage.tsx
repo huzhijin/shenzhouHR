@@ -6,6 +6,7 @@ import { statusLabel } from '../../shared/components/FeedbackComponents';
 import { PageHeader, ResourcePagination } from '../../shared/components/PagePrimitives';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
+import { leaveTypeLabel } from '../../shared/leaveTypes';
 import {
   listAttendanceSources,
   listOaDocuments,
@@ -122,7 +123,7 @@ function DocumentTable({ documents }: { documents: OaDocumentView[] }) {
     {
       key: 'status',
       title: '单据状态',
-      render: (document) => <Tag>{statusLabel(document.sourceStatus)}</Tag>,
+      render: (document) => <Tag>{document.sourceStatus === 'PENDING' ? '审批中' : statusLabel(document.sourceStatus)}</Tag>,
     },
     {
       key: 'effective',
@@ -188,22 +189,6 @@ function documentTypeLabel(value: string): string {
     ?? '其他考勤单据';
 }
 
-function leaveTypeLabel(value: string | null | undefined): string {
-  if (!value) return '请假';
-  return ({
-    ANNUAL: '年假',
-    SICK: '病假',
-    MARRIAGE: '婚假',
-    MATERNITY: '产假',
-    PATERNITY: '陪产假',
-    BEREAVEMENT: '丧假',
-    WORK_INJURY: '工伤假',
-    PRENATAL_NURSING: '产检假',
-    PERSONAL: '事假',
-    COMPENSATORY: '调休',
-  } as Record<string, string>)[value] ?? value;
-}
-
 function documentDetail(document: OaDocumentView): string {
   switch (document.documentType) {
     case 'OVERTIME':
@@ -212,7 +197,7 @@ function documentDetail(document: OaDocumentView): string {
       if (document.overtimeTreatment === 'DUTY_UNPAID') return '加班，义务加班不计薪';
       return '加班';
     case 'LEAVE':
-      return `请${leaveTypeLabel(document.leaveType)}`;
+      return document.leaveType ? `请${leaveTypeLabel(document.leaveType)}` : '请假';
     case 'TIME_OFF':
       return '使用调休';
     case 'LEAVE_REVOCATION':

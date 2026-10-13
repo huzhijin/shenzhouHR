@@ -6,7 +6,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.ArgumentMatchers.*;
-import com.szsemicon.hr.reporting.infrastructure.map.PunchBasemapClient;
 import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.audit.application.AuditService;
@@ -15,9 +14,8 @@ import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.RealtimeAuthorization;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
-import com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper;
-import com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper.DayPunchRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper.LocationRow;
+import com.szsemicon.hr.reporting.application.PunchLocationReadPort.DayPunchRow;
+import com.szsemicon.hr.reporting.application.PunchLocationReadPort.LocationRow;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
@@ -50,12 +48,12 @@ class PunchLocationServiceTest {
     @Mock
     private AttendanceReportSourceRepository sources;
     @Mock
-    private PunchLocationMapper mapper;
+    private PunchLocationReadPort mapper;
     @Mock
     private AuditService auditService;
 
     @Mock
-    private PunchBasemapClient mapClient;
+    private PunchBasemapPort mapClient;
 
     private final MapBasemapProperties basemap = new MapBasemapProperties();
     private PunchLocationService service;

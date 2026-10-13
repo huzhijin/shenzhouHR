@@ -2,7 +2,6 @@ package com.szsemicon.hr.reporting.application;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.reporting.infrastructure.persistence.HrPunchAdjustmentMapper;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.math.BigDecimal;
@@ -19,9 +18,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
+
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class HrPunchAdjustmentService {
@@ -30,21 +36,24 @@ public class HrPunchAdjustmentService {
 
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principals;
-    private final HrPunchAdjustmentMapper mapper;
+    private final HrPunchAdjustmentPort mapper;
     private final AttendanceReportQueryService reports;
     private final Clock clock;
+    private final Executor reportExecutor;
 
     public HrPunchAdjustmentService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
-            HrPunchAdjustmentMapper mapper,
+            HrPunchAdjustmentPort mapper,
             AttendanceReportQueryService reports,
-            Clock clock) {
+            Clock clock,
+            @Qualifier("applicationTaskExecutor") Executor reportExecutor) {
         this.capabilities = capabilities;
         this.principals = principals;
         this.mapper = mapper;
         this.reports = reports;
         this.clock = clock;
+        this.reportExecutor = reportExecutor;
     }
 
     @Transactional
@@ -106,12 +115,41 @@ public class HrPunchAdjustmentService {
                 cleared,
                 dayTypes);
         if (command.recalculate()) {
-            reports.recalculateEmployeeDays(
-                    YearMonth.from(businessDate),
-                    companyId,
-                    employeeId,
-                    businessDate,
-                    dataAsOf);
+            // Run the report recalculation after this transaction commits so the
+            // company-row lock taken by report publishing does not block szsc OA
+            // submissions during the HTTP request.
+            final YearMonth month      = YearMonth.from(businessDate);
+            final String    cId        = companyId;
+            final String    eId        = employeeId;
+            final LocalDate bDate      = businessDate;
+            final Instant   asOf       = dataAsOf;
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                // Capture the security context now, on the request thread, so the
+                // background thread started by reportExecutor has an auth principal.
+                final SecurityContext securityContext = SecurityContextHolder.getContext();
+                TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            reportExecutor.execute(() -> {
+                                SecurityContextHolder.setContext(securityContext);
+                                try {
+                                    reports.recalculateEmployeeDays(month, cId, eId, bDate, asOf);
+                                } catch (RuntimeException ex) {
+                                    // Log and swallow — the adjustment itself was saved successfully.
+                                    // The report will be refreshed by the next auto-recalc slot.
+                                    org.slf4j.LoggerFactory
+                                        .getLogger(HrPunchAdjustmentService.class)
+                                        .error("async recalc failed employee={} date={}", eId, bDate, ex);
+                                } finally {
+                                    SecurityContextHolder.clearContext();
+                                }
+                            });
+                        }
+                    });
+            } else {
+                reports.recalculateEmployeeDays(month, cId, eId, bDate, asOf);
+            }
         }
         return new SavedAdjustment(adjustmentId, companyId, employeeId, businessDate);
     }

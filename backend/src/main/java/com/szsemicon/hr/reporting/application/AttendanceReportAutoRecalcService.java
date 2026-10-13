@@ -9,6 +9,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.TreeSet;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -108,7 +109,7 @@ public class AttendanceReportAutoRecalcService
                 ON DUPLICATE KEY UPDATE
                     %s = COALESCE(%s, VALUES(%s)),
                     status = CASE
-                        WHEN status IN ('RUNNING') THEN status
+                        WHEN status IN ('RUNNING', 'COMPLETED') THEN status
                         ELSE 'SCHEDULED'
                     END
                 """.formatted(column, column, column, column),
@@ -140,24 +141,49 @@ public class AttendanceReportAutoRecalcService
                 """,
                 java.sql.Timestamp.from(slotStart));
         LocalDate slotDate = slotStart.atZone(ZONE).toLocalDate();
-        YearMonth current = YearMonth.from(slotDate);
-        List<YearMonth> months = new java.util.ArrayList<>();
-        if (slotDate.getDayOfMonth() <= 3) {
-            months.add(current.minusMonths(1));
-        }
-        months.add(current);
         List<String> companies = jdbc.query(
                 "SELECT company_id FROM company WHERE status = 'ACTIVE'",
                 (rs, rowNum) -> rs.getString("company_id"));
         try {
+            List<String> failures = new java.util.ArrayList<>();
             for (String companyId : companies) {
-                for (YearMonth month : months) {
-                    if (shouldSkip(companyId, month, now)) {
-                        continue;
-                    }
-                    snapshots.materializeCompanyMonthWindow(
-                            companyId, month, RecalcWindow.MONTH, now);
+                List<YearMonth> months;
+                try {
+                    months = monthsToRefresh(companyId, slotDate);
+                } catch (RuntimeException failed) {
+                    log.error("auto month selection failed company={} slot={}", companyId, slotStart, failed);
+                    failures.add("company=" + companyId + ": " + truncate(failed.getMessage()));
+                    continue;
                 }
+                for (YearMonth month : months) {
+                    try {
+                        PinState pin = latestPin(companyId, month);
+                        if (pin != null && ("CLOSED".equals(pin.periodState())
+                                || "FROZEN".equals(pin.periodState()))) {
+                            continue;
+                        }
+                        // Re-read OA lifecycle changes before comparing source
+                        // cutoffs: a later cancellation may not advance OA's
+                        // ordinary incremental cursor.
+                        Instant refreshedAt = snapshots.refreshSources(companyId, month, now);
+                        if (shouldSkip(companyId, month, refreshedAt, pin)) {
+                            continue;
+                        }
+                        snapshots.materializeCompanyMonthWindow(
+                                companyId, month, RecalcWindow.MONTH, refreshedAt);
+                    } catch (RuntimeException failed) {
+                        // A bad historical month must not prevent today's or
+                        // another company's successfully refreshed report.
+                        log.error("auto month engine failed company={} month={} slot={}",
+                                companyId, month, slotStart, failed);
+                        failures.add("company=" + companyId + " month=" + month + ": "
+                                + truncate(failed.getMessage()));
+                    }
+                }
+            }
+            if (!failures.isEmpty()) {
+                markSlotFailed(slotStart, String.join("; ", failures));
+                return;
             }
             jdbc.update(
                     """
@@ -181,49 +207,82 @@ public class AttendanceReportAutoRecalcService
             }
         } catch (RuntimeException failed) {
             log.error("auto month engine failed slot={}", slotStart, failed);
-            jdbc.update(
-                    """
-                    UPDATE attendance_report_auto_recalc_slot
-                    SET status = 'FAILED', last_error = ?
-                    WHERE slot_start = ?
-                    """,
-                    truncate(failed.getMessage()),
-                    java.sql.Timestamp.from(slotStart));
+            markSlotFailed(slotStart, failed.getMessage());
         }
     }
 
-    private boolean shouldSkip(String companyId, YearMonth month, Instant now) {
+    private void markSlotFailed(Instant slotStart, String message) {
+        jdbc.update(
+                """
+                UPDATE attendance_report_auto_recalc_slot
+                SET status = 'FAILED', last_error = ?
+                WHERE slot_start = ?
+                """,
+                truncate(message), java.sql.Timestamp.from(slotStart));
+    }
+
+    private List<YearMonth> monthsToRefresh(String companyId, LocalDate slotDate) {
+        YearMonth current = YearMonth.from(slotDate);
+        var months = new TreeSet<YearMonth>();
+        months.add(current);
+        if (slotDate.getDayOfMonth() <= 3) {
+            months.add(current.minusMonths(1));
+        }
+        months.addAll(jdbc.query(
+                """
+                WITH current_pin AS (
+                    SELECT period_start, period_state,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY period_start, period_end_exclusive
+                               ORDER BY published_at DESC, attendance_report_projection_id DESC
+                           ) AS pin_rank
+                    FROM attendance_report_projection
+                    WHERE company_id = ?
+                      AND status = 'PUBLISHED'
+                      AND period_start < ?
+                )
+                SELECT period_start FROM current_pin
+                WHERE pin_rank = 1 AND period_state = 'OPEN'
+                ORDER BY period_start
+                """,
+                (rs, rowNum) -> YearMonth.from(rs.getDate("period_start").toLocalDate()),
+                companyId, java.sql.Date.valueOf(current.atDay(1))));
+        return List.copyOf(months);
+    }
+
+    private PinState latestPin(String companyId, YearMonth month) {
         LocalDate start = month.atDay(1);
         LocalDate endExclusive = month.plusMonths(1).atDay(1);
         List<PinState> pins = jdbc.query(
                 """
-                SELECT period_state, source_versions_json, projection_version
+                SELECT period_state, source_versions_json, projection_version, formula_catalog_version
                 FROM attendance_report_projection
                 WHERE company_id = ?
                   AND period_start = ?
                   AND period_end_exclusive = ?
                   AND status = 'PUBLISHED'
-                  AND formula_catalog_version =
-                      'FULL_CALCULATION_OA_FORM_HOURS_V8'
                 ORDER BY published_at DESC, attendance_report_projection_id DESC
                 LIMIT 1
                 """,
                 (rs, rowNum) -> new PinState(
                         rs.getString("period_state"),
                         rs.getString("source_versions_json"),
-                        rs.getString("projection_version")),
+                        rs.getString("projection_version"),
+                        rs.getString("formula_catalog_version")),
                 companyId,
                 java.sql.Date.valueOf(start),
                 java.sql.Date.valueOf(endExclusive));
-        if (pins.isEmpty()) {
+        return pins.isEmpty() ? null : pins.getFirst();
+    }
+
+    private boolean shouldSkip(String companyId, YearMonth month, Instant now, PinState pin) {
+        if (pin == null || !"FULL_CALCULATION_OA_FORM_HOURS_V8".equals(pin.formulaCatalogVersion())) {
             return false;
         }
-        PinState pin = pins.getFirst();
-        if ("CLOSED".equals(pin.periodState())
-                || "FROZEN".equals(pin.periodState())) {
-            return true;
-        }
         List<String> versions = parseVersions(pin.sourceVersionsJson());
+        if (versions.isEmpty()) {
+            return false;
+        }
         var stub = new com.szsemicon.hr.reporting.domain
                 .AttendanceReportModels.ReportSourceSnapshot(
                 new com.szsemicon.hr.reporting.domain.AttendanceReportModels
@@ -267,7 +326,8 @@ public class AttendanceReportAutoRecalcService
     }
 
     private record PinState(
-            String periodState, String sourceVersionsJson, String projectionVersion) {
+            String periodState, String sourceVersionsJson, String projectionVersion,
+            String formulaCatalogVersion) {
     }
 
     private Instant currentSlotStart(Instant now) {

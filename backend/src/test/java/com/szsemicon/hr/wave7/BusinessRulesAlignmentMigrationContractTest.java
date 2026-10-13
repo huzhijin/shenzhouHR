@@ -5,9 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.szsemicon.hr.attendance.domain.OvertimeType;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.util.HashSet;
-import java.util.HexFormat;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -18,7 +16,7 @@ class BusinessRulesAlignmentMigrationContractTest {
             "src/main/resources/db/migration/"
                     + "V48__business_rules_alignment_schema.sql");
     private static final Path ROLLBACK = Path.of(
-            "src/main/resources/db/migration/"
+            "src/main/resources/db/rollback/"
                     + "ROLLBACK_V48__business_rules_alignment_schema.sql");
     private static final Path OA_EVIDENCE = Path.of(
             "..",
@@ -27,11 +25,13 @@ class BusinessRulesAlignmentMigrationContractTest {
             "oa-live",
             "2026-08-10",
             "EVIDENCE.md");
-    private static final Path OA_EVIDENCE_DIRECTORY =
-            OA_EVIDENCE.getParent();
-    private static final Pattern SCREENSHOT_DIGEST_ROW = Pattern.compile(
-            "\\[[^]]*]\\((screenshots/[^)]+\\.png)\\)"
-                    + "[^\\n]*?`([0-9a-f]{64})`");
+    // Historical manifest only. Binary integrity is audited explicitly by
+    // scripts/verification/audit-oa-screenshot-archive.py, outside normal builds.
+    private static final Pattern MANIFEST_CANDIDATE = Pattern.compile(
+            "^\\|\\s*\\[[^]]*]\\(screenshots/[^)]+\\)\\s*\\|.*$");
+    private static final Pattern MANIFEST_ROW = Pattern.compile(
+            "^\\|\\s*\\[[^]]*]\\((screenshots/[^)]+)\\)\\s*\\|"
+                    + "(?:[^|]*\\|)?\\s*`([^`]*)`\\s*\\|\\s*$");
 
     @Test
     void overtimeClassificationUsesExistingEvidenceAndDailyFactTables()
@@ -169,44 +169,35 @@ class BusinessRulesAlignmentMigrationContractTest {
     }
 
     @Test
-    void everyReviewedOaScreenshotMatchesItsRecordedSha256()
+    void historicalOaScreenshotManifestHas45UniqueWellFormedEntries()
             throws Exception {
-        String evidence = Files.readString(OA_EVIDENCE);
-        Matcher matcher = SCREENSHOT_DIGEST_ROW.matcher(evidence);
         var reviewedScreenshots = new HashSet<Path>();
-
-        while (matcher.find()) {
+        int canonicalRows = 0;
+        for (String line : Files.readAllLines(OA_EVIDENCE)) {
+            if (!MANIFEST_CANDIDATE.matcher(line).matches()) {
+                continue;
+            }
+            Matcher matcher = MANIFEST_ROW.matcher(line);
+            assertThat(matcher.matches())
+                    .as("canonical historical screenshot row has a final digest column")
+                    .isTrue();
             Path relativePath = Path.of(matcher.group(1));
-            Path screenshot = OA_EVIDENCE_DIRECTORY.resolve(relativePath);
-            assertThat(Files.isRegularFile(screenshot))
-                    .as("reviewed OA screenshot %s exists", relativePath)
-                    .isTrue();
-            assertThat(sha256(screenshot))
-                    .as("reviewed OA screenshot %s is unchanged", relativePath)
-                    .isEqualTo(matcher.group(2));
+            assertThat(relativePath.isAbsolute()).isFalse();
+            assertThat(relativePath.normalize()).isEqualTo(relativePath);
+            assertThat(relativePath.getNameCount()).isEqualTo(2);
+            assertThat(relativePath.startsWith("screenshots")).isTrue();
+            assertThat(relativePath.getFileName().toString()).endsWith(".png");
+            assertThat(matcher.group(2))
+                    .as("historical recorded SHA-256 for %s", relativePath)
+                    .matches("[0-9a-f]{64}");
             assertThat(reviewedScreenshots.add(relativePath))
-                    .as("each reviewed screenshot has one canonical digest row")
+                    .as("each historical screenshot has one canonical digest row")
                     .isTrue();
+            canonicalRows++;
         }
-
+        assertThat(canonicalRows).isEqualTo(45);
         assertThat(reviewedScreenshots)
-                .as("all 2026-08-10 reviewed OA screenshots are hash-bound")
+                .as("all historical entries are retained; original PNGs are not reverified")
                 .hasSize(45);
-        try (var files = Files.list(
-                OA_EVIDENCE_DIRECTORY.resolve("screenshots"))) {
-            assertThat(files
-                    .filter(path -> path.getFileName().toString()
-                            .endsWith(".png"))
-                    .map(path -> Path.of(
-                            "screenshots",
-                            path.getFileName().toString())))
-                    .containsExactlyInAnyOrderElementsOf(reviewedScreenshots);
-        }
-    }
-
-    private static String sha256(Path path) throws Exception {
-        return HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-256")
-                        .digest(Files.readAllBytes(path)));
     }
 }

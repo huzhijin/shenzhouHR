@@ -6,16 +6,13 @@ import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.R
 import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
-import com.szsemicon.hr.reporting.domain.CoveringLeaveDocuments;
-import com.szsemicon.hr.reporting.infrastructure.export.QueryPageExcelEncoder;
-import com.szsemicon.hr.reporting.infrastructure.export.QueryPageExcelEncoder.WorkbookFile;
-import com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportQueryPageMapper;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.FactQuery;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.LeaveStatAccountRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.MonthlyLeaveUsageRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.PinRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.TimeAccountRow;
+import com.szsemicon.hr.reporting.application.QueryPageWorkbookExportPort.WorkbookFile;
+import com.szsemicon.hr.reporting.application.QueryPageRows;
+import com.szsemicon.hr.reporting.application.QueryPageRows.FactQuery;
+import com.szsemicon.hr.reporting.application.QueryPageRows.LeaveStatAccountRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.MonthlyLeaveUsageRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.PinRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.TimeAccountRow;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.math.BigDecimal;
@@ -48,25 +45,29 @@ public class AttendanceReportQueryPageService {
     private static final int MAX_EXPORT_ROWS = 50_000;
     private static final int MAX_RANGE_MONTHS = 12;
 
+    // Key for per-employee cross-projection dedup inside workHoursRow.
+    private record DocDay(String docId, LocalDate day) {}
+
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principals;
     private final AttendanceReportSourceRepository sources;
-    private final AttendanceReportQueryPageMapper mapper;
-    private final QueryPageExcelEncoder excelEncoder;
+    private final QueryPageReadPort mapper;
+    private final QueryPageWorkbookExportPort excelEncoder;
     private final Clock clock;
 
     public AttendanceReportQueryPageService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
             AttendanceReportSourceRepository sources,
-            AttendanceReportQueryPageMapper mapper,
+            QueryPageReadPort mapper,
+            QueryPageWorkbookExportPort excelEncoder,
             Clock clock) {
         this.capabilities = capabilities;
         this.principals = principals;
         this.sources = sources;
         this.mapper = mapper;
         this.clock = clock;
-        this.excelEncoder = new QueryPageExcelEncoder();
+        this.excelEncoder = excelEncoder;
     }
 
     public DirectoryPage directory(String companyId, YearMonth period) {
@@ -382,7 +383,9 @@ public class AttendanceReportQueryPageService {
                 : query;
         List<QueryPageRows.OaRow> documents = mapper.listOaDocuments(listQuery);
         if (leave) {
-            documents = dropCoveringLeaveRows(documents);
+            // Source/business-key versions are resolved before publication.
+            // Distinct document IDs remain visible even when their intervals overlap.
+            documents = documents.stream().distinct().toList();
         }
         List<Map<String, Object>> mapped = documents
                 .stream()
@@ -414,27 +417,6 @@ public class AttendanceReportQueryPageService {
                         Math.min(page * size + size, mapped.size()))
                 : mapped;
         return pageOf(command, resolved, pins, omitted, window, total, size, page, rows, allowedActions());
-    }
-
-    private static List<QueryPageRows.OaRow> dropCoveringLeaveRows(
-            List<QueryPageRows.OaRow> rows) {
-        java.util.Set<String> drop = CoveringLeaveDocuments.coveringIds(
-                rows.stream()
-                        .map(row -> new CoveringLeaveDocuments.Span(
-                                row.documentId(),
-                                row.employeeId(),
-                                row.documentType(),
-                                row.startAt(),
-                                row.endExclusive(),
-                                row.recognizedMinutes(),
-                                row.sourceStatus()))
-                        .toList());
-        if (drop.isEmpty()) {
-            return rows;
-        }
-        return rows.stream()
-                .filter(row -> !drop.contains(row.documentId()))
-                .toList();
     }
 
     private static List<Map<String, Object>> dedupeOvertimeRows(
@@ -519,7 +501,9 @@ public class AttendanceReportQueryPageService {
                         workHoursRow(
                                 row,
                                 oaByEmployee.getOrDefault(
-                                        row.employeeId(), List.of())),
+                                        row.employeeId(), List.of()),
+                                all.fromDate(),
+                                all.toDateExclusive()),
                         row.organizationId(),
                         row.organizationName(),
                         departments))
@@ -598,11 +582,27 @@ public class AttendanceReportQueryPageService {
             int size,
             int page,
             Map<String, String> departments) {
-        long total = mapper.countMissedPunchStatEmployees(query);
+        // OA coverage and corrections decide which candidates still have a
+        // visible slot. Apply that decision before counting/paging; otherwise
+        // a normalised person consumes a SQL page position but no output row.
+        long candidateCount = mapper.countMissedPunchStatEmployees(query);
+        if (candidateCount > MAX_EXPORT_ROWS) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "ATTENDANCE_REPORT_QUERY_TOO_LARGE",
+                    "忘打卡统计候选人数过多，请缩小查询范围");
+        }
+        FactQuery allCandidates = withOffsetLimit(query, 0, MAX_EXPORT_ROWS + 1);
         List<QueryPageRows.DirectoryEmployeeRow> employees =
-                mapper.listMissedPunchStatEmployees(query);
+                mapper.listMissedPunchStatEmployees(allCandidates);
+        if (employees.size() > MAX_EXPORT_ROWS) {
+            throw new ApiProblemException(
+                    HttpStatus.BAD_REQUEST,
+                    "ATTENDANCE_REPORT_QUERY_TOO_LARGE",
+                    "忘打卡统计候选人数过多，请缩小查询范围");
+        }
         if (employees.isEmpty()) {
-            return pageOf(command, resolved, pins, omitted, window, total, size, page, List.of(), allowedActions());
+            return pageOf(command, resolved, pins, omitted, window, 0, size, page, List.of(), allowedActions());
         }
         List<String> pageEmployeeIds = employees.stream()
                 .map(QueryPageRows.DirectoryEmployeeRow::employeeId)
@@ -617,7 +617,7 @@ public class AttendanceReportQueryPageService {
             documents.computeIfAbsent(row.employeeId(), ignored -> new ArrayList<>()).add(row);
         }
         List<Map<String, Object>> rows = new ArrayList<>();
-        int sequence = page * size;
+        int sequence = 0;
         for (QueryPageRows.DirectoryEmployeeRow employee : employees) {
             List<Map<String, Object>> days = MissedPunchStatAssembler.days(
                     cells.getOrDefault(employee.employeeId(), List.of()),
@@ -642,7 +642,10 @@ public class AttendanceReportQueryPageService {
             row.put("days", days);
             rows.add(row);
         }
-        return pageOf(command, resolved, pins, omitted, window, total, size, page, rows, allowedActions());
+        int from = Math.min(page * size, rows.size());
+        int to = Math.min(from + size, rows.size());
+        return pageOf(command, resolved, pins, omitted, window, rows.size(),
+                size, page, rows.subList(from, to), allowedActions());
     }
 
     private QueryPage leaveStatPage(
@@ -714,9 +717,20 @@ public class AttendanceReportQueryPageService {
 
     private List<MonthlyLeaveUsageRow> monthlyLeaveUsage(FactQuery usageQuery) {
         try {
-            return mapper.listMonthlyLeaveUsage(usageQuery);
+            var documents = mapper.listLeaveUsageDocuments(usageQuery);
+            var legacyIds = OaMonthlyUsageAssembler.legacyEvidenceDocumentIds(
+                    documents, usageQuery.fromDate(), usageQuery.toDateExclusive());
+            var legacyEvidence = legacyIds.isEmpty() ? List.<QueryPageRows.LegacyLeaveDayEvidenceRow>of()
+                    : mapper.listLegacyLeaveDayEvidence(usageQuery, legacyIds);
+            return OaMonthlyUsageAssembler.aggregate(documents,
+                    usageQuery.fromDate(), usageQuery.toDateExclusive(), legacyEvidence);
         } catch (PersistenceException | DataAccessException ex) {
-            return List.of();
+            // A failed usage query is not evidence of zero leave. Keep the
+            // existing snapshot intact and let the caller retry the read.
+            throw new ApiProblemException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "ATTENDANCE_REPORT_LEAVE_USAGE_UNAVAILABLE",
+                    "请假使用统计暂时读取失败，请稍后重试");
         }
     }
 
@@ -899,13 +913,16 @@ public class AttendanceReportQueryPageService {
             int sequence,
             Map<String, String> departments,
             Map<String, List<OvernightOvertimeFold.OvertimeSpan>> overtimeSpans) {
-        boolean coveredByLeave = row.leaveOrTimeOffMinutes() > 0;
+        boolean coveredByLeave = row.leaveOrTimeOffMinutes() > 0
+                && (row.scheduledMinutes() <= 0
+                        || row.leaveOrTimeOffMinutes() >= row.scheduledMinutes());
         boolean restDay = restDayWithoutWork(row);
+        // The published calculation already accounts for punch exemptions and
+        // partial leave. Scheduled work or recognized overtime alone is not a
+        // missing-punch fact.
         boolean requirePunch = !coveredByLeave
                 && !restDay
-                && (row.scheduledMinutes() > 0
-                        || row.missingPunchCount() > 0
-                        || row.recognizedOvertimeMinutes() > 0);
+                && row.missingPunchCount() > 0;
         Instant first = row.firstPunchAt();
         Instant last = row.lastPunchAt();
         boolean samePunch = first != null && first.equals(last);
@@ -985,7 +1002,7 @@ public class AttendanceReportQueryPageService {
         double weekday = 0;
         double weekend = 0;
         double holiday = 0;
-        switch (overtimeBucket(row.dayType())) {
+        switch (overtimeBucket(row.dayType(), row.businessDate())) {
             case "weekend" -> weekend = hours;
             case "holiday" -> holiday = hours;
             default -> weekday = hours;
@@ -1043,19 +1060,7 @@ public class AttendanceReportQueryPageService {
         List<String> pageEmployeeIds = employees.stream()
                 .map(QueryPageRows.DirectoryEmployeeRow::employeeId)
                 .toList();
-        FactQuery cellsQuery = new FactQuery(
-                query.projectionIds(),
-                query.companyId(),
-                query.fromDate(),
-                query.toDateExclusive(),
-                query.organizationIds(),
-                pageEmployeeIds,
-                query.employeeNumber(),
-                query.employeeId(),
-                null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null,
-                0,
-                pageEmployeeIds.size());
+        FactQuery cellsQuery = withEmployeeIds(query, pageEmployeeIds);
         Map<String, List<QueryPageRows.FinanceOvertimeCellRow>> cells =
                 new LinkedHashMap<>();
         for (QueryPageRows.FinanceOvertimeCellRow cell
@@ -1180,7 +1185,7 @@ public class AttendanceReportQueryPageService {
             if (!filtered && paid + compensatory + voluntary == 0) {
                 displayMinutes = cell.recognizedOvertimeMinutes();
             }
-            switch (overtimeBucket(cell.dayType())) {
+            switch (overtimeBucket(cell.dayType(), cell.businessDate())) {
                 case "weekend" -> weekendMinutes += displayMinutes;
                 case "holiday" -> holidayMinutes += displayMinutes;
                 default -> weekdayMinutes += displayMinutes;
@@ -1292,12 +1297,12 @@ public class AttendanceReportQueryPageService {
         return "";
     }
 
-    private static String overtimeBucket(String dayType) {
-        String type = dayType == null ? "" : dayType.toUpperCase();
-        return switch (type) {
-            case "SATURDAY", "SUNDAY" -> "weekend";
-            case "PUBLIC_HOLIDAY" -> "holiday";
-            default -> "weekday";
+    private static String overtimeBucket(String dayType, LocalDate businessDate) {
+        return switch (com.szsemicon.hr.reporting.domain.StatutoryHolidayCalendar
+                .classify(businessDate, dayType)) {
+            case HOLIDAY -> "holiday";
+            case WEEKEND -> "weekend";
+            case WEEKDAY -> "weekday";
         };
     }
 
@@ -1349,7 +1354,7 @@ public class AttendanceReportQueryPageService {
             return requirePunch ? "漏刷" : "";
         }
         if (row.firstPunchAt() == null) {
-            return "上班漏刷";
+            return requirePunch ? "上班漏刷" : "";
         }
         if (row.lastPunchAt() == null
                 || (samePunch && row.firstPunchAt() != null)) {
@@ -1437,7 +1442,7 @@ public class AttendanceReportQueryPageService {
         for (QueryPageRows.OaRow row : documents) {
             boolean effective = row.sourceStatus() != null
                     && switch (row.sourceStatus().toUpperCase()) {
-                        case "APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN" -> true;
+                        case "APPROVED", "MODIFIED", "SUPPLEMENTED", "PENDING" -> true;
                         default -> false;
                     };
             result.computeIfAbsent(row.employeeId(), ignored -> new ArrayList<>())
@@ -1713,6 +1718,14 @@ public class AttendanceReportQueryPageService {
     static Map<String, Object> workHoursRow(
             QueryPageRows.EmployeeDailyAggregateRow row,
             List<QueryPageRows.OaRow> oaDocuments) {
+        return workHoursRow(row, oaDocuments, null, null);
+    }
+
+    static Map<String, Object> workHoursRow(
+            QueryPageRows.EmployeeDailyAggregateRow row,
+            List<QueryPageRows.OaRow> oaDocuments,
+            LocalDate fromDate,
+            LocalDate toDateExclusive) {
         long annual = 0;
         long timeOff = 0;
         long otherLeave = 0;
@@ -1720,6 +1733,9 @@ public class AttendanceReportQueryPageService {
         List<QueryPageRows.OaRow> documents = oaDocuments == null
                 ? List.of()
                 : oaDocuments;
+        // Per-employee dedup: same document/day must have the same minute value
+        // across projection rows, or the data is inconsistent (503).
+        Map<DocDay, Long> seen = new java.util.LinkedHashMap<>();
         for (QueryPageRows.OaRow document : documents) {
             String documentType = document.documentType() == null
                     ? ""
@@ -1730,7 +1746,7 @@ public class AttendanceReportQueryPageService {
             String status = document.sourceStatus() == null
                     ? ""
                     : document.sourceStatus().toUpperCase();
-            if (!Set.of("APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN")
+            if (!Set.of("APPROVED", "MODIFIED", "SUPPLEMENTED", "PENDING")
                     .contains(status)) {
                 continue;
             }
@@ -1738,7 +1754,8 @@ public class AttendanceReportQueryPageService {
             String classified = document.leaveType() == null
                     ? ""
                     : document.leaveType().toUpperCase();
-            long minutes = document.recognizedMinutes();
+            long minutes = recognizedMinutesInWindow(
+                    document, fromDate, toDateExclusive, seen);
             if ("TIME_OFF".equals(documentType)
                     || classified.equals("COMPENSATORY")
                     || classified.equals("TIME_OFF")
@@ -1777,6 +1794,118 @@ public class AttendanceReportQueryPageService {
                 "timeOffHours", minutesToHours(timeOff),
                 "actualHours", minutesToHours(actual),
                 "note", note);
+    }
+
+    // Effective period window for one OaRow: intersection of the caller's query
+    // date range and the fact's own projection period. Mirrors the policy in
+    // OaMonthlyUsageAssembler: invalid/missing byDate data that cannot be
+    // safely attributed throws 503 rather than returning a wrong number.
+    //
+    // seen: shared across all OaRow entries for one employee in this call;
+    // keyed by (documentId, day) so the same document appearing in two
+    // projection rows is counted only once per day, and conflicting values
+    // for the same key throw 503.
+    private static long recognizedMinutesInWindow(
+            QueryPageRows.OaRow document,
+            LocalDate fromDate,
+            LocalDate toDateExclusive,
+            Map<DocDay, Long> seen) {
+        // Effective window = query range ∩ projection period ∩ [−∞, dataAsOf+1day)
+        // The dataAsOf cap ensures future approved-but-not-yet-calculated OA days
+        // (beyond what the daily facts cover) are not subtracted from scheduled hours.
+        LocalDate windowStart = fromDate;
+        LocalDate windowEnd = toDateExclusive;
+        if (document.projectionStart() != null && (windowStart == null
+                || document.projectionStart().isAfter(windowStart))) {
+            windowStart = document.projectionStart();
+        }
+        if (document.projectionEndExclusive() != null && (windowEnd == null
+                || document.projectionEndExclusive().isBefore(windowEnd))) {
+            windowEnd = document.projectionEndExclusive();
+        }
+        if (document.projectionDataAsOf() != null) {
+            // dataAsOf is the instant up to which daily facts were calculated.
+            // Cap the window to the next Shanghai calendar day after that instant.
+            LocalDate dataAsOfDay = document.projectionDataAsOf()
+                    .atZone(BUSINESS_ZONE).toLocalDate().plusDays(1);
+            if (windowEnd == null || dataAsOfDay.isBefore(windowEnd)) {
+                windowEnd = dataAsOfDay;
+            }
+        }
+
+        String byDateJson = document.recognizedMinutesByDateJson();
+        Map<LocalDate, Long> byDate;
+        try {
+            byDate = OaRecognizedDayMinutes.decode(byDateJson, document.recognizedMinutes());
+        } catch (IllegalArgumentException ex) {
+            throw unavailableLeaveAllocation("请假逐日使用数据校验失败，请重新计算所属月份");
+        }
+
+        // Validated total==0 means the form was fully cancelled — return 0 for
+        // any interval shape (including cross-month) without requiring byDate.
+        if (document.recognizedMinutes() == 0) return 0L;
+
+        if (byDate == null) {
+            // Legacy fact: no per-day breakdown. Safe to return recognizedMinutes
+            // only when the interval is single-month and wholly within the window.
+            return legacyMinutesInWindowOrThrow(document, windowStart, windowEnd);
+        }
+
+        // byDate present (including valid empty {}): sum only days within the
+        // effective window. Cross-projection duplicates with equal values are
+        // deduplicated; differing values indicate a corrupted fact → 503.
+        long sum = 0;
+        for (Map.Entry<LocalDate, Long> entry : byDate.entrySet()) {
+            LocalDate day = entry.getKey();
+            if (windowStart != null && day.isBefore(windowStart)) continue;
+            if (windowEnd != null && !day.isBefore(windowEnd)) continue;
+            DocDay key = new DocDay(document.documentId(), day);
+            Long prev = seen.putIfAbsent(key, entry.getValue());
+            if (prev != null) {
+                if (!prev.equals(entry.getValue())) {
+                    throw unavailableLeaveAllocation("同一请假逐日使用版本不一致，请重新计算所属月份");
+                }
+                continue; // same value already counted
+            }
+            sum += entry.getValue();
+        }
+        return sum;
+    }
+
+    private static long legacyMinutesInWindowOrThrow(
+            QueryPageRows.OaRow document,
+            LocalDate windowStart,
+            LocalDate windowEnd) {
+        Instant docStart = document.startAt();
+        Instant docEnd = document.endExclusive();
+        if (docStart == null || docEnd == null || !docStart.isBefore(docEnd)
+                || document.projectionStart() == null
+                || document.projectionEndExclusive() == null) {
+            throw unavailableLeaveAllocation("请假逐日使用数据无效，请重新计算所属月份");
+        }
+        ZoneId tz = ZoneId.of("Asia/Shanghai");
+        LocalDate startDay = docStart.atZone(tz).toLocalDate();
+        LocalDate lastDay = docEnd.minusNanos(1).atZone(tz).toLocalDate();
+        // Safe to return whole total only when interval is a single calendar month
+        // and lies fully within the effective window — same logic as Assembler.
+        boolean singleMonth = YearMonth.from(startDay).equals(YearMonth.from(lastDay));
+        Instant wStart = windowStart != null
+                ? windowStart.atStartOfDay(tz).toInstant() : Instant.MIN;
+        Instant wEnd = windowEnd != null
+                ? windowEnd.atStartOfDay(tz).toInstant() : Instant.MAX;
+        boolean fullyInWindow = !docStart.isBefore(wStart) && !docEnd.isAfter(wEnd);
+        if (singleMonth && fullyInWindow) {
+            return document.recognizedMinutes();
+        }
+        // Cross-month or narrow-range legacy fact — attribution ambiguous.
+        throw new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE,
+                "ATTENDANCE_REPORT_LEAVE_DAY_ALLOCATION_REQUIRED",
+                "跨月请假尚缺逐日使用明细，请重新计算所属月份");
+    }
+
+    private static ApiProblemException unavailableLeaveAllocation(String message) {
+        return new ApiProblemException(HttpStatus.SERVICE_UNAVAILABLE,
+                "ATTENDANCE_REPORT_LEAVE_DAY_ALLOCATION_INVALID", message);
     }
 
     private static String employmentNote(
@@ -1981,6 +2110,7 @@ public class AttendanceReportQueryPageService {
                     "organization",
                     "scheduled-hours",
                     "paid-overtime-hours",
+                    "voluntary-overtime-hours",
                     "leave-hours",
                     "annual-leave-hours",
                     "compensatory-overtime-hours",

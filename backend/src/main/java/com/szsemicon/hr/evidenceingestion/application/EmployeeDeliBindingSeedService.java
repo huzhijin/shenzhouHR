@@ -2,8 +2,7 @@ package com.szsemicon.hr.evidenceingestion.application;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EmployeeDeliBindingMapper;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EmployeeRosterRow;
+import com.szsemicon.hr.evidenceingestion.application.EmployeeDeliBindingPort.EmployeeRosterRow;
 import com.szsemicon.hr.evidenceingestion.port.DeliPunchSourcePort.EmployeeDirectoryPerson;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
@@ -33,17 +32,17 @@ public class EmployeeDeliBindingSeedService {
 
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principals;
-    private final EmployeeDeliBindingMapper mapper;
+    private final EmployeeDeliBindingPort port;
     private final Clock clock;
 
     public EmployeeDeliBindingSeedService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
-            EmployeeDeliBindingMapper mapper,
+            EmployeeDeliBindingPort port,
             Clock clock) {
         this.capabilities = capabilities;
         this.principals = principals;
-        this.mapper = mapper;
+        this.port = port;
         this.clock = clock;
     }
 
@@ -74,7 +73,7 @@ public class EmployeeDeliBindingSeedService {
         capabilities.require(CapabilityCodes.ATTENDANCE_SOURCE_CONFIGURE);
         String actorId = principals.currentPrincipalId();
         String resolvedSource = sourceId == null || sourceId.isBlank()
-                ? mapper.findActiveDeliSourceId()
+                ? port.findActiveDeliSourceId()
                 : sourceId;
         if (resolvedSource == null || resolvedSource.isBlank()) {
             throw new ApiProblemException(
@@ -87,7 +86,7 @@ public class EmployeeDeliBindingSeedService {
         List<String> seeded = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         List<String> missing = new ArrayList<>();
-        List<EmployeeRosterRow> roster = mapper.listCurrentRoster();
+        List<EmployeeRosterRow> roster = port.listCurrentRoster();
         if (roster == null) {
             roster = List.of();
         }
@@ -225,12 +224,12 @@ public class EmployeeDeliBindingSeedService {
             List<String> seeded,
             List<String> skipped,
             List<String> missing) {
-        String employeeId = mapper.findEmployeeIdByNumber(targetEmployeeNumber);
+        String employeeId = port.findEmployeeIdByNumber(targetEmployeeNumber);
         if (employeeId == null) {
             missing.add(targetEmployeeNumber + " " + coalesce(displayName));
             return;
         }
-        String alreadyBound = mapper.findEmployeeIdByDeliPersonId(
+        String alreadyBound = port.findEmployeeIdByDeliPersonId(
                 sourceId, deliUserId);
         if (alreadyBound != null && !alreadyBound.equals(employeeId)) {
             skipped.add(targetEmployeeNumber
@@ -238,10 +237,10 @@ public class EmployeeDeliBindingSeedService {
                     + " already-bound-to=" + alreadyBound);
             return;
         }
-        String bindingId = mapper.findCurrentBindingId(employeeId);
+        String bindingId = port.findCurrentBindingId(employeeId);
         if (bindingId == null) {
             bindingId = UUID.randomUUID().toString();
-            mapper.insertBinding(
+            port.insertBinding(
                     bindingId,
                     employeeId,
                     sourceId,
@@ -253,7 +252,7 @@ public class EmployeeDeliBindingSeedService {
                     BINDING_EFFECTIVE_FROM,
                     reason);
         } else {
-            mapper.updateCurrentBinding(
+            port.updateCurrentBinding(
                     bindingId,
                     sourceId,
                     deliUserId,
@@ -263,7 +262,7 @@ public class EmployeeDeliBindingSeedService {
                     BINDING_EFFECTIVE_FROM,
                     reason);
         }
-        mapper.insertRevision(
+        port.insertRevision(
                 UUID.randomUUID().toString(),
                 bindingId,
                 sourceId,

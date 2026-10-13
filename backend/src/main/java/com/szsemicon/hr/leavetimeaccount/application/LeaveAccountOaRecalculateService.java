@@ -5,11 +5,13 @@ import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository.CurrentEmploymentRow;
 import com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository.LedgerEntryRow;
 import com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository.TimeAccountRow;
+import com.szsemicon.hr.leavetimeaccount.application.LeaveAccountDataPort.EmployeeEmploymentRow;
+import com.szsemicon.hr.leavetimeaccount.application.LeaveAccountDataPort.OaHourRow;
+import com.szsemicon.hr.leavetimeaccount.application.LeaveAccountDataPort.OaSyncEntryRow;
+import com.szsemicon.hr.leavetimeaccount.application.LeaveAccountDataPort.OaSyncEntryRowWithAccount;
 import com.szsemicon.hr.leavetimeaccount.domain.LedgerEntryType;
-import com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper;
-import com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper.EmployeeEmploymentRow;
-import com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper.OaHourRow;
-import com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.LeaveAccountOaRecalculateMapper.OaSyncEntryRow;
+import java.util.ArrayList;
+import java.util.Collections;
 import com.szsemicon.hr.reporting.application.AttendanceReportQueryService;
 import com.szsemicon.hr.reporting.application.RecalcWindow;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
@@ -33,7 +35,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class LeaveAccountOaRecalculateService {
@@ -45,7 +49,7 @@ public class LeaveAccountOaRecalculateService {
 
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principals;
-    private final LeaveAccountOaRecalculateMapper mapper;
+    private final LeaveAccountDataPort dataPort;
     private final AnnualLeaveManagementRepository accounts;
     private final AttendanceReportQueryService reports;
     private final Clock clock;
@@ -64,43 +68,49 @@ public class LeaveAccountOaRecalculateService {
      * Leave blank to sync the full year (default before the batch existed).
      */
     private final LocalDate oaSyncEffectiveFrom;
+    private final TransactionTemplate employeeTx;
 
     public LeaveAccountOaRecalculateService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
-            LeaveAccountOaRecalculateMapper mapper,
+            LeaveAccountDataPort dataPort,
             AnnualLeaveManagementRepository accounts,
             AttendanceReportQueryService reports,
             Clock clock,
+            PlatformTransactionManager transactionManager,
             @Value("${shenzhouhr.leave-account.oa-sync-effective-from:}") String effectiveFromStr) {
         this.capabilities = capabilities;
         this.principals = principals;
-        this.mapper = mapper;
+        this.dataPort = dataPort;
         this.accounts = accounts;
         this.reports = reports;
         this.clock = clock;
         this.oaSyncEffectiveFrom = (effectiveFromStr == null || effectiveFromStr.isBlank())
                 ? null : LocalDate.parse(effectiveFromStr);
         log.info("OA leave sync effective from {}", this.oaSyncEffectiveFrom);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        tx.setTimeout(30);
+        this.employeeTx = tx;
     }
 
-    @Transactional
     public RecalcResult recalculate(String companyId, Integer year) {
         capabilities.require(CapabilityCodes.ANNUAL_LEAVE_ADJUST);
-        return recalculateInternal(
-                companyId, year, principals.currentPrincipalId(), true);
+        RecalcResult result = recalculateInternal(
+                companyId, year, principals.currentPrincipalId());
+        YearMonth month = YearMonth.from(clock.instant().atZone(BUSINESS_ZONE));
+        reports.recalculate(month, companyId, RecalcWindow.MONTH);
+        return result;
     }
 
-    @Transactional
     public RecalcResult recalculateAsSystem(String companyId, Integer year) {
-        return recalculateInternal(companyId, year, "SYSTEM", false);
+        return recalculateInternal(companyId, year, "SYSTEM");
     }
 
     private RecalcResult recalculateInternal(
             String companyId,
             Integer year,
-            String principalId,
-            boolean refreshReports) {
+            String principalId) {
         if (companyId == null || companyId.isBlank()) {
             throw new ApiProblemException(
                     HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "公司必填");
@@ -127,7 +137,7 @@ public class LeaveAccountOaRecalculateService {
         Instant yearStartAt = yearStart.atStartOfDay(BUSINESS_ZONE).toInstant();
         Instant yearEndAt = yearEnd.atStartOfDay(BUSINESS_ZONE).toInstant();
         List<EmployeeEmploymentRow> employments =
-                mapper.listCompanyEmployments(companyId, at);
+                dataPort.listCompanyEmployments(companyId, at);
         Map<String, EmployeeEmploymentRow> byEmployee = new HashMap<>();
         for (EmployeeEmploymentRow row : employments) {
             byEmployee.put(row.employeeId(), row);
@@ -135,7 +145,7 @@ public class LeaveAccountOaRecalculateService {
         Map<String, BigDecimal> annualUsed = new HashMap<>();
         Map<String, BigDecimal> timeOffUsed = new HashMap<>();
         Map<String, BigDecimal> overtimeCredit = new HashMap<>();
-        for (OaHourRow row : mapper.listOaHours(companyId, yearStartAt, yearEndAt)) {
+        for (OaHourRow row : dataPort.listOaHours(companyId, yearStartAt, yearEndAt, at)) {
             BigDecimal hours = minutesToHours(row.recognizedMinutes());
             switch (row.kind()) {
                 case "ANNUAL" -> annualUsed.merge(row.employeeId(), hours, BigDecimal::add);
@@ -151,48 +161,77 @@ public class LeaveAccountOaRecalculateService {
         employeeIds.addAll(annualUsed.keySet());
         employeeIds.addAll(timeOffUsed.keySet());
         employeeIds.addAll(overtimeCredit.keySet());
+        // Pre-fetch all unreversed OA sync entries for this company in one query
+        // instead of one query per employee account (N+1 elimination).
+        Map<String, List<OaSyncEntryRow>> prefetchedOaSyncEntries = new HashMap<>();
+        for (OaSyncEntryRowWithAccount row : dataPort.listUnreversedOaSyncEntriesForCompany(
+                companyId, yearStart, yearEnd)) {
+            prefetchedOaSyncEntries
+                    .computeIfAbsent(row.accountId(), k -> new ArrayList<>())
+                    .add(new OaSyncEntryRow(row.entryId(), row.entryType(), row.amountHours()));
+        }
         int annualAccounts = 0;
         int timeOffAccounts = 0;
         for (String employeeId : employeeIds) {
-            EmployeeEmploymentRow employment = byEmployee.get(employeeId);
-            if (employment == null) {
+            EmployeeEmploymentRow resolved = byEmployee.get(employeeId);
+            if (resolved == null) {
                 List<CurrentEmploymentRow> current =
                         accounts.findCurrentEmployments(employeeId, at);
                 if (current.size() != 1
                         || !companyId.equals(current.getFirst().companyId())) {
                     continue;
                 }
-                employment = new EmployeeEmploymentRow(
+                resolved = new EmployeeEmploymentRow(
                         employeeId,
                         current.getFirst().employmentPeriodId(),
                         companyId);
             }
-            syncAccount(
-                    employment,
-                    "ANNUAL_LEAVE",
-                    accountYear,
-                    annualUsed.getOrDefault(employeeId, BigDecimal.ZERO),
-                    BigDecimal.ZERO,
-                    yearStart,
-                    yearEnd,
-                    principalId,
-                    at);
+            final EmployeeEmploymentRow employment = resolved;
+            final BigDecimal annualHours =
+                    annualUsed.getOrDefault(employeeId, BigDecimal.ZERO);
+            final BigDecimal timeOffHours =
+                    timeOffUsed.getOrDefault(employeeId, BigDecimal.ZERO);
+            final BigDecimal otCredit =
+                    overtimeCredit.getOrDefault(employeeId, BigDecimal.ZERO);
+            final LocalDate txYearStart = yearStart;
+            final LocalDate txYearEnd = yearEnd;
+            try {
+                employeeTx.execute(status -> {
+                    syncAccount(
+                            employment,
+                            "ANNUAL_LEAVE",
+                            accountYear,
+                            annualHours,
+                            BigDecimal.ZERO,
+                            txYearStart,
+                            txYearEnd,
+                            prefetchedOaSyncEntries,
+                            principalId,
+                            at);
+                    syncAccount(
+                            employment,
+                            "TIME_OFF",
+                            accountYear,
+                            timeOffHours,
+                            otCredit,
+                            txYearStart,
+                            txYearEnd,
+                            prefetchedOaSyncEntries,
+                            principalId,
+                            at);
+                    return null;
+                });
+            } catch (RuntimeException employeeError) {
+                log.error(
+                        "Leave OA sync failed employee={} company={} year={}",
+                        employeeId,
+                        companyId,
+                        accountYear,
+                        employeeError);
+                continue;
+            }
             annualAccounts++;
-            syncAccount(
-                    employment,
-                    "TIME_OFF",
-                    accountYear,
-                    timeOffUsed.getOrDefault(employeeId, BigDecimal.ZERO),
-                    overtimeCredit.getOrDefault(employeeId, BigDecimal.ZERO),
-                    yearStart,
-                    yearEnd,
-                    principalId,
-                    at);
             timeOffAccounts++;
-        }
-        if (refreshReports) {
-            YearMonth month = YearMonth.from(at.atZone(BUSINESS_ZONE));
-            reports.recalculate(month, companyId, RecalcWindow.MONTH);
         }
         return new RecalcResult(
                 companyId, accountYear, annualAccounts, timeOffAccounts);
@@ -206,6 +245,7 @@ public class LeaveAccountOaRecalculateService {
             BigDecimal overtimeCreditHours,
             LocalDate yearStart,
             LocalDate yearEnd,
+            Map<String, List<OaSyncEntryRow>> prefetchedEntries,
             String principalId,
             Instant at) {
         TimeAccountRow account = ensureAccount(employment, accountType, year, at);
@@ -213,14 +253,23 @@ public class LeaveAccountOaRecalculateService {
         String requestId = "oa-sync:" + account.accountId() + ":" + year
                 + ":" + at.toEpochMilli();
         LocalDate businessDate = yearEnd.minusDays(1);
-        for (OaSyncEntryRow entry : mapper.listUnreversedOaSyncEntries(
-                account.accountId(), yearStart, yearEnd)) {
+        // Use pre-fetched entries if available; fall back to per-account query.
+        List<OaSyncEntryRow> entries = prefetchedEntries != null
+                ? prefetchedEntries.getOrDefault(account.accountId(), Collections.emptyList())
+                : dataPort.listUnreversedOaSyncEntries(account.accountId(), yearStart, yearEnd);
+        // Use a local counter seeded from the DB max once, instead of one
+        // SELECT MAX(sequence_no) round-trip per reversal row.
+        // Read the current max sequence once and increment locally; avoids
+        // one DB round-trip per ledger entry while staying correct whether
+        // or not there are any reversal rows to write.
+        int localSeq = accounts.nextSequenceNo(account.accountId()) - 1;
+        for (OaSyncEntryRow entry : entries) {
             BigDecimal reverseAmount = entry.amountHours().negate();
-            int sequence = accounts.nextSequenceNo(account.accountId());
-            mapper.insertReversal(
+            localSeq++;
+            dataPort.insertReversal(
                     UUID.randomUUID().toString(),
                     account.accountId(),
-                    sequence,
+                    localSeq,
                     reverseAmount,
                     OA_SYNC,
                     entry.entryId(),
@@ -233,22 +282,26 @@ public class LeaveAccountOaRecalculateService {
             delta = delta.add(reverseAmount);
         }
         if (usedHours.signum() > 0) {
+            localSeq++;
             delta = delta.add(append(
                     account,
                     LedgerEntryType.USE.name(),
                     usedHours.negate(),
                     requestId + ":use",
                     businessDate,
+                    localSeq,
                     principalId,
                     at));
         }
         if (overtimeCreditHours.signum() > 0) {
+            localSeq++;
             delta = delta.add(append(
                     account,
                     LedgerEntryType.OVERTIME_CREDIT.name(),
                     overtimeCreditHours,
                     requestId + ":ot",
                     businessDate,
+                    localSeq,
                     principalId,
                     at));
         }
@@ -269,9 +322,9 @@ public class LeaveAccountOaRecalculateService {
             BigDecimal amount,
             String requestId,
             LocalDate businessDate,
+            int sequence,
             String principalId,
             Instant at) {
-        int sequence = accounts.nextSequenceNo(account.accountId());
         accounts.insertLedgerEntry(new LedgerEntryRow(
                 UUID.randomUUID().toString(),
                 account.accountId(),

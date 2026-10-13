@@ -8,8 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.employee.infrastructure.persistence.EmployeeReadMapper;
-import com.szsemicon.hr.employee.infrastructure.persistence.PunchExemptionMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -23,9 +21,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class PunchExemptionApplicationServiceTest {
 
     @Mock
-    private EmployeeReadMapper employeeReadMapper;
+    private EmployeeAuthorizationPort employeeReadMapper;
     @Mock
-    private PunchExemptionMapper punchExemptionMapper;
+    private PunchExemptionPort punchExemptionMapper;
 
     private PunchExemptionApplicationService service;
 

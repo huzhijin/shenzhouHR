@@ -2,7 +2,6 @@ package com.szsemicon.hr.evidenceingestion.application;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EmployeeDeliBindingMapper;
 import com.szsemicon.hr.evidenceingestion.port.AttendanceConfigurationResolverPort;
 import com.szsemicon.hr.evidenceingestion.port.AttendancePeriodProtectionPort;
 import com.szsemicon.hr.evidenceingestion.port.DeliPunchSourcePort;
@@ -40,7 +39,7 @@ public class DeliPunchReplayApplicationService {
     private final boolean replayEnabled;
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principals;
-    private final EmployeeDeliBindingMapper bindingMapper;
+    private final EmployeeDeliBindingPort bindingPort;
     private final EmployeeDeliBindingSeedService seedService;
     private final DeliPunchPageTransaction pageTransaction;
     private final List<DeliPunchSourcePort> deliSources;
@@ -53,7 +52,7 @@ public class DeliPunchReplayApplicationService {
             @Value("${shenzhouhr.deli.replay-enabled:false}") boolean replayEnabled,
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
-            EmployeeDeliBindingMapper bindingMapper,
+            EmployeeDeliBindingPort bindingPort,
             EmployeeDeliBindingSeedService seedService,
             DeliPunchPageTransaction pageTransaction,
             List<DeliPunchSourcePort> deliSources,
@@ -64,7 +63,7 @@ public class DeliPunchReplayApplicationService {
         this.replayEnabled = replayEnabled;
         this.capabilities = capabilities;
         this.principals = principals;
-        this.bindingMapper = bindingMapper;
+        this.bindingPort = bindingPort;
         this.seedService = seedService;
         this.pageTransaction = pageTransaction;
         this.deliSources = List.copyOf(deliSources);
@@ -175,7 +174,7 @@ public class DeliPunchReplayApplicationService {
                 ? principals.currentPrincipalId()
                 : principalOverride;
         String resolvedSource = sourceId == null || sourceId.isBlank()
-                ? bindingMapper.findActiveDeliSourceId()
+                ? bindingPort.findActiveDeliSourceId()
                 : sourceId;
         if (resolvedSource == null) {
             throw new ApiProblemException(
@@ -222,14 +221,14 @@ public class DeliPunchReplayApplicationService {
                 UUID.randomUUID().toString(),
                 resolvedSource,
                 Objects.requireNonNull(
-                        bindingMapper.findActiveDeliCompanyId(resolvedSource),
+                        bindingPort.findActiveDeliCompanyId(resolvedSource),
                         "companyId"),
-                bindingMapper.findActiveDeliDisplayName(resolvedSource),
-                bindingMapper.findActiveDeliSecretName(resolvedSource),
+                bindingPort.findActiveDeliDisplayName(resolvedSource),
+                bindingPort.findActiveDeliSecretName(resolvedSource),
                 coalesce(
-                        bindingMapper.findActiveDeliTimeZone(resolvedSource),
+                        bindingPort.findActiveDeliTimeZone(resolvedSource),
                         "Asia/Shanghai"),
-                coalesce(bindingMapper.findActiveDeliPageSize(resolvedSource), 500),
+                coalesce(bindingPort.findActiveDeliPageSize(resolvedSource), 500),
                 60,
                 1,
                 "0");

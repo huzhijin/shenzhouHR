@@ -12,6 +12,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -109,6 +110,10 @@ public class AttendanceReportController {
                     request.fromDate(),
                     request.toDate(),
                     null);
+        } else if (request.fromDate() != null || request.toDate() != null) {
+            result = queryService.recalculateCompanyDays(
+                    request.period(), request.companyId(),
+                    request.fromDate(), request.toDate());
         } else {
             result = queryService.recalculate(
                     request.period(),
@@ -130,8 +135,59 @@ public class AttendanceReportController {
             @NotNull YearMonth period,
             @Size(max = 32) String window,
             @Size(max = 200) List<@Size(max = 36) String> employeeIds,
-            java.time.LocalDate fromDate,
-            java.time.LocalDate toDate) {
+            @tools.jackson.databind.annotation.JsonDeserialize(
+                    using = RecalculationDateDeserializer.class) LocalDate fromDate,
+            @tools.jackson.databind.annotation.JsonDeserialize(
+                    using = RecalculationDateDeserializer.class) LocalDate toDate) {
+        RecalculateRequest {
+            AttendanceReportQueryService.validateRecalculationDates(
+                    period, fromDate, toDate, false);
+            if (window != null && !window.isBlank()) {
+                try {
+                    RecalcWindow.valueOf(window.trim().toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException invalidWindow) {
+                    throw new ApiProblemException(
+                            HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                            "不支持的重算窗口", false);
+                }
+            }
+        }
+    }
+
+    /** Empty date strings must not become null and silently select MONTH. */
+    static final class RecalculationDateDeserializer
+            extends tools.jackson.databind.ValueDeserializer<LocalDate> {
+        @Override
+        public LocalDate getNullValue(
+                tools.jackson.databind.DeserializationContext context)
+                throws tools.jackson.databind.DatabindException {
+            throw tools.jackson.databind.DatabindException.from(
+                    context, "重算日期不能显式填写 null");
+        }
+
+        @Override
+        public LocalDate getAbsentValue(
+                tools.jackson.databind.DeserializationContext context) {
+            return null;
+        }
+
+        @Override
+        public LocalDate deserialize(
+                tools.jackson.core.JsonParser parser,
+                tools.jackson.databind.DeserializationContext context)
+                throws tools.jackson.core.JacksonException {
+            String raw = parser.getValueAsString();
+            if (raw == null || raw.isBlank()) {
+                throw tools.jackson.databind.DatabindException.from(
+                        parser, "重算日期不能为空");
+            }
+            try {
+                return LocalDate.parse(raw);
+            } catch (java.time.format.DateTimeParseException invalidDate) {
+                throw tools.jackson.databind.DatabindException.from(
+                        parser, "重算日期格式须为 yyyy-MM-dd", invalidDate);
+            }
+        }
     }
 
     record RecalculateResponse(

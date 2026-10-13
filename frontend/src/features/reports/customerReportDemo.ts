@@ -1,3 +1,4 @@
+import { LEAVE_TYPE_OPTIONS, matchesLeaveTypeFilter } from '../../shared/leaveTypes';
 import {
   defaultCustomerReportDataScope,
   departmentMatchesFilter,
@@ -6,7 +7,7 @@ import {
   type CustomerReportDataScope,
 } from './customerReportAccess';
 import { joinDepartmentSegments } from './departmentPath';
-import { isoWeekdayBucket, overtimeTreatmentFromHours } from './financeOvertimeLayout';
+import { financeOvertimeDateBucket, isoWeekdayBucket, overtimeTreatmentFromHours } from './financeOvertimeLayout';
 
 export type CustomerReportKey =
   | 'attendance-detail'
@@ -456,16 +457,8 @@ export const defaultCustomerReportSpecificFilters: CustomerReportSpecificFilters
 export const reportSpecificFilterOptions = {
   leaveTypes: [
     '全部类型',
-    '年假',
-    '病假',
-    '婚假',
-    '产假',
-    '陪产假',
-    '丧假',
-    '工伤假',
+    ...LEAVE_TYPE_OPTIONS.map((option) => option.label),
     '孕检/哺乳假',
-    '事假',
-    '调休',
   ],
   overtimeTypes: ['全部类型', '加班费', '转调休', '义务加班'],
   employmentStatuses: ['全部状态', '在职', '本月入职', '本月离职'],
@@ -1206,9 +1199,7 @@ export function applyCustomerReportSpecificFilters(
     case 'leave':
       return {
         ...report,
-        leaveRows: filters.leaveType === '全部类型'
-          ? report.leaveRows
-          : report.leaveRows.filter((row) => row.type === filters.leaveType),
+        leaveRows: report.leaveRows.filter((row) => matchesLeaveTypeFilter(row.type, filters.leaveType)),
       };
     case 'overtime': {
       const selectedDay = filters.overtimeDay === '全部日期'
@@ -1242,18 +1233,16 @@ export function applyCustomerReportSpecificFilters(
         : Number(filters.overtimeDay);
       return {
         ...report,
-        financeOvertimeRows: report.financeOvertimeRows.filter((row) => (
+        financeOvertimeRows: report.financeOvertimeRows.map((row) => {
+          if (selectedDay === undefined && filters.overtimeType === '全部类型') return row;
+          return projectFinanceOvertimeRow({
+            ...row,
+            days: selectedDay === undefined ? row.days
+              : row.days.filter((day) => Number(day.date.slice(8, 10)) === selectedDay),
+          }, filters.overtimeType);
+        }).filter((row) => (
           matchesFinanceOvertimeTreatment(row, filters.overtimeType)
-          && (selectedDay === undefined
-            || row.days.some((day) => Number(day.date.slice(8, 10)) === selectedDay))
-        )).map((row) => projectFinanceOvertimeRow(
-          selectedDay === undefined
-            ? row
-            : {
-              ...row,
-              days: row.days.filter((day) => Number(day.date.slice(8, 10)) === selectedDay),
-            },
-          filters.overtimeType,
+          && (selectedDay === undefined || row.days.some((day) => day.hours > 0))
         )),
       };
     }
@@ -1334,8 +1323,6 @@ export function applyCustomerReportSpecificFilters(
         )),
       };
     }
-    case 'overtime-daily':
-    case 'finance-overtime':
     case 'daily-journal':
       return report;
   }
@@ -1953,33 +1940,31 @@ function projectFinanceOvertimeRow(
   row: FinanceOvertimeReportRow,
   type: CustomerReportSpecificFilters['overtimeType'],
 ): FinanceOvertimeReportRow {
-  if (type === '全部类型') return row;
   const days = row.days.map((day) => {
-    const paidHours = day.paidHours ?? 0;
-    const compensatoryHours = day.compensatoryHours ?? 0;
-    const voluntaryHours = day.voluntaryHours ?? 0;
-    const hours = type === '义务加班'
-      ? voluntaryHours
-      : (type === '转调休' || type === '转调休加班')
-        ? compensatoryHours
-        : paidHours;
+    const all = type === '全部类型';
+    const paidHours = all || type === '计薪加班' || type === '加班费' ? day.paidHours ?? 0 : 0;
+    const compensatoryHours = all || type === '转调休' || type === '转调休加班' ? day.compensatoryHours ?? 0 : 0;
+    const voluntaryHours = all || type === '义务加班' ? day.voluntaryHours ?? 0 : 0;
     return {
       ...day,
-      hours,
-      treatment: type === '义务加班'
-        ? 'VOLUNTARY'
-        : (type === '转调休' || type === '转调休加班')
-          ? 'COMPENSATORY'
-          : 'PAID',
+      // Unfiltered day cells retain the server policy: fee = paid + comp;
+      // voluntary hours are a separate treatment, not added again to fee.
+      hours: all ? day.hours : paidHours + compensatoryHours + voluntaryHours,
+      paidHours,
+      compensatoryHours,
+      voluntaryHours,
+      treatment: all ? day.treatment
+        : overtimeTreatmentFromHours(paidHours, compensatoryHours, voluntaryHours),
     };
   }).filter((day) => day.hours > 0);
   let weekdayOvertimeHours = 0;
   let weekendOvertimeHours = 0;
+  let holidayOvertimeHours = 0;
   days.forEach((day) => {
-    if (isoWeekdayBucket(day.date) === 'weekend') {
-      weekendOvertimeHours += day.hours;
-    } else {
-      weekdayOvertimeHours += day.hours;
+    switch (financeOvertimeDateBucket(day.date, day.dayType)) {
+      case 'holiday': holidayOvertimeHours += day.hours; break;
+      case 'weekend': weekendOvertimeHours += day.hours; break;
+      default: weekdayOvertimeHours += day.hours;
     }
   });
   return {
@@ -1987,6 +1972,10 @@ function projectFinanceOvertimeRow(
     days,
     weekdayOvertimeHours,
     weekendOvertimeHours,
+    holidayOvertimeHours,
+    paidOvertimeHours: days.reduce((sum, day) => sum + day.paidHours, 0),
+    compensatoryOvertimeHours: days.reduce((sum, day) => sum + day.compensatoryHours, 0),
+    voluntaryOvertimeHours: days.reduce((sum, day) => sum + day.voluntaryHours, 0),
   };
 }
 

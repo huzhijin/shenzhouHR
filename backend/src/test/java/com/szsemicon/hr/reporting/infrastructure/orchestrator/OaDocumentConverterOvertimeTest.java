@@ -84,6 +84,9 @@ class OaDocumentConverterOvertimeTest {
             assertThat(value.interval().start()).isEqualTo(actualStart);
             assertThat(value.interval().end()).isEqualTo(actualEnd);
         });
+        assertThat(OaDocumentConverter.amendedLeaveIntervals(List.of(
+                originalLeave, leaveRevocation)))
+                .containsKey("leave-1");
     }
 
     @Test

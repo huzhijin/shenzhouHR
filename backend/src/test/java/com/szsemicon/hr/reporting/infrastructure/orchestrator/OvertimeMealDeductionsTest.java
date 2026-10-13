@@ -121,6 +121,51 @@ class OvertimeMealDeductionsTest {
     }
 
     @Test
+    void singleAfternoonPunchOnOrAfterSeptemberIsNotAClockOut() {
+        assertThat(OvertimeMealDeductions.pairedOffDutyPunch(
+                java.util.List.of(shanghai("2026-09-06T14:06:00")),
+                LocalDate.of(2026, 9, 6)))
+                .isNull();
+    }
+
+    @Test
+    void twoPunchesCapAtTheLaterOne() {
+        assertThat(OvertimeMealDeductions.pairedOffDutyPunch(
+                java.util.List.of(
+                        shanghai("2026-09-06T09:02:00"),
+                        shanghai("2026-09-06T18:11:00")),
+                LocalDate.of(2026, 9, 6)))
+                .isEqualTo(shanghai("2026-09-06T18:11:00"));
+    }
+
+    @Test
+    void extendedPublicHolidayStillUsesRestDayMealDeduction() {
+        var holiday = OvertimeMealDeductions.lookup(
+                "emp-1",
+                java.util.List.of(),
+                java.util.List.of(new AttendanceReportCalculationRows.CalendarDayRow(
+                        "emp-1",
+                        LocalDate.of(2026, 9, 26),
+                        "PUBLIC_HOLIDAY",
+                        1,
+                        1)));
+        var weekend = OvertimeMealDeductions.lookup(
+                "emp-1",
+                java.util.List.of(),
+                java.util.List.of(new AttendanceReportCalculationRows.CalendarDayRow(
+                        "emp-1",
+                        LocalDate.of(2026, 9, 26),
+                        "WEEKEND",
+                        1,
+                        1)));
+        Instant start = shanghai("2026-09-26T09:00:00");
+        Instant end = shanghai("2026-09-26T17:00:00");
+        assertThat(OvertimeMealDeductions.recognizedMinutes(start, end, holiday))
+                .isEqualTo(OvertimeMealDeductions.recognizedMinutes(start, end, weekend))
+                .isEqualTo(420L);
+    }
+
+    @Test
     void offPunchBeforeOvertimeWindowCapsToZero() {
         TimeInterval snapped = OaIntervalGrid.snapInterval(
                 shanghai("2026-08-26T18:30:00"),

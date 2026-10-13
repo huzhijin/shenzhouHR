@@ -12,20 +12,33 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Mixed-type OA leave on the same day often keeps both the typed detail
- * intervals and a covering header. The header is usually UNKNOWN 事假 whose
- * span/minutes equal the union of 调休+事假, and it double-counts unpaid leave.
+ * Separates document visibility from the existing work-hours breakdown policy.
+ * Independent documents must remain visible even when their intervals overlap.
+ * Interval overlap is not evidence of a document identity or header relationship.
  */
 public final class CoveringLeaveDocuments {
 
     private CoveringLeaveDocuments() {
     }
 
+    /** Only identical copies of the same immutable document fact are redundant. */
+    public static List<OaDocumentFact> distinctFacts(List<OaDocumentFact> facts) {
+        return facts == null ? List.of() : facts.stream().distinct().toList();
+    }
+
+    /**
+     * Retains the existing work-hours breakdown policy for compatibility.
+     * This policy must not determine which documents appear in leave details.
+     */
     public static List<OaDocumentFact> dropCoveringFacts(List<OaDocumentFact> facts) {
         if (facts == null || facts.size() < 2) {
             return facts == null ? List.of() : facts;
         }
+        // NET_WORK_V1 rows are already net of same-type overlaps; dropping a
+        // covering form again would lose its allocated share. Only legacy
+        // (NULL) rows go through the old whole-form heuristic.
         Set<String> drop = coveringIds(facts.stream()
+                .filter(fact -> !fact.netWorkAllocated())
                 .map(fact -> new Span(
                         fact.documentId(),
                         fact.employeeId(),
@@ -38,8 +51,10 @@ public final class CoveringLeaveDocuments {
         if (drop.isEmpty()) {
             return facts;
         }
+        // Drop by legacy identity only: a NET_WORK_V1 row with the same
+        // document ID (e.g. a newer month's pin) is never removed here.
         return facts.stream()
-                .filter(fact -> !drop.contains(fact.documentId()))
+                .filter(fact -> fact.netWorkAllocated() || !drop.contains(fact.documentId()))
                 .toList();
     }
 
@@ -74,10 +89,10 @@ public final class CoveringLeaveDocuments {
                 boolean minutesMatch = containedMinutes == candidate.minutes()
                         && candidate.minutes() > 0;
                 boolean unionCovers = unionCovers(candidate, contained);
-                boolean unknown = candidate.status() != null
-                        && "UNKNOWN".equalsIgnoreCase(candidate.status());
+                boolean pending = candidate.status() != null
+                        && "PENDING".equalsIgnoreCase(candidate.status());
                 if ((contained.size() >= 2 && (minutesMatch || unionCovers))
-                        || (unknown && minutesMatch)) {
+                        || (pending && minutesMatch)) {
                     drop.add(candidate.id());
                 }
             }

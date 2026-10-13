@@ -71,6 +71,15 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
     }
 
     @Test
+    void stateZeroIsPendingAndUnrecognisedIntegersStayUnknown() {
+        assertThat(OaMysqlAttendanceDocumentAdapter.oaStateToStatus(0).name()).isEqualTo("PENDING");
+        assertThat(OaMysqlAttendanceDocumentAdapter.oaStateToStatus(1).name()).isEqualTo("UNKNOWN");
+        assertThat(OaMysqlAttendanceDocumentAdapter.oaStateToStatus(99).name()).isEqualTo("UNKNOWN");
+        assertThat(OaMysqlAttendanceDocumentAdapter.oaStateToStatus(2).name()).isEqualTo("REVOKED");
+        assertThat(OaMysqlAttendanceDocumentAdapter.oaStateToStatus(3).name()).isEqualTo("APPROVED");
+    }
+
+    @Test
     void sourceVersionChangesWithApprovalStateAndRejectsMissingInputs() {
         Timestamp modified = Timestamp.valueOf("2026-08-15 12:00:00");
 
@@ -116,7 +125,7 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
     }
 
     @Test
-    void overlappingWindowReadsOvertimeByStartWithoutCursor() throws Exception {
+    void overlappingWindowReadsOvertimeByIntersectionWithoutCursor() throws Exception {
         Fixture fixture = fixture(-6539634143789166714L);
         var records = fixture.adapter().fetchOverlapping(
                 "oa-source",
@@ -134,7 +143,7 @@ class OaMysqlAttendanceDocumentAdapterOvertimeTest {
                 .prepareStatement(sql.capture());
         assertThat(sql.getAllValues())
                 .anySatisfy(statement -> assertThat(statement)
-                        .contains("s.field0100 >= ? AND s.field0100 < ?")
+                        .contains("s.field0100 < ? AND s.field0099 > ?")
                         .doesNotContain("LIMIT ?"));
     }
 

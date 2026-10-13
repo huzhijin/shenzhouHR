@@ -34,42 +34,7 @@ class OaDocumentCurrentEmploymentAuthorizationIntegrationTest {
 
     @BeforeEach
     void createMinimalOaReadProjection() {
-        jdbc.execute("""
-                CREATE TABLE IF NOT EXISTS attendance_source (
-                    attendance_source_id VARCHAR(36) PRIMARY KEY,
-                    company_id VARCHAR(36) NOT NULL,
-                    source_type VARCHAR(32) NOT NULL
-                )
-                """);
-        jdbc.execute("""
-                CREATE TABLE IF NOT EXISTS normalized_attendance_record (
-                    normalized_attendance_record_id VARCHAR(36) PRIMARY KEY,
-                    interval_start TIMESTAMP NOT NULL,
-                    interval_end TIMESTAMP NOT NULL
-                )
-                """);
-        jdbc.execute("""
-                CREATE TABLE IF NOT EXISTS employee_match_decision (
-                    normalized_attendance_record_id VARCHAR(36) PRIMARY KEY,
-                    match_status VARCHAR(32) NOT NULL,
-                    employee_id VARCHAR(36),
-                    employment_period_id VARCHAR(36)
-                )
-                """);
-        jdbc.execute("""
-                CREATE TABLE IF NOT EXISTS oa_attendance_document (
-                    oa_attendance_document_id VARCHAR(36) PRIMARY KEY,
-                    attendance_source_id VARCHAR(36) NOT NULL,
-                    normalized_attendance_record_id VARCHAR(36) NOT NULL,
-                    source_business_key VARCHAR(128) NOT NULL,
-                    source_version VARCHAR(64) NOT NULL,
-                    document_type VARCHAR(64) NOT NULL,
-                    leave_type VARCHAR(32),
-                    source_status VARCHAR(32) NOT NULL,
-                    knowledge_rank BIGINT NOT NULL,
-                    created_at TIMESTAMP NOT NULL
-                )
-                """);
+        // Tables are created by the shared test-schema.sql; no DDL needed here.
     }
 
     @Test
@@ -137,10 +102,33 @@ class OaDocumentCurrentEmploymentAuthorizationIntegrationTest {
         jdbc.update(
                 """
                 INSERT INTO attendance_source (
-                    attendance_source_id, company_id, source_type
+                    attendance_source_id, company_id, source_code,
+                    source_type, display_name, status,
+                    created_by, created_at
                 ) VALUES (
                     ?, '30000000-0000-0000-0000-000000000001',
-                    'OA_ATTENDANCE'
+                    'OA-TRANSFER-TEST', 'OA_ATTENDANCE',
+                    'OA Transfer Test Source', 'ACTIVE',
+                    '80000000-0000-0000-0000-000000000003',
+                    TIMESTAMP '2026-01-01 00:00:00'
+                )
+                """,
+                SOURCE_ID);
+        jdbc.update(
+                """
+                INSERT INTO raw_attendance_fact (
+                    raw_attendance_fact_id, attendance_source_id,
+                    company_id, fact_kind, source_business_key,
+                    source_version, interval_start, interval_end,
+                    canonical_payload_digest, received_at
+                ) VALUES (
+                    'aa100000-0000-0000-0000-000000000001', ?,
+                    '30000000-0000-0000-0000-000000000001',
+                    'OA_DOCUMENT', 'OA-TRANSFER-001', '1',
+                    TIMESTAMP '2026-06-15 08:00:00',
+                    TIMESTAMP '2026-06-15 18:00:00',
+                    'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+                    TIMESTAMP '2026-06-15 00:00:00'
                 )
                 """,
                 SOURCE_ID);
@@ -148,22 +136,30 @@ class OaDocumentCurrentEmploymentAuthorizationIntegrationTest {
                 """
                 INSERT INTO normalized_attendance_record (
                     normalized_attendance_record_id,
-                    interval_start, interval_end
+                    raw_attendance_fact_id, normalization_revision,
+                    validation_status, interval_start, interval_end,
+                    canonical_digest, created_at
                 ) VALUES (
                     'ab000000-0000-0000-0000-000000000001',
+                    'aa100000-0000-0000-0000-000000000001', 1,
+                    'VALID',
                     TIMESTAMP '2026-06-15 08:00:00',
-                    TIMESTAMP '2026-06-15 18:00:00'
+                    TIMESTAMP '2026-06-15 18:00:00',
+                    'abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd',
+                    TIMESTAMP '2026-06-15 00:00:00'
                 )
                 """);
         jdbc.update(
                 """
                 INSERT INTO employee_match_decision (
                     normalized_attendance_record_id, match_status,
-                    employee_id, employment_period_id
+                    employee_id, employment_period_id,
+                    resolver_snapshot_digest
                 ) VALUES (
                     'ab000000-0000-0000-0000-000000000001',
                     'MATCHED', ?,
-                    'c0000000-0000-0000-0000-000000000002'
+                    'c0000000-0000-0000-0000-000000000002',
+                    '0000000000000000000000000000000000000000000000000000000000000000'
                 )
                 """,
                 EMPLOYEE_ID);

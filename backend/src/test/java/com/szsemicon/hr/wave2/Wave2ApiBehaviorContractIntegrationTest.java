@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -22,6 +23,202 @@ class Wave2ApiBehaviorContractIntegrationTest extends Wave1IntegrationTestSuppor
     private static final String PUBLICATION_ID = "93000000-0000-0000-0000-000000000009";
     private static final String FILE_SHA256 =
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    private static final String WAVE2_ORGANIZATION_ID =
+            "40000000-0000-0000-0000-000000000001";
+    private static final String WAVE2_ATTENDANCE_GROUP_ID =
+            "a2000000-0000-0000-0000-000000000001";
+
+    private static final String WAVE2_COMPANY_ID =
+            "30000000-0000-0000-0000-000000000001";
+    private static final String WAVE2_LOCATION_ID =
+            "a2000000-0000-0000-0000-000000000010";
+    private static final String WAVE2_LOCATION_REVISION_ID =
+            "a2000000-0000-0000-0000-000000000011";
+    private static final String WAVE2_LOCATION_TIMELINE_ID =
+            "a2000000-0000-0000-0000-000000000012";
+    private static final String WAVE2_SHIFT_TEMPLATE_ID =
+            "a2000000-0000-0000-0000-000000000020";
+    private static final String WAVE2_WORK_CALENDAR_ID =
+            "a2000000-0000-0000-0000-000000000030";
+    private static final String WAVE2_WORK_CALENDAR_VERSION_ID =
+            "a2000000-0000-0000-0000-000000000031";
+    private static final String WAVE2_GROUP_REVISION_ID =
+            "a2000000-0000-0000-0000-000000000002";
+    private static final String WAVE2_GROUP_TIMELINE_ID =
+            "a2000000-0000-0000-0000-000000000003";
+
+    @BeforeEach
+    void seedAttendanceGroup() {
+        // --- location ---
+        jdbc.update(
+                """
+                INSERT INTO location (
+                    location_id, company_id, location_code,
+                    row_version, created_by, created_at
+                ) VALUES (?, ?, 'WAVE2_LOC', 0, ?, TIMESTAMP '2026-01-01 00:00:00')
+                """,
+                WAVE2_LOCATION_ID, WAVE2_COMPANY_ID, ADMIN_PRINCIPAL);
+
+        jdbc.update(
+                """
+                INSERT INTO location_revision (
+                    location_revision_id, location_id, revision_number,
+                    location_name, time_zone, effective_from,
+                    supersedes_location_revision_id, snapshot_digest,
+                    change_reason, created_by, created_at
+                ) VALUES (?, ?, 1, 'WAVE-2 测试地点', 'Asia/Shanghai',
+                    DATE '2026-01-01', NULL,
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'WAVE-2 考勤地点建档', ?, TIMESTAMP '2026-01-01 00:00:00')
+                """,
+                WAVE2_LOCATION_REVISION_ID, WAVE2_LOCATION_ID, ADMIN_PRINCIPAL);
+
+        jdbc.update(
+                """
+                INSERT INTO location_timeline (
+                    location_timeline_id, location_id, location_revision_id,
+                    event_sequence, state, business_effective_from,
+                    predecessor_timeline_id, recorded_at, actor_id, request_id
+                ) VALUES (?, ?, ?, 1, 'ACTIVE', DATE '2026-01-01',
+                    NULL, TIMESTAMP '2026-01-01 00:00:00', ?, 'wave2-location-seed')
+                """,
+                WAVE2_LOCATION_TIMELINE_ID, WAVE2_LOCATION_ID,
+                WAVE2_LOCATION_REVISION_ID, ADMIN_PRINCIPAL);
+
+        // --- shift template ---
+        jdbc.update(
+                """
+                INSERT INTO shift_template (
+                    shift_template_id, company_id, location_id,
+                    template_code, created_by, created_at
+                ) VALUES (?, ?, ?, 'WAVE2_SHIFT', ?,
+                    TIMESTAMP '2026-01-01 00:00:00')
+                """,
+                WAVE2_SHIFT_TEMPLATE_ID, WAVE2_COMPANY_ID,
+                WAVE2_LOCATION_ID, ADMIN_PRINCIPAL);
+
+        // --- work calendar ---
+        jdbc.update(
+                """
+                INSERT INTO work_calendar (
+                    work_calendar_id, company_id, location_id,
+                    calendar_code, created_by, created_at
+                ) VALUES (?, ?, ?, 'WAVE2_CAL', ?,
+                    TIMESTAMP '2026-01-01 00:00:00')
+                """,
+                WAVE2_WORK_CALENDAR_ID, WAVE2_COMPANY_ID,
+                WAVE2_LOCATION_ID, ADMIN_PRINCIPAL);
+
+        jdbc.update(
+                """
+                INSERT INTO work_calendar_version (
+                    work_calendar_version_id, work_calendar_id, version_number,
+                    calendar_name, calendar_year, time_zone_snapshot,
+                    effective_from, effective_to,
+                    supersedes_work_calendar_version_id,
+                    snapshot_digest, change_reason, created_by, created_at
+                ) VALUES (?, ?, 1, 'WAVE-2 工作日历 2026', 2026, 'Asia/Shanghai',
+                    DATE '2026-07-01', DATE '2026-12-31',
+                    NULL,
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'WAVE-2 工作日历版本', ?, TIMESTAMP '2026-01-01 00:00:00')
+                """,
+                WAVE2_WORK_CALENDAR_VERSION_ID, WAVE2_WORK_CALENDAR_ID,
+                ADMIN_PRINCIPAL);
+
+        seedCalendarDays();
+
+        // --- calendar publication timeline ---
+        jdbc.update(
+                """
+                INSERT INTO calendar_publication_timeline (
+                    calendar_publication_timeline_id, work_calendar_id,
+                    work_calendar_version_id, event_sequence, state,
+                    business_effective_from, predecessor_timeline_id,
+                    recorded_at, actor_id, request_id
+                ) VALUES (?, ?, ?, 1, 'PUBLISHED', DATE '2026-07-01',
+                    NULL, TIMESTAMP '2026-07-01 00:00:00', ?,
+                    'a2d10000-0000-0000-0000-000000000002')
+                """,
+                "a2d10000-0000-0000-0000-000000000001",
+                WAVE2_WORK_CALENDAR_ID,
+                WAVE2_WORK_CALENDAR_VERSION_ID,
+                ADMIN_PRINCIPAL);
+
+        // --- attendance group ---
+        jdbc.update(
+                """
+                INSERT INTO attendance_group (
+                    attendance_group_id, company_id, group_code,
+                    created_by, created_at
+                ) VALUES (?, ?, 'WAVE2_TEST_GROUP', ?,
+                    TIMESTAMP '2026-01-01 00:00:00')
+                """,
+                WAVE2_ATTENDANCE_GROUP_ID, WAVE2_COMPANY_ID, ADMIN_PRINCIPAL);
+
+        jdbc.update(
+                """
+                INSERT INTO attendance_group_revision (
+                    attendance_group_revision_id, attendance_group_id,
+                    revision_number, group_name, location_revision_id,
+                    work_calendar_id, shift_template_id, effective_from,
+                    supersedes_attendance_group_revision_id,
+                    snapshot_digest, change_reason, created_by, created_at
+                ) VALUES (?, ?, 1, 'WAVE-2 测试考勤组', ?,
+                    ?, ?, DATE '2026-07-01',
+                    NULL,
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'WAVE-2 考勤组建档', ?, TIMESTAMP '2026-01-01 00:00:00')
+                """,
+                WAVE2_GROUP_REVISION_ID, WAVE2_ATTENDANCE_GROUP_ID,
+                WAVE2_LOCATION_REVISION_ID, WAVE2_WORK_CALENDAR_ID,
+                WAVE2_SHIFT_TEMPLATE_ID, ADMIN_PRINCIPAL);
+
+        jdbc.update(
+                """
+                INSERT INTO attendance_group_timeline (
+                    attendance_group_timeline_id, attendance_group_id,
+                    attendance_group_revision_id, event_sequence, state,
+                    business_effective_from, predecessor_timeline_id,
+                    recorded_at, actor_id, request_id
+                ) VALUES (?, ?, ?, 1, 'ACTIVE', DATE '2026-07-01',
+                    NULL, TIMESTAMP '2026-01-01 00:00:00', ?,
+                    'wave2-group-seed')
+                """,
+                WAVE2_GROUP_TIMELINE_ID, WAVE2_ATTENDANCE_GROUP_ID,
+                WAVE2_GROUP_REVISION_ID, ADMIN_PRINCIPAL);
+    }
+
+    private void seedCalendarDays() {
+        java.time.LocalDate start = java.time.LocalDate.of(2026, 7, 1);
+        java.time.LocalDate end   = java.time.LocalDate.of(2026, 9, 30);
+        int seq = 0;
+        for (java.time.LocalDate d = start; !d.isAfter(end);
+                d = d.plusDays(1)) {
+            java.time.DayOfWeek dow = d.getDayOfWeek();
+            String dayType = (dow == java.time.DayOfWeek.SATURDAY
+                    || dow == java.time.DayOfWeek.SUNDAY)
+                    ? "WEEKEND" : "WORKDAY";
+            String dayId = String.format(
+                    "a2d00000-0000-0000-%04d-%012d", seq, seq);
+            seq++;
+            String digest =
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            jdbc.update(
+                    """
+                    INSERT INTO work_calendar_day (
+                        work_calendar_day_id, work_calendar_version_id,
+                        business_date, day_type,
+                        shift_version_override_id, snapshot_digest,
+                        created_by, created_at
+                    ) VALUES (?, ?, ?, ?, NULL, ?, ?,
+                        TIMESTAMP '2026-01-01 00:00:00')
+                    """,
+                    dayId, WAVE2_WORK_CALENDAR_VERSION_ID,
+                    java.sql.Date.valueOf(d), dayType, digest,
+                    ADMIN_PRINCIPAL);
+        }
+    }
 
     @Test
     void compatibility_lists_expose_the_required_wave2_projection_fields() throws Exception {
@@ -152,6 +349,8 @@ class Wave2ApiBehaviorContractIntegrationTest extends Wave1IntegrationTestSuppor
                                   "employeeNumber":"W2-LOCAL-DETAIL-001",
                                   "displayName":"WAVE-2 合成员工详情",
                                   "externalEmployeeId":"W2-LOCAL-EXT-001",
+                                  "organizationId":"40000000-0000-0000-0000-000000000001",
+                                  "attendanceGroupId":"a2000000-0000-0000-0000-000000000001",
                                   "effectiveFrom":"2026-07-25",
                                   "reason":"WAVE-2 合同响应验证"
                                 }

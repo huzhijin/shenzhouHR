@@ -55,12 +55,12 @@ class AttendanceSourceSyncDispatchServiceTest {
     void routesAuthorizedDeliSourceToDeliService() {
         var expected = status("DELI_CLOUD");
         prepareType("DELI_CLOUD");
-        when(deliService.run(SOURCE_ID, CORRELATION_ID)).thenReturn(expected);
+        when(deliService.run(SOURCE_ID, CORRELATION_ID, null)).thenReturn(expected);
 
         var result = service().run(SOURCE_ID, CORRELATION_ID);
 
         assertThat(result).isSameAs(expected);
-        verify(deliService).run(SOURCE_ID, CORRELATION_ID);
+        verify(deliService).run(SOURCE_ID, CORRELATION_ID, null);
         verify(oaService, never()).run(SOURCE_ID, CORRELATION_ID);
     }
 
@@ -84,7 +84,7 @@ class AttendanceSourceSyncDispatchServiceTest {
                 SOURCE_ID,
                 "DENIED",
                 "RESOURCE_UNAVAILABLE");
-        verify(deliService, never()).run(SOURCE_ID, CORRELATION_ID);
+        verify(deliService, never()).run(SOURCE_ID, CORRELATION_ID, null);
         verify(oaService, never()).run(SOURCE_ID, CORRELATION_ID);
     }
 

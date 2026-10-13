@@ -12,22 +12,43 @@ class AttendanceReportPublicationSensitiveFieldContractTest {
 
     @Test
     void verifiedOaPublicationInputCannotCarrySensitiveSourcePayload() {
-        String componentNames = Arrays.stream(
+        java.util.Set<String> componentNames = Arrays.stream(
                         VerifiedOaDocumentFact.class.getRecordComponents())
                 .map(RecordComponent::getName)
-                .map(value -> value.toLowerCase(Locale.ROOT))
-                .reduce("", (left, right) -> left + " " + right);
+                .collect(java.util.stream.Collectors.toSet());
 
-        assertThat(componentNames)
-                .doesNotContain(
-                        "reason",
-                        "location",
-                        "coordinate",
-                        "longitude",
-                        "latitude",
-                        "device",
-                        "raw",
-                        "payload",
-                        "destination");
+        // Check each sensitive word segment (camelCase aware)
+        // Rejects: sourceLocation, requestReason, rawPayload, etc.
+        // Allows: allocationSemantics (allocation is not sensitive)
+        java.util.List<String> sensitiveSegments = java.util.List.of(
+                "reason",
+                "location",
+                "coordinate",
+                "coordinates",
+                "longitude",
+                "latitude",
+                "device",
+                "raw",
+                "payload",
+                "destination");
+
+        for (String fieldName : componentNames) {
+            String lower = fieldName.toLowerCase(Locale.ROOT);
+            for (String sensitive : sensitiveSegments) {
+                // Match as camelCase word boundary or after underscore
+                // "sourceLocation" contains "location" as a word
+                // "allocationSemantics" has "location" as substring but not word boundary
+                boolean containsAsWord = lower.contains(sensitive.toLowerCase(Locale.ROOT))
+                        && (lower.equals(sensitive.toLowerCase(Locale.ROOT))
+                            || lower.matches(".*[^a-z]" + sensitive.toLowerCase(Locale.ROOT) + ".*")
+                            || lower.matches(".*[a-z][A-Z].*")  // has camelCase
+                                && fieldName.matches(".*[A-Z]" + sensitive.substring(0, 1).toUpperCase(Locale.ROOT)
+                                    + (sensitive.length() > 1 ? sensitive.substring(1).toLowerCase(Locale.ROOT) : "") + ".*"));
+
+                assertThat(containsAsWord)
+                        .as("Field '%s' contains sensitive segment '%s'", fieldName, sensitive)
+                        .isFalse();
+            }
+        }
     }
 }

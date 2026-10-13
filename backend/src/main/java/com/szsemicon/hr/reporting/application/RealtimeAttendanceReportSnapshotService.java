@@ -15,7 +15,6 @@ import com.szsemicon.hr.reporting.domain.AttendanceReportModels.OaDocumentFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.TimeAccountFact;
-import com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceDashboardWorkbenchMapper;
 import com.szsemicon.hr.shared.web.ApiProblemException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -69,10 +68,34 @@ public class RealtimeAttendanceReportSnapshotService {
     private static final int MAX_CACHE_ENTRIES = 64;
     private static final String SNAPSHOT_PREFIX = "LIVE-";
 
+    private AttendanceReportSourceRefreshPort sourceRefresh = (company, month, at) -> at;
+
+    @Autowired
+    void configureSourceRefresh(AttendanceReportSourceRefreshPort sourceRefresh) {
+        this.sourceRefresh = Objects.requireNonNull(sourceRefresh, "sourceRefresh");
+    }
+
+    private AttendanceReportDecisionVersionProvider decisionVersions = (company, month, at) -> List.of();
+
+    @Autowired
+    void configureDecisionVersions(AttendanceReportDecisionVersionProvider decisionVersions) {
+        this.decisionVersions = Objects.requireNonNull(decisionVersions, "decisionVersions");
+    }
+
+    /** Also used before the scheduler compares source watermarks with its pin. */
+    public Instant refreshSources(String companyId, YearMonth period, Instant requestedAt) {
+        Instant refreshedAt = Objects.requireNonNull(
+                sourceRefresh.refresh(companyId, period, requestedAt), "source refresh cutoff");
+        if (refreshedAt.isBefore(requestedAt)) {
+            throw new IllegalStateException("source refresh cutoff precedes request");
+        }
+        return refreshedAt;
+    }
+
     private final AttendanceReportCalculationOrchestrator orchestrator;
     private final AttendanceReportSourceRepository repository;
     private final AttendanceReportProjectionPublicationUseCase publisher;
-    private final AttendanceDashboardWorkbenchMapper workbenchMapper;
+    private final DashboardWorkbenchReadPort workbenchMapper;
     private final Executor executor;
     private final boolean shutdownExecutor;
     private final Duration firstWait;
@@ -113,7 +136,7 @@ public class RealtimeAttendanceReportSnapshotService {
             AttendanceReportSourceRepository repository,
             MeterRegistry meterRegistry,
             @Autowired(required = false)
-                    AttendanceDashboardWorkbenchMapper workbenchMapper,
+                    DashboardWorkbenchReadPort workbenchMapper,
             @Autowired(required = false)
                     AttendanceReportProjectionPublicationUseCase publisher) {
         this(
@@ -131,7 +154,7 @@ public class RealtimeAttendanceReportSnapshotService {
             AttendanceReportCalculationOrchestrator orchestrator,
             AttendanceReportSourceRepository repository,
             MeterRegistry meterRegistry,
-            AttendanceDashboardWorkbenchMapper workbenchMapper,
+            DashboardWorkbenchReadPort workbenchMapper,
             Executor executor,
             Duration firstWait) {
         this(
@@ -165,7 +188,7 @@ public class RealtimeAttendanceReportSnapshotService {
             AttendanceReportCalculationOrchestrator orchestrator,
             AttendanceReportSourceRepository repository,
             MeterRegistry meterRegistry,
-            AttendanceDashboardWorkbenchMapper workbenchMapper,
+            DashboardWorkbenchReadPort workbenchMapper,
             AttendanceReportProjectionPublicationUseCase publisher,
             Executor executor,
             Duration firstWait,
@@ -429,6 +452,34 @@ public class RealtimeAttendanceReportSnapshotService {
                 || toInclusive.isBefore(fromInclusive)) {
             return;
         }
+        materializeEmployeeRangeForSet(
+                companyId,
+                java.util.List.of(employeeId),
+                fromInclusive,
+                toInclusive,
+                authorizationTime);
+    }
+
+    /**
+     * Recalculate a set of employees from the earliest punch date through
+     * today, batching all employees in the set into a single publish per
+     * month. This avoids N×M publish operations when many new hires belong
+     * to the same company and overlap the same calendar months.
+     */
+    public void materializeEmployeeRangeForSet(
+            String companyId,
+            java.util.Collection<String> employeeIds,
+            LocalDate fromInclusive,
+            LocalDate toInclusive,
+            Instant authorizationTime) {
+        if (companyId == null || companyId.isBlank()
+                || employeeIds == null || employeeIds.isEmpty()
+                || fromInclusive == null || toInclusive == null
+                || authorizationTime == null
+                || toInclusive.isBefore(fromInclusive)) {
+            return;
+        }
+        java.util.List<String> ids = java.util.List.copyOf(employeeIds);
         YearMonth cursor = YearMonth.from(fromInclusive);
         YearMonth last = YearMonth.from(toInclusive);
         while (!cursor.isAfter(last)) {
@@ -450,7 +501,7 @@ public class RealtimeAttendanceReportSnapshotService {
                         authorizationTime,
                         writeStart,
                         writeEndExclusive,
-                        java.util.List.of(employeeId));
+                        ids);
                 evictCompanyMonth(companyId, cursor);
             }
             cursor = cursor.plusMonths(1);
@@ -515,6 +566,40 @@ public class RealtimeAttendanceReportSnapshotService {
                 requestedFilter.employeeId(),
                 requestedFilter.status());
         return toSnapshot(entry, authorization, resolvedFilter);
+    }
+
+    /** Company date window, including the preceding business day for overnight returns. */
+    public ReportSourceSnapshot recalculateRange(String principalId, String capabilityCode,
+            ReportFilter requestedFilter, Instant authorizationTime,
+            LocalDate writeStart, LocalDate writeEndExclusive) {
+        Objects.requireNonNull(writeStart, "writeStart");
+        Objects.requireNonNull(writeEndExclusive, "writeEndExclusive");
+        YearMonth period = requestedFilter.period();
+        if (writeStart.isBefore(period.atDay(1))
+                || writeEndExclusive.isAfter(period.plusMonths(1).atDay(1))
+                || !writeStart.isBefore(writeEndExclusive)) {
+            throw new ApiProblemException(HttpStatus.BAD_REQUEST,
+                    "ATTENDANCE_REPORT_INVALID_DATE_RANGE", "指定日期必须位于所选月份内");
+        }
+        String companyId = resolveCompanyId(principalId, capabilityCode, requestedFilter, authorizationTime);
+        RealtimeAuthorization authorization = companyId == null ? null : repository
+                .resolveRealtimeAuthorization(principalId, capabilityCode, companyId, authorizationTime)
+                .orElse(null);
+        if (authorization == null || !authorization.companyWide()) {
+            throw new ApiProblemException(HttpStatus.FORBIDDEN,
+                    "ATTENDANCE_REPORT_SCOPE_NOT_AVAILABLE", "当前用户没有整公司重算权限");
+        }
+        if (shouldSkipClosed(companyId, period, authorizationTime)) {
+            throw new ApiProblemException(HttpStatus.CONFLICT,
+                    "ATTENDANCE_REPORT_PERIOD_CLOSED", "所选月份已关闭，无法调整", false);
+        }
+        LocalDate from = writeStart.equals(period.atDay(1)) ? writeStart : writeStart.minusDays(1);
+        evictCompanyMonth(companyId, period);
+        CacheEntry entry = calculate(companyId, period, principalId, authorizationTime,
+                from, writeEndExclusive, (String) null);
+        evictCompanyMonth(companyId, period);
+        return toSnapshot(entry, authorization, new ReportFilter(period, companyId,
+                requestedFilter.organizationId(), requestedFilter.employeeId(), requestedFilter.status()));
     }
 
     public ReportSourceSnapshot recalculateEmployees(
@@ -615,6 +700,10 @@ public class RealtimeAttendanceReportSnapshotService {
                                 HttpStatus.FORBIDDEN,
                                 "ATTENDANCE_REPORT_SCOPE_NOT_AVAILABLE",
                                 "当前用户没有该报表范围的访问权限"));
+        if (shouldSkipClosed(companyId, requestedFilter.period(), authorizationTime)) {
+            throw new ApiProblemException(HttpStatus.CONFLICT,
+                    "ATTENDANCE_REPORT_PERIOD_CLOSED", "所选月份已关闭，无法调整", false);
+        }
         CalculationKey key = new CalculationKey(
                 companyId, requestedFilter.period(), 0L);
         if (!inflight.containsKey(key)) {
@@ -643,8 +732,27 @@ public class RealtimeAttendanceReportSnapshotService {
 
     public boolean sourcesNewerThanPin(
             ReportSourceSnapshot snapshot, Instant asOf) {
-        if (snapshot == null || snapshot.sourceVersions().isEmpty()) {
+        if (snapshot == null) {
             return false;
+        }
+        String companyId = snapshot.filter().companyId();
+        if (companyId != null) {
+            List<String> pinnedRecognitions = snapshot.sourceVersions().stream()
+                    .filter(value -> value.startsWith(AttendanceReportDecisionVersionProvider.OVERTIME_RECOGNITION_PREFIX))
+                    .sorted().toList();
+            List<String> pinnedExclusions = snapshot.sourceVersions().stream()
+                    .filter(value -> value.startsWith(AttendanceReportDecisionVersionProvider.EVIDENCE_EXCLUSION_PREFIX))
+                    .sorted().toList();
+            List<String> allCurrentDecisions = decisionVersions.versions(companyId, snapshot.filter().period(), asOf);
+            List<String> currentRecognitions = allCurrentDecisions.stream()
+                    .filter(value -> value.startsWith(AttendanceReportDecisionVersionProvider.OVERTIME_RECOGNITION_PREFIX))
+                    .sorted().toList();
+            List<String> currentExclusions = allCurrentDecisions.stream()
+                    .filter(value -> value.startsWith(AttendanceReportDecisionVersionProvider.EVIDENCE_EXCLUSION_PREFIX))
+                    .sorted().toList();
+            if (!pinnedRecognitions.equals(currentRecognitions) || !pinnedExclusions.equals(currentExclusions)) {
+                return true;
+            }
         }
         List<SourceCutoff> cutoffs =
                 repository.listCommittedSourceCutoffs(asOf);
@@ -931,6 +1039,11 @@ public class RealtimeAttendanceReportSnapshotService {
             java.time.LocalDate writeStart,
             java.time.LocalDate writeEndExclusive,
             java.util.Collection<String> employeeIds) {
+        if (writeStart != null && writeEndExclusive != null
+                && employeeIds != null && employeeIds.size() > 1) {
+            return calculatePlanned(companyId, period, principalId, dataAsOf,
+                    writeStart, writeEndExclusive, employeeIds);
+        }
         if (employeeIds == null || employeeIds.size() <= 1) {
             String employeeId = employeeIds == null || employeeIds.isEmpty()
                     ? null
@@ -944,7 +1057,8 @@ public class RealtimeAttendanceReportSnapshotService {
                     writeEndExclusive,
                     employeeId);
         }
-        dataAsOf = dataAsOf.truncatedTo(ChronoUnit.MICROS);
+        dataAsOf = refreshSources(companyId, period, dataAsOf)
+                .truncatedTo(ChronoUnit.MICROS);
         Timer.Sample sample = Timer.start(meterRegistry);
         log.info(
                 "employee-set calculation starting company={} period={} employees={} start={} end={}",
@@ -1023,7 +1137,17 @@ public class RealtimeAttendanceReportSnapshotService {
             java.time.LocalDate writeStart,
             java.time.LocalDate writeEndExclusive,
             String employeeId) {
-        dataAsOf = dataAsOf.truncatedTo(ChronoUnit.MICROS);
+        boolean companyMonth = (employeeId == null || employeeId.isBlank())
+                && period.atDay(1).equals(writeStart)
+                && period.plusMonths(1).atDay(1).equals(writeEndExclusive);
+        if (companyMonth) { writeStart = null; writeEndExclusive = null; }
+        if (writeStart != null && writeEndExclusive != null) {
+            return calculatePlanned(companyId, period, principalId, dataAsOf,
+                    writeStart, writeEndExclusive,
+                    employeeId == null || employeeId.isBlank() ? List.of() : List.of(employeeId));
+        }
+        dataAsOf = refreshSources(companyId, period, dataAsOf)
+                .truncatedTo(ChronoUnit.MICROS);
         Timer.Sample sample = Timer.start(meterRegistry);
         if (employeeId == null || employeeId.isBlank()) {
             log.info("month calculation starting company={} period={}",
@@ -1123,6 +1247,75 @@ public class RealtimeAttendanceReportSnapshotService {
                     period,
                     failed);
             throw failed;
+        } finally {
+            sample.stop(calculationTimer);
+        }
+    }
+
+    private CacheEntry calculatePlanned(String companyId, YearMonth period, String principalId,
+            Instant requestedAt, LocalDate from, LocalDate to, java.util.Collection<String> employeeIds) {
+        var baseline = orchestrator.publishedBaseline(companyId, period).orElseThrow(() ->
+                new ApiProblemException(HttpStatus.CONFLICT, "ATTENDANCE_REPORT_BASE_PROJECTION_REQUIRED",
+                        "指定日期重算需要已有整月报表，请先完成整月计算", false));
+        if (!"OPEN".equals(baseline.periodState()) && !"REOPENED".equals(baseline.periodState())) {
+            throw new ApiProblemException(HttpStatus.CONFLICT, "ATTENDANCE_REPORT_PERIOD_CLOSED",
+                    "所选月份已关闭，无法调整", false);
+        }
+        AttendanceReportDependencyPlan plan = orchestrator.planWindow(companyId, period,
+                baseline.projectionVersion(), requestedAt, from, to, employeeIds);
+        Instant cutoff = requestedAt;
+        boolean covered = false;
+        // Refresh can reveal a changed interval or linked revocation outside
+        // the original request. Re-plan before consuming it, and read that
+        // expanded dependency range strictly as well. No missing-key bypass.
+        for (int attempt = 0; attempt < period.lengthOfMonth() + 2; attempt++) {
+            LocalDate refreshedFrom = plan.refreshFromInclusive();
+            LocalDate refreshedTo = plan.refreshToExclusive();
+            // Only an explicit employee request may narrow the missing-source
+            // proof. A company plan can also contain an expanded employee list.
+            Instant refreshed = Objects.requireNonNull(
+                    employeeIds == null || employeeIds.isEmpty()
+                            ? sourceRefresh.refreshRange(companyId, refreshedFrom, refreshedTo, cutoff)
+                            : sourceRefresh.refreshRange(companyId, refreshedFrom, refreshedTo,
+                                    cutoff, List.copyOf(employeeIds)),
+                    "source refresh cutoff");
+            if (refreshed.isBefore(cutoff)) {
+                throw new IllegalStateException("source refresh cutoff precedes request");
+            }
+            cutoff = refreshed.truncatedTo(ChronoUnit.MICROS);
+            AttendanceReportDependencyPlan next = orchestrator.planWindow(companyId, period,
+                    baseline.projectionVersion(), cutoff, plan.writeStartInclusive(),
+                    plan.writeEndExclusive(), employeeIds);
+            covered = !next.refreshFromInclusive().isBefore(refreshedFrom)
+                    && !next.refreshToExclusive().isAfter(refreshedTo);
+            plan = next;
+            if (covered) break;
+        }
+        if (!covered) {
+            throw new ApiProblemException(HttpStatus.CONFLICT, "ATTENDANCE_REPORT_DEPENDENCY_CHANGED",
+                    "计算期间来源范围持续变化，请稍后重试", false);
+        }
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            PublishCommand command = orchestrator.assemblePlanned(plan,
+                    PeriodState.valueOf(baseline.periodState()), principalId, cutoff);
+            if (!companyId.equals(command.metadata().companyId())
+                    || !period.equals(command.metadata().period())
+                    || !cutoff.equals(command.metadata().dataAsOf())) {
+                throw new IllegalStateException("calculation result does not match its requested scope");
+            }
+            factRowCount.record(factRowCount(command));
+            String version = SNAPSHOT_PREFIX + command.metadata().sourceSnapshotDigest();
+            long persistedAt = System.nanoTime();
+            if (publisher != null) {
+                PublicationResult result = publisher.publishScoped(command, plan.writeStartInclusive(),
+                        plan.writeEndExclusive(), plan.employeeIds(), baseline.projectionVersion());
+                if (result != null && result.projectionVersion() != null) version = result.projectionVersion();
+            }
+            log.info("recalc-persist company={} period={} window=date-range employees={} start={} end={} persistMs={} version={}",
+                    companyId, period, plan.employeeIds().size(), plan.writeStartInclusive(),
+                    plan.writeEndExclusive(), (System.nanoTime() - persistedAt) / 1_000_000L, version);
+            return new CacheEntry(command, version, cutoff, false);
         } finally {
             sample.stop(calculationTimer);
         }
@@ -1323,7 +1516,7 @@ public class RealtimeAttendanceReportSnapshotService {
                 authorization.scope(),
                 filter,
                 entry.snapshotVersion(),
-                PeriodState.OPEN.name(),
+                command.metadata().periodState().name(),
                 command.metadata().dataAsOf(),
                 command.metadata().sourceVersions(),
                 dailyFacts,
@@ -1414,7 +1607,8 @@ public class RealtimeAttendanceReportSnapshotService {
                 value.recognizedMinutes(),
                 value.sourceStatus(),
                 value.sourceVersion(),
-                value.sourceOrigin());
+                value.sourceOrigin(),
+                value.allocationSemantics());
     }
 
     private static TimeAccountFact toTimeAccountFact(

@@ -30,6 +30,8 @@ interface PeopleMapper {
 
     boolean companyExists(@Param("companyId") String companyId);
 
+    void upsertPeopleWriteLock(@Param("companyId") String companyId);
+
     String lockCompany(@Param("companyId") String companyId);
 
     PeopleRows.IdempotencyRow findIdempotency(

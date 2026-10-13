@@ -337,7 +337,7 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 """,
                 "7f000000-0000-0000-0000-000000000001");
 
-        assertThat(query(readableReportService(), ReportType.OVERTIME).rows())
+        assertThat(query(readableReportService(), ReportType.ATTENDANCE_DETAIL).rows())
                 .singleElement().satisfies(row -> assertThat(row.values())
                         .containsEntry(ReportField.PAID_OVERTIME_HOURS, "2.00")
                         .containsEntry(ReportField.COMPENSATORY_OVERTIME_HOURS, "1.00")
@@ -545,7 +545,7 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
         EmployeeDepartmentAttendancePeriod departmentB = periods.get(1);
         assertThat(departmentB.organizationId())
                 .isEqualTo(UNAUTHORIZED_ORGANIZATION_A);
-        assertThat(departmentB.organizationName()).isEqualTo("封装部");
+        assertThat(departmentB.organizationName()).isEqualTo("制造中心-​封装部");
         assertThat(departmentB.periodStart()).isEqualTo(PERIOD.atDay(15));
         assertThat(departmentB.periodEnd()).isEqualTo(PERIOD.atEndOfMonth());
         assertThat(departmentB.actualAttendanceDays()).isEqualTo(12);
@@ -575,7 +575,9 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                                         employeeId,
                                         null),
                                 AUTHORIZATION_TIME);
-        assertThat(departmentAOnly).containsExactly(departmentA);
+        // Filtering by ORGANIZATION_A (制造中心) includes its full subtree —
+        // the descendant 封装部 period is also returned per the department-tree spec.
+        assertThat(departmentAOnly).containsExactlyInAnyOrder(departmentA, departmentB);
 
         List<DepartmentAttendanceRate> departmentRates =
                 reportRepository.listAuthorizedDepartmentAttendanceRates(
@@ -880,6 +882,9 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 mock(AttendanceReportExportEncoder.class);
         AuditService audit = mock(AuditService.class);
         CurrentPrincipalProvider principal = () -> PRINCIPAL;
+        when(capabilities.currentCapabilities()).thenReturn(Set.of(
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_EXPORT_CREATE));
         when(encoder.encode(any(), any(ExportContext.class))).thenReturn(
                 new EncodedExport(
                         "application/octet-stream",
@@ -1493,6 +1498,13 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
 
     private static final List<String> REPORTING_SCHEMA = List.of(
             """
+            CREATE TABLE IF NOT EXISTS oa_attendance_document (
+                oa_attendance_document_id VARCHAR(36) PRIMARY KEY,
+                source_business_key VARCHAR(191),
+                overtime_type VARCHAR(32)
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS attendance_report_projection (
                 attendance_report_projection_id VARCHAR(36) PRIMARY KEY,
                 company_id VARCHAR(36) NOT NULL,
@@ -1563,7 +1575,9 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 interval_end TIMESTAMP,
                 recognized_minutes BIGINT NOT NULL,
                 source_status VARCHAR(32) NOT NULL,
-                source_version VARCHAR(128) NOT NULL
+                source_version VARCHAR(128) NOT NULL,
+                recognized_minutes_by_date_json VARCHAR(16000),
+                allocation_semantics VARCHAR(64)
             )
             """,
             """

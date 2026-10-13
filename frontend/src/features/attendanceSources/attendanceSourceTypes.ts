@@ -56,7 +56,7 @@ export interface OaDocumentView {
   sourceDocumentId: string;
   sourceVersion: string;
   documentType: string;
-  sourceStatus: 'APPROVED' | 'DRAFT' | 'REJECTED' | 'UNKNOWN' | 'MODIFIED' | 'SUPPLEMENTED' | 'REVOKED';
+  sourceStatus: 'APPROVED' | 'PENDING' | 'DRAFT' | 'REJECTED' | 'UNKNOWN' | 'MODIFIED' | 'SUPPLEMENTED' | 'REVOKED';
   effectiveCandidate: boolean;
   employeeNumber: string | null;
   intervalStart: string | null;

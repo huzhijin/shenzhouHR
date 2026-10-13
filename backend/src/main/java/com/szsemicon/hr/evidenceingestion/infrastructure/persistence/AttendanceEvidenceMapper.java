@@ -23,6 +23,57 @@ interface AttendanceEvidenceMapper {
             @Param("sourceBusinessKey") String sourceBusinessKey,
             @Param("sourceVersion") String sourceVersion);
 
+    EvidenceRows.OaObservationRow findLatestOaObservation(
+            @Param("sourceId") String sourceId,
+            @Param("sourceBusinessKey") String sourceBusinessKey,
+            @Param("resolvedOnly") boolean resolvedOnly);
+
+    List<String> findOaBusinessKeysOverlapping(
+            @Param("sourceId") String sourceId,
+            @Param("fromInclusive") Instant fromInclusive,
+            @Param("toExclusive") Instant toExclusive);
+
+    List<EvidenceRows.MissingOaKeyScopeRow> findMissingOaKeyScopeRows(
+            @Param("sourceId") String sourceId,
+            @Param("targetCompanyId") String targetCompanyId,
+            @Param("sourceBusinessKeys") List<String> sourceBusinessKeys);
+
+    List<EvidenceRows.MissingOaKeyScopeRow> findMissingOaKeyEmployeeScopeRows(
+            @Param("sourceId") String sourceId,
+            @Param("targetCompanyId") String targetCompanyId,
+            @Param("targetEmployeeIds") List<String> targetEmployeeIds,
+            @Param("sourceBusinessKeys") List<String> sourceBusinessKeys);
+
+    List<String> findReportEmployeeNumbers(
+            @Param("companyId") String companyId,
+            @Param("targetEmployeeIds") List<String> targetEmployeeIds);
+
+    List<EvidenceRows.MissingOaCurrentEligibilityRow> findMissingOaCurrentEligibilityRows(
+            @Param("sourceId") String sourceId,
+            @Param("targetCompanyId") String targetCompanyId,
+            @Param("targetEmployeeIds") List<String> targetEmployeeIds,
+            @Param("sourceBusinessKeys") List<String> sourceBusinessKeys,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    List<EvidenceRows.MissingOaCompanyCurrentEligibilityRow> findMissingOaCompanyCurrentEligibilityRows(
+            @Param("sourceId") String sourceId,
+            @Param("targetCompanyId") String targetCompanyId,
+            @Param("sourceBusinessKeys") List<String> sourceBusinessKeys,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    List<EvidenceRows.UnparseableLeaveScopeRow> findUnparseableLeaveScopeRows(
+            @Param("sourceId") String sourceId,
+            @Param("targetCompanyId") String targetCompanyId,
+            @Param("sourceBusinessKeys") List<String> sourceBusinessKeys);
+
+    List<EvidenceRows.UnparseableLeaveScopeRow> findUnparseableLeaveEmployeeScopeRows(
+            @Param("sourceId") String sourceId,
+            @Param("targetCompanyId") String targetCompanyId,
+            @Param("targetEmployeeIds") List<String> targetEmployeeIds,
+            @Param("sourceBusinessKeys") List<String> sourceBusinessKeys);
+
+    List<String> findCompanyEmployeeNumbers(@Param("companyId") String companyId);
+
     EvidenceRows.ReplayStateRow findReplayStateBySourceIdentity(
             @Param("sourceId") String sourceId,
             @Param("sourceBusinessKey") String sourceBusinessKey,
@@ -34,9 +85,17 @@ interface AttendanceEvidenceMapper {
 
     void insertRawFact(EvidenceRows.RawFactRow row);
 
+    int insertRawFacts(@Param("rows") List<EvidenceRows.RawFactRow> rows);
+
     void insertNormalizedRecord(EvidenceRows.NormalizedRecordRow row);
 
+    int insertNormalizedRecords(
+            @Param("rows") List<EvidenceRows.NormalizedRecordRow> rows);
+
     void insertMatchDecision(EvidenceRows.MatchDecisionRow row);
+
+    int insertMatchDecisions(
+            @Param("rows") List<EvidenceRows.MatchDecisionRow> rows);
 
     List<EvidenceRows.EffectiveEventRow> findExactEvents(
             @Param("companyId") String companyId,

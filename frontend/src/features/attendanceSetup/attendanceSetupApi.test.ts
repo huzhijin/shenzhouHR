@@ -38,6 +38,7 @@ vi.mock('../../shared/config/runtimeMode', () => ({
 
 describe('attendance setup API boundary', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     runtimeMode.demo = false;
   });
@@ -491,6 +492,9 @@ describe('attendance setup API boundary', () => {
   });
 
   it('keeps every exported attendance API data-driven and network-free in demo mode', async () => {
+    // Keep the demo's fixed 2026 lifecycle fixtures in their intended future window.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-15T08:00:00Z'));
     runtimeMode.demo = true;
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

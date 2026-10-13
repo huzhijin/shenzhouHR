@@ -40,7 +40,7 @@ import org.springframework.stereotype.Component;
  * 3 = approved/ended; NULL = draft; 0 = pending; 2 = revoked.
  * Live {@code col_summary} has no {@code lastmodifydate}; the page cursor
  * uses {@code COALESCE(finish_date, start_date, create_date)}.
- * Only state=3 (approved) records are marked effectiveCandidate=true. State
+ * State=3 (approved) and state=0 (pending) can cover attendance. State
  * transitions 0/2 are still versioned into the immutable evidence chain so a
  * later cancellation supersedes an earlier approval during latest-version
  * projection; drafts without a stable state/version are skipped fail-closed.
@@ -105,14 +105,35 @@ public final class OaMysqlAttendanceDocumentAdapter
                 m.field0099         AS original_leave_serial,
                 m.field0086         AS actual_start_dt,
                 m.field0087         AS actual_end_dt,
+                m.field0100         AS revocation_type_id,
+                cancellation_type.showvalue AS revocation_type_label,
                 cs.state            AS approval_state,
                 COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
             FROM formmain_0370 m
+            LEFT JOIN ctp_enum_item cancellation_type
+                ON cancellation_type.id = m.field0100
             LEFT JOIN col_summary cs
                 ON cs.form_recordid = m.id
             WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND m.id > ?))
             ORDER BY COALESCE(cs.finish_date, cs.start_date, cs.create_date), m.id
             LIMIT ?
+            """;
+
+    // Live OA enum verified 2026-10-04: this is "cancel leave", not a
+    // leave-category enum. Blank actual endpoints alone never prove full cancellation.
+    private static final long CANCEL_LEAVE_ENUM_ID = 5457595020900320516L;
+    private static final String CANCEL_LEAVE_LABEL = "取消请假";
+    private static final String CANCELLATION_ORIGINAL_SQL = """
+            SELECT original.id AS original_id,
+                   original.field0097 AS original_serial,
+                   original.field0083 AS original_member_id,
+                   original.field0084 AS original_employee_code,
+                   original.field0086 AS original_start_dt,
+                   original.field0087 AS original_end_dt
+            FROM formmain_0170 original
+            WHERE original.field0097 = ?
+            ORDER BY original.id
+            LIMIT 2
             """;
 
     /* ------------------------------------------------------------------ */
@@ -156,7 +177,6 @@ public final class OaMysqlAttendanceDocumentAdapter
             JOIN col_summary cs
                 ON cs.form_recordid = m.id
             WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND s.id > ?))
-              AND cs.state IN (0, 2, 3)
             ORDER BY COALESCE(cs.finish_date, cs.start_date, cs.create_date), s.id
             LIMIT ?
             """;
@@ -179,7 +199,6 @@ public final class OaMysqlAttendanceDocumentAdapter
             JOIN col_summary cs
                 ON cs.form_recordid = m.id
             WHERE (COALESCE(cs.finish_date, cs.start_date, cs.create_date) > ? OR (COALESCE(cs.finish_date, cs.start_date, cs.create_date) = ? AND s.id > ?))
-              AND cs.state IN (0, 2, 3)
               AND s.field0132 IS NOT NULL
               AND s.field0134 IS NOT NULL
               AND DATE(s.field0132) <= DATE(s.field0134)
@@ -208,63 +227,36 @@ public final class OaMysqlAttendanceDocumentAdapter
             LIMIT ?
             """;
 
-    private static final String LEAVE_WINDOW_SQL = """
-            SELECT
-                m.id                AS form_id,
-                m.field0083         AS member_id,
-                m.field0084         AS employee_code,
-                m.field0097         AS leave_serial,
-                m.field0086         AS start_dt,
-                m.field0087         AS end_dt,
-                e.showvalue         AS leave_type_label,
-                cs.state            AS approval_state,
-                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
-            FROM formmain_0170 m
-            LEFT JOIN ctp_enum_item e
-                ON e.id = m.field0089
-            LEFT JOIN col_summary cs
-                ON cs.form_recordid = m.id
-            WHERE m.field0086 >= ? AND m.field0086 < ?
-            ORDER BY m.id
+    private static final String LEAVE_WINDOW_SQL = selectFrom(LEAVE_SQL)
+            + " WHERE m.field0086 < ? AND m.field0087 > ? ORDER BY m.id";
+    private static final String OVERTIME_WINDOW_SQL = selectFrom(OVERTIME_SQL)
+            + " WHERE s.field0100 < ? AND s.field0099 > ? ORDER BY s.id";
+    private static final String OUTING_WINDOW_SQL = selectFrom(OUTING_SQL)
+            + " WHERE s.field0132 < ? AND s.field0135 > ? ORDER BY s.id";
+    private static final String EXEMPT_WINDOW_SQL = selectFrom(EXEMPT_PUNCH_SQL)
+            + " WHERE DATE(s.field0132) < DATE(?) AND DATE(s.field0134) >= DATE(?) ORDER BY s.id";
+    private static final String CORRECTION_WINDOW_SQL = selectFrom(PUNCH_CORRECTION_SQL)
+            + " WHERE s.field0132 < ? AND s.field0132 >= ? ORDER BY s.id";
+    private static final String REVOCATION_WINDOW_SQL = selectFrom(LEAVE_REVOCATION_SQL) + """
+             WHERE (m.field0086 < ? AND COALESCE(m.field0087, m.field0086) >= ?)
+                OR EXISTS (
+                    SELECT 1 FROM formmain_0170 original
+                    WHERE original.field0086 < ? AND original.field0087 > ?
+                      AND (original.field0083 = m.field0083
+                           OR ((m.field0083 IS NULL OR TRIM(m.field0083) = '')
+                               AND m.field0084 IS NOT NULL AND TRIM(m.field0084) <> ''
+                               AND original.field0084 = m.field0084))
+                      AND ((m.field0099 IS NOT NULL AND TRIM(m.field0099) <> ''
+                            AND TRIM(original.field0097) = TRIM(m.field0099))
+                           OR ((m.field0099 IS NULL OR TRIM(m.field0099) = '')
+                               AND m.field0086 >= original.field0086
+                               AND COALESCE(m.field0087, m.field0086) <= original.field0087)))
+             ORDER BY m.id
             """;
 
-    private static final String OVERTIME_WINDOW_SQL = """
-            SELECT
-                s.id                AS form_id,
-                s.field0093         AS member_id,
-                s.field0094         AS employee_code,
-                s.field0100         AS start_dt,
-                s.field0099         AS end_dt,
-                s.field0096         AS overtime_type_id,
-                cs.state            AS approval_state,
-                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
-            FROM formson_0172 s
-            JOIN formmain_0171 m
-                ON m.id = s.formmain_id
-            LEFT JOIN col_summary cs
-                ON cs.form_recordid = m.id
-            WHERE s.field0100 >= ? AND s.field0100 < ?
-            ORDER BY s.id
-            """;
-
-    private static final String OUTING_WINDOW_SQL = """
-            SELECT
-                s.id                AS form_id,
-                s.field0127         AS member_id,
-                s.field0131         AS employee_code,
-                s.field0132         AS start_dt,
-                s.field0135         AS end_dt,
-                cs.state            AS approval_state,
-                COALESCE(cs.finish_date, cs.start_date, cs.create_date)   AS last_modified
-            FROM formson_0252 s
-            JOIN formmain_0251 m
-                ON m.id = s.formmain_id
-            JOIN col_summary cs
-                ON cs.form_recordid = m.id
-            WHERE s.field0132 >= ? AND s.field0132 < ?
-              AND cs.state IN (0, 2, 3)
-            ORDER BY s.id
-            """;
+    private static String selectFrom(String pagedSql) {
+        return pagedSql.substring(0, pagedSql.indexOf("WHERE"));
+    }
 
     private final OaReadOnlyConnectionProvider connections;
     private final int queryTimeoutSeconds;
@@ -379,9 +371,12 @@ public final class OaMysqlAttendanceDocumentAdapter
                 LocalDateTime.ofInstant(toExclusive, sourceZone));
         List<OaDocumentRecord> records = new ArrayList<>();
         try (Connection conn = connections.openConnection()) {
-            records.addAll(fetchLeaveWindow(conn, fromTs, toTs));
-            records.addAll(fetchOvertimeWindow(conn, fromTs, toTs));
-            records.addAll(fetchOutingWindow(conn, fromTs, toTs));
+            records.addAll(fetchWindow(conn, LEAVE_WINDOW_SQL, DocumentType.LEAVE, fromTs, toTs, false));
+            records.addAll(fetchWindow(conn, REVOCATION_WINDOW_SQL, DocumentType.LEAVE_REVOCATION, fromTs, toTs, true));
+            records.addAll(fetchWindow(conn, OVERTIME_WINDOW_SQL, DocumentType.OVERTIME, fromTs, toTs, false));
+            records.addAll(fetchWindow(conn, OUTING_WINDOW_SQL, DocumentType.OUTING, fromTs, toTs, false));
+            records.addAll(fetchWindow(conn, EXEMPT_WINDOW_SQL, DocumentType.EXEMPT_PUNCH, fromTs, toTs, false));
+            records.addAll(fetchWindow(conn, CORRECTION_WINDOW_SQL, DocumentType.PUNCH_CORRECTION, fromTs, toTs, false));
         } catch (OaReadOnlyQueryException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -393,10 +388,6 @@ public final class OaMysqlAttendanceDocumentAdapter
         }
         records.removeIf(record ->
                 record.end() != null && record.end().isBefore(syncNotBefore));
-        records.removeIf(record ->
-                record.start() == null
-                        || record.start().isBefore(fromInclusive)
-                        || !record.start().isBefore(toExclusive));
         return List.copyOf(records);
     }
 
@@ -429,10 +420,7 @@ public final class OaMysqlAttendanceDocumentAdapter
                     nextCursor = nextCursor.advance(modified, formId);
                     String sourceVersion = sourceVersion(modified, state);
 
-                    if (memberIdStr == null
-                            || start == null
-                            || end == null
-                            || sourceVersion == null) {
+                    if (sourceVersion == null) {
                         continue;
                     }
 
@@ -444,14 +432,12 @@ public final class OaMysqlAttendanceDocumentAdapter
                         log.warn("未知或缺失请假类型，已隔离: recordId={}, label={}",
                                 formId, leaveTypeLabel);
                     }
-                    boolean effective = leaveType != null && (status == SourceStatus.APPROVED
-                            || status == SourceStatus.MODIFIED
-                            || status == SourceStatus.SUPPLEMENTED);
+                    boolean effective = leaveType != null && attendanceEffective(status);
 
                     result.add(new OaDocumentRecord(
                             "LEAVE:" + formId,
                             sourceVersion,
-                            memberIdStr.trim(),
+                            trimToNull(memberIdStr),
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.LEAVE,
                             status,
@@ -490,10 +476,9 @@ public final class OaMysqlAttendanceDocumentAdapter
                 while (rs.next()) {
                     String memberIdStr = rs.getString("member_id");
                     String employeeCode = rs.getString("employee_code");
-                    Instant start = OaSourceDateTimes.wallClock(
-                            rs, "actual_start_dt");
-                    Instant end = OaSourceDateTimes.wallClock(
-                            rs, "actual_end_dt");
+                    var actualInterval = readRevocationInterval(rs, conn);
+                    Instant start = actualInterval.start();
+                    Instant end = actualInterval.end();
                     Integer state = nullableInt(rs, "approval_state");
                     Timestamp modified = rs.getTimestamp("last_modified");
                     long formId = rs.getLong("form_id");
@@ -501,10 +486,7 @@ public final class OaMysqlAttendanceDocumentAdapter
                     nextCursor = nextCursor.advance(modified, formId);
                     String sourceVersion = sourceVersion(modified, state);
 
-                    if (memberIdStr == null
-                            || start == null
-                            || end == null
-                            || sourceVersion == null) {
+                    if (sourceVersion == null) {
                         continue;
                     }
 
@@ -514,7 +496,7 @@ public final class OaMysqlAttendanceDocumentAdapter
                     result.add(new OaDocumentRecord(
                             "LEAVE_REVOCATION:" + formId,
                             sourceVersion,
-                            memberIdStr.trim(),
+                            trimToNull(memberIdStr),
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.LEAVE_REVOCATION,
                             status,
@@ -577,21 +559,18 @@ public final class OaMysqlAttendanceDocumentAdapter
                                 formId);
                     }
 
-                    if (memberIdStr == null
-                            || start == null
-                            || end == null
-                            || sourceVersion == null) {
+                    if (sourceVersion == null) {
                         continue;
                     }
 
                     SourceStatus status = oaStateToStatus(state);
-                    boolean effective = status == SourceStatus.APPROVED
+                    boolean effective = attendanceEffective(status)
                             && overtimeType != null;
 
                     result.add(new OaDocumentRecord(
                             "OVERTIME:" + formId,
                             sourceVersion,
-                            memberIdStr.trim(),
+                            trimToNull(memberIdStr),
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.OVERTIME,
                             status,
@@ -636,21 +615,17 @@ public final class OaMysqlAttendanceDocumentAdapter
                     nextCursor = nextCursor.advance(modified, formId);
                     String sourceVersion = sourceVersion(modified, state);
 
-                    if (state == null
-                            || memberIdStr == null
-                            || start == null
-                            || end == null
-                            || sourceVersion == null) {
+                    if (sourceVersion == null) {
                         continue;
                     }
 
                     SourceStatus status = oaStateToStatus(state);
-                    boolean effective = status == SourceStatus.APPROVED;
+                    boolean effective = attendanceEffective(status);
 
                     result.add(new OaDocumentRecord(
                             "OUTING:" + formId,
                             sourceVersion,
-                            memberIdStr.trim(),
+                            trimToNull(memberIdStr),
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.OUTING,
                             status,
@@ -700,21 +675,17 @@ public final class OaMysqlAttendanceDocumentAdapter
                     nextCursor = nextCursor.advance(modified, formId);
                     String sourceVersion = sourceVersion(modified, state);
 
-                    if (state == null
-                            || memberIdStr == null
-                            || start == null
-                            || end == null
-                            || sourceVersion == null) {
+                    if (sourceVersion == null) {
                         continue;
                     }
 
                     SourceStatus status = oaStateToStatus(state);
-                    boolean effective = status == SourceStatus.APPROVED;
+                    boolean effective = attendanceEffective(status);
 
                     result.add(new OaDocumentRecord(
                             "EXEMPT_PUNCH:" + formId,
                             sourceVersion,
-                            memberIdStr.trim(),
+                            trimToNull(memberIdStr),
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.EXEMPT_PUNCH,
                             status,
@@ -768,12 +739,12 @@ public final class OaMysqlAttendanceDocumentAdapter
                     }
 
                     SourceStatus status = oaStateToStatus(state);
-                    boolean effective = status == SourceStatus.APPROVED;
+                    boolean effective = attendanceEffective(status);
 
                     result.add(new OaDocumentRecord(
                             "PUNCH_CORRECTION:" + formId,
                             sourceVersion,
-                            memberIdStr.trim(),
+                            trimToNull(memberIdStr),
                             employeeCode != null ? employeeCode.trim() : null,
                             DocumentType.PUNCH_CORRECTION,
                             status,
@@ -792,183 +763,277 @@ public final class OaMysqlAttendanceDocumentAdapter
         return new FetchBatch(result, nextCursor, scannedCount);
     }
 
-    private List<OaDocumentRecord> fetchLeaveWindow(
-            Connection conn, Timestamp fromTs, Timestamp toTs)
-            throws Exception {
-        List<OaDocumentRecord> result = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement(LEAVE_WINDOW_SQL)) {
-            ps.setQueryTimeout(queryTimeoutSeconds);
-            ps.setTimestamp(1, fromTs);
-            ps.setTimestamp(2, toTs);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String memberIdStr = rs.getString("member_id");
-                    String employeeCode = rs.getString("employee_code");
-                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
-                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
-                    Integer state = nullableInt(rs, "approval_state");
-                    Timestamp modified = rs.getTimestamp("last_modified");
-                    long formId = rs.getLong("form_id");
-                    String sourceVersion = sourceVersion(modified, state);
-                    if (memberIdStr == null
-                            || start == null
-                            || end == null
-                            || sourceVersion == null) {
-                        continue;
-                    }
-                    SourceStatus status = oaStateToStatus(state);
-                    String leaveTypeLabel = rs.getString("leave_type_label");
-                    LeaveType leaveType = LeaveType.fromLeaveCode(
-                            OaLeaveTypeShowValueCatalog.resolveLeaveCode(
-                                    leaveTypeLabel));
-                    boolean effective = leaveType != null
-                            && (status == SourceStatus.APPROVED
-                                    || status == SourceStatus.MODIFIED
-                                    || status == SourceStatus.SUPPLEMENTED);
-                    result.add(new OaDocumentRecord(
-                            "LEAVE:" + formId,
-                            sourceVersion,
-                            memberIdStr.trim(),
-                            employeeCode != null ? employeeCode.trim() : null,
-                            DocumentType.LEAVE,
-                            status,
-                            start,
-                            end,
-                            sourceTimeZone,
-                            modified != null ? modified.toInstant() : null,
-                            status == SourceStatus.APPROVED
-                                    ? modified != null
-                                            ? modified.toInstant() : null
-                                    : null,
-                            null,
-                            status == SourceStatus.REVOKED && modified != null
-                                    ? modified.toInstant() : null,
-                            "OA_LEAVE_BATCH",
-                            effective,
-                            null,
-                            leaveType,
-                            trimToNull(rs.getString("leave_serial")),
-                            null));
-                }
-            }
+    @Override
+    public boolean hasNoLeaveRevocationsForSerial(String sourceId, String leaveSerial) {
+        if (leaveSerial == null || leaveSerial.isBlank() || !leaveSerial.equals(leaveSerial.strip())) return false;
+        // No status/date/person filter: a moved or unresolved amendment still
+        // prevents isolating an unparseable original. Blank serials cannot prove
+        // absence because legacy matching can use subject/interval instead.
+        String sql = "SELECT 1 FROM formmain_0370 WHERE field0099 IS NULL OR TRIM(field0099) = '' "
+                + "OR TRIM(field0099) = TRIM(?) LIMIT 1";
+        try (Connection connection = connections.openConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setQueryTimeout(queryTimeoutSeconds);
+            statement.setString(1, leaveSerial);
+            try (ResultSet rows = statement.executeQuery()) { return !rows.next(); }
+        } catch (Exception unavailable) {
+            throw new OaReadOnlyQueryException("OA_DOCUMENT_FETCH_FAILED", "OA amendment absence could not be verified");
         }
-        return result;
     }
 
-    private List<OaDocumentRecord> fetchOvertimeWindow(
-            Connection conn, Timestamp fromTs, Timestamp toTs)
-            throws Exception {
-        List<OaDocumentRecord> result = new ArrayList<>();
-        try (PreparedStatement ps =
-                conn.prepareStatement(OVERTIME_WINDOW_SQL)) {
-            ps.setQueryTimeout(queryTimeoutSeconds);
-            ps.setTimestamp(1, fromTs);
-            ps.setTimestamp(2, toTs);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String memberIdStr = rs.getString("member_id");
-                    String employeeCode = rs.getString("employee_code");
-                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
-                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
-                    Integer state = nullableInt(rs, "approval_state");
-                    Timestamp modified = rs.getTimestamp("last_modified");
-                    long formId = rs.getLong("form_id");
-                    String sourceVersion = sourceVersion(modified, state);
-                    Long overtimeTypeId = nullableLong(
-                            rs, "overtime_type_id");
-                    OvertimeType overtimeType =
-                            OvertimeType.fromOaEnumId(overtimeTypeId);
-                    if (memberIdStr == null
-                            || start == null
-                            || end == null
-                            || sourceVersion == null) {
-                        continue;
-                    }
-                    SourceStatus status = oaStateToStatus(state);
-                    result.add(new OaDocumentRecord(
-                            "OVERTIME:" + formId,
-                            sourceVersion,
-                            memberIdStr.trim(),
-                            employeeCode != null ? employeeCode.trim() : null,
-                            DocumentType.OVERTIME,
-                            status,
-                            start,
-                            end,
-                            sourceTimeZone,
-                            modified != null ? modified.toInstant() : null,
-                            status == SourceStatus.APPROVED
-                                    ? modified != null
-                                            ? modified.toInstant() : null
-                                    : null,
-                            null,
-                            null,
-                            "OA_OVERTIME_BATCH",
-                            status == SourceStatus.APPROVED
-                                    && overtimeType != null,
-                            overtimeType));
-                }
-            }
+    @Override
+    public OvertimeDocumentPresence checkOvertimeDocumentPresence(String sourceId, long overtimeDetailId) {
+        if (!SHARED_SOURCE_ID.equals(sourceId)) {
+            return OvertimeDocumentPresence.UNSUPPORTED;
         }
-        return result;
+        String detailSql = "SELECT 1 FROM formson_0172 WHERE id = ? LIMIT 1";
+        try (Connection connection = connections.openConnection();
+                PreparedStatement statement = connection.prepareStatement(detailSql)) {
+            statement.setQueryTimeout(queryTimeoutSeconds);
+            statement.setLong(1, overtimeDetailId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? OvertimeDocumentPresence.PRESENT : OvertimeDocumentPresence.ABSENT;
+            }
+        } catch (Exception unavailable) {
+            log.error("OA overtime document existence check failed for id={}", overtimeDetailId, unavailable);
+            return OvertimeDocumentPresence.ERROR;
+        }
     }
 
-    private List<OaDocumentRecord> fetchOutingWindow(
-            Connection conn, Timestamp fromTs, Timestamp toTs)
-            throws Exception {
-        List<OaDocumentRecord> result = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement(OUTING_WINDOW_SQL)) {
-            ps.setQueryTimeout(queryTimeoutSeconds);
-            ps.setTimestamp(1, fromTs);
-            ps.setTimestamp(2, toTs);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String memberIdStr = rs.getString("member_id");
-                    String employeeCode = rs.getString("employee_code");
-                    Instant start = OaSourceDateTimes.wallClock(rs, "start_dt");
-                    Instant end = OaSourceDateTimes.wallClock(rs, "end_dt");
-                    Integer state = nullableInt(rs, "approval_state");
-                    Timestamp modified = rs.getTimestamp("last_modified");
-                    long formId = rs.getLong("form_id");
-                    String sourceVersion = sourceVersion(modified, state);
-                    if (state == null
-                            || memberIdStr == null
-                            || start == null
-                            || end == null
-                            || sourceVersion == null) {
+    private static final String SHARED_SOURCE_ID = "e05866a7-97b0-11f1-8924-00155d09fd0e";
+
+    @Override
+    public List<OaDocumentRecord> fetchByBusinessKeys(String sourceId, List<String> sourceBusinessKeys) {
+        if (sourceBusinessKeys == null || sourceBusinessKeys.isEmpty()) { return List.of(); }
+        java.util.Map<DocumentType, java.util.Set<Long>> grouped = new java.util.EnumMap<>(DocumentType.class);
+        for (String key : sourceBusinessKeys) {
+            if (key == null || !key.matches("(LEAVE|LEAVE_REVOCATION|OVERTIME|OUTING|EXEMPT_PUNCH|PUNCH_CORRECTION):-?[0-9]+")) {
+                throw new OaReadOnlyQueryException("OA_DOCUMENT_KEY_INVALID", "OA document identity is invalid");
+            }
+            int separator = key.indexOf(':');
+            try {
+                grouped.computeIfAbsent(DocumentType.valueOf(key.substring(0, separator)),
+                        ignored -> new java.util.LinkedHashSet<>()).add(Long.parseLong(key.substring(separator + 1)));
+            } catch (IllegalArgumentException exception) {
+                throw new OaReadOnlyQueryException("OA_DOCUMENT_KEY_INVALID", "OA document identity is invalid");
+            }
+        }
+        List<OaDocumentRecord> records = new ArrayList<>();
+        try (Connection connection = connections.openConnection()) {
+            for (var entry : grouped.entrySet()) {
+                String sourceSql = switch (entry.getKey()) {
+                    case LEAVE -> LEAVE_SQL;
+                    case LEAVE_REVOCATION -> LEAVE_REVOCATION_SQL;
+                    case OVERTIME -> OVERTIME_SQL;
+                    case OUTING -> OUTING_SQL;
+                    case EXEMPT_PUNCH -> EXEMPT_PUNCH_SQL;
+                    case PUNCH_CORRECTION -> PUNCH_CORRECTION_SQL;
+                    default -> throw new IllegalStateException("unsupported OA family");
+                };
+                String alias = entry.getKey() == DocumentType.LEAVE || entry.getKey() == DocumentType.LEAVE_REVOCATION ? "m" : "s";
+                List<Long> ids = List.copyOf(entry.getValue());
+                for (int offset = 0; offset < ids.size(); offset += PAGE_SIZE) {
+                    List<Long> batch = ids.subList(offset, Math.min(ids.size(), offset + PAGE_SIZE));
+                    var missing = new java.util.LinkedHashSet<>(batch);
+                    String sql = selectFrom(sourceSql) + " WHERE " + alias + ".id IN ("
+                            + String.join(",", java.util.Collections.nCopies(batch.size(), "?")) + ") ORDER BY " + alias + ".id";
+                    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                        statement.setQueryTimeout(queryTimeoutSeconds);
+                        for (int index = 0; index < batch.size(); index++) { statement.setLong(index + 1, batch.get(index)); }
+                        try (ResultSet rows = statement.executeQuery()) {
+                            while (rows.next()) {
+                                records.add(readDocument(rows, entry.getKey(), connection));
+                                missing.remove(rows.getLong("form_id"));
+                            }
+                        }
+                    }
+                    records.addAll(fetchMissingDocumentTombstones(connection, entry.getKey(), List.copyOf(missing)));
+                }
+            }
+            return List.copyOf(records);
+        } catch (Exception exception) {
+            throw new OaReadOnlyQueryException("OA_DOCUMENT_FETCH_FAILED", "OA identity refresh failed: " + exception.getMessage());
+        }
+    }
+
+    /**
+     * Missing source rows are not cancellations. Only a surviving, unambiguous
+     * revoked workflow for the exact absent main-form identity can prove one.
+     * Detail families require a verified historical detail-to-parent relation;
+     * until that evidence is available they remain missing and block refresh.
+     */
+    private List<OaDocumentRecord> fetchMissingDocumentTombstones(
+            Connection connection, DocumentType type, List<Long> missingIds) throws Exception {
+        String mainTable = switch (type) {
+            case LEAVE -> "formmain_0170";
+            case LEAVE_REVOCATION -> "formmain_0370";
+            default -> null;
+        };
+        if (mainTable == null || missingIds.isEmpty()) { return List.of(); }
+        String sql = "SELECT cs.form_recordid, cs.state, cs.create_date, cs.start_date, cs.finish_date "
+                + "FROM col_summary cs WHERE cs.form_recordid IN ("
+                + String.join(",", java.util.Collections.nCopies(missingIds.size(), "?"))
+                + ") AND NOT EXISTS (SELECT 1 FROM " + mainTable + " m WHERE m.id = cs.form_recordid)";
+        var summaries = new java.util.TreeMap<Long, List<String>>();
+        var ambiguous = new java.util.HashSet<Long>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setQueryTimeout(queryTimeoutSeconds);
+            for (int index = 0; index < missingIds.size(); index++) { statement.setLong(index + 1, missingIds.get(index)); }
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    long id = rows.getLong("form_recordid");
+                    if (!Integer.valueOf(2).equals(nullableInt(rows, "state"))) {
+                        // Never hide a conflicting workflow by filtering state in SQL.
+                        ambiguous.add(id);
                         continue;
                     }
-                    SourceStatus status = oaStateToStatus(state);
-                    result.add(new OaDocumentRecord(
-                            "OUTING:" + formId,
-                            sourceVersion,
-                            memberIdStr.trim(),
-                            employeeCode != null ? employeeCode.trim() : null,
-                            DocumentType.OUTING,
-                            status,
-                            start,
-                            end,
-                            sourceTimeZone,
-                            modified != null ? modified.toInstant() : null,
-                            status == SourceStatus.APPROVED && modified != null
-                                    ? modified.toInstant() : null,
-                            null,
-                            status == SourceStatus.REVOKED && modified != null
-                                    ? modified.toInstant() : null,
-                            "OA_OUTING_BATCH",
-                            status == SourceStatus.APPROVED));
+                    String evidence = summaryTimestamp(rows, "create_date") + "|"
+                            + summaryTimestamp(rows, "start_date") + "|" + summaryTimestamp(rows, "finish_date");
+                    summaries.computeIfAbsent(id, ignored -> new ArrayList<>()).add(evidence);
                 }
             }
         }
-        return result;
+        List<OaDocumentRecord> records = new ArrayList<>();
+        for (var entry : summaries.entrySet()) {
+            if (ambiguous.contains(entry.getKey())) { continue; }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            updateDigest(digest, "OA_MISSING_MAIN_REVOKED_V1");
+            updateDigest(digest, mainTable);
+            updateDigest(digest, Long.toString(entry.getKey()));
+            updateDigest(digest, "state=2");
+            entry.getValue().stream().sorted().forEach(evidence -> updateDigest(digest, evidence));
+            // No source interval or person is invented. The ingestion transaction
+            // inherits those fields only from this same key's accepted observation.
+            records.add(new OaDocumentRecord(type.name() + ":" + entry.getKey(),
+                    "OA_MAIN_REVOKED:" + HexFormat.of().formatHex(digest.digest()),
+                    null, null, type, SourceStatus.REVOKED, null, null, sourceTimeZone,
+                    null, null, null, null, "OA_" + type.name() + "_MISSING_MAIN", false));
+        }
+        return List.copyOf(records);
+    }
+
+    private static String summaryTimestamp(ResultSet rows, String column) throws java.sql.SQLException {
+        Timestamp value = rows.getTimestamp(column);
+        return value == null ? "NULL" : value.toLocalDateTime().toString();
+    }
+
+    private List<OaDocumentRecord> fetchWindow(Connection connection, String sql, DocumentType type,
+            Timestamp from, Timestamp to, boolean relatedOriginal) throws Exception {
+        List<OaDocumentRecord> records = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setQueryTimeout(queryTimeoutSeconds);
+            statement.setTimestamp(1, to);
+            statement.setTimestamp(2, from);
+            if (relatedOriginal) {
+                statement.setTimestamp(3, to);
+                statement.setTimestamp(4, from);
+            }
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) { records.add(readDocument(rows, type, connection)); }
+            }
+        }
+        return records;
+    }
+
+    private record RevocationInterval(Instant start, Instant end) { }
+
+    /** The same explicit cancellation proof is used by cursor and occurrence-window reads. */
+    private RevocationInterval readRevocationInterval(ResultSet row, Connection connection) throws Exception {
+        Instant start = OaSourceDateTimes.wallClock(row, "actual_start_dt");
+        Instant end = OaSourceDateTimes.wallClock(row, "actual_end_dt");
+        var actual = new RevocationInterval(start, end);
+        if (start != null || end != null
+                || !Long.valueOf(CANCEL_LEAVE_ENUM_ID).equals(nullableLong(row, "revocation_type_id"))
+                || !CANCEL_LEAVE_LABEL.equals(row.getString("revocation_type_label"))) {
+            return actual;
+        }
+        String serial = row.getString("original_leave_serial");
+        if (serial == null || serial.isBlank()) return actual;
+        try (PreparedStatement statement = connection.prepareStatement(CANCELLATION_ORIGINAL_SQL)) {
+            statement.setQueryTimeout(queryTimeoutSeconds);
+            statement.setString(1, serial);
+            try (ResultSet original = statement.executeQuery()) {
+                if (!original.next()) return actual;
+                String originalSerial = original.getString("original_serial");
+                String originalMember = original.getString("original_member_id");
+                String originalCode = original.getString("original_employee_code");
+                Instant originalStart = OaSourceDateTimes.wallClock(original, "original_start_dt");
+                Instant originalEnd = OaSourceDateTimes.wallClock(original, "original_end_dt");
+                // Check whole-source serial uniqueness before considering person.
+                // An ambiguous second row must not be hidden by a subject filter.
+                if (original.next() || !serial.equals(originalSerial)
+                        || originalStart == null || originalEnd == null
+                        || !originalStart.isBefore(originalEnd)) return actual;
+                String member = row.getString("member_id");
+                String code = row.getString("employee_code");
+                boolean sameSubject = member != null && !member.isBlank()
+                        ? member.equals(originalMember)
+                        : code != null && !code.isBlank() && code.equals(originalCode);
+                if (!sameSubject) return actual;
+                // Existing calculation semantics interpret an approved zero actual
+                // leave interval as full cancellation. Preserve the OA status: a
+                // revoked/draft cancellation never becomes approved here.
+                return new RevocationInterval(originalStart, originalStart);
+            }
+        }
+    }
+
+    private OaDocumentRecord readDocument(ResultSet row, DocumentType type, Connection connection) throws Exception {
+        Integer state = nullableInt(row, "approval_state");
+        SourceStatus status = oaStateToStatus(state);
+        Timestamp modified = row.getTimestamp("last_modified");
+        Instant start;
+        Instant end;
+        if (type == DocumentType.LEAVE_REVOCATION) {
+            var actualInterval = readRevocationInterval(row, connection);
+            start = actualInterval.start();
+            end = actualInterval.end();
+        } else if (type == DocumentType.EXEMPT_PUNCH) {
+            start = OaSourceDateTimes.inclusiveDateStart(row, "start_date");
+            end = OaSourceDateTimes.inclusiveDateEndExclusive(row, "end_date");
+        } else if (type == DocumentType.PUNCH_CORRECTION) {
+            start = OaSourceDateTimes.wallClock(row, "punch_dt");
+            end = start;
+        } else {
+            start = OaSourceDateTimes.wallClock(row, "start_dt");
+            end = OaSourceDateTimes.wallClock(row, "end_dt");
+        }
+        LeaveType leaveType = type == DocumentType.LEAVE
+                ? LeaveType.fromLeaveCode(OaLeaveTypeShowValueCatalog.resolveLeaveCode(row.getString("leave_type_label"))) : null;
+        OvertimeType overtimeType = type == DocumentType.OVERTIME
+                ? OvertimeType.fromOaEnumId(nullableLong(row, "overtime_type_id")) : null;
+        boolean effective = type == DocumentType.LEAVE_REVOCATION ? status == SourceStatus.APPROVED : attendanceEffective(status);
+        return new OaDocumentRecord(type.name() + ":" + row.getLong("form_id"), refreshSourceVersion(modified, state),
+                trimToNull(row.getString("member_id")), trimToNull(row.getString("employee_code")), type, status,
+                start, end, sourceTimeZone, modified == null ? null : modified.toInstant(),
+                status == SourceStatus.APPROVED && modified != null ? modified.toInstant() : null, null,
+                status == SourceStatus.REVOKED && modified != null ? modified.toInstant() : null,
+                "OA_" + type.name() + "_BATCH", effective && (type != DocumentType.LEAVE || leaveType != null)
+                        && (type != DocumentType.OVERTIME || overtimeType != null),
+                overtimeType, leaveType,
+                type == DocumentType.LEAVE ? trimToNull(row.getString("leave_serial"))
+                        : type == DocumentType.LEAVE_REVOCATION ? trimToNull(row.getString("revocation_serial")) : null,
+                type == DocumentType.LEAVE_REVOCATION ? trimToNull(row.getString("original_leave_serial")) : null);
+    }
+
+    private static String refreshSourceVersion(Timestamp modified, Integer state) {
+        String version = sourceVersion(modified, state);
+        // A known identity with a deleted summary/draft must still supersede its old approval.
+        return version != null ? version : (modified == null ? "NO_TIMESTAMP" : modified.toLocalDateTime().toString())
+                + ":state=" + (state == null ? "NULL" : state) + ":Asia/Shanghai";
     }
 
     /* ------------------------------------------------------------------ */
     /* Helpers                                                             */
     /* ------------------------------------------------------------------ */
 
+    private static boolean attendanceEffective(SourceStatus status) {
+        return com.szsemicon.hr.attendance.domain.OaApprovalStatus.effective(status.name());
+    }
+
     /**
      * Maps col_summary.state to the OA SourceStatus enum.
-     * state=3 → APPROVED, state=2 → REVOKED, state=0 → UNKNOWN (pending),
+     * state=3 → APPROVED, state=2 → REVOKED, state=0 → PENDING,
      * null → DRAFT.
      */
     static SourceStatus oaStateToStatus(Integer state) {
@@ -978,7 +1043,7 @@ public final class OaMysqlAttendanceDocumentAdapter
         return switch (state) {
             case 3 -> SourceStatus.APPROVED;
             case 2 -> SourceStatus.REVOKED;
-            case 0 -> SourceStatus.UNKNOWN;
+            case 0 -> SourceStatus.PENDING;
             default -> SourceStatus.UNKNOWN;
         };
     }

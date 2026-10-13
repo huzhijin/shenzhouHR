@@ -1947,7 +1947,7 @@
                fact.organization_id,
                organization_version.name AS organization_name,
                fact.document_type,
-               COALESCE(document.overtime_type, fact.leave_type_code) AS leave_type,
+               fact.leave_type_code AS leave_type,
                COALESCE(fact.interval_start, fact.point_instant) AS start_at,
                CASE
                    WHEN fact.interval_end IS NOT NULL
@@ -1961,7 +1961,11 @@
                    WHEN document.source_business_key LIKE 'PAPER:%'
                    THEN 'PAPER'
                    ELSE 'OA'
-               END AS sourceOrigin
+               END AS sourceOrigin,
+               fact.allocation_semantics AS allocationSemantics,
+               fact.recognized_minutes_by_date_json AS recognizedMinutesByDateJson,
+               NULL AS hrAdjustmentId,
+               NULL AS hrSourceKind
         FROM attendance_report_oa_fact fact
         JOIN attendance_report_projection projection
           ON projection.attendance_report_projection_id =
@@ -1992,9 +1996,60 @@
                 #{employeeId} IS NULL
                 OR fact.employee_id = #{employeeId}
           )
+        UNION ALL
+        SELECT fact.source_document_key AS document_id,
+               fact.employee_id,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               fact.organization_id,
+               organization_version.name AS organization_name,
+               fact.document_type,
+               fact.leave_type_code AS leave_type,
+               COALESCE(fact.interval_start, fact.point_instant) AS start_at,
+               CASE
+                   WHEN fact.interval_end IS NOT NULL
+                   THEN fact.interval_end
+                   ELSE TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
+               END AS end_exclusive,
+               fact.recognized_minutes,
+               fact.source_status,
+               fact.source_version,
+               'PAPER' AS source_origin,
+               NULL AS allocation_semantics,
+               NULL AS recognized_minutes_by_date_json,
+               fact.hr_adjustment_id,
+               fact.hr_source_kind
+        FROM attendance_report_hr_paper_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+         AND employee_version.employee_id = fact.employee_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+         AND organization_version.organization_id = fact.organization_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          AND <include refid="reportFactVisibility"/>
+          AND COALESCE(fact.interval_start, fact.point_instant)
+              &lt; #{periodEndExclusiveAt}
+          AND COALESCE(
+                  fact.interval_end,
+                  TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
+              ) &gt; #{periodStartAt}
+          AND (
+                <include refid="factInSelectedOrganizationOrDescendant"/>
+          )
+          AND (
+                #{employeeId} IS NULL
+                OR fact.employee_id = #{employeeId}
+          )
         ORDER BY start_at,
-                 employee_version.employee_number,
-                 fact.attendance_report_oa_fact_id
+                 employee_number,
+                 document_id
     </select>
 
     <select id="listNegativeLeaveBalanceExceptions"
@@ -2219,21 +2274,55 @@
     </select>
 
     <sql id="oaFactOverlapsPeriod">
+        <bind name="periodDatePattern" value="@com.szsemicon.hr.reporting.application.OaRecognizedDayMinutes@anyDatePattern(
+            periodStartAt.atZone(@java.time.ZoneId@of('Asia/Shanghai')).toLocalDate(),
+            periodEndExclusiveAt.atZone(@java.time.ZoneId@of('Asia/Shanghai')).toLocalDate())"/>
         (
+            -- Original interval/point overlap (for facts without daymap or NULL daymap)
             (
-                fact.interval_start IS NOT NULL
-                AND fact.interval_start &lt; #{periodEndExclusiveAt}
-                AND COALESCE(
-                        fact.interval_end,
-                        TIMESTAMPADD(MICROSECOND, 1, fact.interval_start))
-                    &gt; #{periodStartAt}
+                (fact.recognized_minutes_by_date_json IS NULL
+                 OR fact.recognized_minutes_by_date_json = '')
+                AND (
+                    (
+                        fact.interval_start IS NOT NULL
+                        AND fact.interval_start &lt; #{periodEndExclusiveAt}
+                        AND COALESCE(
+                                fact.interval_end,
+                                TIMESTAMPADD(MICROSECOND, 1, fact.interval_start))
+                            &gt; #{periodStartAt}
+                    )
+                    OR (
+                        fact.interval_start IS NULL
+                        AND fact.point_instant IS NOT NULL
+                        AND fact.point_instant &lt; #{periodEndExclusiveAt}
+                        AND TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
+                            &gt; #{periodStartAt}
+                    )
+                )
             )
+            -- OR has non-empty daymap matching period dates (including 0 for REST44)
             OR (
-                fact.interval_start IS NULL
-                AND fact.point_instant IS NOT NULL
-                AND fact.point_instant &lt; #{periodEndExclusiveAt}
-                AND TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
-                    &gt; #{periodStartAt}
+                fact.recognized_minutes_by_date_json IS NOT NULL
+                AND fact.recognized_minutes_by_date_json != ''
+                AND fact.recognized_minutes_by_date_json != '{}'
+                AND CONCAT('', fact.recognized_minutes_by_date_json)
+                    REGEXP #{periodDatePattern}
+            )
+            -- OR empty {} with original interval in period (audit trail)
+            OR (
+                fact.recognized_minutes_by_date_json = '{}'
+                AND (
+                    (fact.interval_start IS NOT NULL
+                     AND fact.interval_start &lt; #{periodEndExclusiveAt}
+                     AND COALESCE(fact.interval_end,
+                         TIMESTAMPADD(MICROSECOND, 1, fact.interval_start))
+                         &gt; #{periodStartAt})
+                    OR (fact.interval_start IS NULL
+                        AND fact.point_instant IS NOT NULL
+                        AND fact.point_instant &lt; #{periodEndExclusiveAt}
+                        AND TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
+                            &gt; #{periodStartAt})
+                )
             )
         )
     </sql>
@@ -2378,7 +2467,7 @@
                fact.organization_id,
                organization_version.name AS organization_name,
                fact.document_type,
-               COALESCE(document.overtime_type, fact.leave_type_code) AS leave_type,
+               fact.leave_type_code AS leave_type,
                COALESCE(fact.interval_start, fact.point_instant) AS start_at,
                CASE
                    WHEN fact.interval_end IS NOT NULL
@@ -2392,7 +2481,11 @@
                    WHEN document.source_business_key LIKE 'PAPER:%'
                    THEN 'PAPER'
                    ELSE 'OA'
-               END AS sourceOrigin
+               END AS sourceOrigin,
+               fact.allocation_semantics AS allocationSemantics,
+               fact.recognized_minutes_by_date_json AS recognizedMinutesByDateJson,
+               NULL AS hrAdjustmentId,
+               NULL AS hrSourceKind
         FROM attendance_report_oa_fact fact
         JOIN attendance_report_projection projection
           ON projection.attendance_report_projection_id =
@@ -2407,6 +2500,50 @@
          AND organization_version.organization_id = fact.organization_id
         LEFT JOIN oa_attendance_document document
           ON document.oa_attendance_document_id = fact.oa_attendance_document_id
+        WHERE fact.attendance_report_projection_id = #{projectionId}
+          AND fact.company_id = #{companyId}
+          <include refid="matrixEmployeeIds"/>
+          AND (
+                <include refid="oaFactOverlapsPeriod"/>
+          )
+          AND (
+                <include refid="factInSelectedOrganizationOrDescendant"/>
+          )
+        UNION ALL
+        SELECT fact.source_document_key AS document_id,
+               fact.employee_id,
+               employee_version.employee_number,
+               employee_version.display_name AS employee_name,
+               fact.organization_id,
+               organization_version.name AS organization_name,
+               fact.document_type,
+               fact.leave_type_code AS leave_type,
+               COALESCE(fact.interval_start, fact.point_instant) AS start_at,
+               CASE
+                   WHEN fact.interval_end IS NOT NULL
+                   THEN fact.interval_end
+                   ELSE TIMESTAMPADD(MICROSECOND, 1, fact.point_instant)
+               END AS end_exclusive,
+               fact.recognized_minutes,
+               fact.source_status,
+               fact.source_version,
+               'PAPER' AS source_origin,
+               NULL AS allocation_semantics,
+               NULL AS recognized_minutes_by_date_json,
+               fact.hr_adjustment_id,
+               fact.hr_source_kind
+        FROM attendance_report_hr_paper_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND projection.company_id = fact.company_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+         AND employee_version.employee_id = fact.employee_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+         AND organization_version.organization_id = fact.organization_id
         WHERE fact.attendance_report_projection_id = #{projectionId}
           AND fact.company_id = #{companyId}
           <include refid="matrixEmployeeIds"/>

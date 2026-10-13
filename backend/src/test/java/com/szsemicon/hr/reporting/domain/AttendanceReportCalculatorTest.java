@@ -23,11 +23,44 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class AttendanceReportCalculatorTest {
 
     private final AttendanceReportCalculator calculator =
             new AttendanceReportCalculator();
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PENDING", "APPROVED"})
+    void leaveDetailPreservesIndependentDocumentsWithoutChangingWorkHoursBreakdown(String status) {
+        var base = snapshot(null, "employee-a");
+        var start = Instant.parse("2026-07-01T00:30:00Z");
+        var split = start.plusSeconds(150 * 60);
+        var end = split.plusSeconds(60 * 60);
+        var encompassing = new OaDocumentFact("independent-full", "employee-a", "0007", "陈思远",
+                "organization-a", "制造中心", "LEAVE", "PERSONAL", start, end, 210, status, "oa-v1");
+        var timeOff = new OaDocumentFact("independent-time-off", "employee-a", "0007", "陈思远",
+                "organization-a", "制造中心", "LEAVE", "TIME_OFF", start, split, 150, "APPROVED", "oa-v1");
+        var personal = new OaDocumentFact("independent-personal", "employee-a", "0007", "陈思远",
+                "organization-a", "制造中心", "LEAVE", "PERSONAL", split, end, 60, "APPROVED", "oa-v1");
+        var snapshot = new ReportSourceSnapshot(base.scope(), base.filter(), base.projectionVersion(),
+                base.periodState(), base.dataAsOf(), base.sourceVersions(), List.of(base.dailyFacts().getFirst()),
+                List.of(encompassing, timeOff, personal, encompassing), List.of(), List.of());
+
+        var detail = calculator.calculate(ReportType.LEAVE, snapshot);
+        assertThat(detail.rows()).hasSize(3).extracting(AttendanceReportModels.ReportRow::rowReference)
+                .containsExactlyInAnyOrder("leave:independent-full", "leave:independent-time-off", "leave:independent-personal");
+        assertThat(detail.rows().getFirst().values())
+                .containsEntry(ReportField.DOCUMENT_START, start.toString())
+                .containsEntry(ReportField.DOCUMENT_END, end.toString())
+                .containsEntry(ReportField.RECOGNIZED_HOURS, "3.50");
+        var workHours = calculator.calculate(ReportType.WORK_HOURS, snapshot);
+        assertThat(workHours.rows()).singleElement().satisfies(row -> assertThat(row.values())
+                .containsEntry(ReportField.LEAVE_HOURS, "1.00")
+                .containsEntry(ReportField.TIME_OFF_HOURS, "2.50"));
+        assertThat(snapshot.oaDocumentFacts()).hasSize(4);
+    }
 
     @Test
     void producesAllNineFormalReportsFromAuthorizedSourceFacts() {
@@ -233,6 +266,58 @@ class AttendanceReportCalculatorTest {
     }
 
     @Test
+    void workHoursCarriesVoluntaryOvertimeIncludedInActualWork() {
+        // Actual work = scheduled + paid + voluntary - other leave - annual + compensatory - time off.
+        // Each case shows voluntary overtime on the row with the same value that actual work adds.
+        assertVoluntaryWorkHours(0, "0.00", "7.00");
+        assertVoluntaryWorkHours(90, "1.50", "8.50");
+        assertVoluntaryWorkHours(25, "0.42", "7.42");
+    }
+
+    private void assertVoluntaryWorkHours(int voluntaryMinutes, String voluntaryHours, String actualHours) {
+        ReportSourceSnapshot base = snapshot(null, "employee-a");
+        // Only the first day carries the voluntary minutes, so the month total equals them.
+        List<DailyFact> daily = new java.util.ArrayList<>(base.dailyFacts());
+        daily.set(0, withVoluntaryOvertime(daily.get(0), voluntaryMinutes));
+        ReportSourceSnapshot snapshot = new ReportSourceSnapshot(
+                base.scope(),
+                base.filter(),
+                base.projectionVersion(),
+                base.periodState(),
+                base.dataAsOf(),
+                base.sourceVersions(),
+                daily,
+                base.oaDocumentFacts(),
+                base.exceptionFacts(),
+                base.timeAccountFacts(),
+                base.workWindows());
+        var report = calculator.calculate(ReportType.WORK_HOURS, snapshot);
+        assertThat(report.exportAllowlist()).contains(ReportField.VOLUNTARY_OVERTIME_HOURS);
+        assertThat(report.rows().getFirst().values())
+                .containsEntry(ReportField.VOLUNTARY_OVERTIME_HOURS, voluntaryHours)
+                .containsEntry(ReportField.ACTUAL_WORK_HOURS, actualHours);
+    }
+
+    /**
+     * Adds voluntary overtime as a legal daily fact: the new minutes are recognized overtime,
+     * so total = paid + compensatory + voluntary and actual work = confirmed + recognized both
+     * still hold, exactly as the DailyFact constructor requires.
+     */
+    private static DailyFact withVoluntaryOvertime(DailyFact f, long voluntaryMinutes) {
+        long added = voluntaryMinutes - f.voluntaryOvertimeMinutes();
+        return new DailyFact(
+                f.factId(), f.companyId(), f.employeeId(), f.employeeNumber(), f.employeeName(),
+                f.organizationId(), f.organizationVersionId(), f.organizationName(), f.businessDate(),
+                f.dayType(), f.shiftLabel(), f.scheduledMinutes(), f.confirmedScheduledWorkMinutes(),
+                f.recognizedOvertimeMinutes() + added, f.paidOvertimeMinutes(),
+                f.compensatoryOvertimeMinutes(), voluntaryMinutes, f.totalOvertimeMinutes() + added,
+                f.leaveOrTimeOffMinutes(), f.absenceMinutes(), f.actualWorkMinutes() + added,
+                f.scheduledAttendanceDays(), f.actualAttendanceDays(), f.lateMinutes(),
+                f.penalizedLateMinutes(), f.earlyDepartureMinutes(), f.missingPunchCount(), f.firstPunchAt(),
+                f.lastPunchAt(), f.calculationVersionId(), f.resultDigest(), f.leaveType());
+    }
+
+    @Test
     void exceptionOverviewSplitsOffDutyMissingPunchAndWritesDetails() {
         var report = calculator.calculate(
                 ReportType.EXCEPTIONS, snapshot(null, null));
@@ -432,7 +517,7 @@ class AttendanceReportCalculatorTest {
     }
 
     @Test
-    void leaveReportDropsCoveringUnknownHeaderThatUnionsTypedIntervals() {
+    void leaveReportKeepsIndependentPendingDocumentAlongsideContainedIntervals() {
         var base = snapshot(null, null);
         var oaFacts = new java.util.ArrayList<>(base.oaDocumentFacts());
         oaFacts.add(new OaDocumentFact(
@@ -475,7 +560,7 @@ class AttendanceReportCalculatorTest {
                 Instant.parse("2026-07-10T00:30:00Z"),
                 Instant.parse("2026-07-10T04:00:00Z"),
                 210,
-                "UNKNOWN",
+                "PENDING",
                 "oa-version-covering"));
         var snapshot = new ReportSourceSnapshot(
                 base.scope(),
@@ -493,8 +578,7 @@ class AttendanceReportCalculatorTest {
 
         assertThat(report.rows())
                 .extracting(AttendanceReportModels.ReportRow::rowReference)
-                .contains("leave:oa-time-off", "leave:oa-personal")
-                .doesNotContain("leave:oa-covering");
+                .containsExactlyInAnyOrder("leave:oa-approved", "leave:oa-time-off", "leave:oa-personal", "leave:oa-covering");
         assertThat(report.columns())
                 .extracting(AttendanceReportModels.ReportColumn::field)
                 .doesNotContain(ReportField.DOCUMENT_REFERENCE);

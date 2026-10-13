@@ -23,7 +23,9 @@ import com.szsemicon.hr.attendance.calculation.domain.AttendanceCalculationModel
 import com.szsemicon.hr.attendance.domain.OvertimeType;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -639,6 +641,7 @@ public final class DeterministicAttendanceCalculator {
                         .filter(IntervalEvidence::effective)
                         .filter(value ->
                                 value.kind() == EvidenceKind.OVERTIME)
+                        .filter(value -> value.overtimeType() != null)
                         .toList();
         for (IntervalEvidence authorization : overtimeEvidence) {
             // Pair the day's punches first, then clip to the approved form.
@@ -839,8 +842,26 @@ public final class DeterministicAttendanceCalculator {
                     overrun.interval().start().isAfter(scheduledOffTime)
                             ? overrun.interval().start()
                             : scheduledOffTime;
-            TimeInterval window =
-                    new TimeInterval(overrunStart, overrun.interval().end());
+            // Cap the warning window at midnight after the calendar date on which
+            // the scheduled shift actually ends.  For day shifts (e.g. off at
+            // 18:00 on 9/29) that is 9/30 00:00, so a 9/29→9/30 outing is
+            // capped at 360 min.  For night shifts (e.g. off at 06:00 on 9/30)
+            // the shift ends on 9/30, so cap is 10/1 00:00, preserving a
+            // 06:00→08:00 post-shift overrun as 120 min.
+            ZoneId zone = snapshot.businessZone();
+            LocalDate offDate = scheduledOffTime.atZone(zone).toLocalDate();
+            LocalDate attributionDate = offDate.isAfter(snapshot.businessDate())
+                    ? offDate : snapshot.businessDate();
+            Instant attributionCap = attributionDate.plusDays(1)
+                    .atStartOfDay(zone)
+                    .toInstant();
+            Instant windowEnd = overrun.interval().end().isBefore(attributionCap)
+                    ? overrun.interval().end()
+                    : attributionCap;
+            if (!overrunStart.isBefore(windowEnd)) {
+                continue;
+            }
+            TimeInterval window = new TimeInterval(overrunStart, windowEnd);
             boolean alreadyDeclared = declaredOvertime.stream()
                     .anyMatch(value -> covers(value.interval(), window));
             if (alreadyDeclared || window.minutes() <= 0) {

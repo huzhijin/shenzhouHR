@@ -1,5 +1,7 @@
 package com.szsemicon.hr.reporting.infrastructure.persistence;
 
+import com.szsemicon.hr.reporting.application.QueryPageReadPort;
+import com.szsemicon.hr.reporting.application.QueryPageRows;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -7,7 +9,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 @Mapper
-public interface AttendanceReportQueryPageMapper {
+public interface AttendanceReportQueryPageMapper extends QueryPageReadPort {
 
     QueryPageRows.PinRow findLatestPin(
             @Param("companyId") String companyId,
@@ -109,6 +111,10 @@ public interface AttendanceReportQueryPageMapper {
     List<QueryPageRows.LeaveStatAccountRow> listLeaveStatAccounts(
             QueryPageRows.FactQuery query);
 
-    List<QueryPageRows.MonthlyLeaveUsageRow> listMonthlyLeaveUsage(
+    List<QueryPageRows.LegacyLeaveDayEvidenceRow> listLegacyLeaveDayEvidence(
+            @Param("query") QueryPageRows.FactQuery query,
+            @Param("documentIds") List<String> documentIds);
+
+    List<QueryPageRows.OaUsageDocumentRow> listLeaveUsageDocuments(
             QueryPageRows.FactQuery query);
 }

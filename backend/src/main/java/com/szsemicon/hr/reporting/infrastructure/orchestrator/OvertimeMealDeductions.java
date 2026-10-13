@@ -142,6 +142,85 @@ final class OvertimeMealDeductions {
         return last;
     }
 
+    static final LocalDate PAIRED_OFF_DUTY_FROM = LocalDate.of(2026, 9, 1);
+
+    static boolean requiresPairedOffDuty(LocalDate date) {
+        return date != null && !date.isBefore(PAIRED_OFF_DUTY_FROM);
+    }
+
+    /**
+     * Latest punch in {@code [otDate 00:00, next day 06:00)} that can close
+     * overtime, and only when that window holds at least two punches. A
+     * single afternoon punch is not a clock-out.
+     */
+    static Instant pairedOffDutyPunch(List<Instant> punches, LocalDate otDate) {
+        if (punches == null || otDate == null) {
+            return null;
+        }
+        Instant windowStart = otDate.atStartOfDay(BUSINESS_ZONE).toInstant();
+        Instant windowEnd = otDate.plusDays(1)
+                .atTime(6, 0)
+                .atZone(BUSINESS_ZONE)
+                .toInstant();
+        Instant last = null;
+        int count = 0;
+        for (Instant punch : punches) {
+            if (punch == null
+                    || punch.isBefore(windowStart)
+                    || !punch.isBefore(windowEnd)) {
+                continue;
+            }
+            count++;
+            if (last == null || punch.isAfter(last)) {
+                last = punch;
+            }
+        }
+        if (count < 2 || last == null) {
+            return null;
+        }
+        LocalDate punchDate = last.atZone(BUSINESS_ZONE).toLocalDate();
+        LocalTime clock = last.atZone(BUSINESS_ZONE).toLocalTime();
+        boolean qualifying = punchDate.equals(otDate)
+                ? !clock.isBefore(LocalTime.of(13, 0))
+                : clock.isBefore(LocalTime.of(6, 0));
+        return qualifying ? last : null;
+    }
+
+    /**
+     * A real same-day morning pair can close rest-day overtime before 13:00.
+     * Use only complete half-hours inside both attendance and the approved
+     * form. The lunch boundary prevents this fallback from adding afternoon
+     * or lunch time when the form extends beyond the observed morning.
+     */
+    static TimeInterval pairedMorningOvertime(
+            List<Instant> punches, LocalDate date, TimeInterval form) {
+        if (punches == null || date == null || form == null) {
+            return null;
+        }
+        Instant midnight = date.atStartOfDay(BUSINESS_ZONE).toInstant();
+        Instant lunch = date.atTime(LUNCH_START).atZone(BUSINESS_ZONE).toInstant();
+        Instant afternoon = date.atTime(LUNCH_END).atZone(BUSINESS_ZONE).toInstant();
+        List<Instant> morning = punches.stream()
+                .filter(Objects::nonNull)
+                .filter(punch -> !punch.isBefore(midnight) && punch.isBefore(afternoon))
+                .distinct()
+                .sorted()
+                .toList();
+        if (morning.size() < 2) {
+            return null;
+        }
+        Instant first = morning.getFirst();
+        Instant roundedFirst = OaIntervalGrid.snap(first);
+        if (roundedFirst.isBefore(first)) {
+            roundedFirst = roundedFirst.plusSeconds(30 * 60);
+        }
+        Instant start = form.start().isAfter(roundedFirst) ? form.start() : roundedFirst;
+        Instant end = OaIntervalGrid.snap(morning.getLast());
+        if (form.end().isBefore(end)) end = form.end();
+        if (lunch.isBefore(end)) end = lunch;
+        return start.isBefore(end) ? new TimeInterval(start, end) : null;
+    }
+
     /**
      * Credits the whole interval to the start calendar date. Meal and
      * scheduled-work deductions still use that start day's lookup.
@@ -264,11 +343,11 @@ final class OvertimeMealDeductions {
                     .sum();
         }
         List<TimeInterval> remaining = List.of(slice);
-        for (TimeInterval work : days.workSegments(date)) {
+        List<TimeInterval> workSegments = days.workSegments(date);
+        for (TimeInterval work : workSegments) {
             remaining = subtract(remaining, work);
         }
-        remaining = subtract(
-                remaining, window(date, LUNCH_START, LUNCH_END));
+        remaining = subtract(remaining, weekdayLunchWindow(date, workSegments));
         long minutes = remaining.stream()
                 .mapToLong(piece -> Duration.between(
                         piece.start(), piece.end()).toMinutes())
@@ -277,6 +356,35 @@ final class OvertimeMealDeductions {
             minutes -= DINNER_MINUTES;
         }
         return Math.max(0, minutes);
+    }
+
+    /**
+     * Published split shifts determine the weekday lunch break. For example,
+     * Yangzhou's summer WORK segments end at 12:00 and resume at 13:30; the
+     * intervening half-hour after 13:00 is not overtime. Only a bounded gap
+     * between WORK segments containing the whole standard lunch window is
+     * used. A missing or half-day schedule must not turn the whole afternoon
+     * into a lunch deduction, so it retains the standard-window fallback.
+     * Rest-day meals deliberately keep their separate, existing policy.
+     */
+    private static TimeInterval weekdayLunchWindow(
+            LocalDate date, List<TimeInterval> workSegments) {
+        TimeInterval standardLunch = window(date, LUNCH_START, LUNCH_END);
+        Instant previousEnd = null;
+        for (TimeInterval work : workSegments.stream()
+                .sorted(Comparator.comparing(TimeInterval::start)).toList()) {
+            if (previousEnd != null && previousEnd.isBefore(work.start())) {
+                TimeInterval gap = new TimeInterval(previousEnd, work.start());
+                if (covers(gap, standardLunch)) {
+                    return gap;
+                }
+            }
+            // Merge overlapping/nested segments before looking for a gap.
+            if (previousEnd == null || work.end().isAfter(previousEnd)) {
+                previousEnd = work.end();
+            }
+        }
+        return standardLunch;
     }
 
     private static LocalTime shiftOff(DayLookup days, LocalDate date) {

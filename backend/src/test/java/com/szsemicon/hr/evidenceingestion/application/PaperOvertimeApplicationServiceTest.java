@@ -13,9 +13,9 @@ import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.evidenceingestion.application.PaperOvertimeApplicationService.SaveCommand;
 import com.szsemicon.hr.evidenceingestion.application.PaperOvertimeApplicationService.SaveLine;
 import com.szsemicon.hr.evidenceingestion.application.paper.OcrPort;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeMapper;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeRows.EmployeeCandidateRow;
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeRows.ExistingOvertimeRow;
+import com.szsemicon.hr.evidenceingestion.port.PaperOvertimePort;
+import com.szsemicon.hr.evidenceingestion.port.PaperOvertimeRows.EmployeeCandidateRow;
+import com.szsemicon.hr.evidenceingestion.port.PaperOvertimeRows.ExistingOvertimeRow;
 import com.szsemicon.hr.evidenceingestion.port.EmployeeEmploymentResolverPort;
 import com.szsemicon.hr.reporting.application.RealtimeAttendanceReportSnapshotService;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
@@ -54,7 +54,7 @@ class PaperOvertimeApplicationServiceTest {
     @Mock
     private CurrentPrincipalProvider principals;
     @Mock
-    private PaperOvertimeMapper mapper;
+    private PaperOvertimePort mapper;
     @Mock
     private OcrPort ocr;
     @Mock

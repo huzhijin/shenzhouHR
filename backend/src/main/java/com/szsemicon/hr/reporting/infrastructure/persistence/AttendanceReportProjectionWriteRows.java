@@ -219,7 +219,9 @@ final class AttendanceReportProjectionWriteRows {
             long recognizedMinutes,
             String sourceStatus,
             String sourceVersion,
-            Instant createdAt) {
+            Instant createdAt,
+            String recognizedMinutesByDateJson,
+            String allocationSemantics) {
 
         static OaDocumentFactRow from(OaDocumentFactWrite value) {
             return new OaDocumentFactRow(
@@ -241,7 +243,60 @@ final class AttendanceReportProjectionWriteRows {
                     value.recognizedMinutes(),
                     value.sourceStatus(),
                     value.sourceVersion(),
-                    value.createdAt());
+                    value.createdAt(),
+                    value.recognizedMinutesByDateJson(),
+                    value.allocationSemantics());
+        }
+    }
+
+    record HrPaperDocumentFactRow(
+            String rowId,
+            String projectionId,
+            String companyId,
+            String hrAdjustmentId,
+            String hrSourceKind,
+            String sourceDocumentKey,
+            String employeeId,
+            String employeeVersionId,
+            String employmentAssignmentId,
+            String organizationId,
+            String organizationVersionId,
+            String documentType,
+            String leaveTypeCode,
+            String temporalShape,
+            Instant pointInstant,
+            Instant intervalStart,
+            Instant intervalEndExclusive,
+            long recognizedMinutes,
+            String sourceStatus,
+            String sourceVersion,
+            Instant createdAt,
+            String recognizedMinutesByDateJson) {
+
+        static HrPaperDocumentFactRow from(OaDocumentFactWrite value) {
+            return new HrPaperDocumentFactRow(
+                    value.rowId(),
+                    value.projectionId(),
+                    value.companyId(),
+                    value.hrAdjustmentId(),
+                    value.hrSourceKind(),
+                    value.oaAttendanceDocumentId(),
+                    value.employeeId(),
+                    value.employeeVersionId(),
+                    value.employmentAssignmentId(),
+                    value.organizationId(),
+                    value.organizationVersionId(),
+                    value.documentType(),
+                    value.leaveTypeCode(),
+                    value.temporalShape().name(),
+                    value.pointInstant(),
+                    value.intervalStart(),
+                    value.intervalEndExclusive(),
+                    value.recognizedMinutes(),
+                    value.sourceStatus(),
+                    value.sourceVersion(),
+                    value.createdAt(),
+                    value.recognizedMinutesByDateJson());
         }
     }
 

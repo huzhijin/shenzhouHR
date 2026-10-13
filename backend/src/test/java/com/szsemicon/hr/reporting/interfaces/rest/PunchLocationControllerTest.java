@@ -11,8 +11,6 @@ import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.reporting.application.*;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
-import com.szsemicon.hr.reporting.infrastructure.map.PunchBasemapClient;
-import com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiExceptionHandler;
 import java.time.*;
@@ -38,9 +36,9 @@ class PunchLocationControllerTest {
     @MockitoBean CurrentCapabilityService capabilities;
     @MockitoBean CurrentPrincipalProvider principals;
     @MockitoBean AttendanceReportSourceRepository sources;
-    @MockitoBean PunchLocationMapper mapper;
+    @MockitoBean PunchLocationReadPort mapper;
     @MockitoBean AuditService audit;
-    @MockitoBean PunchBasemapClient maps;
+    @MockitoBean PunchBasemapPort maps;
 
     @Configuration
     @EnableMethodSecurity
@@ -55,7 +53,7 @@ class PunchLocationControllerTest {
     @BeforeEach
     void prepare() {
         when(principals.currentPrincipalId()).thenReturn("actor");
-        when(mapper.findLocation("fact")).thenReturn(new PunchLocationMapper.LocationRow(
+        when(mapper.findLocation("fact")).thenReturn(new PunchLocationReadPort.LocationRow(
                 "fact", "company", "employee", Instant.parse("2026-09-15T01:00:00Z"), "gps",
                 "private address", "UNKNOWN", "UNKNOWN_SYSTEM", "NOT_APPLICABLE", null, null, null));
     }
@@ -74,7 +72,7 @@ class PunchLocationControllerTest {
         when(sources.resolvePrincipalHome(anyString(), any())).thenReturn(Optional.of(
                 new AttendanceReportSourceRepository.PrincipalHome("employee", "E1", "company", "公司", "org", "部门")));
         when(mapper.listDayPunches(eq("company"), eq("employee"), any(), any()))
-                .thenReturn(List.of(new PunchLocationMapper.DayPunchRow("fact", Instant.now(), "gps")));
+                .thenReturn(List.of(new PunchLocationReadPort.DayPunchRow("fact", Instant.now(), "gps")));
         var employee = user("actor").authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ATTENDANCE_SELF:READ"));
         mvc.perform(get("/api/v1/me/attendance/day-punches").param("businessDate", "2026-09-15")
                         .param("employeeId", "coworker").with(employee))

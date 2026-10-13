@@ -2,8 +2,8 @@ package com.szsemicon.hr.reporting.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.DailyCellRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.OaRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.DailyCellRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.OaRow;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;

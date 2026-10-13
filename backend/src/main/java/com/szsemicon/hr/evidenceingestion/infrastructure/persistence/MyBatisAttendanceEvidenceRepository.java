@@ -32,6 +32,87 @@ public class MyBatisAttendanceEvidenceRepository
     }
 
     @Override
+    public EvidenceRows.OaObservationRow findLatestOaObservation(
+            String sourceId, String sourceBusinessKey, boolean resolvedOnly) {
+        return mapper.findLatestOaObservation(sourceId, sourceBusinessKey, resolvedOnly);
+    }
+
+    @Override
+    public List<String> findOaBusinessKeysOverlapping(
+            String sourceId, Instant fromInclusive, Instant toExclusive) {
+        return mapper.findOaBusinessKeysOverlapping(sourceId, fromInclusive, toExclusive);
+    }
+
+    @Override
+    public List<EvidenceRows.MissingOaKeyScopeRow> findMissingOaKeyScopeRows(
+            String sourceId, String targetCompanyId, List<String> sourceBusinessKeys) {
+        if (sourceBusinessKeys == null || sourceBusinessKeys.isEmpty()) return List.of();
+        return mapper.findMissingOaKeyScopeRows(sourceId, targetCompanyId, sourceBusinessKeys);
+    }
+
+    @Override
+    public List<EvidenceRows.MissingOaKeyScopeRow> findMissingOaKeyEmployeeScopeRows(
+            String sourceId, String targetCompanyId, List<String> targetEmployeeIds,
+            List<String> sourceBusinessKeys) {
+        if (sourceBusinessKeys == null || sourceBusinessKeys.isEmpty() || invalidEmployeeScope(targetEmployeeIds)) {
+            return List.of();
+        }
+        return mapper.findMissingOaKeyEmployeeScopeRows(sourceId, targetCompanyId, targetEmployeeIds, sourceBusinessKeys);
+    }
+
+    @Override
+    public List<String> findReportEmployeeNumbers(String companyId, List<String> targetEmployeeIds) {
+        if (invalidEmployeeScope(targetEmployeeIds)) return List.of();
+        return mapper.findReportEmployeeNumbers(companyId, targetEmployeeIds);
+    }
+
+    private static boolean invalidEmployeeScope(List<String> employeeIds) {
+        return employeeIds == null || employeeIds.isEmpty()
+                || employeeIds.stream().anyMatch(id -> id == null || id.isBlank());
+    }
+
+    @Override
+    public List<EvidenceRows.MissingOaCurrentEligibilityRow> findMissingOaCurrentEligibilityRows(
+            String sourceId, String targetCompanyId, List<String> targetEmployeeIds,
+            List<String> sourceBusinessKeys, Instant dataAsOf) {
+        if (dataAsOf == null || sourceBusinessKeys == null || sourceBusinessKeys.isEmpty()
+                || invalidEmployeeScope(targetEmployeeIds)) return List.of();
+        return mapper.findMissingOaCurrentEligibilityRows(sourceId, targetCompanyId,
+                targetEmployeeIds, sourceBusinessKeys, dataAsOf);
+    }
+
+    @Override
+    public List<EvidenceRows.MissingOaCompanyCurrentEligibilityRow> findMissingOaCompanyCurrentEligibilityRows(
+            String sourceId, String targetCompanyId, List<String> sourceBusinessKeys, Instant dataAsOf) {
+        if (sourceId == null || sourceId.isBlank() || targetCompanyId == null || targetCompanyId.isBlank()
+                || dataAsOf == null || sourceBusinessKeys == null || sourceBusinessKeys.isEmpty()) return List.of();
+        return mapper.findMissingOaCompanyCurrentEligibilityRows(sourceId, targetCompanyId, sourceBusinessKeys, dataAsOf);
+    }
+
+    @Override
+    public List<EvidenceRows.UnparseableLeaveScopeRow> findUnparseableLeaveEmployeeScopeRows(
+            String sourceId, String targetCompanyId, List<String> targetEmployeeIds,
+            List<String> sourceBusinessKeys) {
+        if (sourceBusinessKeys == null || sourceBusinessKeys.isEmpty() || invalidEmployeeScope(targetEmployeeIds)) {
+            return List.of();
+        }
+        return mapper.findUnparseableLeaveEmployeeScopeRows(sourceId, targetCompanyId,
+                targetEmployeeIds, sourceBusinessKeys);
+    }
+
+    @Override
+    public List<EvidenceRows.UnparseableLeaveScopeRow> findUnparseableLeaveScopeRows(
+            String sourceId, String targetCompanyId, List<String> sourceBusinessKeys) {
+        if (sourceBusinessKeys == null || sourceBusinessKeys.isEmpty()) return List.of();
+        return mapper.findUnparseableLeaveScopeRows(sourceId, targetCompanyId, sourceBusinessKeys);
+    }
+
+    @Override
+    public List<String> findCompanyEmployeeNumbers(String companyId) {
+        return mapper.findCompanyEmployeeNumbers(companyId);
+    }
+
+    @Override
     public EvidenceRows.ReplayStateRow findReplayStateBySourceIdentity(
             String sourceId,
             String sourceBusinessKey,
@@ -53,13 +134,38 @@ public class MyBatisAttendanceEvidenceRepository
     }
 
     @Override
+    public void insertRawFacts(List<EvidenceRows.RawFactRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        mapper.insertRawFacts(rows);
+    }
+
+    @Override
     public void insertNormalizedRecord(EvidenceRows.NormalizedRecordRow row) {
         mapper.insertNormalizedRecord(row);
     }
 
     @Override
+    public void insertNormalizedRecords(
+            List<EvidenceRows.NormalizedRecordRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        mapper.insertNormalizedRecords(rows);
+    }
+
+    @Override
     public void insertMatchDecision(EvidenceRows.MatchDecisionRow row) {
         mapper.insertMatchDecision(row);
+    }
+
+    @Override
+    public void insertMatchDecisions(List<EvidenceRows.MatchDecisionRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        mapper.insertMatchDecisions(rows);
     }
 
     @Override

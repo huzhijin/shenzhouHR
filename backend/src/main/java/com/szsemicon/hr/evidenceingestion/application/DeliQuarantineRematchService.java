@@ -6,6 +6,7 @@ import com.szsemicon.hr.reporting.application.RealtimeAttendanceReportSnapshotSe
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -183,21 +184,41 @@ public class DeliQuarantineRematchService implements NewHireAttendanceRecovery {
         if (snapshots == null || spans.isEmpty()) {
             return;
         }
-        var at = clock.instant();
+        // Group employees by company so we issue one publish per company-month
+        // instead of one per employee per month (N×M → M per company).
+        Map<String, List<EmployeeSpan>> byCompany = new LinkedHashMap<>();
         for (EmployeeSpan span : spans.values()) {
+            byCompany.computeIfAbsent(span.companyId(), k -> new ArrayList<>()).add(span);
+        }
+        var at = clock.instant();
+        for (Map.Entry<String, List<EmployeeSpan>> entry : byCompany.entrySet()) {
+            String companyId = entry.getKey();
+            List<EmployeeSpan> companySpans = entry.getValue();
+            LocalDate earliest = companySpans.stream()
+                    .map(EmployeeSpan::earliest)
+                    .min(LocalDate::compareTo)
+                    .orElse(today);
+            List<String> employeeIds = companySpans.stream()
+                    .map(EmployeeSpan::employeeId)
+                    .collect(java.util.stream.Collectors.toList());
+            log.info(
+                    "Deli quarantine rematch recalc company={} employees={} from={}",
+                    companyId,
+                    employeeIds.size(),
+                    earliest);
             try {
-                snapshots.materializeEmployeeRange(
-                        span.companyId(),
-                        span.employeeId(),
-                        span.earliest(),
+                snapshots.materializeEmployeeRangeForSet(
+                        companyId,
+                        employeeIds,
+                        earliest,
                         today,
                         at);
             } catch (RuntimeException exception) {
                 log.error(
-                        "Deli quarantine rematch recalc failed company={} employee={} from={}",
-                        span.companyId(),
-                        span.employeeId(),
-                        span.earliest(),
+                        "Deli quarantine rematch recalc failed company={} employees={} from={}",
+                        companyId,
+                        employeeIds.size(),
+                        earliest,
                         exception);
             }
         }

@@ -1,7 +1,7 @@
 package com.szsemicon.hr.reporting.application;
 
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.DailyCellRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.OaRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.DailyCellRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.OaRow;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -31,7 +31,7 @@ final class MissedPunchStatAssembler {
     private static final DateTimeFormatter CLOCK =
             DateTimeFormatter.ofPattern("HH:mm").withZone(BUSINESS_ZONE);
     private static final Set<String> EFFECTIVE_OA = Set.of(
-            "APPROVED", "MODIFIED", "SUPPLEMENTED", "UNKNOWN");
+            "APPROVED", "MODIFIED", "SUPPLEMENTED", "PENDING");
     private static final Set<String> COVERING_TYPES = Set.of(
             "LEAVE", "TIME_OFF", "OUTING", "TRIP", "EXEMPT_PUNCH");
 

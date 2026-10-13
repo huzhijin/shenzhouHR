@@ -9,7 +9,6 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
-import szstVisionPanel from '../../assets/szst-vision-panel.jpg';
 import { AppearanceToggle } from '../../shared/appearance/AppearanceToggle';
 import { BrandLogo } from '../../shared/components/BrandLogo';
 import { isDemoMode } from '../../shared/config/runtimeMode';
@@ -168,11 +167,7 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
   return (
     <main className="login-page">
       <section className="login-brand" aria-label={t('login.brandPanelLabel')}>
-        <img
-          className="login-brand__art"
-          src={szstVisionPanel}
-          alt={t('login.brandPanelAlt')}
-        />
+        <div className="login-brand__art" role="img" aria-label={t('login.brandPanelAlt')} />
       </section>
       <section className="login-panel" aria-live="polite">
         <div className="login-panel__brand" aria-label={t('app.name')}>

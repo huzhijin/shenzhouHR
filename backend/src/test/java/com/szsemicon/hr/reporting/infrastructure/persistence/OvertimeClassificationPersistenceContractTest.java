@@ -56,7 +56,7 @@ class OvertimeClassificationPersistenceContractTest {
     }
 
     @Test
-    void calculation_query_reads_only_approved_classified_overtime()
+    void calculation_query_reads_known_effective_classified_overtime()
             throws Exception {
         String mapper = normalized(Files.readString(CALCULATION_MAPPER));
 
@@ -64,11 +64,9 @@ class OvertimeClassificationPersistenceContractTest {
                 .contains(
                         "left join oa_attendance_document_context context",
                         "context.overtime_type as overtimetype",
-                        "when document.source_status in ( 'approved', 'modified', 'supplemented') then 0",
-                        "when document.source_status = 'unknown' then 1",
-                        "order by case",
+                        "order by document.knowledge_rank desc",
                         "where oa.version_rank = 1",
-                        "oa.source_status in ( 'approved', 'modified', 'supplemented', 'unknown')",
+                        "oa.effective_status in ( 'approved', 'modified', 'supplemented', 'pending')",
                         "context.activation_decision = 'activated'",
                         "context.overtime_type is not null");
     }

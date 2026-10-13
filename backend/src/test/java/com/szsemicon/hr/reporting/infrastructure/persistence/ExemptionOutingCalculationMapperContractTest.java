@@ -13,13 +13,13 @@ class ExemptionOutingCalculationMapperContractTest {
             "src/main/resources/mappers/AttendanceReportCalculationMapper.xml");
 
     @Test
-    void productionCalculationReadsApprovedDocumentsButNeverTrips()
+    void productionCalculationReadsKnownEffectiveDocumentsButNeverTrips()
             throws Exception {
         String mapper = normalized(Files.readString(CALCULATION_MAPPER));
 
         assertThat(mapper).contains(
                 "where oa.version_rank = 1",
-                "oa.source_status in ( 'approved', 'modified', 'supplemented', 'unknown')",
+                "oa.effective_status in ( 'approved', 'modified', 'supplemented', 'pending')",
                 "and oa.document_type &lt;&gt; 'trip'",
                 "normalized.interval_start &lt; #{windowendexclusive}",
                 "normalized.interval_end &gt; #{windowstart}");

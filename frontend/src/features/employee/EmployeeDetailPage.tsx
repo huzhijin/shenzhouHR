@@ -461,8 +461,9 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
           </div>
           {priorService ? (
             <div className="prior-service-total">
-              <strong>{priorService.totalDays}</strong>
-              <span>{t('employee.days')}</span>
+              <strong>{(priorService.totalDays / 360).toFixed(2)}</strong>
+              <span>年</span>
+              <span>{priorService.totalDays} {t('employee.days')}</span>
             </div>
           ) : <StatePanel state="403" />}
         </section>

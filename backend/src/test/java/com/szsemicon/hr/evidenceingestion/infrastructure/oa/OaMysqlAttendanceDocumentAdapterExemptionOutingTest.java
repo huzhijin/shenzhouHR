@@ -34,20 +34,20 @@ class OaMysqlAttendanceDocumentAdapterExemptionOutingTest {
                 .anySatisfy(statement -> assertThat(statement)
                         .contains(
                                 "FROM formson_0252 s",
-                                "JOIN formmain_0251 m",
-                                "AND cs.state IN (0, 2, 3)"))
+                                "JOIN formmain_0251 m")
+                        .doesNotContain("AND cs.state IN"))
                 .anySatisfy(statement -> assertThat(statement)
                         .contains(
                                 "FROM formson_0202 s",
                                 "JOIN formmain_0201 m",
-                                "AND cs.state IN (0, 2, 3)",
-                                "DATE(s.field0132) <= DATE(s.field0134)"))
+                                "DATE(s.field0132) <= DATE(s.field0134)")
+                        .doesNotContain("AND cs.state IN"))
                 .allSatisfy(statement -> assertThat(statement)
                         .doesNotContain("formmain_0265"));
     }
 
     @Test
-    void capturesPendingAndCancelledTransitionsButNeverMarksThemEffective()
+    void capturesPendingForCoverageAndKeepsCancelledIneffective()
             throws Exception {
         for (Integer state : new Integer[] {0, 2}) {
             Fixture fixture = fixture(row(state), row(state));
@@ -55,9 +55,9 @@ class OaMysqlAttendanceDocumentAdapterExemptionOutingTest {
             OaPage page = fixture.adapter().fetchPage("oa-source", null);
 
             assertThat(page.records()).hasSize(2).allSatisfy(record -> {
-                assertThat(record.effectiveCandidate()).isFalse();
+                assertThat(record.effectiveCandidate()).isEqualTo(state == 0);
                 assertThat(record.sourceStatus())
-                        .isIn(SourceStatus.UNKNOWN, SourceStatus.REVOKED);
+                        .isEqualTo(state == 0 ? SourceStatus.PENDING : SourceStatus.REVOKED);
             });
         }
 

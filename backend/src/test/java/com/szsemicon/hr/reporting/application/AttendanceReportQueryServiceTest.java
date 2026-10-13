@@ -284,6 +284,51 @@ class AttendanceReportQueryServiceTest {
     }
 
     @Test
+    void companyDateRecalculationRequiresRefreshCapabilityAndUsesExactWriteRange() {
+        CurrentCapabilityService capabilities = mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository = mock(AttendanceReportSourceRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime = mock(RealtimeAttendanceReportSnapshotService.class);
+        YearMonth month = YearMonth.of(2026, 9);
+        LocalDate day = month.atEndOfMonth();
+        ReportFilter filter = new ReportFilter(month, COMPANY, null, null, null);
+        when(realtime.recalculateRange(PRINCIPAL, CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                filter, NOW, day, day.plusDays(1))).thenReturn(snapshot(filter));
+        var service = new AttendanceReportQueryService(capabilities, principal(), repository,
+                realtime, CLOCK, new AttendanceReportCalculator());
+
+        var result = service.recalculateCompanyDays(month, COMPANY, day, day);
+
+        assertThat(result.projectionVersion()).isEqualTo("LIVE-projection-1");
+        verify(capabilities).require(CapabilityCodes.ATTENDANCE_REPORT_REFRESH);
+        verify(realtime).recalculateRange(PRINCIPAL, CapabilityCodes.ATTENDANCE_REPORT_REFRESH,
+                filter, NOW, day, day.plusDays(1));
+        verify(realtime, never()).recalculate(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void invalidCompanyDateRangesFailBeforeAuthorizationOrSourceRefresh() {
+        CurrentCapabilityService capabilities = mock(CurrentCapabilityService.class);
+        AttendanceReportSourceRepository repository = mock(AttendanceReportSourceRepository.class);
+        RealtimeAttendanceReportSnapshotService realtime = mock(RealtimeAttendanceReportSnapshotService.class);
+        var service = new AttendanceReportQueryService(capabilities, principal(), repository,
+                realtime, CLOCK, new AttendanceReportCalculator());
+        LocalDate day = LocalDate.of(2026, 9, 30);
+        for (LocalDate[] invalid : List.of(
+                new LocalDate[] {null, null}, new LocalDate[] {day, null},
+                new LocalDate[] {null, day}, new LocalDate[] {day, day.minusDays(1)},
+                new LocalDate[] {day.minusMonths(1), day}, new LocalDate[] {day, day.plusDays(1)})) {
+            assertThatThrownBy(() -> service.recalculateCompanyDays(
+                    YearMonth.of(2026, 9), COMPANY, invalid[0], invalid[1]))
+                    .isInstanceOf(ApiProblemException.class).extracting("code")
+                    .isEqualTo("VALIDATION_ERROR");
+        }
+        verifyNoInteractions(capabilities, repository, realtime);
+    }
+
+    @Test
     void productionRealtimePathTruncatesTheSystemClockToDatabasePrecision() {
         CurrentCapabilityService capabilities =
                 mock(CurrentCapabilityService.class);

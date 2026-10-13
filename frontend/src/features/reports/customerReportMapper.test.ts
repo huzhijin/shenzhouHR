@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { reportFixture } from '../../test/fixtures/wave7ContractFixtures';
+import { leaveTypeCases } from '../../test/fixtures/leaveTypeFixtures';
 import type { ReportProjection, ReportRowProjection } from '../wave7/wave7Contracts';
 import {
   attendanceCellTooltip,
@@ -14,8 +15,25 @@ import {
   toWorkHoursRows,
 } from './customerReportMapper';
 import type { AttendanceMonthMatrixProjection } from '../wave7/wave7Contracts';
+import {
+  applyCustomerReportSpecificFilters,
+  defaultCustomerReportSpecificFilters,
+  getCustomerReportDemo,
+} from './customerReportDemo';
 
 describe('customer report mapper business-rule fields', () => {
+  it.each(leaveTypeCases)('preserves %s leave with its Chinese label %s', (code, label) => {
+    const rows = toLeaveRows(projection({
+      'employee-name': '测试员工',
+      organization: '测试部门',
+      'document-type': code,
+      'recognized-hours': '1.50',
+      'approval-state': 'PENDING',
+    }));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ type: label, hours: 1.5, approvalState: 'PENDING' });
+  });
+
   it('maps missing off-duty punch to 下班缺卡 with details', () => {
     const [row] = toAttendanceExceptionRows(projection({
       'business-date': '2026-08-17',
@@ -149,6 +167,58 @@ describe('customer report mapper business-rule fields', () => {
       '义务加班',
     ]);
   });
+
+  it.each([
+    ['2026-09-29T16:00:00Z', '2026-09-30'],
+    ['2026-09-29T23:59:00Z', '2026-09-30'],
+    ['2026-09-30T15:59:00Z', '2026-09-30'],
+    ['2026-09-30T16:00:00Z', '2026-10-01'],
+    ['2026-09-30T01:00:00+08:00', '2026-09-30'],
+  ])('filters overtime starting %s by Shanghai business date %s', (start, date) => {
+    const rows = toOvertimeRows(projection({
+      'document-type': 'COMPENSATORY',
+      'document-start': start,
+      'recognized-hours': '2.00',
+    }));
+    expect(rows[0]?.overtimeDate).toBe(date);
+    const report = {
+      ...getCustomerReportDemo({ month: '2026-09', department: '全部部门', employee: '全部员工' }),
+      overtimeRows: rows,
+    };
+    const filtered = applyCustomerReportSpecificFilters(report, 'overtime', {
+      ...defaultCustomerReportSpecificFilters,
+      overtimeDay: '30',
+    });
+    expect(filtered.overtimeRows).toEqual(date === '2026-09-30' ? rows : []);
+  });
+
+  it.each(['COMPENSATORY', 'TIME_OFF', 'TIME_OFF_IN_LIEU'])(
+    'keeps %s overtime in the compensatory filter with its hours',
+    (documentType) => {
+      const rows = toOvertimeRows(projection({
+        'document-type': documentType,
+        'document-start': '2026-09-30T10:00:00Z',
+        'recognized-hours': '2.50',
+      }));
+      expect(rows[0]).toMatchObject({
+        overtimeType: '调休',
+        paidHours: 0,
+        compensatoryHours: 2.5,
+        voluntaryHours: 0,
+        totalHours: 2.5,
+        classificationAvailable: true,
+      });
+      const report = {
+        ...getCustomerReportDemo({ month: '2026-09', department: '全部部门', employee: '全部员工' }),
+        overtimeRows: rows,
+      };
+      const filtered = applyCustomerReportSpecificFilters(report, 'overtime', {
+        ...defaultCustomerReportSpecificFilters,
+        overtimeType: '转调休',
+      });
+      expect(filtered.overtimeRows).toEqual(rows);
+    },
+  );
 
   it('maps work-hours annual leave and time-off separately from other leave', () => {
     const [row] = toWorkHoursRows(projection({

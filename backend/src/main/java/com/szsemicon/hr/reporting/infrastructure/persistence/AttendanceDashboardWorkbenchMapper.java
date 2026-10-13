@@ -1,5 +1,7 @@
 package com.szsemicon.hr.reporting.infrastructure.persistence;
 
+import com.szsemicon.hr.reporting.application.DashboardWorkbenchReadPort;
+import com.szsemicon.hr.reporting.application.DashboardWorkbenchRows;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -7,7 +9,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 @Mapper
-public interface AttendanceDashboardWorkbenchMapper {
+public interface AttendanceDashboardWorkbenchMapper extends DashboardWorkbenchReadPort {
 
     List<DashboardWorkbenchRows.RosterRow> listRoster(
             @Param("companyId") String companyId,

@@ -4,10 +4,8 @@ import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.RealtimeAuthorization;
-import com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper;
-import com.szsemicon.hr.reporting.infrastructure.map.PunchBasemapClient;
-import com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper.DayPunchRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper.LocationRow;
+import com.szsemicon.hr.reporting.application.PunchLocationReadPort.DayPunchRow;
+import com.szsemicon.hr.reporting.application.PunchLocationReadPort.LocationRow;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.time.Clock;
@@ -35,21 +33,21 @@ public class PunchLocationService {
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principals;
     private final AttendanceReportSourceRepository sources;
-    private final PunchLocationMapper mapper;
+    private final PunchLocationReadPort mapper;
     private final AuditService auditService;
     private final MapBasemapProperties basemap;
     private final Clock clock;
-    private final PunchBasemapClient mapClient;
+    private final PunchBasemapPort mapClient;
 
     public PunchLocationService(
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
             AttendanceReportSourceRepository sources,
-            PunchLocationMapper mapper,
+            PunchLocationReadPort mapper,
             AuditService auditService,
             MapBasemapProperties basemap,
             Clock clock,
-            PunchBasemapClient mapClient) {
+            PunchBasemapPort mapClient) {
         this.capabilities = capabilities;
         this.principals = principals;
         this.sources = sources;

@@ -19,10 +19,16 @@ public interface LeaveAccountOaRecalculateMapper {
     List<OaHourRow> listOaHours(
             @Param("companyId") String companyId,
             @Param("yearStart") Instant yearStart,
-            @Param("yearEndExclusive") Instant yearEndExclusive);
+            @Param("yearEndExclusive") Instant yearEndExclusive,
+            @Param("asOf") Instant asOf);
 
     List<OaSyncEntryRow> listUnreversedOaSyncEntries(
             @Param("accountId") String accountId,
+            @Param("yearStart") LocalDate yearStart,
+            @Param("yearEndExclusive") LocalDate yearEndExclusive);
+
+    List<OaSyncEntryRowWithAccount> listUnreversedOaSyncEntriesForCompany(
+            @Param("companyId") String companyId,
             @Param("yearStart") LocalDate yearStart,
             @Param("yearEndExclusive") LocalDate yearEndExclusive);
 
@@ -53,6 +59,13 @@ public interface LeaveAccountOaRecalculateMapper {
     }
 
     record OaSyncEntryRow(
+            String entryId,
+            String entryType,
+            BigDecimal amountHours) {
+    }
+
+    record OaSyncEntryRowWithAccount(
+            String accountId,
             String entryId,
             String entryType,
             BigDecimal amountHours) {

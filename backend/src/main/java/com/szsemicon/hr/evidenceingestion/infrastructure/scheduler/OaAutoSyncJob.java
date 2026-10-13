@@ -60,8 +60,8 @@ public final class OaAutoSyncJob {
         log.info("Scheduled OA sync starting");
         try {
             Instant startedAt = clock.instant();
-            syncService.runScheduled();
-            if (sourceCompletionListener != null
+            boolean succeeded = syncService.runScheduled();
+            if (succeeded && sourceCompletionListener != null
                     && ScheduledAttendanceRecalcHours.isRecalcHour(startedAt)) {
                 sourceCompletionListener.onScheduledOaSuccess();
             }

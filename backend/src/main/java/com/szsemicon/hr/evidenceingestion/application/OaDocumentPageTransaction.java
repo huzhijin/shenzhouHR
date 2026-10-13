@@ -141,11 +141,14 @@ public class OaDocumentPageTransaction {
 
         int accepted = 0;
         int quarantined = 0;
+        int changed = 0;
+        var evidenceAsOf = new java.util.concurrent.atomic.AtomicReference<>(clock.instant());
 
         for (OaDocumentRecord record : page.records()) {
             RecordOutcome outcome = ingestRecord(
-                    job, principalId, correlationId, record, committedAt);
-            if (outcome == RecordOutcome.ACCEPTED) {
+                    job, principalId, correlationId, record, committedAt, evidenceAsOf);
+            if (outcome.changed) { changed++; }
+            if (outcome.accepted) {
                 accepted++;
             } else {
                 quarantined++;
@@ -173,14 +176,15 @@ public class OaDocumentPageTransaction {
                 pageState.watermarkVersion(),
                 page.nextCursor(),
                 page.pageDigest(),
-                committedAt);
+                evidenceAsOf.get());
         syncRepository.incrementJobCounters(job.jobId(), accepted, quarantined);
-        return new PageCommitResult(accepted, quarantined);
+        return new PageCommitResult(accepted, quarantined, changed, evidenceAsOf.get());
     }
 
     /**
-     * Re-ingest already-seen OA records without touching the durable cursor.
-     * Quarantined rows rematch; accepted overtime rows backfill context.
+     * Refresh all lifecycle observations without advancing the durable scan cursor.
+     * Changed content appends immutable revisions; the knowledge watermark advances
+     * only when new evidence or an activation context was actually written.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PageCommitResult rematchRecords(
@@ -189,6 +193,15 @@ public class OaDocumentPageTransaction {
             String requestId,
             String executionCapability,
             List<OaDocumentRecord> records) {
+        return rematchRecords(job, principalId, requestId, executionCapability, records, 0);
+    }
+
+    /** Counts report-only exclusions in the same transaction as the refreshed evidence. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PageCommitResult rematchRecords(
+            SourceJobStart job, String principalId, String requestId,
+            String executionCapability, List<OaDocumentRecord> records, int isolatedCount) {
+        if (isolatedCount < 0) throw new IllegalArgumentException("isolatedCount must be nonnegative");
         Objects.requireNonNull(job, "job");
         requireReference(principalId, 36, "OA_SYNC_ACTOR_INVALID");
         requireReference(requestId, 64, "OA_SYNC_REQUEST_INVALID");
@@ -198,21 +211,73 @@ public class OaDocumentPageTransaction {
             throw new AttendanceSourceSyncFailure("OA_SYNC_CAPABILITY_INVALID");
         }
         Instant receivedAt = clock.instant();
+        var pageState = "SYSTEM".equals(principalId)
+                ? syncRepository.lockSystemOaPageForCommit(job.jobId(), job.sourceId())
+                : syncRepository.lockOaPageForCommit(job.jobId(), job.sourceId(), principalId,
+                        executionCapability, receivedAt);
+        if (pageState == null || !"RUNNING".equals(pageState.jobStatus())) {
+            throw new AttendanceSourceSyncFailure("ATTENDANCE_SOURCE_SCOPE_REVOKED");
+        }
         int accepted = 0;
-        int quarantined = 0;
+        int quarantined = isolatedCount;
+        int changed = 0;
+        var evidenceAsOf = new java.util.concurrent.atomic.AtomicReference<>(clock.instant());
         List<OaDocumentRecord> incoming =
                 records == null ? List.<OaDocumentRecord>of() : records;
         for (OaDocumentRecord record : incoming) {
             RecordOutcome outcome = ingestRecord(
-                    job, principalId, requestId, record, receivedAt);
-            if (outcome == RecordOutcome.ACCEPTED) {
+                    job, principalId, requestId, record, receivedAt, evidenceAsOf);
+            if (outcome.changed) { changed++; }
+            if (outcome.accepted) {
                 accepted++;
             } else {
                 quarantined++;
             }
         }
+        if (changed > 0) {
+            // A historical refresh changes evidence knowledge, not the durable scan cursor.
+            syncRepository.advanceWatermark(job.sourceId(), pageState.watermarkVersion(),
+                    pageState.committedCursor(), AttendanceEvidenceDigests.sha256(
+                            "OA_REFRESH_V1", job.jobId(), requestId, receivedAt.toString(),
+                            Integer.toString(changed)), evidenceAsOf.get());
+        }
         syncRepository.incrementJobCounters(job.jobId(), accepted, quarantined);
-        return new PageCommitResult(accepted, quarantined);
+        return new PageCommitResult(accepted, quarantined, changed, evidenceAsOf.get());
+    }
+
+    /** Read-only early check; the transactional ingest still repeats every safety check. */
+    public void preflightUnsafeChanges(String sourceId, List<OaDocumentRecord> records) {
+        if (records == null) return;
+        for (var incoming : records) {
+            if (incoming == null || incoming.sourceBusinessKey() == null || incoming.sourceBusinessKey().isBlank()) continue;
+            boolean invalidMetadata = incoming.sourceVersion() == null || incoming.sourceVersion().isBlank()
+                    || incoming.documentType() == null || incoming.sourceStatus() == null;
+            boolean invalidGeometry = incoming.start() == null || incoming.end() == null
+                    || incoming.end().isBefore(incoming.start());
+            boolean invalidClassification = !incoming.hasValidOvertimeClassification() || !incoming.hasValidLeaveClassification();
+            if (!invalidMetadata && !invalidGeometry && !invalidClassification) continue;
+            var resolved = evidenceRepository.findLatestOaObservation(sourceId, incoming.sourceBusinessKey(), true);
+            try {
+                if (invalidMetadata) {
+                    failUnsafeChange(resolved, incoming);
+                    continue;
+                }
+                // Non-effective observations deliberately inherit valid old geometry
+                // and classification. Rejecting them here would prevent cancellation.
+                boolean tombstone = !effectiveForAttendance(incoming) && resolved != null;
+                var checked = tombstone ? tombstoneRecord(incoming, resolved) : incoming;
+                if (checked.start() == null || checked.end() == null || checked.end().isBefore(checked.start())
+                        || (!tombstone && (!checked.hasValidOvertimeClassification() || !checked.hasValidLeaveClassification()))) {
+                    failUnsafeChange(resolved, checked);
+                }
+            } catch (AttendanceSourceSyncFailure unsafe) {
+                org.slf4j.LoggerFactory.getLogger(getClass()).warn(
+                        "oa-report-preflight-rejected source={} keyDigest={} versionDigest={} reason={}",
+                        sourceId, AttendanceEvidenceDigests.sha256(incoming.sourceBusinessKey()),
+                        AttendanceEvidenceDigests.sha256(incoming.sourceVersion()), unsafe.safeCode());
+                throw unsafe;
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -222,74 +287,107 @@ public class OaDocumentPageTransaction {
             String principalId,
             String requestId,
             OaDocumentRecord record,
-            Instant receivedAt) {
+            Instant receivedAt,
+            java.util.concurrent.atomic.AtomicReference<Instant> evidenceAsOf) {
 
-        if (record.sourceBusinessKey() == null
-                || record.sourceVersion() == null
-                || record.sourceVersion().isBlank()
-                || record.start() == null
-                || record.end() == null
-                || record.end().isBefore(record.start())) {
+        if (record == null || record.sourceBusinessKey() == null || record.sourceBusinessKey().isBlank()) {
+            return RecordOutcome.QUARANTINED;
+        }
+        var latest = evidenceRepository.findLatestOaObservation(
+                job.sourceId(), record.sourceBusinessKey(), false);
+        var resolved = evidenceRepository.findLatestOaObservation(
+                job.sourceId(), record.sourceBusinessKey(), true);
+        // Use the very same historical tie-break as the report projection.
+        // A raw UUID must not make an obsolete cancellation look already current.
+        if (latest != null && latest.oaAttendanceDocumentId() != null && resolved != null) {
+            latest = resolved;
+        }
+        if (record.sourceVersion() == null || record.sourceVersion().isBlank()
+                || record.documentType() == null || record.sourceStatus() == null) {
+            failUnsafeChange(resolved, record);
+            return RecordOutcome.QUARANTINED;
+        }
+        boolean tombstone = !effectiveForAttendance(record) && resolved != null;
+        if (tombstone) {
+            record = tombstoneRecord(record, resolved);
+        }
+        if (record.start() == null || record.end() == null || record.end().isBefore(record.start())) {
+            failUnsafeChange(resolved, record);
             return RecordOutcome.QUARANTINED;
         }
         boolean interval = record.end().isAfter(record.start());
+        boolean overtimeTypeUnclassified = !tombstone && !record.hasValidOvertimeClassification();
+        boolean leaveTypeUnclassified = !tombstone && !record.hasValidLeaveClassification();
 
-        boolean overtimeTypeUnclassified =
-                record.documentType() == DocumentType.OVERTIME
-                        && !record.hasValidOvertimeClassification();
-        boolean leaveTypeUnclassified =
-                record.documentType() == DocumentType.LEAVE
-                        && !record.hasValidLeaveClassification();
+        // Compare against the CURRENT observation, not any historical version. This
+        // permits A -> B -> A and unchanged-timestamp edits while retaining every raw row.
+        if (latest != null
+                && observationBase(record.sourceVersion()).equals(observationBase(latest.sourceVersion()))
+                && rawDigest(job, record.withSourceVersion(latest.sourceVersion()))
+                        .equals(latest.canonicalPayloadDigest())) {
+            record = record.withSourceVersion(latest.sourceVersion());
+        } else if (latest != null) {
+            record = record.withSourceVersion(observationVersion(record, latest.rawAttendanceFactId()));
+        }
+        // SQL timestamps have microsecond precision. A source-scoped lock makes this
+        // monotonic clock safe even if two revisions arrive during the same millisecond.
+        receivedAt = receivedAt.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        if (latest != null && !receivedAt.isAfter(latest.receivedAt())) {
+            receivedAt = latest.receivedAt().plusNanos(1_000);
+        }
+        long knowledgeRank = Math.max(receivedAt.toEpochMilli(),
+                Math.max(latest != null && latest.knowledgeRank() != null ? latest.knowledgeRank() + 1 : 0,
+                        resolved != null && resolved.knowledgeRank() != null ? resolved.knowledgeRank() + 1 : 0));
+
         String rawDigest = rawDigest(job, record);
-
-        // Idempotency: same source identity → safe replay
         var existing = evidenceRepository.findRawBySourceIdentity(
-                job.sourceId(),
-                record.sourceBusinessKey(),
-                record.sourceVersion());
+                job.sourceId(), record.sourceBusinessKey(), record.sourceVersion());
+        if (existing != null && !rawDigest.equals(existing.canonicalPayloadDigest())) {
+            record = record.withSourceVersion(observationVersion(record, existing.rawAttendanceFactId()));
+            rawDigest = rawDigest(job, record);
+            existing = evidenceRepository.findRawBySourceIdentity(
+                    job.sourceId(), record.sourceBusinessKey(), record.sourceVersion());
+        }
         if (existing != null) {
             String existingDocId = evidenceRepository.findOaAttendanceDocumentId(
-                    job.sourceId(),
-                    record.sourceBusinessKey(),
-                    record.sourceVersion());
-            boolean sameDigest = rawDigest.equals(existing.canonicalPayloadDigest());
-            if (!sameDigest && existingDocId != null) {
-                // Same OA identity already has an effective document. A later
-                // ingest formula (leave catalog, empno) can change the digest
-                // without OA bumping source_version; failing the whole job
-                // leaves later streams (August overtime) unscanned. Keep the
-                // first write and continue the page.
-                log.warn(
-                        "OA source identity digest changed; keeping existing document sourceId={} key={} version={}",
-                        job.sourceId(),
-                        record.sourceBusinessKey(),
-                        record.sourceVersion());
-                ensureOvertimeContext(job, record, receivedAt);
-                return RecordOutcome.ACCEPTED;
-            }
+                    job.sourceId(), record.sourceBusinessKey(), record.sourceVersion());
             if (overtimeTypeUnclassified || leaveTypeUnclassified) {
+                failUnsafeChange(resolved, record);
                 return RecordOutcome.QUARANTINED;
             }
             if (existingDocId != null) {
-                ensureOvertimeContext(job, record, receivedAt);
+                if (ensureOvertimeContext(job, record, receivedAt)) {
+                    evidenceAsOf.accumulateAndGet(receivedAt, (left, right) -> left.isAfter(right) ? left : right);
+                    return RecordOutcome.ACCEPTED_CHANGED;
+                }
                 return RecordOutcome.ACCEPTED;
             }
-            return rematchQuarantinedEmployee(
-                    job, record, existing, receivedAt, interval);
+            RecordOutcome outcome = rematchQuarantinedEmployee(job, record, existing, receivedAt, interval, knowledgeRank, resolved);
+            if (outcome.changed) {
+                evidenceAsOf.accumulateAndGet(receivedAt, (left, right) -> left.isAfter(right) ? left : right);
+            }
+            return outcome;
         }
 
         String runtimeContractRevisionId =
                 findPublishedOvertimeRuntimeContract(
                         job.sourceId(), record, overtimeTypeUnclassified);
 
-        EvidenceResolutionPolicy.MatchDecision decision =
-                resolveEmployee(job, record);
+        EvidenceResolutionPolicy.MatchDecision decision = tombstone
+                ? new EvidenceResolutionPolicy.MatchDecision(
+                        EvidenceResolutionPolicy.MatchStatus.MATCHED, "OA_PRIOR_IDENTITY_TOMBSTONE",
+                        resolved.employeeId(), resolved.employmentPeriodId(),
+                        resolved.resolverSnapshotDigest(), job.companyId())
+                : resolveEmployee(job, record);
 
         boolean employeeUnresolved =
                 decision.status() != EvidenceResolutionPolicy.MatchStatus.MATCHED;
         boolean quarantined = employeeUnresolved
                 || overtimeTypeUnclassified
                 || leaveTypeUnclassified;
+
+        if (quarantined) { failUnsafeChange(resolved, record); }
+        evidenceAsOf.accumulateAndGet(receivedAt, (left, right) -> left.isAfter(right) ? left : right);
 
         String rawId = UUID.randomUUID().toString();
         String normalizedId = UUID.randomUUID().toString();
@@ -369,14 +467,13 @@ public class OaDocumentPageTransaction {
                 receivedAt));
 
         if (quarantined) {
-            return RecordOutcome.QUARANTINED;
+            return RecordOutcome.QUARANTINED_CHANGED;
         }
 
         // 4. oa_attendance_document (only when employee resolved and the
         // overtime classification, when applicable, is recognized)
         Instant approvedAt = record.approvedAt();
         Instant revokedAt = record.revokedAt();
-        long knowledgeRank = receivedAt.toEpochMilli();
 
         evidenceRepository.insertOaAttendanceDocument(new EvidenceRows.OaDocumentRow(
                 oaDocId,
@@ -408,7 +505,7 @@ public class OaDocumentPageTransaction {
                             receivedAt));
         }
 
-        return RecordOutcome.ACCEPTED;
+        return RecordOutcome.ACCEPTED_CHANGED;
     }
 
     private RecordOutcome rematchQuarantinedEmployee(
@@ -416,9 +513,12 @@ public class OaDocumentPageTransaction {
             OaDocumentRecord record,
             EvidenceRows.RawFactRow existing,
             Instant receivedAt,
-            boolean interval) {
+            boolean interval,
+            long knowledgeRank,
+            EvidenceRows.OaObservationRow resolved) {
         EvidenceResolutionPolicy.MatchDecision decision = resolveEmployee(job, record);
         if (decision.status() != EvidenceResolutionPolicy.MatchStatus.MATCHED) {
+            failUnsafeChange(resolved, record);
             return RecordOutcome.QUARANTINED;
         }
         var current = evidenceRepository.findReplayStateBySourceIdentity(
@@ -477,7 +577,7 @@ public class OaDocumentPageTransaction {
                 record.leaveType(),
                 record.sourceStatus().name(),
                 normalizedId,
-                receivedAt.toEpochMilli(),
+                knowledgeRank,
                 null,
                 record.firstSubmittedAt(),
                 record.approvedAt(),
@@ -497,7 +597,50 @@ public class OaDocumentPageTransaction {
                             runtimeContractRevisionId,
                             receivedAt));
         }
-        return RecordOutcome.ACCEPTED;
+        return RecordOutcome.ACCEPTED_CHANGED;
+    }
+
+    private static void failUnsafeChange(EvidenceRows.OaObservationRow resolved, OaDocumentRecord record) {
+        if ((resolved != null && resolved.oaAttendanceDocumentId() != null)
+                || (record.documentType() == DocumentType.LEAVE_REVOCATION
+                    && (record.sourceStatus() == SourceStatus.APPROVED
+                        || record.sourceStatus() == SourceStatus.MODIFIED
+                        || record.sourceStatus() == SourceStatus.SUPPLEMENTED))) {
+            throw new AttendanceSourceSyncFailure("OA_REPORT_SOURCE_QUARANTINED");
+        }
+    }
+
+    private static String observationBase(String version) {
+        String base = version.replaceFirst(":obs=[0-9a-f]{32}$", "");
+        return base.length() > 90 ? "OA_VERSION:" + AttendanceEvidenceDigests.sha256(base) : base;
+    }
+
+    private static String observationVersion(OaDocumentRecord record, String previousRawId) {
+        String base = observationBase(record.sourceVersion());
+        if (base.length() > 90) {
+            base = "OA_VERSION:" + AttendanceEvidenceDigests.sha256(base);
+        }
+        return base + ":obs=" + AttendanceEvidenceDigests.sha256(
+                previousRawId, record.sourceVersion(), UUID.randomUUID().toString()).substring(0, 32);
+    }
+
+    private static OaDocumentRecord tombstoneRecord(
+            OaDocumentRecord incoming, EvidenceRows.OaObservationRow prior) {
+        if (!incoming.documentType().name().equals(prior.documentType())) {
+            throw new AttendanceSourceSyncFailure("OA_REPORT_SOURCE_QUARANTINED");
+        }
+        boolean validInterval = incoming.start() != null && incoming.end() != null
+                && !incoming.end().isBefore(incoming.start());
+        return new OaDocumentRecord(incoming.sourceBusinessKey(), incoming.sourceVersion(),
+                incoming.externalPersonRef(), incoming.employeeNumber(), incoming.documentType(),
+                incoming.sourceStatus(), validInterval ? incoming.start() : prior.startInstant(),
+                validInterval ? incoming.end() : prior.endInstant(), incoming.sourceTimeZone(),
+                incoming.firstSubmittedAt(), incoming.approvedAt(), incoming.modifiedAt(), incoming.revokedAt(),
+                incoming.sourceBatch(), false,
+                incoming.overtimeType() == null ? prior.overtimeType() : incoming.overtimeType(),
+                incoming.leaveType() == null ? prior.leaveType() : incoming.leaveType(),
+                incoming.leaveSerial() == null ? prior.leaveSerial() : incoming.leaveSerial(),
+                incoming.originalLeaveSerial() == null ? prior.originalLeaveSerial() : incoming.originalLeaveSerial());
     }
 
     private EvidenceResolutionPolicy.MatchDecision resolveEmployee(
@@ -540,7 +683,7 @@ public class OaDocumentPageTransaction {
 
     private static String rawDigest(SourceJobStart job, OaDocumentRecord record) {
         return AttendanceEvidenceDigests.sha256(
-                "OA_RAW_FACT_V1",
+                "OA_RAW_FACT_V2",
                 job.sourceId(),
                 job.companyId(),
                 record.sourceBusinessKey(),
@@ -553,7 +696,9 @@ public class OaDocumentPageTransaction {
                 record.documentType().name(),
                 record.sourceStatus().name(),
                 overtimeTypeName(record),
-                leaveTypeName(record));
+                leaveTypeName(record),
+                Objects.toString(record.leaveSerial(), ""),
+                Objects.toString(record.originalLeaveSerial(), ""));
     }
 
     private static String overtimeTypeName(OaDocumentRecord record) {
@@ -568,15 +713,26 @@ public class OaDocumentPageTransaction {
                 : "";
     }
 
+    private static boolean effectiveForAttendance(OaDocumentRecord record) {
+        if (record.documentType() == DocumentType.LEAVE_REVOCATION) {
+            return record.sourceStatus() == SourceStatus.APPROVED
+                    || record.sourceStatus() == SourceStatus.MODIFIED
+                    || record.sourceStatus() == SourceStatus.SUPPLEMENTED;
+        }
+        return com.szsemicon.hr.attendance.domain.OaApprovalStatus.effective(
+                com.szsemicon.hr.attendance.domain.OaApprovalStatus.normalizeLegacy(
+                        record.sourceStatus().name(), record.sourceVersion()));
+    }
+
     private String findPublishedOvertimeRuntimeContract(
             String sourceId,
             OaDocumentRecord record,
             boolean overtimeTypeUnclassified) {
-        boolean approvedClassifiedOvertime =
+        boolean effectiveClassifiedOvertime =
                 record.documentType() == DocumentType.OVERTIME
-                        && record.sourceStatus() == SourceStatus.APPROVED
+                        && effectiveForAttendance(record)
                         && !overtimeTypeUnclassified;
-        if (!approvedClassifiedOvertime) {
+        if (!effectiveClassifiedOvertime) {
             return null;
         }
         return evidenceRepository
@@ -588,20 +744,20 @@ public class OaDocumentPageTransaction {
      * context in the first insert; replay fills context that was skipped when
      * no published runtime contract existed yet.
      */
-    private void ensureOvertimeContext(
+    private boolean ensureOvertimeContext(
             SourceJobStart job,
             OaDocumentRecord record,
             Instant createdAt) {
         if (record.documentType() != DocumentType.OVERTIME
-                || record.sourceStatus() != SourceStatus.APPROVED
+                || !effectiveForAttendance(record)
                 || !record.hasValidOvertimeClassification()) {
-            return;
+            return false;
         }
         String runtimeContractRevisionId =
                 evidenceRepository.findLatestPublishedOaRuntimeContractRevisionId(
                         job.sourceId());
         if (runtimeContractRevisionId == null) {
-            return;
+            return false;
         }
         String documentId = evidenceRepository.findOaAttendanceDocumentId(
                 job.sourceId(),
@@ -609,7 +765,7 @@ public class OaDocumentPageTransaction {
                 record.sourceVersion());
         if (documentId == null
                 || evidenceRepository.hasOaAttendanceDocumentContext(documentId)) {
-            return;
+            return false;
         }
         evidenceRepository.insertOaAttendanceDocumentContext(
                 overtimeContext(
@@ -618,6 +774,7 @@ public class OaDocumentPageTransaction {
                         documentId,
                         runtimeContractRevisionId,
                         createdAt));
+        return true;
     }
 
     private static EvidenceRows.OaDocumentContextRow overtimeContext(
@@ -714,12 +871,22 @@ public class OaDocumentPageTransaction {
     }
 
     private enum RecordOutcome {
-        ACCEPTED,
-        QUARANTINED
+        ACCEPTED(true, false), QUARANTINED(false, false),
+        ACCEPTED_CHANGED(true, true), QUARANTINED_CHANGED(false, true);
+        final boolean accepted;
+        final boolean changed;
+        RecordOutcome(boolean accepted, boolean changed) {
+            this.accepted = accepted;
+            this.changed = changed;
+        }
     }
 
-    public record PageCommitResult(
-            int acceptedCount,
-            int quarantinedCount) {
+    public record PageCommitResult(int acceptedCount, int quarantinedCount, int changedCount, Instant evidenceAsOf) {
+        public PageCommitResult(int acceptedCount, int quarantinedCount) {
+            this(acceptedCount, quarantinedCount, 0, null);
+        }
+        public PageCommitResult(int acceptedCount, int quarantinedCount, int changedCount) {
+            this(acceptedCount, quarantinedCount, changedCount, null);
+        }
     }
 }

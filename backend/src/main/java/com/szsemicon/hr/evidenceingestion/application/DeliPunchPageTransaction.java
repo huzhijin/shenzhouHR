@@ -231,6 +231,13 @@ public class DeliPunchPageTransaction {
         int identityMoved = 0;
         List<IdentityQuarantineNote> stillQuarantined = new ArrayList<>();
         List<PromotedPunch> promoted = new ArrayList<>();
+        // Batch accumulators — flushed once after the loop to reduce DB round-trips
+        // from 3×N to 3 for the base insert layer. Conditional writes (effective
+        // events, lifecycle facts, evidence links) stay per-record.
+        List<EvidenceRows.RawFactRow> rawBatch = new ArrayList<>();
+        List<EvidenceRows.NormalizedRecordRow> normalizedBatch = new ArrayList<>();
+        List<EvidenceRows.MatchDecisionRow> matchBatch = new ArrayList<>();
+        List<PendingEffectiveEvent> pendingEffectiveEvents = new ArrayList<>();
         for (var record : page.records()) {
             RecordOutcome outcome = ingestRecord(
                     job,
@@ -243,7 +250,11 @@ public class DeliPunchPageTransaction {
                     replayIdentity,
                     quarantinePromotionOnly,
                     stillQuarantined,
-                    promoted);
+                    promoted,
+                    rawBatch,
+                    normalizedBatch,
+                    matchBatch,
+                    pendingEffectiveEvents);
             if (outcome.status() == RecordStatus.ACCEPTED) {
                 accepted++;
             } else {
@@ -255,6 +266,24 @@ public class DeliPunchPageTransaction {
             if (outcome.identityMoved()) {
                 identityMoved++;
             }
+        }
+        // Flush all base evidence rows in three bulk INSERTs.
+        evidenceRepository.insertRawFacts(rawBatch);
+        evidenceRepository.insertNormalizedRecords(normalizedBatch);
+        evidenceRepository.insertMatchDecisions(matchBatch);
+        // Second pass: write evidence_link rows now that FK targets exist.
+        for (PendingEffectiveEvent pending : pendingEffectiveEvents) {
+            appendEffectiveEvent(
+                    pending.job(),
+                    pending.principalId(),
+                    pending.requestId(),
+                    pending.record(),
+                    pending.decision(),
+                    pending.effectiveContext(),
+                    pending.rawId(),
+                    pending.normalizedId(),
+                    pending.matchId(),
+                    pending.receivedAt());
         }
 
         var decision = SourcePageCommitPolicy.decide(
@@ -367,7 +396,11 @@ public class DeliPunchPageTransaction {
             boolean replayIdentity,
             boolean quarantinePromotionOnly,
             List<IdentityQuarantineNote> stillQuarantined,
-            List<PromotedPunch> promoted) {
+            List<PromotedPunch> promoted,
+            List<EvidenceRows.RawFactRow> rawBatch,
+            List<EvidenceRows.NormalizedRecordRow> normalizedBatch,
+            List<EvidenceRows.MatchDecisionRow> matchBatch,
+            List<PendingEffectiveEvent> pendingEffectiveEvents) {
         validateRecord(record);
         String rawDigest = rawDigest(job, record);
         var existing = evidenceRepository.findRawBySourceIdentity(
@@ -449,7 +482,7 @@ public class DeliPunchPageTransaction {
                 record.direction().name());
 
         PunchLocationColumns location = PunchLocationColumns.from(record);
-        evidenceRepository.insertRawFact(new EvidenceRows.RawFactRow(
+        rawBatch.add(new EvidenceRows.RawFactRow(
                 rawId,
                 job.sourceId(),
                 job.companyId(),
@@ -477,8 +510,7 @@ public class DeliPunchPageTransaction {
                 null,
                 null,
                 null));
-        evidenceRepository.insertNormalizedRecord(
-                new EvidenceRows.NormalizedRecordRow(
+        normalizedBatch.add(new EvidenceRows.NormalizedRecordRow(
                         normalizedId,
                         rawId,
                         1,
@@ -495,8 +527,7 @@ public class DeliPunchPageTransaction {
                         normalizedDigest,
                         null,
                         receivedAt));
-        evidenceRepository.insertMatchDecision(
-                new EvidenceRows.MatchDecisionRow(
+        matchBatch.add(new EvidenceRows.MatchDecisionRow(
                         matchId,
                         normalizedId,
                         decision.status().name(),
@@ -517,7 +548,9 @@ public class DeliPunchPageTransaction {
             return RecordOutcome.quarantined();
         }
 
-        appendEffectiveEvent(
+        // Base rows are still in memory batches; defer the evidence_link insert
+        // until after the bulk flush so FK constraints are satisfied.
+        pendingEffectiveEvents.add(new PendingEffectiveEvent(
                 job,
                 principalId,
                 requestId,
@@ -527,7 +560,7 @@ public class DeliPunchPageTransaction {
                 rawId,
                 normalizedId,
                 matchId,
-                receivedAt);
+                receivedAt));
         rememberPromotion(
                 quarantinePromotionOnly, job, record, decision, promoted);
         return replayIdentity
@@ -1202,6 +1235,19 @@ public class DeliPunchPageTransaction {
         public PageCommitResult(int acceptedCount, int quarantinedCount) {
             this(acceptedCount, quarantinedCount, 0, 0, List.of(), List.of());
         }
+    }
+
+    private record PendingEffectiveEvent(
+            SourceJobStart job,
+            String principalId,
+            String requestId,
+            DeliPunchSourcePort.DeliPunchRecord record,
+            EvidenceResolutionPolicy.MatchDecision decision,
+            ResolvedEffectiveContext effectiveContext,
+            String rawId,
+            String normalizedId,
+            String matchId,
+            Instant receivedAt) {
     }
 
     private record ProtectedDate(

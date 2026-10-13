@@ -6,7 +6,7 @@ import {
   IconShieldCheck,
 } from '@tabler/icons-react';
 import { DatePicker, Empty } from 'antd';
-import dayjs, { type Dayjs } from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import { defaultQueryPeriod } from '../reports/queryPeriod';
 import { useCallback, useState, type ReactNode } from 'react';
 import {

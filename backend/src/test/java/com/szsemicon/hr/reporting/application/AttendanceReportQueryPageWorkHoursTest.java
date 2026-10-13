@@ -2,8 +2,8 @@ package com.szsemicon.hr.reporting.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.EmployeeDailyAggregateRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.OaRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.EmployeeDailyAggregateRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.OaRow;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -130,8 +130,14 @@ class AttendanceReportQueryPageWorkHoursTest {
     }
 
     private static OaRow oa(String type, String leaveType, long minutes) {
+        // Aug 3 interval, projection covers Aug; byDate has the same single day.
+        // This gives legacyMinutesInWindowOrThrow a valid single-month path and
+        // lets recognizedMinutesInWindow return the full minute value.
+        String byDate = minutes > 0
+                ? "{\"2026-08-03\":" + minutes + "}"
+                : null;
         return new OaRow(
-                "doc-1",
+                "doc-" + type + "-" + leaveType,
                 "emp-1",
                 "SZST0001",
                 "张三",
@@ -143,6 +149,58 @@ class AttendanceReportQueryPageWorkHoursTest {
                 Instant.parse("2026-08-03T09:30:00Z"),
                 minutes,
                 "APPROVED",
-                "OA");
+                "OA",
+                java.time.LocalDate.of(2026, 8, 1),
+                java.time.LocalDate.of(2026, 9, 1),
+                byDate);
+    }
+
+    @Test
+    void zeroMinutesNullJsonCrossMonthCancellationCountsZeroWithoutThrow() {
+        // A fully-cancelled leave (recognizedMinutes=0, byDate=null) spanning
+        // two months must return 0, not throw 503 REQUIRED.
+        var aggregate = new EmployeeDailyAggregateRow(
+                "emp-1", "SZST0026", "唐勇", "org-1", "测试部",
+                0, 0, 0, 0, 11040L, 0, 0, 0, 0, 0, 0, 0, 23,
+                java.math.BigDecimal.ZERO, null);
+        var doc = new OaRow(
+                "cancelled-cross", "emp-1", "SZST0026", "唐勇", "org-1", "测试部",
+                "LEAVE", "SICK",
+                Instant.parse("2026-09-16T16:00:00Z"),
+                Instant.parse("2026-10-16T16:00:00Z"),
+                0L, "APPROVED", "OA",
+                java.time.LocalDate.of(2026, 9, 1),
+                java.time.LocalDate.of(2026, 10, 1),
+                null); // cancelled: total=0, no byDate
+
+        var row = AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                java.time.LocalDate.of(2026, 9, 1), java.time.LocalDate.of(2026, 10, 1));
+
+        assertThat(row.get("leaveHours")).isEqualTo(0.0d);
+    }
+
+    @Test
+    void zeroMinutesInvalidJsonThrows503() {
+        // Even when recognizedMinutes=0, a malformed byDate JSON must be rejected.
+        var aggregate = new EmployeeDailyAggregateRow(
+                "emp-1", "SZST0001", "张三", "org-1", "测试部",
+                0, 0, 0, 0, 11040L, 0, 0, 0, 0, 0, 0, 0, 23,
+                java.math.BigDecimal.ZERO, null);
+        var doc = new OaRow(
+                "bad-json-zero", "emp-1", "SZST0001", "张三", "org-1", "测试部",
+                "LEAVE", "SICK",
+                Instant.parse("2026-09-01T16:00:00Z"),
+                Instant.parse("2026-09-02T16:00:00Z"),
+                0L, "APPROVED", "OA",
+                java.time.LocalDate.of(2026, 9, 1),
+                java.time.LocalDate.of(2026, 10, 1),
+                "{not-valid}"); // invalid JSON, total=0
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                AttendanceReportQueryPageService.workHoursRow(aggregate, List.of(doc),
+                        java.time.LocalDate.of(2026, 9, 1),
+                        java.time.LocalDate.of(2026, 10, 1)))
+                .isInstanceOf(com.szsemicon.hr.shared.web.ApiProblemException.class)
+                .hasMessageContaining("校验失败");
     }
 }

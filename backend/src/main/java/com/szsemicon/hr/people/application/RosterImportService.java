@@ -15,7 +15,6 @@ import com.szsemicon.hr.people.application.roster.RosterWorkbook;
 import com.szsemicon.hr.people.domain.PeopleModels.EmployeeVersion;
 import com.szsemicon.hr.people.domain.PeopleModels.EmploymentPeriod;
 import com.szsemicon.hr.people.domain.PeopleModels.OrganizationVersion;
-import com.szsemicon.hr.people.infrastructure.persistence.RosterImportMapper;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.security.ResourceNotAvailableAccessDeniedException;
 import com.szsemicon.hr.shared.validation.IdempotencyKeyPolicy;
@@ -44,7 +43,7 @@ public class RosterImportService {
     private final CurrentCapabilityService capabilities;
     private final CurrentPrincipalProvider principals;
     private final PeopleRepository people;
-    private final RosterImportMapper batches;
+    private final RosterImportBatchPort batches;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -54,7 +53,7 @@ public class RosterImportService {
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
             PeopleRepository people,
-            RosterImportMapper batches,
+            RosterImportBatchPort batches,
             AuditService audit,
             ObjectMapper objectMapper,
             Clock clock) {
@@ -66,7 +65,7 @@ public class RosterImportService {
             CurrentCapabilityService capabilities,
             CurrentPrincipalProvider principals,
             PeopleRepository people,
-            RosterImportMapper batches,
+            RosterImportBatchPort batches,
             AuditService audit,
             ObjectMapper objectMapper,
             Clock clock,
@@ -113,7 +112,7 @@ public class RosterImportService {
         String actor = principals.currentPrincipalId();
         String batchId = UUID.randomUUID().toString();
         String json = writeJson(precheck);
-        batches.insert(new RosterImportMapper.Row(
+        batches.insert(new RosterImportBatchPort.Row(
                 batchId,
                 "PRECHECKED",
                 reason.strip(),
@@ -134,7 +133,7 @@ public class RosterImportService {
     @Transactional(readOnly = true)
     public BatchDetail get(String batchId) {
         capabilities.require(CapabilityCodes.PEOPLE_IMPORT_READ);
-        RosterImportMapper.Row row = batches.find(batchId);
+        RosterImportBatchPort.Row row = batches.find(batchId);
         if (row == null) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -150,7 +149,7 @@ public class RosterImportService {
         if (reason == null || reason.strip().length() < 2) {
             throw invalid("原因至少 2 个字符");
         }
-        RosterImportMapper.Row batch = batches.find(batchId);
+        RosterImportBatchPort.Row batch = batches.find(batchId);
         if (batch == null) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -426,7 +425,7 @@ public class RosterImportService {
                 .orElseThrow(() -> invalid("预检行不存在"));
     }
 
-    private BatchDetail toDetail(RosterImportMapper.Row row, Result precheck) {
+    private BatchDetail toDetail(RosterImportBatchPort.Row row, Result precheck) {
         return new BatchDetail(
                 row.batchId(),
                 row.status(),

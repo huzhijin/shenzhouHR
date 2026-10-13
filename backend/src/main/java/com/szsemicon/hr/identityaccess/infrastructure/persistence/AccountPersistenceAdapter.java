@@ -1767,17 +1767,36 @@ public class AccountPersistenceAdapter implements AccountPersistence {
                     at));
         }
         for (String companyId : targetCompanyIds) {
+            // Acquire the dedicated people-write lock row so role-grant writes
+            // coordinate with HR writes without blocking DAY_CONTEXT_SQL FOR SHARE
+            // on the company row.
+            jdbc.update(
+                    "INSERT IGNORE INTO company_people_write_lock (company_id) VALUES (?)",
+                    companyId);
             List<String> locked = jdbc.queryForList(
                     """
                     SELECT company_id
-                    FROM company
+                    FROM company_people_write_lock
                     WHERE company_id = ?
-                      AND status = 'ACTIVE'
                     FOR UPDATE
                     """,
                     String.class,
                     companyId);
             if (locked.size() != 1) {
+                throw new ResourceNotAvailableAccessDeniedException();
+            }
+            // Preserve the ACTIVE existence guard: a deactivated company must
+            // still be rejected even though the lock is no longer on company row.
+            List<String> active = jdbc.queryForList(
+                    """
+                    SELECT company_id
+                    FROM company
+                    WHERE company_id = ?
+                      AND status = 'ACTIVE'
+                    """,
+                    String.class,
+                    companyId);
+            if (active.size() != 1) {
                 throw new ResourceNotAvailableAccessDeniedException();
             }
         }

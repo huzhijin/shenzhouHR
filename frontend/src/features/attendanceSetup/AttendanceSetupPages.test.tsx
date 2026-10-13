@@ -803,7 +803,7 @@ describe('attendance setup demo pages', () => {
       scopedVersionId: 'policy-draft-v2',
       versionNumber: 2,
       status: 'DRAFT',
-      effectiveFrom: '2026-09-01',
+      effectiveFrom: utcDateAfter(7),
       changeReason: '创建未来生效草稿',
       validation: { valid: false, issues: [], validatedAt: null },
       publishedAt: null,
@@ -858,7 +858,7 @@ describe('attendance setup demo pages', () => {
 
     await waitFor(() => {
       expect(updateSpy).toHaveBeenCalledWith(draft, expect.objectContaining({
-        effectiveFrom: '2026-09-01',
+        effectiveFrom: draft.effectiveFrom,
         reason: '调整晚餐扣除分钟',
         parameters: expect.arrayContaining([
           { key: 'deductionMinutes', value: 45 },

@@ -64,9 +64,9 @@ class DeliQuarantineRematchServiceTest {
 
         later.runIfDue();
 
-        verify(snapshots).materializeEmployeeRange(
+        verify(snapshots).materializeEmployeeRangeForSet(
                 "company-1",
-                "employee-1",
+                List.of("employee-1"),
                 LocalDate.parse("2026-09-20"),
                 LocalDate.parse("2026-09-24"),
                 NOW.plusSeconds(180));

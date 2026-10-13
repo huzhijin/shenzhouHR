@@ -1,4 +1,4 @@
-package com.szsemicon.hr.reporting.infrastructure.persistence;
+package com.szsemicon.hr.reporting.application;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -56,7 +56,55 @@ public final class QueryPageRows {
             Instant endExclusive,
             long recognizedMinutes,
             String sourceStatus,
-            String sourceOrigin) {
+            String sourceOrigin,
+            LocalDate projectionStart,
+            LocalDate projectionEndExclusive,
+            String recognizedMinutesByDateJson,
+            Instant projectionDataAsOf) {
+        // 13-arg compat: predates projection window + byDate + dataAsOf fields
+        public OaRow(
+                String documentId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationName,
+                String documentType,
+                String leaveType,
+                Instant startAt,
+                Instant endExclusive,
+                long recognizedMinutes,
+                String sourceStatus,
+                String sourceOrigin) {
+            this(documentId, employeeId, employeeNumber, employeeName,
+                    organizationId, organizationName, documentType, leaveType,
+                    startAt, endExclusive, recognizedMinutes, sourceStatus,
+                    sourceOrigin, null, null, null, null);
+        }
+        // 16-arg compat: predates projectionDataAsOf field
+        public OaRow(
+                String documentId,
+                String employeeId,
+                String employeeNumber,
+                String employeeName,
+                String organizationId,
+                String organizationName,
+                String documentType,
+                String leaveType,
+                Instant startAt,
+                Instant endExclusive,
+                long recognizedMinutes,
+                String sourceStatus,
+                String sourceOrigin,
+                LocalDate projectionStart,
+                LocalDate projectionEndExclusive,
+                String recognizedMinutesByDateJson) {
+            this(documentId, employeeId, employeeNumber, employeeName,
+                    organizationId, organizationName, documentType, leaveType,
+                    startAt, endExclusive, recognizedMinutes, sourceStatus,
+                    sourceOrigin, projectionStart, projectionEndExclusive,
+                    recognizedMinutesByDateJson, null);
+        }
     }
 
     public record EmployeeDailyAggregateRow(
@@ -110,6 +158,29 @@ public final class QueryPageRows {
             BigDecimal remainingHours,
             LocalDate hireDate,
             Integer priorServiceDays) {
+    }
+
+    public record OaUsageDocumentRow(
+            String documentId,
+            String employeeId,
+            LocalDate projectionStart,
+            LocalDate projectionEndExclusive,
+            Instant startAt,
+            Instant endExclusive,
+            long recognizedMinutes,
+            String kind,
+            String recognizedMinutesByDateJson) {
+    }
+
+    /** Same immutable pin, including all effective competing leave forms for the day. */
+    public record LegacyLeaveDayEvidenceRow(
+            String documentId,
+            String employeeId,
+            LocalDate projectionStart,
+            LocalDate businessDate,
+            Long leaveMinutes,
+            String leaveType,
+            long effectiveDocumentCount) {
     }
 
     public record MonthlyLeaveUsageRow(

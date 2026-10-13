@@ -25,7 +25,6 @@ import {
 } from 'recharts';
 
 import { departmentPathNodes, visibleDepartmentPath } from '../reports/departmentPath';
-import { defaultQueryPeriod } from '../reports/queryPeriod';
 import { DataTable, type DataColumn } from '../../shared/components/DataTable';
 import {
   DetailDrawer,
@@ -64,7 +63,16 @@ export function DashboardRoute({
 }) {
   const navigate = useNavigate();
   const [windowKind, setWindowKind] = useState<'DAY' | 'MONTH'>('MONTH');
-  const [period, setPeriod] = useState<Dayjs>(() => defaultQueryPeriod());
+  const [period, setPeriod] = useState<Dayjs>(() => {
+    // The live workbench follows this business month; report queries may
+    // deliberately default to the previous month during the first week.
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit',
+    }).formatToParts(new Date());
+    const year = parts.find((part) => part.type === 'year')!.value;
+    const month = parts.find((part) => part.type === 'month')!.value;
+    return dayjs(`${year}-${month}-01`);
+  });
   const loadDashboard = useCallback(
     () => gateway.loadDashboard(undefined, period.format('YYYY-MM'), windowKind),
     [gateway, period, windowKind],

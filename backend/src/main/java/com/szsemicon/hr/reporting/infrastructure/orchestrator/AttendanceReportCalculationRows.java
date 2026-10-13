@@ -22,6 +22,30 @@ import java.util.Objects;
  */
 final class AttendanceReportCalculationRows {
 
+    /** Actual immutable leave-day attribution, including copied rows of this exact pin. */
+    record ProjectedLeaveUsageRow(String sourceId, String sourceBusinessKey, String employeeId,
+            long recognizedMinutes, String recognizedMinutesByDateJson) { }
+
+    /** Immutable HR decision on one exact approved OA overtime version, not punch evidence. */
+    record OaOvertimeRecognitionRow(
+            String recognitionId, String companyId, String employeeId, String sourceId,
+            String sourceBusinessKey, String sourceVersion, String documentId,
+            LocalDate businessDate, Instant expectedIntervalStart, Instant expectedIntervalEnd,
+            OvertimeType overtimeType, int recognizedMinutes, Instant knowledgeAt, Instant reversedAt,
+            String confirmationSha256, String evidenceSha256, String requestId) { }
+
+    /**
+     * Immutable HR decision to exclude one exact OA document version from report calculation.
+     * No business_date column — exclusion binds to the immutable document's geometry, and that
+     * geometry (interval_start/interval_end or point_instant) determines which months are affected.
+     */
+    record OaEvidenceExclusionRow(
+            String exclusionId, String companyId, String employeeId, String sourceId,
+            String sourceBusinessKey, String sourceVersion, String documentId, String documentType,
+            Instant intervalStart, Instant intervalEnd, Instant pointInstant,
+            Instant knowledgeAt, Instant reversedAt,
+            String confirmationSha256, String evidenceSha256, String requestId) { }
+
     private AttendanceReportCalculationRows() {
     }
 
@@ -204,7 +228,29 @@ final class AttendanceReportCalculationRows {
             Instant firstSubmittedAt,
             boolean effectiveCandidate,
             String leaveSerial,
-            String originalLeaveSerial) {
+            String originalLeaveSerial,
+            String sourceId,
+            String employeeId) {
+
+        /** Compatibility constructor for in-memory fixtures; SQL fills scope. */
+        OaDocumentRow(
+                String sourceBusinessKey,
+                String documentType,
+                OvertimeType overtimeType,
+                LeaveType leaveType,
+                String employeeNumber,
+                Instant startInstant,
+                Instant endInstant,
+                String sourceTimeZone,
+                Instant firstSubmittedAt,
+                boolean effectiveCandidate,
+                String leaveSerial,
+                String originalLeaveSerial) {
+            this(sourceBusinessKey, documentType, overtimeType, leaveType,
+                    employeeNumber, startInstant, endInstant, sourceTimeZone,
+                    firstSubmittedAt, effectiveCandidate, leaveSerial,
+                    originalLeaveSerial, null, null);
+        }
 
         OaDocumentRow(
                 String sourceBusinessKey,

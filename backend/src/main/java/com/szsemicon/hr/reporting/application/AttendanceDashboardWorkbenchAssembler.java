@@ -15,10 +15,9 @@ import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionState;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportSourceSnapshot;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ScopeType;
-import com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceDashboardWorkbenchMapper;
-import com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows;
-import com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows.PunchRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows.RosterRow;
+import com.szsemicon.hr.reporting.application.DashboardWorkbenchRows;
+import com.szsemicon.hr.reporting.application.DashboardWorkbenchRows.PunchRow;
+import com.szsemicon.hr.reporting.application.DashboardWorkbenchRows.RosterRow;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Duration;
@@ -68,7 +67,7 @@ public class AttendanceDashboardWorkbenchAssembler {
     static final int MAX_PUBLISHED_EXCEPTIONS = 500;
 
     private final AttendanceReportSourceRepository reportSources;
-    private final AttendanceDashboardWorkbenchMapper mapper;
+    private final DashboardWorkbenchReadPort mapper;
     private final Clock clock;
     private final Duration assembleBudget;
     private final Executor executor;
@@ -85,7 +84,7 @@ public class AttendanceDashboardWorkbenchAssembler {
     @Autowired
     public AttendanceDashboardWorkbenchAssembler(
             AttendanceReportSourceRepository reportSources,
-            AttendanceDashboardWorkbenchMapper mapper) {
+            DashboardWorkbenchReadPort mapper) {
         this(
                 reportSources,
                 mapper,
@@ -97,7 +96,7 @@ public class AttendanceDashboardWorkbenchAssembler {
 
     AttendanceDashboardWorkbenchAssembler(
             AttendanceReportSourceRepository reportSources,
-            AttendanceDashboardWorkbenchMapper mapper,
+            DashboardWorkbenchReadPort mapper,
             Clock clock,
             Duration assembleBudget) {
         this(reportSources, mapper, clock, assembleBudget, Runnable::run, false);
@@ -105,7 +104,7 @@ public class AttendanceDashboardWorkbenchAssembler {
 
     AttendanceDashboardWorkbenchAssembler(
             AttendanceReportSourceRepository reportSources,
-            AttendanceDashboardWorkbenchMapper mapper,
+            DashboardWorkbenchReadPort mapper,
             Clock clock,
             Duration assembleBudget,
             Executor executor) {
@@ -114,7 +113,7 @@ public class AttendanceDashboardWorkbenchAssembler {
 
     private AttendanceDashboardWorkbenchAssembler(
             AttendanceReportSourceRepository reportSources,
-            AttendanceDashboardWorkbenchMapper mapper,
+            DashboardWorkbenchReadPort mapper,
             Clock clock,
             Duration assembleBudget,
             Executor executor,

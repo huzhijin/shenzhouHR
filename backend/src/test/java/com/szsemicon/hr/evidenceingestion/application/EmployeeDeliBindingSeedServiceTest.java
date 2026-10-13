@@ -2,7 +2,7 @@ package com.szsemicon.hr.evidenceingestion.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.EmployeeRosterRow;
+import com.szsemicon.hr.evidenceingestion.application.EmployeeDeliBindingPort.EmployeeRosterRow;
 import com.szsemicon.hr.evidenceingestion.port.DeliPunchSourcePort.EmployeeDirectoryPerson;
 import java.util.List;
 import java.util.Map;

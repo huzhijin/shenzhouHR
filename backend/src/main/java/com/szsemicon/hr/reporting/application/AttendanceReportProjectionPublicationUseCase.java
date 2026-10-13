@@ -12,6 +12,16 @@ public interface AttendanceReportProjectionPublicationUseCase {
 
     PublicationResult publish(PublishCommand command);
 
+    /** Publish a partial replacement only against the baseline used to calculate it. */
+    default PublicationResult publishScoped(
+            PublishCommand command,
+            java.time.LocalDate writeStartInclusive,
+            java.time.LocalDate writeEndExclusive,
+            java.util.Collection<String> employeeIds,
+            String expectedBaseProjectionVersion) {
+        throw new UnsupportedOperationException("baseline-bound partial publication is not supported");
+    }
+
     default PublicationResult publish(
             PublishCommand command,
             java.time.LocalDate copyBefore,

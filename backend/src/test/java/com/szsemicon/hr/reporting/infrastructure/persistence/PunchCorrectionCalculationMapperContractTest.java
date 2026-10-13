@@ -27,14 +27,14 @@ class PunchCorrectionCalculationMapperContractTest {
     }
 
     @Test
-    void executivePunchExemptionIsCompanyScopedAndEffectiveDated()
+    void executivePunchExemptionCoversWindowUntilAssignmentEnds()
             throws Exception {
         String mapper = normalized(Files.readString(MAPPER));
 
         assertThat(mapper).contains(
                 "role.role_code = 'executive'",
                 "employee.company_id = #{companyid}",
-                "assignment.valid_from &lt; #{windowendexclusive}",
+                "assignment.valid_to is null",
                 "assignment.valid_to &gt; #{windowstart}");
     }
 

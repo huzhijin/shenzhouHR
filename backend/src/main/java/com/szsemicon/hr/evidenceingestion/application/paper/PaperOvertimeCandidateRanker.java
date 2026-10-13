@@ -1,6 +1,6 @@
 package com.szsemicon.hr.evidenceingestion.application.paper;
 
-import com.szsemicon.hr.evidenceingestion.infrastructure.persistence.PaperOvertimeRows.EmployeeCandidateRow;
+import com.szsemicon.hr.evidenceingestion.port.PaperOvertimeRows.EmployeeCandidateRow;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;

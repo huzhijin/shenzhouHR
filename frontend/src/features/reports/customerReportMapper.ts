@@ -1,3 +1,4 @@
+import { leaveTypeLabel } from '../../shared/leaveTypes';
 import type {
   AttendanceMonthMatrixBadgeCode,
   AttendanceMonthMatrixProjection,
@@ -86,22 +87,23 @@ function localDate(value: string | undefined): string {
   }).format(timestamp);
 }
 
-const leaveTypeLabels: Readonly<Record<string, string>> = {
-  ANNUAL: '年假',
-  SICK: '病假',
-  MARRIAGE: '婚假',
-  MATERNITY: '产假',
-  PATERNITY: '陪产假',
-  BEREAVEMENT: '丧假',
-  WORK_INJURY: '工伤假',
-  PRENATAL_NURSING: '孕检/哺乳假',
-  PERSONAL: '事假',
-  COMPENSATORY: '调休',
-};
+function businessDateKey(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return value.slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Shanghai',
+  }).formatToParts(timestamp);
+  const fields = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${fields.year}-${fields.month}-${fields.day}`;
+}
 
 function leaveType(values: RowValues): string {
   const raw = required(values, 'document-type');
-  return raw === '—' ? raw : leaveTypeLabels[raw.toUpperCase()] ?? raw;
+  return leaveTypeLabel(raw);
 }
 
 export function toLeaveRows(
@@ -122,6 +124,8 @@ export function toLeaveRows(
 const overtimeTypeLabels: Readonly<Record<string, string>> = {
   PAID: '加班费',
   COMPENSATORY: '调休',
+  TIME_OFF: '调休',
+  TIME_OFF_IN_LIEU: '调休',
   VOLUNTARY: '义务加班',
   OVERTIME: '加班',
 };
@@ -150,7 +154,7 @@ export function toOvertimeRows(
       overtimeType,
       hours,
       period: period(row.values),
-      overtimeDate: start === undefined ? undefined : start.slice(0, 10),
+      overtimeDate: businessDateKey(start),
       approvalState: required(row.values, 'approval-state'),
       source: origin === 'PAPER' || origin === '纸质' ? '纸质' : 'OA',
       paidHours,
@@ -171,6 +175,9 @@ export function toWorkHoursRows(
     department: required(row.values, 'organization'),
     plannedHours: count(row.values, 'scheduled-hours'),
     overtimeHours: count(row.values, 'paid-overtime-hours'),
+    // Actual work hours include voluntary overtime, so the visible part has to carry it too;
+    // otherwise the workbook's 实际出勤 formula recalculates below its cached result.
+    voluntaryOvertimeHours: count(row.values, 'voluntary-overtime-hours'),
     leaveHours: count(row.values, 'leave-hours'),
     annualLeaveHours: decimal(row.values, 'annual-leave-hours') ?? 0,
     exchangedHours: decimal(row.values, 'compensatory-overtime-hours') ?? 0,

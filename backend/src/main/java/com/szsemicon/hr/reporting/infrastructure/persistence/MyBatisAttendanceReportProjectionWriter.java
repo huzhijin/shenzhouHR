@@ -39,10 +39,16 @@ public class MyBatisAttendanceReportProjectionWriter
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public boolean lockCompany(String companyId) {
-        return companyId != null
-                && companyId.equals(
-                        mapper.lockCompany(companyId));
+    public boolean lockCompany(String companyId, java.time.LocalDate periodStart) {
+        if (companyId == null || periodStart == null) {
+            return false;
+        }
+        if (!companyId.equals(mapper.lockCompany(companyId))) {
+            return false;
+        }
+        mapper.upsertPublicationLock(companyId, periodStart);
+        mapper.lockPublicationSlot(companyId, periodStart);
+        return true;
     }
 
     @Override
@@ -151,6 +157,19 @@ public class MyBatisAttendanceReportProjectionWriter
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void appendOaDocumentFact(OaDocumentFactWrite fact) {
+        // Route by HR identity (hrAdjustmentId), not by sourceOrigin
+        if (fact != null && fact.hrAdjustmentId() != null && !fact.hrAdjustmentId().isBlank()) {
+            int written = mapper.insertHrPaperDocumentFact(
+                    AttendanceReportProjectionWriteRows.HrPaperDocumentFactRow.from(fact));
+            if (written == 1) {
+                return;
+            }
+            log.warn(
+                    "skipping unverified HR paper report fact hrAdjustmentId={} employee={}",
+                    fact.hrAdjustmentId(),
+                    fact.employeeId());
+            return;
+        }
         int written = mapper.insertOaDocumentFact(
                 AttendanceReportProjectionWriteRows.OaDocumentFactRow.from(fact));
         if (written == 1) {
@@ -168,21 +187,50 @@ public class MyBatisAttendanceReportProjectionWriter
         if (facts == null || facts.isEmpty()) {
             return;
         }
-        for (List<OaDocumentFactWrite> chunk :
-                FactWriteBatches.partition(facts, batchSize)) {
-            List<AttendanceReportProjectionWriteRows.OaDocumentFactRow> rows =
-                    chunk.stream()
-                            .map(AttendanceReportProjectionWriteRows
-                                    .OaDocumentFactRow::from)
-                            .toList();
-            int written = mapper.insertOaDocumentFacts(rows);
-            if (written == rows.size()) {
-                continue;
+        // Partition by HR identity
+        var hrFacts = facts.stream()
+                .filter(f -> f != null && f.hrAdjustmentId() != null && !f.hrAdjustmentId().isBlank())
+                .toList();
+        var oaFacts = facts.stream()
+                .filter(f -> f == null || f.hrAdjustmentId() == null || f.hrAdjustmentId().isBlank())
+                .toList();
+
+        // Write HR facts
+        if (!hrFacts.isEmpty()) {
+            for (List<OaDocumentFactWrite> chunk :
+                    FactWriteBatches.partition(hrFacts, batchSize)) {
+                List<AttendanceReportProjectionWriteRows.HrPaperDocumentFactRow> rows =
+                        chunk.stream()
+                                .map(AttendanceReportProjectionWriteRows
+                                        .HrPaperDocumentFactRow::from)
+                                .toList();
+                int written = mapper.insertHrPaperDocumentFacts(rows);
+                if (written != rows.size()) {
+                    log.warn(
+                            "skipped unverified HR paper report facts expected={} written={}",
+                            rows.size(),
+                            written);
+                }
             }
-            log.warn(
-                    "skipped unverified OA report facts expected={} written={}",
-                    rows.size(),
-                    written);
+        }
+
+        // Write OA facts
+        if (!oaFacts.isEmpty()) {
+            for (List<OaDocumentFactWrite> chunk :
+                    FactWriteBatches.partition(oaFacts, batchSize)) {
+                List<AttendanceReportProjectionWriteRows.OaDocumentFactRow> rows =
+                        chunk.stream()
+                                .map(AttendanceReportProjectionWriteRows
+                                        .OaDocumentFactRow::from)
+                                .toList();
+                int written = mapper.insertOaDocumentFacts(rows);
+                if (written != rows.size()) {
+                    log.warn(
+                            "skipped unverified OA report facts expected={} written={}",
+                            rows.size(),
+                            written);
+                }
+            }
         }
     }
 
@@ -327,9 +375,7 @@ public class MyBatisAttendanceReportProjectionWriter
         if (sourceProjectionId == null
                 || targetProjectionId == null
                 || windowStart == null
-                || windowEndExclusive == null
-                || employeeId == null
-                || employeeId.isBlank()) {
+                || windowEndExclusive == null) {
             return;
         }
         mapper.copyOaDocumentFactsExceptEmployeeWindow(
@@ -341,7 +387,20 @@ public class MyBatisAttendanceReportProjectionWriter
                 employeeId,
                 employeeId == null || employeeId.isBlank()
                         ? java.util.List.of()
-                        : java.util.List.of(employeeId));
+                        : java.util.List.of(employeeId),
+                java.util.List.of(),
+                false);
+        mapper.copyHrPaperFactsExceptEmployeeWindow(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                employeeId,
+                employeeId == null || employeeId.isBlank()
+                        ? java.util.List.of()
+                        : java.util.List.of(employeeId),
+                java.util.List.of());
     }
 
     @Override
@@ -360,8 +419,7 @@ public class MyBatisAttendanceReportProjectionWriter
         if (sourceProjectionId == null
                 || targetProjectionId == null
                 || windowStart == null
-                || windowEndExclusive == null
-                || ids.isEmpty()) {
+                || windowEndExclusive == null) {
             return;
         }
         mapper.copyOaDocumentFactsExceptEmployeeWindow(
@@ -371,7 +429,77 @@ public class MyBatisAttendanceReportProjectionWriter
                 windowEndExclusive,
                 createdAt,
                 employeeId,
-                ids);
+                ids,
+                java.util.List.of(),
+                false);
+        mapper.copyHrPaperFactsExceptEmployeeWindow(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                employeeId,
+                ids,
+                java.util.List.of());
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void copyOaDocumentFactsExceptEmployeeWindow(
+            String sourceProjectionId,
+            String targetProjectionId,
+            Instant windowStart,
+            Instant windowEndExclusive,
+            Instant createdAt,
+            String employeeId,
+            java.util.Collection<String> employeeIds,
+            java.util.Collection<String> replacedDocumentIds) {
+        copyOaDocumentFactsExceptEmployeeWindow(sourceProjectionId, targetProjectionId,
+                windowStart, windowEndExclusive, createdAt, employeeId, employeeIds,
+                replacedDocumentIds, false);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void copyOaDocumentFactsExceptEmployeeWindow(
+            String sourceProjectionId,
+            String targetProjectionId,
+            Instant windowStart,
+            Instant windowEndExclusive,
+            Instant createdAt,
+            String employeeId,
+            java.util.Collection<String> employeeIds,
+            java.util.Collection<String> replacedDocumentIds,
+            boolean replaceWholeMonthLeave) {
+        if (sourceProjectionId == null
+                || targetProjectionId == null
+                || windowStart == null
+                || windowEndExclusive == null) {
+            return;
+        }
+        mapper.copyOaDocumentFactsExceptEmployeeWindow(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                employeeId,
+                employeeIds == null ? java.util.List.of() : java.util.List.copyOf(employeeIds),
+                replacedDocumentIds == null
+                        ? java.util.List.of()
+                        : java.util.List.copyOf(replacedDocumentIds),
+                replaceWholeMonthLeave);
+        mapper.copyHrPaperFactsExceptEmployeeWindow(
+                sourceProjectionId,
+                targetProjectionId,
+                windowStart,
+                windowEndExclusive,
+                createdAt,
+                employeeId,
+                employeeIds == null ? java.util.List.of() : java.util.List.copyOf(employeeIds),
+                replacedDocumentIds == null
+                        ? java.util.List.of()
+                        : java.util.List.copyOf(replacedDocumentIds));
     }
 
     @Override

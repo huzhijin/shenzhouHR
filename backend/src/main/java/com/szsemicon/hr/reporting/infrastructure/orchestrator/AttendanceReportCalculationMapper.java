@@ -14,6 +14,7 @@ import com.szsemicon.hr.reporting.infrastructure.orchestrator
         .AttendanceReportCalculationRows.SourceInputVersionRow;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -25,6 +26,59 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 interface AttendanceReportCalculationMapper {
+
+    List<AttendanceReportCalculationRows.OaOvertimeRecognitionRow> findOaOvertimeRecognitions(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    List<AttendanceReportCalculationRows.OaEvidenceExclusionRow> findOaEvidenceExclusions(
+            @Param("companyId") String companyId,
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEndExclusive") Instant windowEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf);
+
+    List<String> findRecognitionMarkersForProjection(
+            @Param("companyId") String companyId,
+            @Param("projectionVersion") String projectionVersion);
+
+    List<String> findExclusionMarkersForProjection(
+            @Param("companyId") String companyId,
+            @Param("projectionVersion") String projectionVersion);
+
+    com.szsemicon.hr.reporting.application.AttendanceReportDependencyPlan.Baseline findDependencyBaseline(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive);
+
+    List<String> findHistoricallyAmendedLeaveKeys(
+            @Param("companyId") String companyId,
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEndExclusive") Instant windowEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf,
+            @Param("employeeIds") java.util.Collection<String> employeeIds);
+
+    /** Reads the actual immutable OA contributions retained by this pin, including copied rows. */
+    default List<AttendanceReportCalculationRows.OaDocumentRow> findProjectedOaDependencies(
+            @Param("companyId") String companyId,
+            @Param("projectionVersion") String projectionVersion) {
+        return findProjectedOaDependencies(companyId, projectionVersion, null);
+    }
+
+    /**
+     * Same pinned read restricted to {@code employeeIds} on the driving OA
+     * fact rows. {@code null} keeps the company-wide SQL unchanged; an empty
+     * collection returns no rows.
+     */
+    List<AttendanceReportCalculationRows.OaDocumentRow> findProjectedOaDependencies(
+            @Param("companyId") String companyId,
+            @Param("projectionVersion") String projectionVersion,
+            @Param("employeeIds") Collection<String> employeeIds);
+
+    List<AttendanceReportCalculationRows.ProjectedLeaveUsageRow> findProjectedLeaveUsageDependencies(
+            @Param("companyId") String companyId,
+            @Param("projectionVersion") String projectionVersion);
 
     /**
      * Returns the active Deli/OA source revisions and latest page committed by
@@ -139,11 +193,25 @@ interface AttendanceReportCalculationMapper {
      * authority inside the period. Missing or ambiguous employee-day rows are
      * rejected by the orchestrator rather than guessed from the weekday.
      */
+    default List<CalendarDayRow> findPublishedCalendarDays(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf) {
+        return findPublishedCalendarDays(
+                companyId, periodStart, periodEndExclusive, dataAsOf, null);
+    }
+
+    /**
+     * Same statement restricted to {@code employeeIds}. {@code null} keeps
+     * the company-wide SQL unchanged; an empty collection returns no rows.
+     */
     List<CalendarDayRow> findPublishedCalendarDays(
             @Param("companyId") String companyId,
             @Param("periodStart") LocalDate periodStart,
             @Param("periodEndExclusive") LocalDate periodEndExclusive,
-            @Param("dataAsOf") Instant dataAsOf);
+            @Param("dataAsOf") Instant dataAsOf,
+            @Param("employeeIds") Collection<String> employeeIds);
 
     /**
      * Returns the latest effective OA attendance-document version for each
@@ -222,11 +290,25 @@ interface AttendanceReportCalculationMapper {
      * the given period, based on their assigned shift templates and work
      * calendar days.
      */
+    default List<AttendanceReportCalculationRows.ShiftSegmentRow> findScheduledWorkSegments(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEndExclusive") LocalDate periodEndExclusive,
+            @Param("dataAsOf") Instant dataAsOf) {
+        return findScheduledWorkSegments(
+                companyId, periodStart, periodEndExclusive, dataAsOf, null);
+    }
+
+    /**
+     * Same statement restricted to {@code employeeIds}. {@code null} keeps
+     * the company-wide SQL unchanged; an empty collection returns no rows.
+     */
     List<AttendanceReportCalculationRows.ShiftSegmentRow> findScheduledWorkSegments(
             @Param("companyId") String companyId,
             @Param("periodStart") LocalDate periodStart,
             @Param("periodEndExclusive") LocalDate periodEndExclusive,
-            @Param("dataAsOf") Instant dataAsOf);
+            @Param("dataAsOf") Instant dataAsOf,
+            @Param("employeeIds") Collection<String> employeeIds);
 
     List<AttendanceReportCalculationRows.PunchWindowRow> findUniquePunchWindows(
             @Param("companyId") String companyId,
@@ -241,10 +323,27 @@ interface AttendanceReportCalculationMapper {
      * company scope. Candidate cardinalities are retained so the orchestrator
      * can fail closed on missing or ambiguous authority.
      */
+    default List<AttendanceReportCalculationRows.AttendancePolicyRow>
+            findAttendancePolicies(
+                    @Param("companyId") String companyId,
+                    @Param("periodStart") LocalDate periodStart,
+                    @Param("periodEndExclusive") LocalDate periodEndExclusive,
+                    @Param("dataAsOf") Instant dataAsOf) {
+        return findAttendancePolicies(
+                companyId, periodStart, periodEndExclusive, dataAsOf, null);
+    }
+
+    /**
+     * Same statement with the employee group-authority CTE restricted to
+     * {@code employeeIds}. Company-scoped deadline policies are resolved
+     * independently of employees and are never filtered. {@code null} keeps
+     * the company-wide SQL unchanged; an empty collection returns no rows.
+     */
     List<AttendanceReportCalculationRows.AttendancePolicyRow>
             findAttendancePolicies(
                     @Param("companyId") String companyId,
                     @Param("periodStart") LocalDate periodStart,
                     @Param("periodEndExclusive") LocalDate periodEndExclusive,
-                    @Param("dataAsOf") Instant dataAsOf);
+                    @Param("dataAsOf") Instant dataAsOf,
+                    @Param("employeeIds") Collection<String> employeeIds);
 }

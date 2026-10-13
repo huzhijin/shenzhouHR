@@ -134,46 +134,55 @@ class DeliPunchPageTransactionTest {
 
         assertThat(outcome.acceptedCount()).isEqualTo(1);
         assertThat(outcome.quarantinedCount()).isZero();
-        ArgumentCaptor<EvidenceRows.RawFactRow> raw =
-                ArgumentCaptor.forClass(EvidenceRows.RawFactRow.class);
-        verify(evidenceRepository).insertRawFact(raw.capture());
-        assertThat(raw.getValue().rawObjectRef()).isNull();
-        assertThat(raw.getValue().canonicalPayloadDigest())
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvidenceRows.RawFactRow>> rawBatch =
+                ArgumentCaptor.forClass(List.class);
+        verify(evidenceRepository).insertRawFacts(rawBatch.capture());
+        assertThat(rawBatch.getValue()).hasSize(1);
+        EvidenceRows.RawFactRow raw = rawBatch.getValue().get(0);
+        assertThat(raw.rawObjectRef()).isNull();
+        assertThat(raw.canonicalPayloadDigest())
                 .matches("[0-9a-f]{64}");
-        assertThat(raw.getValue().verificationMethod()).isEqualTo("fp");
-        assertThat(raw.getValue().locationSummary()).isNull();
-        assertThat(raw.getValue().longitudeRaw()).isNull();
-        assertThat(raw.getValue().coordinateValidationStatus()).isEqualTo("MISSING");
-        assertThat(raw.getValue().mapLongitude()).isNull();
-        assertThat(raw.getValue().mapLatitude()).isNull();
-        ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
-                ArgumentCaptor.forClass(EvidenceRows.NormalizedRecordRow.class);
-        ArgumentCaptor<EvidenceRows.MatchDecisionRow> match =
-                ArgumentCaptor.forClass(EvidenceRows.MatchDecisionRow.class);
+        assertThat(raw.verificationMethod()).isEqualTo("fp");
+        assertThat(raw.locationSummary()).isNull();
+        assertThat(raw.longitudeRaw()).isNull();
+        assertThat(raw.coordinateValidationStatus()).isEqualTo("MISSING");
+        assertThat(raw.mapLongitude()).isNull();
+        assertThat(raw.mapLatitude()).isNull();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvidenceRows.NormalizedRecordRow>> normalizedBatch =
+                ArgumentCaptor.forClass(List.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvidenceRows.MatchDecisionRow>> matchBatch =
+                ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<EvidenceRows.EffectiveEventRow> event =
                 ArgumentCaptor.forClass(EvidenceRows.EffectiveEventRow.class);
         ArgumentCaptor<EvidenceRows.LifecycleFactRow> lifecycle =
                 ArgumentCaptor.forClass(EvidenceRows.LifecycleFactRow.class);
         ArgumentCaptor<EvidenceRows.EvidenceLinkRow> link =
                 ArgumentCaptor.forClass(EvidenceRows.EvidenceLinkRow.class);
-        verify(evidenceRepository).insertNormalizedRecord(normalized.capture());
-        verify(evidenceRepository).insertMatchDecision(match.capture());
+        verify(evidenceRepository).insertNormalizedRecords(normalizedBatch.capture());
+        assertThat(normalizedBatch.getValue()).hasSize(1);
+        EvidenceRows.NormalizedRecordRow normalized = normalizedBatch.getValue().get(0);
+        verify(evidenceRepository).insertMatchDecisions(matchBatch.capture());
+        assertThat(matchBatch.getValue()).hasSize(1);
+        EvidenceRows.MatchDecisionRow match = matchBatch.getValue().get(0);
         verify(evidenceRepository).insertEffectiveEvent(event.capture());
         verify(evidenceRepository).insertLifecycleFact(lifecycle.capture());
         verify(evidenceRepository).insertEvidenceLink(link.capture());
-        assertThat(normalized.getValue().rawAttendanceFactId())
-                .isEqualTo(raw.getValue().rawAttendanceFactId());
-        assertThat(match.getValue().normalizedAttendanceRecordId())
-                .isEqualTo(normalized.getValue().normalizedAttendanceRecordId());
-        assertThat(match.getValue().matchStatus()).isEqualTo("MATCHED");
+        assertThat(normalized.rawAttendanceFactId())
+                .isEqualTo(raw.rawAttendanceFactId());
+        assertThat(match.normalizedAttendanceRecordId())
+                .isEqualTo(normalized.normalizedAttendanceRecordId());
+        assertThat(match.matchStatus()).isEqualTo("MATCHED");
         assertThat(link.getValue().effectiveAttendanceEventId())
                 .isEqualTo(event.getValue().effectiveAttendanceEventId());
         assertThat(link.getValue().rawAttendanceFactId())
-                .isEqualTo(raw.getValue().rawAttendanceFactId());
+                .isEqualTo(raw.rawAttendanceFactId());
         assertThat(link.getValue().normalizedAttendanceRecordId())
-                .isEqualTo(normalized.getValue().normalizedAttendanceRecordId());
+                .isEqualTo(normalized.normalizedAttendanceRecordId());
         assertThat(link.getValue().employeeMatchDecisionId())
-                .isEqualTo(match.getValue().employeeMatchDecisionId());
+                .isEqualTo(match.employeeMatchDecisionId());
         assertThat(link.getValue().linkType()).isEqualTo("PRIMARY");
         assertThat(lifecycle.getValue().effectiveAttendanceEventId())
                 .isEqualTo(event.getValue().effectiveAttendanceEventId());
@@ -222,14 +231,15 @@ class DeliPunchPageTransactionTest {
 
         assertThat(outcome.acceptedCount()).isZero();
         assertThat(outcome.quarantinedCount()).isEqualTo(1);
-        ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
-                ArgumentCaptor.forClass(
-                        EvidenceRows.NormalizedRecordRow.class);
-        verify(evidenceRepository).insertNormalizedRecord(
-                normalized.capture());
-        assertThat(normalized.getValue().validationStatus())
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvidenceRows.NormalizedRecordRow>> normalizedBatch =
+                ArgumentCaptor.forClass(List.class);
+        verify(evidenceRepository).insertNormalizedRecords(normalizedBatch.capture());
+        assertThat(normalizedBatch.getValue()).hasSize(1);
+        EvidenceRows.NormalizedRecordRow normalized = normalizedBatch.getValue().get(0);
+        assertThat(normalized.validationStatus())
                 .isEqualTo("QUARANTINED");
-        assertThat(normalized.getValue().issueCode())
+        assertThat(normalized.issueCode())
                 .isEqualTo("EMPLOYEE_UNMATCHED");
         verify(configurationResolver, never()).resolve(any(), any(), any());
         verify(periodProtection, never()).protectionFor(any(), any(), any());
@@ -271,14 +281,15 @@ class DeliPunchPageTransactionTest {
 
         assertThat(outcome.acceptedCount()).isZero();
         assertThat(outcome.quarantinedCount()).isEqualTo(1);
-        ArgumentCaptor<EvidenceRows.NormalizedRecordRow> normalized =
-                ArgumentCaptor.forClass(
-                        EvidenceRows.NormalizedRecordRow.class);
-        verify(evidenceRepository).insertNormalizedRecord(
-                normalized.capture());
-        assertThat(normalized.getValue().validationStatus())
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvidenceRows.NormalizedRecordRow>> normalizedBatch =
+                ArgumentCaptor.forClass(List.class);
+        verify(evidenceRepository).insertNormalizedRecords(normalizedBatch.capture());
+        assertThat(normalizedBatch.getValue()).hasSize(1);
+        EvidenceRows.NormalizedRecordRow normalized = normalizedBatch.getValue().get(0);
+        assertThat(normalized.validationStatus())
                 .isEqualTo("QUARANTINED");
-        assertThat(normalized.getValue().issueCode())
+        assertThat(normalized.issueCode())
                 .isEqualTo("ATTENDANCE_CONFIGURATION_UNAVAILABLE");
         verify(evidenceRepository, never()).insertEffectiveEvent(any());
         verify(syncRepository).advanceWatermark(
@@ -329,7 +340,7 @@ class DeliPunchPageTransactionTest {
                 .isInstanceOf(AttendanceSourceSyncFailure.class)
                 .hasMessage("ATTENDANCE_PERIOD_PROTECTED");
 
-        verify(evidenceRepository, never()).insertRawFact(any());
+        verify(evidenceRepository, never()).insertRawFacts(any());
         verify(evidenceRepository, never()).insertEffectiveEvent(any());
         verify(syncRepository, never()).advanceWatermark(
                 any(), any(Long.class), any(), any(), any());
@@ -376,7 +387,7 @@ class DeliPunchPageTransactionTest {
                 .isInstanceOf(AttendanceSourceSyncFailure.class)
                 .hasMessage("ATTENDANCE_PERIOD_PROTECTION_UNAVAILABLE");
 
-        verify(evidenceRepository, never()).insertRawFact(any());
+        verify(evidenceRepository, never()).insertRawFacts(any());
         verify(syncRepository, never()).insertCommittedPage(any());
         verify(syncRepository, never()).advanceWatermark(
                 any(), any(Long.class), any(), any(), any());
@@ -505,20 +516,23 @@ class DeliPunchPageTransactionTest {
                 periodProtection);
 
         assertThat(outcome.acceptedCount()).isEqualTo(1);
-        ArgumentCaptor<EvidenceRows.RawFactRow> raw =
-                ArgumentCaptor.forClass(EvidenceRows.RawFactRow.class);
-        verify(evidenceRepository).insertRawFact(raw.capture());
-        assertThat(raw.getValue().verificationMethod()).isEqualTo("gps");
-        assertThat(raw.getValue().locationSummary()).isEqualTo("大连演示地址");
-        assertThat(raw.getValue().longitudeRaw()).isEqualTo("121.614000");
-        assertThat(raw.getValue().latitudeRaw()).isEqualTo("38.914000");
-        assertThat(raw.getValue().sourceCoordinateSystem()).isEqualTo("UNKNOWN");
-        assertThat(raw.getValue().coordinateValidationStatus())
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvidenceRows.RawFactRow>> rawBatch =
+                ArgumentCaptor.forClass(List.class);
+        verify(evidenceRepository).insertRawFacts(rawBatch.capture());
+        assertThat(rawBatch.getValue()).hasSize(1);
+        EvidenceRows.RawFactRow raw = rawBatch.getValue().get(0);
+        assertThat(raw.verificationMethod()).isEqualTo("gps");
+        assertThat(raw.locationSummary()).isEqualTo("大连演示地址");
+        assertThat(raw.longitudeRaw()).isEqualTo("121.614000");
+        assertThat(raw.latitudeRaw()).isEqualTo("38.914000");
+        assertThat(raw.sourceCoordinateSystem()).isEqualTo("UNKNOWN");
+        assertThat(raw.coordinateValidationStatus())
                 .isEqualTo("UNKNOWN_SYSTEM");
-        assertThat(raw.getValue().coordinateConversionStatus())
+        assertThat(raw.coordinateConversionStatus())
                 .isEqualTo("NOT_APPLICABLE");
-        assertThat(raw.getValue().mapLongitude()).isNull();
-        assertThat(raw.getValue().mapLatitude()).isNull();
+        assertThat(raw.mapLongitude()).isNull();
+        assertThat(raw.mapLatitude()).isNull();
     }
 
     @Test
@@ -556,7 +570,12 @@ class DeliPunchPageTransactionTest {
                 periodProtection);
 
         assertThat(outcome.acceptedCount()).isEqualTo(1);
-        verify(evidenceRepository, never()).insertRawFact(any());
+        // Duplicate source identity: raw/normalized/match batches are flushed
+        // as empty lists (production skips SQL for empty batches).
+        ArgumentCaptor<List<EvidenceRows.RawFactRow>> emptyRaw =
+                ArgumentCaptor.forClass(List.class);
+        verify(evidenceRepository).insertRawFacts(emptyRaw.capture());
+        assertThat(emptyRaw.getValue()).isEmpty();
     }
 
     @Test

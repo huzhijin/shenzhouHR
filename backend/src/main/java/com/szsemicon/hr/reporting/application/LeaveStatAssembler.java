@@ -3,8 +3,8 @@ package com.szsemicon.hr.reporting.application;
 import com.szsemicon.hr.leavetimeaccount.domain.AnnualLeaveCalculator;
 import com.szsemicon.hr.leavetimeaccount.domain.AnnualLeaveEntitlement;
 import com.szsemicon.hr.leavetimeaccount.domain.AnnualLeavePolicy;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.LeaveStatAccountRow;
-import com.szsemicon.hr.reporting.infrastructure.persistence.QueryPageRows.MonthlyLeaveUsageRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.LeaveStatAccountRow;
+import com.szsemicon.hr.reporting.application.QueryPageRows.MonthlyLeaveUsageRow;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -198,13 +198,15 @@ final class LeaveStatAssembler {
     static Tenure tenure(LocalDate hireDate, int year, Integer priorServiceDays) {
         int priorDays = priorServiceDays == null ? 0 : Math.max(priorServiceDays, 0);
         int priorMonths = priorDays / 30;
+        BigDecimal priorYears = BigDecimal.valueOf(priorDays)
+                .divide(new BigDecimal("360"), 2, RoundingMode.HALF_UP);
         LocalDate asOf = LocalDate.of(year, 12, 31);
         if (hireDate == null || asOf.isBefore(hireDate)) {
             return new Tenure(
                     hireDate,
                     BigDecimal.ZERO,
-                    years(priorMonths),
-                    years(priorMonths),
+                    priorYears,
+                    priorYears,
                     0,
                     BigDecimal.ZERO);
         }
@@ -218,7 +220,7 @@ final class LeaveStatAssembler {
         return new Tenure(
                 hireDate,
                 years(qualified.currentEmploymentCompletedMonths()),
-                years(priorMonths),
+                priorYears,
                 years(qualified.cumulativeServiceMonths()),
                 qualified.days(),
                 newHireCalendarDays(hireDate, year, statutory.days()));

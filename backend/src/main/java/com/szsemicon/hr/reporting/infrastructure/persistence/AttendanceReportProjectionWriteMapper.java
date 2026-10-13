@@ -10,15 +10,22 @@ interface AttendanceReportProjectionWriteMapper {
 
     String lockCompany(@Param("companyId") String companyId);
 
+    int upsertPublicationLock(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart);
+
+    String lockPublicationSlot(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart);
+
     AttendanceReportProjectionWriteRows.StoredProjectionRow findByDigest(
             @Param("companyId") String companyId,
             @Param("periodStart") LocalDate periodStart,
             @Param("projectionDigest") String projectionDigest);
 
-    AttendanceReportProjectionWriteRows.StoredProjectionRow
-            findLatestPublished(
-                    @Param("companyId") String companyId,
-                    @Param("periodStart") LocalDate periodStart);
+    AttendanceReportProjectionWriteRows.StoredProjectionRow findLatestPublished(
+            @Param("companyId") String companyId,
+            @Param("periodStart") LocalDate periodStart);
 
     int insertDraft(
             AttendanceReportProjectionWriteRows.ProjectionDraftRow row);
@@ -80,7 +87,9 @@ interface AttendanceReportProjectionWriteMapper {
             @Param("windowEndExclusive") Instant windowEndExclusive,
             @Param("createdAt") Instant createdAt,
             @Param("employeeId") String employeeId,
-            @Param("employeeIds") java.util.List<String> employeeIds);
+            @Param("employeeIds") java.util.List<String> employeeIds,
+            @Param("replacedDocumentIds") java.util.List<String> replacedDocumentIds,
+            @Param("replaceWholeMonthLeave") boolean replaceWholeMonthLeave);
 
     int copyTimeAccountFactsExceptEmployee(
             @Param("sourceProjectionId") String sourceProjectionId,
@@ -88,4 +97,20 @@ interface AttendanceReportProjectionWriteMapper {
             @Param("createdAt") Instant createdAt,
             @Param("employeeId") String employeeId,
             @Param("employeeIds") java.util.List<String> employeeIds);
+
+    int insertHrPaperDocumentFact(
+            com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportProjectionWriteRows.HrPaperDocumentFactRow fact);
+
+    int insertHrPaperDocumentFacts(
+            @Param("rows") java.util.List<com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportProjectionWriteRows.HrPaperDocumentFactRow> rows);
+
+    int copyHrPaperFactsExceptEmployeeWindow(
+            @Param("sourceProjectionId") String sourceProjectionId,
+            @Param("targetProjectionId") String targetProjectionId,
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEndExclusive") Instant windowEndExclusive,
+            @Param("createdAt") Instant createdAt,
+            @Param("employeeId") String employeeId,
+            @Param("employeeIds") java.util.List<String> employeeIds,
+            @Param("replacedDocumentIds") java.util.List<String> replacedDocumentIds);
 }

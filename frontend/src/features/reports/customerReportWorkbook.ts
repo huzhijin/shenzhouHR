@@ -10,7 +10,7 @@ import {
   type CustomerReportKey,
 } from './customerReportDemo';
 import { excelWrappedDepartment } from './departmentPath';
-import { isoWeekdayBucket, overtimeFeeColumns } from './financeOvertimeLayout';
+import { financeOvertimeDateBucket, overtimeFeeColumns } from './financeOvertimeLayout';
 
 const WHITE = 'FFFFFFFF';
 const HEADER = 'FFDCEBF2';
@@ -48,9 +48,13 @@ export interface CustomerReportWorkbookRequest {
   overtimeType?: string;
 }
 
+export const INCOMPLETE_REPORT_EXPORT_MESSAGE
+  = '报表数据尚未全部加载完成，请等待加载结束后再导出，避免导出不完整的名单。';
+
 export async function buildCustomerReportWorkbook(
   request: CustomerReportWorkbookRequest,
 ): Promise<{ blob: Blob; fileName: string }> {
+  assertReportFullyLoaded(request.report);
   assertReportRowsWithinScope(request.report);
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet(sheetName(request.reportTitle), {
@@ -92,7 +96,15 @@ function paintSheet(
     const excelRow = sheet.addRow(values.map((value, column) => (
       column === departmentColumn ? excelWrappedDepartment(String(value)) : value
     )));
-    applyRowFormulas(excelRow, request.reportKey, request.month, headers);
+    applyRowFormulas(
+      excelRow,
+      request.reportKey,
+      request.month,
+      headers,
+      request.reportKey === 'finance-overtime'
+        ? request.report.financeOvertimeRows[rowIndex]
+        : undefined,
+    );
     paintWhite(excelRow);
     if (departmentColumn >= 0) {
       const cell = excelRow.getCell(departmentColumn + 1);
@@ -136,6 +148,7 @@ function applyRowFormulas(
   reportKey: CustomerReportKey,
   month: string,
   headers: Array<string | number>,
+  financeRow?: CustomerReportDemo['financeOvertimeRows'][number],
 ) {
   const rowNum = excelRow.number;
   if (reportKey === 'work-hours') {
@@ -156,33 +169,36 @@ function applyRowFormulas(
   if (dateStart < 0) {
     return;
   }
-  const weekday: number[] = [];
-  const weekend: number[] = [];
+  // Bucket each date column by the business day type the report carries for it, the same
+  // rule the query export and the screen use, so a swapped workday or a statutory holiday
+  // lands in the same column for the formula and for its cached result. Dates without a
+  // day type fall back to the ISO weekday inside financeOvertimeDateBucket.
+  const dayTypes = new Map(
+    (financeRow?.days ?? []).map((day) => [day.date.slice(0, 10), day.dayType]),
+  );
+  const buckets = { weekday: [] as number[], weekend: [] as number[], holiday: [] as number[] };
   headers.forEach((header, index) => {
     if (index < dateStart) {
       return;
     }
-    const bucket = isoWeekdayBucket(financeHeaderDate(String(header), month));
-    (bucket === 'weekend' ? weekend : weekday).push(index + 1);
+    const date = financeHeaderDate(String(header), month);
+    buckets[financeOvertimeDateBucket(date, dayTypes.get(date))].push(index + 1);
   });
-  const weekdayCol = headers.indexOf('平时加班') + 1;
-  const weekendCol = headers.indexOf('周末加班') + 1;
-  const holidayCol = headers.indexOf('节假日加班') + 1;
-  if (weekdayCol > 0) {
-    excelRow.getCell(weekdayCol).value = {
-      formula: sumFormula(weekday, rowNum),
-      result: Number(excelRow.getCell(weekdayCol).value ?? 0),
-    };
-  }
-  if (weekendCol > 0) {
-    excelRow.getCell(weekendCol).value = {
-      formula: sumFormula(weekend, rowNum),
-      result: Number(excelRow.getCell(weekendCol).value ?? 0),
-    };
-  }
-  if (holidayCol > 0) {
-    excelRow.getCell(holidayCol).value = { formula: '0', result: Number(excelRow.getCell(holidayCol).value ?? 0) };
-  }
+  // The cached result sums exactly the cells the formula names, so a viewer that reads the
+  // cache and Excel recalculating the formula show the same number.
+  const bucketCell = (column: number, columns: number[]) => {
+    if (column > 0) {
+      excelRow.getCell(column).value = {
+        formula: sumFormula(columns, rowNum),
+        result: Number(columns
+          .reduce((sum, c) => sum + numericCellValue(excelRow.getCell(c).value), 0)
+          .toFixed(4)),
+      };
+    }
+  };
+  bucketCell(headers.indexOf('平时加班') + 1, buckets.weekday);
+  bucketCell(headers.indexOf('周末加班') + 1, buckets.weekend);
+  bucketCell(headers.indexOf('节假日加班') + 1, buckets.holiday);
 }
 
 function appendTotalRow(
@@ -222,12 +238,45 @@ function appendTotalRow(
       || /月\d+日/.test(title)
     ) {
       const col = excelColumn(index);
-      return { formula: `SUM(${col}${first}:${col}${last})` };
+      return {
+        formula: `SUM(${col}${first}:${col}${last})`,
+        // A viewer that does not recalculate reads the cached result, so sum the cells
+        // this sheet already wrote instead of leaving the cached value empty.
+        result: columnSum(sheet, index + 1, first, last),
+      };
     }
     return '';
   }));
   paintWhite(total);
   total.font = { bold: true, color: { argb: INK } };
+}
+
+/**
+ * Adds up one column of the rows already written, the way Excel's SUM would: plain numbers and
+ * the cached result of a formula cell count, text and blanks do not.
+ */
+function columnSum(
+  sheet: ExcelJS.Worksheet,
+  column: number,
+  firstRow: number,
+  lastRow: number,
+): number {
+  let sum = 0;
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    sum += numericCellValue(sheet.getRow(row).getCell(column).value);
+  }
+  return Number(sum.toFixed(4));
+}
+
+function numericCellValue(value: ExcelJS.CellValue): number {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'object' && value !== null && 'result' in value) {
+    const { result } = value as ExcelJS.CellFormulaValue;
+    return typeof result === 'number' ? result : 0;
+  }
+  return 0;
 }
 
 function financeHeaderDate(label: string, month: string): string {
@@ -518,6 +567,19 @@ function sheetName(title: string): string {
 
 function safeFileName(value: string): string {
   return value.replaceAll(/[\\/:*?"<>|]/g, '-').trim() || '考勤报表';
+}
+
+/**
+ * The matrix load stops early once it hits its page ceiling and marks the result `truncated`.
+ * Such a sheet holds fewer people than the period has, so writing it out would hand over a
+ * roster that silently omits staff. Whether a load is still in progress or failed part-way is
+ * known only to the page that ran it, so the page gates that separately. Row counts are not
+ * compared here: after a complete load, user filters legitimately leave few or no rows.
+ */
+function assertReportFullyLoaded(report: CustomerReportDemo): void {
+  if (report.metadata.truncated === true) {
+    throw new TypeError(INCOMPLETE_REPORT_EXPORT_MESSAGE);
+  }
 }
 
 function assertReportRowsWithinScope(report: CustomerReportDemo): void {

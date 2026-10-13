@@ -8,7 +8,6 @@ import static org.mockito.Mockito.when;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
-import com.szsemicon.hr.reporting.infrastructure.persistence.HrPunchAdjustmentMapper;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import java.time.Clock;
 import java.time.Instant;
@@ -31,7 +30,7 @@ class HrPunchAdjustmentServiceTest {
     @Mock
     private CurrentPrincipalProvider principals;
     @Mock
-    private HrPunchAdjustmentMapper mapper;
+    private HrPunchAdjustmentPort mapper;
     @Mock
     private AttendanceReportQueryService reports;
 
@@ -43,7 +42,8 @@ class HrPunchAdjustmentServiceTest {
                 principals,
                 mapper,
                 reports,
-                Clock.fixed(now, ZoneOffset.UTC));
+                Clock.fixed(now, ZoneOffset.UTC),
+                Runnable::run);
         when(principals.currentPrincipalId()).thenReturn("principal-1");
         when(mapper.findEmployeeCompanyId("employee-1")).thenReturn("company-a");
 
@@ -93,7 +93,8 @@ class HrPunchAdjustmentServiceTest {
                 principals,
                 mapper,
                 reports,
-                Clock.fixed(now, ZoneOffset.UTC));
+                Clock.fixed(now, ZoneOffset.UTC),
+                Runnable::run);
         when(principals.currentPrincipalId()).thenReturn("principal-1");
         when(mapper.findEmployeeCompanyId("employee-1")).thenReturn("company-a");
 
@@ -121,7 +122,8 @@ class HrPunchAdjustmentServiceTest {
                 principals,
                 mapper,
                 reports,
-                Clock.fixed(now, ZoneOffset.UTC));
+                Clock.fixed(now, ZoneOffset.UTC),
+                Runnable::run);
         when(principals.currentPrincipalId()).thenReturn("principal-1");
         when(mapper.findEmployeeCompanyId("employee-1")).thenReturn("company-a");
 
@@ -165,7 +167,8 @@ class HrPunchAdjustmentServiceTest {
                 principals,
                 mapper,
                 reports,
-                Clock.fixed(now, ZoneOffset.UTC));
+                Clock.fixed(now, ZoneOffset.UTC),
+                Runnable::run);
         when(principals.currentPrincipalId()).thenReturn("principal-1");
         when(mapper.findEmployeeCompanyId("employee-1")).thenReturn("company-a");
 

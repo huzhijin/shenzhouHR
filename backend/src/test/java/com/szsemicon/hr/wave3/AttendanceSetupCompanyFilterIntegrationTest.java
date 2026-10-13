@@ -13,14 +13,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.nio.charset.StandardCharsets;
 import java.sql.Date;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Primary;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
+@Import(AttendanceSetupCompanyFilterIntegrationTest.FixedClockConfiguration.class)
 class AttendanceSetupCompanyFilterIntegrationTest
         extends Wave1IntegrationTestSupport {
 
@@ -697,5 +704,18 @@ class AttendanceSetupCompanyFilterIntegrationTest
             String policyVersionId,
             String bindingFamilyId,
             String bindingRevisionId) {
+    }
+
+    @TestConfiguration
+    static class FixedClockConfiguration {
+        @Bean
+        @Primary
+        Clock attendanceSetupCompanyFilterFixedClock() {
+            // Fixed to 2026-08-31 so that effectiveFrom=2026-09-01 is in the future,
+            // satisfying AttendanceGroupService.requireFutureRevision().
+            return Clock.fixed(
+                    Instant.parse("2026-08-31T00:00:00Z"),
+                    ZoneOffset.UTC);
+        }
     }
 }

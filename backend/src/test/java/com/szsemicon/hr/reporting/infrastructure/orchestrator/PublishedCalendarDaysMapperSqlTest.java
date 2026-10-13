@@ -65,6 +65,59 @@ class PublishedCalendarDaysMapperSqlTest {
         }
     }
 
+    @Test
+    void employeeScopedReadEqualsCompanyReadFilteredByEmployee() throws Exception {
+        Configuration configuration = configuration();
+        try (Connection connection = DriverManager.getConnection(
+                        "jdbc:h2:mem:published-calendar-scope-"
+                                + UUID.randomUUID()
+                                + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE");
+                SqlSession session = new SqlSessionFactoryBuilder()
+                        .build(configuration)
+                        .openSession(connection)) {
+            createSchema(connection);
+            seedTwoEmployeeCalendars(connection);
+            // Several days per calendar, one of them in a later month window.
+            connection.createStatement().execute("""
+                    INSERT INTO work_calendar_day VALUES
+                      ('calendar-day-a2', 'calendar-version-a', DATE '2026-08-16',
+                       'WEEKEND', TIMESTAMP '2026-01-01 00:00:00'),
+                      ('calendar-day-b2', 'calendar-version-b', DATE '2026-08-16',
+                       'WORKDAY', TIMESTAMP '2026-01-01 00:00:00'),
+                      ('calendar-day-a3', 'calendar-version-a', DATE '2026-09-01',
+                       'WORKDAY', TIMESTAMP '2026-01-01 00:00:00')
+                    """);
+            AttendanceReportCalculationMapper mapper =
+                    session.getMapper(AttendanceReportCalculationMapper.class);
+            LocalDate start = LocalDate.parse("2026-08-01");
+            LocalDate end = LocalDate.parse("2026-10-01");
+            Instant cutoff = Instant.parse("2026-08-17T04:00:00Z");
+
+            List<CalendarDayRow> company =
+                    mapper.findPublishedCalendarDays("company-1", start, end, cutoff);
+            assertThat(company).hasSize(5);
+            assertThat(mapper.findPublishedCalendarDays(
+                            "company-1", start, end, cutoff, null))
+                    .containsExactlyElementsOf(company);
+            for (java.util.Set<String> scope : List.of(
+                    java.util.Set.of("employee-a"),
+                    java.util.Set.of("employee-b"),
+                    java.util.Set.of("employee-a", "employee-b"),
+                    java.util.Set.of("employee-a", "unknown"))) {
+                assertThat(mapper.findPublishedCalendarDays(
+                                "company-1", start, end, cutoff, scope))
+                        .as("scope %s", scope)
+                        .containsExactlyElementsOf(company.stream()
+                                .filter(row -> row.employeeId() == null
+                                        || scope.contains(row.employeeId()))
+                                .toList());
+            }
+            assertThat(mapper.findPublishedCalendarDays(
+                            "company-1", start, end, cutoff, java.util.Set.of()))
+                    .isEmpty();
+        }
+    }
+
     private static Configuration configuration() throws Exception {
         Configuration configuration = new Configuration();
         configuration.setMapUnderscoreToCamelCase(true);

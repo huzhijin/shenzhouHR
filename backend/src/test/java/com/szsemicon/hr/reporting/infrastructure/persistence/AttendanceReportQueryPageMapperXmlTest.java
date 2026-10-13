@@ -40,7 +40,7 @@ class AttendanceReportQueryPageMapperXmlTest {
                         NAMESPACE + "listMissedPunchStatEmployees",
                         NAMESPACE + "countLeaveStatAccounts",
                         NAMESPACE + "listLeaveStatAccounts",
-                        NAMESPACE + "listMonthlyLeaveUsage");
+                        NAMESPACE + "listLeaveUsageDocuments");
     }
 
     @Test
@@ -66,7 +66,16 @@ class AttendanceReportQueryPageMapperXmlTest {
                 .doesNotContain("JSON_EXTRACT");
         assertThat(byEmployee)
                 .contains("context.overtime_type")
-                .contains("sourceOrigin");
+                .contains("sourceOrigin")
+                .contains("projectionStart")
+                .contains("projectionEndExclusive")
+                .contains("recognizedMinutesByDateJson")
+                .contains("projectionDataAsOf");
+        assertThat(list)
+                .contains("projectionStart")
+                .contains("projectionEndExclusive")
+                .contains("recognizedMinutesByDateJson")
+                .contains("projectionDataAsOf");
     }
 
     @Test
@@ -75,7 +84,7 @@ class AttendanceReportQueryPageMapperXmlTest {
         String xml = Files.readString(MAPPER);
         assertThat(xml)
                 .contains("<sql id=\"hideApprovedOaCoveredExceptions\">")
-                .contains("'UNKNOWN'")
+                .contains("'PENDING'")
                 .contains("PUNCH_CORRECTION")
                 .contains("countTimeOffDaily")
                 .contains("listTimeOffDaily")
@@ -107,9 +116,10 @@ class AttendanceReportQueryPageMapperXmlTest {
                 .contains("first_effective_from")
                 .contains("DATE(first_hire.first_effective_from)")
                 .contains("CAST(hire.effective_from AS CHAR)")
+                .contains("prior_service_record")
+                .contains("MAX(row_version)")
                 .doesNotContain("employee.onboard_date")
                 .doesNotContain("ORDER BY prior_service.row_version DESC")
-                .doesNotContain("prior_service_record")
                 .doesNotContain("LIMIT 1");
         assertThat(missedCount)
                 .contains("missedPunchStatUniverse")
@@ -129,10 +139,12 @@ class AttendanceReportQueryPageMapperXmlTest {
                 .doesNotContain("document.interval_start")
                 .doesNotContain("document.employee_id");
         String usage = between(
-                xml, "<select id=\"listMonthlyLeaveUsage\"", "</select>");
+                xml, "<select id=\"listLeaveUsageDocuments\"", "</select>");
         assertThat(usage)
-                .contains("CAST(COALESCE(SUM(documents.recognized_minutes), 0) AS SIGNED)")
-                .contains("TIMESTAMPADD")
+                .contains("recognized_minutes_by_date_json")
+                .contains("projection.period_start")
+                .contains("projection.period_end_exclusive")
+                .doesNotContain("MONTH(")
                 .contains("oa_attendance_document_id")
                 .contains("COMPENSATORY_OT")
                 .contains("documents.kind")

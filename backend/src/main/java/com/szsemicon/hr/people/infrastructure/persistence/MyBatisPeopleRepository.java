@@ -78,6 +78,7 @@ public class MyBatisPeopleRepository implements PeopleRepository {
 
     @Override
     public void lockCompany(String companyId) {
+        mapper.upsertPeopleWriteLock(companyId);
         if (mapper.lockCompany(companyId) == null) {
             throw new ResourceNotAvailableAccessDeniedException();
         }

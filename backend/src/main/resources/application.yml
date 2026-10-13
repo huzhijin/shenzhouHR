@@ -1,6 +1,10 @@
 spring:
   application:
     name: shenzhou-hr
+  task:
+    scheduling:
+      pool:
+        size: 1
   datasource:
     url: ${SHENZHOUHR_DB_URL}
     username: ${SHENZHOUHR_DB_USERNAME}

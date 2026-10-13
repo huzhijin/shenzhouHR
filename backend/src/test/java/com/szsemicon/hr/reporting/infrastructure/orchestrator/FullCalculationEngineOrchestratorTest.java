@@ -34,6 +34,8 @@ import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -94,28 +96,58 @@ class FullCalculationEngineOrchestratorTest {
     }
 
     @Test
+    void plannedAssemblyConsumesOnlyRefreshedEvidenceDespiteEarlierMonthlyShifts() {
+        String company = "company-1";
+        YearMonth month = YearMonth.of(2026, 9);
+        Instant cutoff = Instant.parse("2026-10-04T00:00:00Z");
+        var plan = com.szsemicon.hr.reporting.application.AttendanceReportDependencyPlan.bounded(
+                company, month, month.atDay(29), month.plusMonths(1).atDay(1), List.of());
+        Instant oldStart = Instant.parse("2026-09-01T00:00:00Z");
+        Instant oldEnd = oldStart.plusSeconds(8 * 3600);
+        Mockito.when(mapper.findScheduledWorkSegments(company, month.atDay(1),
+                month.plusMonths(1).atDay(2), cutoff)).thenReturn(List.of(
+                        new ShiftSegmentRow("employee-1", month.atDay(1), "early-month-shift",
+                                oldStart, oldEnd, oldStart, oldStart, oldEnd, oldEnd)));
+        orchestrator.assemblePlanned(plan, PeriodState.OPEN, "principal", cutoff);
+        Mockito.verify(mapper).findEffectiveOaDocuments(company,
+                plan.evidenceStartInclusive(), plan.evidenceEndExclusive(), cutoff);
+        Mockito.verify(mapper).findActivatedPunchEvents(company,
+                plan.punchStartInclusive(), plan.punchEndExclusive(), cutoff);
+        // Leave candidates cover the month's calculation window so same-type
+        // partners outside the write window are allocated together.
+        Mockito.verify(mapper).findReportableOaDocuments(company,
+                month.atDay(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant(),
+                month.plusMonths(1).atDay(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant(), cutoff);
+        Mockito.verify(mapper, Mockito.never()).findEffectiveOaDocuments(Mockito.eq(company),
+                Mockito.eq(oldStart), Mockito.any(), Mockito.any());
+    }
+
+    @Test
     void personDayAssembleLoadsOnlyTheScopedEmployee() {
         String companyId = "company-1";
         LocalDate businessDate = LocalDate.of(2026, 8, 11);
         Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
-        Mockito.lenient().when(mapper.findScheduledWorkSegments(
+        Mockito.when(mapper.findScheduledWorkSegments(
                         Mockito.eq(companyId),
                         Mockito.any(LocalDate.class),
                         Mockito.any(LocalDate.class),
-                        Mockito.any(Instant.class)))
+                        Mockito.any(Instant.class),
+                        Mockito.eq(java.util.Set.of("emp-1"))))
                 .thenReturn(List.of(segment(businessDate, "seg-1")));
-        Mockito.lenient().when(mapper.findPublishedCalendarDays(
+        Mockito.when(mapper.findPublishedCalendarDays(
                         Mockito.eq(companyId),
                         Mockito.any(LocalDate.class),
                         Mockito.any(LocalDate.class),
-                        Mockito.any(Instant.class)))
+                        Mockito.any(Instant.class),
+                        Mockito.eq(java.util.Set.of("emp-1"))))
                 .thenReturn(List.of(new CalendarDayRow(
                         "emp-1", businessDate, "WEEKDAY", 1, 1)));
-        Mockito.lenient().when(mapper.findAttendancePolicies(
+        Mockito.when(mapper.findAttendancePolicies(
                         Mockito.eq(companyId),
                         Mockito.any(LocalDate.class),
                         Mockito.any(LocalDate.class),
-                        Mockito.eq(dataAsOf)))
+                        Mockito.eq(dataAsOf),
+                        Mockito.eq(java.util.Set.of("emp-1"))))
                 .thenReturn(List.of(policy("emp-1", businessDate)));
         Mockito.when(mapper.findEmployeeIdentityIntervalsForEmployee(
                         Mockito.eq(companyId),
@@ -362,13 +394,13 @@ class FullCalculationEngineOrchestratorTest {
                                 "assignment-2", "org-2", "org-v-2",
                                 "制造部", businessDate)));
 
-        PublishCommand command = orchestrator.assemble(
+        assertThatThrownBy(() -> orchestrator.assemble(
                 companyId,
                 YearMonth.of(2026, 8),
                 PeriodState.OPEN,
                 "admin-1",
-                dataAsOf);
-        assertThat(command.calculatedFacts()).isEmpty();
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -421,13 +453,12 @@ class FullCalculationEngineOrchestratorTest {
                         Mockito.eq(dataAsOf)))
                 .thenReturn(List.of());
 
-        PublishCommand withoutCalendar = orchestrator.assemble(
+        assertThat(orchestrator.assemble(
                 companyId,
                 YearMonth.of(2026, 8),
                 PeriodState.OPEN,
                 "admin-1",
-                dataAsOf);
-        assertThat(withoutCalendar.calculatedFacts()).isEmpty();
+                dataAsOf).calculatedFacts()).isEmpty();
 
         Mockito.when(mapper.findPublishedCalendarDays(
                         Mockito.eq(companyId),
@@ -443,13 +474,13 @@ class FullCalculationEngineOrchestratorTest {
                         Mockito.eq(dataAsOf)))
                 .thenReturn(List.of());
 
-        PublishCommand withoutShift = orchestrator.assemble(
+        assertThatThrownBy(() -> orchestrator.assemble(
                 companyId,
                 YearMonth.of(2026, 8),
                 PeriodState.OPEN,
                 "admin-1",
-                dataAsOf);
-        assertThat(withoutShift.calculatedFacts()).isEmpty();
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -1029,7 +1060,7 @@ class FullCalculationEngineOrchestratorTest {
     }
 
     @Test
-    void currentExecutiveRoleExemptsDaysBeforeTheAssignmentStart() {
+    void futureExecutiveRoleDoesNotExemptDaysBeforeTheAssignmentStart() {
         String companyId = "company-1";
         LocalDate businessDate = LocalDate.of(2026, 8, 3);
         Instant dataAsOf = Instant.parse("2026-08-19T02:00:00Z");
@@ -1052,11 +1083,11 @@ class FullCalculationEngineOrchestratorTest {
                 dataAsOf);
 
         var daily = command.calculatedFacts().getFirst().facts().dailyFact();
-        assertThat(daily.missingPunchCount()).isZero();
-        assertThat(daily.absenceMinutes()).isZero();
+        assertThat(daily.missingPunchCount()).isPositive();
+        assertThat(daily.confirmedScheduledWorkMinutes()).isZero();
         assertThat(daily.firstPunchAt()).isNull();
         assertThat(command.calculatedFacts().getFirst().facts()
-                .exceptionFacts()).isEmpty();
+                .exceptionFacts()).isNotEmpty();
     }
 
     @Test
@@ -2586,13 +2617,16 @@ class FullCalculationEngineOrchestratorTest {
                         Mockito.eq(dataAsOf)))
                 .thenReturn(List.of());
 
-        PublishCommand command = orchestrator.assemble(
+        assertThatThrownBy(() -> orchestrator.assemble(
                 companyId,
                 YearMonth.of(2026, 8),
                 PeriodState.OPEN,
                 "admin-1",
-                dataAsOf);
-        assertThat(command.calculatedFacts()).isEmpty();
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to calculate day")
+                .cause()
+                .hasMessageContaining("No attendance policy");
     }
 
     @Test
@@ -2619,13 +2653,13 @@ class FullCalculationEngineOrchestratorTest {
                         2,
                         1)));
 
-        PublishCommand command = orchestrator.assemble(
+        assertThatThrownBy(() -> orchestrator.assemble(
                 companyId,
                 YearMonth.of(2026, 8),
                 PeriodState.OPEN,
                 "admin-1",
-                dataAsOf);
-        assertThat(command.calculatedFacts()).isEmpty();
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -2661,13 +2695,16 @@ class FullCalculationEngineOrchestratorTest {
                         oaLeaveDocument("leave-sick", LeaveType.SICK),
                         oaLeaveDocument("leave-annual", LeaveType.ANNUAL)));
 
-        PublishCommand command = orchestrator.assemble(
+        assertThatThrownBy(() -> orchestrator.assemble(
                 companyId,
                 YearMonth.of(2026, 8),
                 PeriodState.OPEN,
                 "admin-1",
-                dataAsOf);
-        assertThat(command.calculatedFacts()).isEmpty();
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to calculate day")
+                .cause()
+                .hasMessageContaining("Conflicting leave types");
     }
 
     @Test
@@ -2692,6 +2729,39 @@ class FullCalculationEngineOrchestratorTest {
                 dataAsOf);
 
         assertThat(command.calculatedFacts()).isNotEmpty();
+    }
+
+    @Test
+    void fullRevocationAtAssignmentEndClearsDailyAndReportLeave() {
+        String companyId = "company-1";
+        LocalDate businessDate = LocalDate.of(2026, 8, 3);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        Instant start = Instant.parse("2026-08-02T16:00:00Z");
+        Instant end = Instant.parse("2026-08-03T16:00:00Z");
+        var leave = new OaDocumentRow("leave-personal", "LEAVE", null,
+                LeaveType.PERSONAL, "E001", start, end, "Asia/Shanghai", start,
+                true, "L-1", null, "source-1", "emp-1");
+        var revocation = new OaDocumentRow("revocation-1", "LEAVE_REVOCATION", null,
+                null, "E001", end, end, "Asia/Shanghai", end,
+                true, null, "L-1", "source-1", "emp-1");
+        // The fixture identity ends at Aug 4 local midnight, exactly the
+        // revocation's point. Its employee anchor must still amend Aug 3.
+        stubOneEmployeeDay(companyId, businessDate, dataAsOf, List.of(),
+                List.of(), List.of(), List.of(leave, revocation));
+        Mockito.when(mapper.findReportableOaDocuments(
+                        Mockito.eq(companyId), Mockito.any(Instant.class),
+                        Mockito.any(Instant.class), Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(new OaReportFactRow("oa-doc-1", "leave-personal",
+                        "LEAVE", LeaveType.PERSONAL, "emp-1", "E001", "assignment-1",
+                        start, end, "APPROVED", "oa-v1")));
+
+        PublishCommand command = orchestrator.assemble(companyId, YearMonth.of(2026, 8),
+                PeriodState.OPEN, "admin-1", dataAsOf);
+
+        assertThat(command.calculatedFacts()).singleElement().satisfies(calculated ->
+                assertThat(calculated.facts().dailyFact().leaveOrTimeOffMinutes()).isZero());
+        assertThat(command.oaDocumentFacts()).singleElement().satisfies(fact ->
+                assertThat(fact.recognizedMinutes()).isZero());
     }
 
     @Test
@@ -3467,15 +3537,13 @@ class FullCalculationEngineOrchestratorTest {
                         "APPROVED",
                         "oa-v1")));
 
-        PublishCommand command = orchestrator.assemble(
+        assertThatThrownBy(() -> orchestrator.assemble(
                 companyId,
                 YearMonth.of(2026, 8),
                 PeriodState.OPEN,
                 "admin-1",
-                dataAsOf);
-
-        assertThat(command.oaDocumentFacts()).singleElement().satisfies(fact ->
-                assertThat(fact.recognizedMinutes()).isZero());
+                dataAsOf))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -3524,6 +3592,185 @@ class FullCalculationEngineOrchestratorTest {
             assertThat(fact.organizationId()).isEqualTo("org-1");
             assertThat(fact.usedHours()).isEqualByComparingTo("8.00");
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void narrowWindowKeepsWholeDocumentHoursWithoutRepublishingOutsideOa(boolean employeeSet) {
+        String companyId = "company-1";
+        LocalDate previous = LocalDate.of(2026, 8, 3);
+        LocalDate target = previous.plusDays(1);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        ZoneId zone = ZoneId.of("Asia/Shanghai");
+        Instant previousStart = previous.atStartOfDay(zone).toInstant();
+        Instant writeStart = target.atStartOfDay(zone).toInstant();
+        Instant writeEnd = target.plusDays(1).atStartOfDay(zone).toInstant();
+        stubTwoWorkDays(companyId, previous, target, dataAsOf, List.of());
+        Mockito.when(mapper.findReportableOaDocuments(
+                        Mockito.eq(companyId), Mockito.any(Instant.class),
+                        Mockito.any(Instant.class), Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(
+                        new OaReportFactRow("oa-outside", "LEAVE:outside", "LEAVE", LeaveType.SICK,
+                                "emp-1", "E001", "assignment-1", previousStart, writeStart, "APPROVED", "v1"),
+                        new OaReportFactRow("oa-spanning", "LEAVE:spanning", "LEAVE", LeaveType.SICK,
+                                "emp-1", "E001", "assignment-1", previousStart, writeEnd, "APPROVED", "v1"),
+                        new OaReportFactRow("oa-boundary", "PUNCH:boundary", "PUNCH_CORRECTION", null,
+                                "emp-1", "E001", "assignment-1", writeStart, writeStart, "APPROVED", "v1")));
+        Mockito.when(mapper.findHrPunchAdjustments(
+                        Mockito.eq(companyId), Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class), Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(new HrPunchAdjustmentRow("hr-outside", "emp-1", previous,
+                        previousStart.plusSeconds(9 * 3600), null, dataAsOf.minusSeconds(60),
+                        null, null, null)));
+
+        PublishCommand command = orchestrator.assemble(companyId, YearMonth.of(2026, 8),
+                PeriodState.OPEN, "admin-1", dataAsOf, target, target.plusDays(1),
+                employeeSet ? List.of("emp-1", "emp-2") : List.of());
+
+        assertThat(command.calculatedFacts())
+                .extracting(value -> value.facts().dailyFact().businessDate()).containsOnly(target);
+        // oa-outside shares the previous day with oa-spanning (same type), so
+        // it is re-emitted with this allocation instead of keeping its old copy.
+        assertThat(command.oaDocumentFacts())
+                .extracting(value -> value.oaAttendanceDocumentId())
+                .containsExactly("oa-boundary", "oa-outside", "oa-spanning");
+        var spanning = command.oaDocumentFacts().stream()
+                .filter(fact -> fact.oaAttendanceDocumentId().equals("oa-spanning")).findFirst().orElseThrow();
+        var outside = command.oaDocumentFacts().stream()
+                .filter(fact -> fact.oaAttendanceDocumentId().equals("oa-outside")).findFirst().orElseThrow();
+        assertThat(spanning.intervalStart()).isEqualTo(previousStart);
+        assertThat(spanning.intervalEndExclusive()).isEqualTo(writeEnd);
+        // The overlap is counted once: oa-outside (earlier ID on a start tie)
+        // keeps the previous day, oa-spanning keeps only the target day.
+        assertThat(outside.recognizedMinutes() + spanning.recognizedMinutes()).isEqualTo(1080L);
+        assertThat(spanning.recognizedMinutesByDate()).containsOnlyKeys(target);
+        assertThat(outside.recognizedMinutesByDate()).containsOnlyKeys(previous);
+        assertThat(spanning.allocationSemantics()).isEqualTo("NET_WORK_V1");
+        assertThat(outside.allocationSemantics()).isEqualTo("NET_WORK_V1");
+        Mockito.verify(mapper).findReportableOaDocuments(companyId,
+                LocalDate.of(2026, 8, 1).atStartOfDay(zone).toInstant(),
+                LocalDate.of(2026, 8, 18).atStartOfDay(zone).toInstant(), dataAsOf);
+        Mockito.verify(mapper).findActivatedPunchEvents(Mockito.eq(companyId),
+                Mockito.argThat(start -> start.isBefore(writeStart)), Mockito.any(Instant.class), Mockito.eq(dataAsOf));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void scopedAssemblyPushesEmployeeSetIntoShiftCalendarAndPolicyReads(boolean employeeSet) {
+        String companyId = "company-1";
+        LocalDate previous = LocalDate.of(2026, 8, 3);
+        LocalDate target = previous.plusDays(1);
+        Instant dataAsOf = Instant.parse("2026-08-17T10:00:00Z");
+        stubTwoWorkDays(companyId, previous, target, dataAsOf, List.of());
+
+        PublishCommand command = orchestrator.assemble(companyId, YearMonth.of(2026, 8),
+                PeriodState.OPEN, "admin-1", dataAsOf, target, target.plusDays(1),
+                employeeSet ? List.of("emp-1", "emp-2") : List.of());
+
+        assertThat(command.calculatedFacts())
+                .extracting(value -> value.facts().dailyFact().employeeId()).containsOnly("emp-1");
+        java.util.Set<String> scope = java.util.Set.of("emp-1", "emp-2");
+        if (employeeSet) {
+            Mockito.verify(mapper).findScheduledWorkSegments(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(dataAsOf),
+                    Mockito.eq(scope));
+            Mockito.verify(mapper).findPublishedCalendarDays(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(dataAsOf),
+                    Mockito.eq(scope));
+            Mockito.verify(mapper).findAttendancePolicies(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(dataAsOf),
+                    Mockito.eq(scope));
+            Mockito.verify(mapper, Mockito.never()).findScheduledWorkSegments(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.any(Instant.class));
+            Mockito.verify(mapper, Mockito.never()).findPublishedCalendarDays(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.any(Instant.class));
+            Mockito.verify(mapper, Mockito.never()).findAttendancePolicies(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.any(Instant.class));
+        } else {
+            // Company run: unscoped overloads (employeeIds = null, unchanged SQL).
+            Mockito.verify(mapper).findScheduledWorkSegments(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(dataAsOf));
+            Mockito.verify(mapper).findPublishedCalendarDays(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(dataAsOf));
+            Mockito.verify(mapper).findAttendancePolicies(Mockito.eq(companyId),
+                    Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(dataAsOf));
+            Mockito.verify(mapper, Mockito.never()).findScheduledWorkSegments(Mockito.anyString(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyCollection());
+            Mockito.verify(mapper, Mockito.never()).findPublishedCalendarDays(Mockito.anyString(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyCollection());
+            Mockito.verify(mapper, Mockito.never()).findAttendancePolicies(Mockito.anyString(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyCollection());
+        }
+    }
+
+    @Test
+    void standingTemplateLeaveKeepsWholeMonthlyHoursInSingleDayRecalculation() {
+        String company = "company-1";
+        String employee = "emp-1";
+        YearMonth month = YearMonth.of(2026, 9);
+        LocalDate first = month.atDay(1);
+        LocalDate end = month.plusMonths(1).atDay(1);
+        LocalDate target = month.atDay(2);
+        ZoneId zone = ZoneId.of("Asia/Shanghai");
+        Instant cutoff = Instant.parse("2026-10-06T06:00:00Z");
+        Instant leaveStart = first.atTime(8, 30).atZone(zone).toInstant();
+        Instant leaveEnd = month.atDay(3).atTime(18, 0).atZone(zone).toInstant();
+
+        Mockito.when(mapper.findEmployeeIdentityIntervals(
+                Mockito.eq(company), Mockito.any(LocalDate.class), Mockito.any(LocalDate.class)))
+                .thenReturn(List.of(new EmployeeIdentityIntervalRow(
+                        employee, "emp-v-1", "E001", "测试员工", "assignment-1",
+                        "org-1", "org-v-1", "现场技术服务组",
+                        first, end, first, end, first, end)));
+        var calendar = new java.util.ArrayList<CalendarDayRow>();
+        var policies = new java.util.ArrayList<AttendancePolicyRow>();
+        for (LocalDate day = first; day.isBefore(end); day = day.plusDays(1)) {
+            calendar.add(new CalendarDayRow(employee, day,
+                    day.getDayOfWeek().getValue() > 5 ? "WEEKEND" : "WEEKDAY", 1, 1));
+            policies.add(policy(employee, day));
+        }
+        Mockito.when(mapper.findPublishedCalendarDays(Mockito.eq(company),
+                Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(cutoff)))
+                .thenReturn(calendar);
+        Mockito.when(mapper.findScheduledWorkSegments(Mockito.eq(company),
+                Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(cutoff)))
+                .thenReturn(List.of());
+        Mockito.when(mapper.findAttendancePolicies(Mockito.eq(company),
+                Mockito.any(LocalDate.class), Mockito.any(LocalDate.class), Mockito.eq(cutoff)))
+                .thenReturn(policies);
+        Mockito.when(mapper.findStandingPunchExemptionIntervals(Mockito.eq(company),
+                Mockito.any(Instant.class), Mockito.any(Instant.class)))
+                .thenReturn(List.of(new PunchExemptionRoleIntervalRow(employee,
+                        first.atStartOfDay(zone).toInstant(), end.atStartOfDay(zone).toInstant())));
+        Mockito.when(mapper.findPunchExemptionRoleIntervals(Mockito.eq(company),
+                Mockito.any(Instant.class), Mockito.any(Instant.class)))
+                .thenReturn(List.of());
+        var leave = new OaDocumentRow("LEAVE:standing-3days", "LEAVE", null, LeaveType.PERSONAL,
+                "E001", leaveStart, leaveEnd, "Asia/Shanghai", leaveStart.minusSeconds(3600),
+                true, "L-standing-3days", null, "oa", employee);
+        Mockito.when(mapper.findEffectiveOaDocuments(Mockito.eq(company),
+                Mockito.any(Instant.class), Mockito.any(Instant.class), Mockito.eq(cutoff)))
+                .thenReturn(List.of(leave));
+        Mockito.when(mapper.findReportableOaDocuments(Mockito.eq(company),
+                Mockito.any(Instant.class), Mockito.any(Instant.class), Mockito.eq(cutoff)))
+                .thenReturn(List.of(new OaReportFactRow("oa-standing-3days", leave.sourceBusinessKey(),
+                        "LEAVE", LeaveType.PERSONAL, employee, "E001", "assignment-1",
+                        leaveStart, leaveEnd, "APPROVED", "v1")));
+
+        PublishCommand full = orchestrator.assemble(company, month, PeriodState.OPEN, "audit", cutoff);
+        PublishCommand partial = orchestrator.assemble(company, month, PeriodState.OPEN, "audit", cutoff,
+                target, target.plusDays(1));
+        for (PublishCommand result : List.of(full, partial)) {
+            assertThat(result.oaDocumentFacts()).singleElement().satisfies(fact -> {
+                assertThat(fact.oaAttendanceDocumentId()).isEqualTo("oa-standing-3days");
+                assertThat(fact.recognizedMinutes()).isEqualTo(1440L);
+                assertThat(fact.recognizedMinutesByDate()).containsExactlyInAnyOrderEntriesOf(
+                        java.util.Map.of(first, 480L, target, 480L, month.atDay(3), 480L));
+            });
+        }
+        assertThat(partial.calculatedFacts())
+                .extracting(value -> value.facts().dailyFact().businessDate())
+                .containsExactly(target);
     }
 
     @Test
@@ -3931,11 +4178,21 @@ class FullCalculationEngineOrchestratorTest {
                         Mockito.any(Instant.class),
                         Mockito.any(Instant.class)))
                 .thenReturn(List.of());
-        Mockito.when(mapper.findPublishedCalendarDays(
+        Mockito.lenient().when(mapper.findPublishedCalendarDays(
                         Mockito.eq(companyId),
                         Mockito.any(LocalDate.class),
                         Mockito.any(LocalDate.class),
                         Mockito.any(Instant.class)))
+                .thenReturn(List.of(
+                        new CalendarDayRow(first, "WEEKDAY"),
+                        new CalendarDayRow(second, "WEEKDAY")));
+        // Employee-scoped runs push the set into SQL (5-arg overload).
+        Mockito.lenient().when(mapper.findPublishedCalendarDays(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(Instant.class),
+                        Mockito.anyCollection()))
                 .thenReturn(List.of(
                         new CalendarDayRow(first, "WEEKDAY"),
                         new CalendarDayRow(second, "WEEKDAY")));
@@ -3953,11 +4210,29 @@ class FullCalculationEngineOrchestratorTest {
                 .thenReturn(List.of(
                         segment(first, "seg-1"),
                         segment(second, "seg-2")));
-        Mockito.when(mapper.findAttendancePolicies(
+        Mockito.lenient().when(mapper.findScheduledWorkSegments(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(Instant.class),
+                        Mockito.anyCollection()))
+                .thenReturn(List.of(
+                        segment(first, "seg-1"),
+                        segment(second, "seg-2")));
+        Mockito.lenient().when(mapper.findAttendancePolicies(
                         Mockito.eq(companyId),
                         Mockito.any(LocalDate.class),
                         Mockito.any(LocalDate.class),
                         Mockito.eq(dataAsOf)))
+                .thenReturn(List.of(
+                        policy("emp-1", first),
+                        policy("emp-1", second)));
+        Mockito.lenient().when(mapper.findAttendancePolicies(
+                        Mockito.eq(companyId),
+                        Mockito.any(LocalDate.class),
+                        Mockito.any(LocalDate.class),
+                        Mockito.eq(dataAsOf),
+                        Mockito.anyCollection()))
                 .thenReturn(List.of(
                         policy("emp-1", first),
                         policy("emp-1", second)));

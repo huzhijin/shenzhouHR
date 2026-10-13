@@ -6,7 +6,7 @@
 
     <select id="listRoster"
             timeout="15"
-            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows$RosterRow">
+            resultType="com.szsemicon.hr.reporting.application.DashboardWorkbenchRows$RosterRow">
         SELECT employee.employee_id,
                employee_version.employee_number,
                employee_version.display_name AS employee_name,
@@ -75,6 +75,7 @@
           ON role.role_id = assignment.role_id
          AND role.role_code = 'EXECUTIVE'
         WHERE roster_employee.company_id = #{companyId}
+          AND assignment.valid_from &lt;= #{asOf}
           AND (
                 assignment.valid_to IS NULL
                 OR assignment.valid_to &gt; #{asOf}
@@ -88,6 +89,7 @@
           ON roster_employee.employee_number = listed_employee.employee_number
         WHERE roster_employee.company_id = #{companyId}
           AND assignment.source = 'STANDING_LIST'
+          AND assignment.valid_from &lt;= #{asOf}
           AND (
                 assignment.valid_to IS NULL
                 OR assignment.valid_to &gt; #{asOf}
@@ -96,7 +98,7 @@
 
     <select id="listPunchPoints"
             timeout="15"
-            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows$PunchRow">
+            resultType="com.szsemicon.hr.reporting.application.DashboardWorkbenchRows$PunchRow">
         SELECT event.employee_id,
                event.point_instant,
                employee.employee_number
@@ -112,7 +114,7 @@
 
     <select id="listEmployeeNumbers"
             timeout="15"
-            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows$EmployeeNumberRow">
+            resultType="com.szsemicon.hr.reporting.application.DashboardWorkbenchRows$EmployeeNumberRow">
         SELECT employee.employee_id,
                employee.employee_number
         FROM employee employee
@@ -120,7 +122,7 @@
 
     <select id="listNegativeLeaveBalances"
             timeout="15"
-            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.DashboardWorkbenchRows$NegativeLeaveRow">
+            resultType="com.szsemicon.hr.reporting.application.DashboardWorkbenchRows$NegativeLeaveRow">
         SELECT employee.employee_id,
                employee_version.employee_number,
                employee_version.display_name AS employee_name,

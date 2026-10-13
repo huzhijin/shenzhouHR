@@ -24,6 +24,7 @@ import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionFact;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionSeverity;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ExceptionState;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.TimeAccountType;
+import com.szsemicon.hr.shared.web.ApiProblemException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -106,6 +107,23 @@ class AttendanceReportProjectionPublisherTest {
     }
 
     @Test
+    void companyWindowPreservesOutsideOaButRebuildsAccountsOnce() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        publisher.publish(command(PeriodState.OPEN, daily(10), safeException()));
+        writer.calls.clear();
+
+        var result = publisher.publish(
+                command(PeriodState.OPEN, daily(11), safeException()),
+                LocalDate.of(2026, 7, 14), LocalDate.of(2026, 7, 17));
+
+        assertThat(result.created()).isTrue();
+        assertThat(writer.calls).contains("COPY", "COPY_OA", "ACCOUNT", "PUBLISH")
+                .doesNotContain("COPY_ACCOUNT");
+        assertThat(writer.copyEmployeeIds).containsExactly((String) null);
+    }
+
+    @Test
     void identicalCanonicalInputIsIdempotentAndDoesNotRewriteFacts() {
         RecordingWriter writer = new RecordingWriter();
         var publisher = publisher(writer);
@@ -121,6 +139,142 @@ class AttendanceReportProjectionPublisherTest {
         assertThat(second.projectionVersion())
                 .isEqualTo(first.projectionVersion());
         assertThat(writer.writeCount()).isEqualTo(writesAfterFirst);
+    }
+
+    @Test
+    void partialPublicationRequiresAnExistingBaselineEvenForTheLegacyOverload() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        var command = command(PeriodState.OPEN, daily(10), safeException());
+        LocalDate from = LocalDate.of(2026, 7, 14);
+        LocalDate to = LocalDate.of(2026, 7, 17);
+
+        assertThatThrownBy(() -> publisher.publishScoped(command, from, to, List.of(), "missing-base"))
+                .isInstanceOf(ApiProblemException.class).extracting("code")
+                .isEqualTo("ATTENDANCE_REPORT_BASE_PROJECTION_REQUIRED");
+        assertThatThrownBy(() -> publisher.publish(command, from, to))
+                .isInstanceOf(ApiProblemException.class).extracting("code")
+                .isEqualTo("ATTENDANCE_REPORT_BASE_PROJECTION_REQUIRED");
+        assertThat(writer.writeCount()).isZero();
+        assertThat(writer.calls).containsExactly("LOCK", "LATEST", "LOCK", "LATEST");
+    }
+
+    @Test
+    void baselineIsCheckedAfterLockAndAConcurrentPublicationCannotBeMixedIn() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        var baseline = publisher.publish(command(PeriodState.OPEN, daily(10), safeException()));
+        publisher.publish(command(PeriodState.OPEN, daily(12), safeException()));
+        int writes = writer.writeCount();
+        writer.calls.clear();
+
+        assertThatThrownBy(() -> publisher.publishScoped(
+                command(PeriodState.OPEN, daily(11), safeException()),
+                LocalDate.of(2026, 7, 14), LocalDate.of(2026, 7, 17),
+                List.of("employee-a"), baseline.projectionVersion()))
+                .isInstanceOf(ApiProblemException.class).extracting("code")
+                .isEqualTo("ATTENDANCE_REPORT_BASE_PROJECTION_CHANGED");
+
+        assertThat(writer.writeCount()).isEqualTo(writes);
+        assertThat(writer.calls).containsExactly("LOCK", "LATEST", "FIND");
+    }
+
+    @Test
+    void identicalPartialRetryReturnsItsCurrentResultWithoutCopyingAgain() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        var baseline = publisher.publish(command(PeriodState.OPEN, daily(10), safeException()));
+        var target = command(PeriodState.OPEN, daily(11), safeException());
+        LocalDate from = LocalDate.of(2026, 7, 14);
+        LocalDate to = LocalDate.of(2026, 7, 17);
+        var first = publisher.publishScoped(target, from, to,
+                List.of("employee-b", "employee-a"), baseline.projectionVersion());
+        int writes = writer.writeCount();
+
+        var retry = publisher.publishScoped(target, from, to,
+                List.of("employee-a", "employee-b", "employee-a"), baseline.projectionVersion());
+
+        assertThat(first.created()).isTrue();
+        assertThat(retry.created()).isFalse();
+        assertThat(retry.projectionVersion()).isEqualTo(first.projectionVersion());
+        assertThat(writer.writeCount()).isEqualTo(writes);
+    }
+
+    @Test
+    void aHistoricalMatchingPartialResultCannotMasqueradeAsTheCurrentPin() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        var baseline = publisher.publish(command(PeriodState.OPEN, daily(10), safeException()));
+        var target = command(PeriodState.OPEN, daily(11), safeException());
+        LocalDate from = LocalDate.of(2026, 7, 14);
+        LocalDate to = LocalDate.of(2026, 7, 17);
+        publisher.publishScoped(target, from, to, List.of(), baseline.projectionVersion());
+        publisher.publish(command(PeriodState.OPEN, daily(12), safeException()));
+        int writes = writer.writeCount();
+
+        assertThatThrownBy(() -> publisher.publishScoped(
+                target, from, to, List.of(), baseline.projectionVersion()))
+                .isInstanceOf(ApiProblemException.class).extracting("code")
+                .isEqualTo("ATTENDANCE_REPORT_BASE_PROJECTION_CHANGED");
+        assertThat(writer.writeCount()).isEqualTo(writes);
+    }
+
+    @Test
+    void partialDigestBindsBaselineWriteWindowAndEmployeeScope() {
+        LocalDate from = LocalDate.of(2026, 7, 14);
+        LocalDate to = LocalDate.of(2026, 7, 17);
+        String original = partialDigest(10, from, to, List.of("employee-a"));
+
+        assertThat(partialDigest(12, from, to, List.of("employee-a"))).isNotEqualTo(original);
+        assertThat(partialDigest(10, from.plusDays(1), to, List.of("employee-a"))).isNotEqualTo(original);
+        assertThat(partialDigest(10, from, to.plusDays(1), List.of("employee-a"))).isNotEqualTo(original);
+        assertThat(partialDigest(10, from, to, List.of())).isNotEqualTo(original);
+        assertThat(partialDigest(10, from, to, List.of("employee-a", "employee-b"))).isNotEqualTo(original);
+        assertThat(partialDigest(10, from, to, List.of("employee-a", "employee-a"))).isEqualTo(original);
+    }
+
+    @Test
+    void partialPublicationDoesNotReuseAWholeMonthDigestWithTheSameInputFacts() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        var command = command(PeriodState.OPEN, daily(10), safeException());
+        var baseline = publisher.publish(command);
+        writer.calls.clear();
+
+        var partial = publisher.publishScoped(command,
+                LocalDate.of(2026, 7, 14), LocalDate.of(2026, 7, 17),
+                List.of(), baseline.projectionVersion());
+
+        assertThat(partial.created()).isTrue();
+        assertThat(partial.projectionDigest()).isNotEqualTo(baseline.projectionDigest());
+        assertThat(writer.calls).contains("COPY", "COPY_OA", "PUBLISH");
+    }
+
+    @Test
+    void partialWindowMustBeNonemptyAndContainedInTheProjectionMonth() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        var command = command(PeriodState.OPEN, daily(10), safeException());
+        LocalDate from = LocalDate.of(2026, 7, 14);
+        for (LocalDate[] bounds : List.of(
+                new LocalDate[] {from, from}, new LocalDate[] {from, from.minusDays(1)},
+                new LocalDate[] {from.minusMonths(1), from},
+                new LocalDate[] {from, LocalDate.of(2026, 8, 2)},
+                new LocalDate[] {null, from})) {
+            assertThatThrownBy(() -> publisher.publishScoped(
+                    command, bounds[0], bounds[1], List.of(), "base"))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(writer.calls).isEmpty();
+    }
+
+    private String partialDigest(
+            int baselineLateMinutes, LocalDate from, LocalDate to, List<String> employeeIds) {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        var baseline = publisher.publish(command(PeriodState.OPEN, daily(baselineLateMinutes), safeException()));
+        return publisher.publishScoped(command(PeriodState.OPEN, daily(11), safeException()),
+                from, to, employeeIds, baseline.projectionVersion()).projectionDigest();
     }
 
     @Test
@@ -339,6 +493,23 @@ class AttendanceReportProjectionPublisherTest {
     }
 
     @Test
+    void changingOnlyDailyOaSharesProducesANewPinAndWritesTheCanonicalShares() {
+        RecordingWriter writer = new RecordingWriter();
+        var publisher = publisher(writer);
+        PublishCommand old = command(PeriodState.OPEN, daily(10), safeException());
+        var first = publisher.publish(old);
+        var dated = old.oaDocumentFacts().getFirst().withRecognizedMinutesByDate(
+                java.util.Map.of(LocalDate.of(2026, 7, 20), 60L));
+        var updated = new PublishCommand(old.metadata(), old.calculatedFacts(),
+                old.currentExceptionFacts(), List.of(dated), old.timeAccountFacts());
+        var second = publisher.publish(updated);
+        assertThat(second.projectionVersion()).isNotEqualTo(first.projectionVersion());
+        assertThat(writer.oa.getLast().recognizedMinutesByDateJson())
+                .isEqualTo("{\"2026-07-20\":60}");
+        assertThat(publisher.publish(updated).projectionVersion()).isEqualTo(second.projectionVersion());
+    }
+
+    @Test
     void publicationBoundaryIsTransactional() throws Exception {
         Transactional annotation = AttendanceReportProjectionPublisher.class
                 .getMethod("publish", PublishCommand.class)
@@ -498,9 +669,9 @@ class AttendanceReportProjectionPublisherTest {
         private boolean failOa;
 
         @Override
-        public boolean lockCompany(String companyId) {
+        public boolean lockCompany(String companyId, LocalDate periodStart) {
             calls.add("LOCK");
-            return "legal-a".equals(companyId);
+            return "legal-a".equals(companyId) && periodStart != null;
         }
 
         @Override
