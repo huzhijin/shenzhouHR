@@ -436,6 +436,13 @@ describe('customer report center export and recalculate boundaries', () => {
     return { ...report, metadata: { ...report.metadata, allowedActions: ['REPORT_RECALCULATE'] } };
   }
 
+  async function waitForInitialReport() {
+    // The toolbar mounts before the initial company and report finish loading.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /导出当前报表/ })).toBeEnabled();
+    });
+  }
+
   it('keeps export disabled after the first partial page and enables it only once every page arrived', async () => {
     let finish: (report: CustomerReportDemo) => void = () => undefined;
     apiMocks.loadCustomerReport.mockReset().mockImplementation((
@@ -490,7 +497,8 @@ describe('customer report center export and recalculate boundaries', () => {
       return { kind: 'unconfirmed', beforeVersion: 'old-pin' };
     });
     render(<CustomerReportCenterPage capabilities={refreshCapabilities} />);
-    fireEvent.click(await screen.findByRole('button', { name: /重新计算所选月份/ }));
+    await waitForInitialReport();
+    fireEvent.click(screen.getByRole('button', { name: /重新计算所选月份/ }));
     expect(await screen.findByText(/重新计算的结果尚未确认/)).toBeInTheDocument();
     expect(screen.queryByText(/重新计算失败/)).not.toBeInTheDocument();
     await waitFor(() => {
@@ -517,7 +525,8 @@ describe('customer report center export and recalculate boundaries', () => {
       rejectRead = reject;
     }));
     render(<CustomerReportCenterPage capabilities={refreshCapabilities} />);
-    fireEvent.click(await screen.findByRole('button', { name: /重新计算所选月份/ }));
+    await waitForInitialReport();
+    fireEvent.click(screen.getByRole('button', { name: /重新计算所选月份/ }));
     await screen.findByText(/重新计算的结果尚未确认/);
     const month = () => screen.getByRole('button', { name: /重新计算所选月份/ });
     // Tracking has ended; the manual check becomes available only now.
@@ -556,7 +565,8 @@ describe('customer report center export and recalculate boundaries', () => {
       finish = resolve;
     }));
     render(<CustomerReportCenterPage capabilities={refreshCapabilities} />);
-    fireEvent.click(await screen.findByRole('button', { name: /重新计算所选月份/ }));
+    await waitForInitialReport();
+    fireEvent.click(screen.getByRole('button', { name: /重新计算所选月份/ }));
     expect(await screen.findByText(/结果未知，正在只读核对/)).toBeInTheDocument();
     const refresh = screen.getByRole('button', { name: /刷新数据/ });
     expect(refresh).toBeDisabled();
@@ -618,7 +628,8 @@ describe('customer report center export and recalculate boundaries', () => {
       options.signal.addEventListener('abort', () => reject(new DOMException('x', 'AbortError')));
     }));
     render(<CustomerReportCenterPage capabilities={refreshCapabilities} />);
-    fireEvent.click(await screen.findByRole('button', { name: /重新计算所选月份/ }));
+    await waitForInitialReport();
+    fireEvent.click(screen.getByRole('button', { name: /重新计算所选月份/ }));
     await waitFor(() => expect(receivedSignal).toBeDefined());
     cleanup();
     expect(receivedSignal?.aborted).toBe(true);
