@@ -247,13 +247,13 @@ public class PeopleManagementController {
         var result = service.adjustPriorService(
                 employeeId,
                 new AdjustPriorService(
-                        request.amountDays(), request.businessDate(), request.reason()),
+                        request.amountDays(), request.businessDate(), request.reason(), request.amountYears()),
                 IfMatchVersion.parse(ifMatch),
                 idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .cacheControl(CacheControl.noStore())
                 .eTag(IfMatchVersion.etag(result.aggregateVersion()))
-                .body(PeopleManagementDtos.priorService(result.record()));
+                .body(PeopleManagementDtos.priorService(result.record(), null));
     }
 
     @PostMapping("/employees/{employeeId}/prior-service/recalculate")

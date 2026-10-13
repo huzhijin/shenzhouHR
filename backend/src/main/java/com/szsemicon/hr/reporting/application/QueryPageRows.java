@@ -157,7 +157,9 @@ public final class QueryPageRows {
             BigDecimal usedHours,
             BigDecimal remainingHours,
             LocalDate hireDate,
-            Integer priorServiceDays) {
+            Integer priorServiceDays,
+            Integer priorServiceMonths,
+            BigDecimal priorServiceYears) {
     }
 
     public record OaUsageDocumentRow(

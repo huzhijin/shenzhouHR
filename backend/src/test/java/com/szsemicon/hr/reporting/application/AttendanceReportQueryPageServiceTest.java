@@ -66,6 +66,8 @@ class AttendanceReportQueryPageServiceTest {
     private AttendanceReportSourceRepository sources;
     @Mock
     private AttendanceReportQueryPageMapper mapper;
+    @Mock
+    private com.szsemicon.hr.people.application.PeopleRepository peopleRepository;
 
     private AttendanceReportQueryPageService service;
 
@@ -77,6 +79,7 @@ class AttendanceReportQueryPageServiceTest {
                 sources,
                 mapper,
                 new QueryPageExcelEncoder(),
+                peopleRepository,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         org.mockito.Mockito.lenient()
                 .when(principals.currentPrincipalId())
@@ -148,7 +151,13 @@ class AttendanceReportQueryPageServiceTest {
 
     @Test
     void outOfScopeEmployeeNumberReturnsEmptyFilterHint() {
-        authorize();
+        when(sources.listAuthorizedCompanies(
+                        org.mockito.ArgumentMatchers.eq(PRINCIPAL),
+                        org.mockito.ArgumentMatchers.eq(
+                                CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.eq(NOW)))
+                .thenReturn(List.of(new CompanyOption(COMPANY, "测试公司")));
         when(mapper.findLatestPin(
                         COMPANY,
                         LocalDate.of(2026, 8, 1),
@@ -170,11 +179,12 @@ class AttendanceReportQueryPageServiceTest {
                 null,
                 Set.of("employee-1"),
                 Set.of("organization-a"));
-        when(sources.resolveRealtimeAuthorization(
-                        PRINCIPAL,
-                        CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
-                        COMPANY,
-                        NOW))
+        when(sources.resolveRealtimeAuthorizationForPeriod(
+                        org.mockito.ArgumentMatchers.eq(PRINCIPAL),
+                        org.mockito.ArgumentMatchers.eq(CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ),
+                        org.mockito.ArgumentMatchers.eq(COMPANY),
+                        org.mockito.ArgumentMatchers.eq(YearMonth.of(2026, 8)),
+                        org.mockito.ArgumentMatchers.eq(NOW)))
                 .thenReturn(Optional.of(orgScope));
 
         var page = service.query(new AttendanceReportQueryPageService.QueryCommand(
@@ -1543,7 +1553,9 @@ class AttendanceReportQueryPageServiceTest {
                         java.math.BigDecimal.ZERO,
                         new java.math.BigDecimal("40.00"),
                         LocalDate.of(2020, 3, 1),
-                        0)));
+                        0,
+                        0,
+                        null)));
         when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of());
 
@@ -1593,7 +1605,9 @@ class AttendanceReportQueryPageServiceTest {
                         java.math.BigDecimal.ZERO,
                         new java.math.BigDecimal("40.00"),
                         LocalDate.of(2020, 3, 1),
-                        0)));
+                        0,
+                        0,
+                        null)));
         when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of());
 
@@ -1740,7 +1754,7 @@ class AttendanceReportQueryPageServiceTest {
                 new LeaveStatAccountRow("employee-1", "001", "张三", "org-1", "工程部",
                         "ANNUAL_LEAVE", java.math.BigDecimal.TEN, java.math.BigDecimal.ZERO,
                         java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.TEN,
-                        LocalDate.of(2020, 1, 1), 0)));
+                        LocalDate.of(2020, 1, 1), 0, 0, null)));
         when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new org.apache.ibatis.exceptions.PersistenceException("database detail not user-safe"));
         assertThatThrownBy(() -> service.query(command(sheet, YearMonth.of(2026, 8))))
@@ -2000,7 +2014,7 @@ class AttendanceReportQueryPageServiceTest {
                 new LeaveStatAccountRow("employee-1", "001", "张三", "org-1", "工程部",
                         "ANNUAL_LEAVE", java.math.BigDecimal.TEN, java.math.BigDecimal.ZERO,
                         java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.TEN,
-                        LocalDate.of(2020, 1, 1), 0)));
+                        LocalDate.of(2020, 1, 1), 0, 0, null)));
         when(mapper.listLeaveUsageDocuments(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
                 new QueryPageRows.OaUsageDocumentRow("legacy-form","employee-1",
                         LocalDate.of(2026,8,1),LocalDate.of(2026,9,1),
@@ -2016,6 +2030,84 @@ class AttendanceReportQueryPageServiceTest {
         verify(mapper).listLegacyLeaveDayEvidence(org.mockito.ArgumentMatchers.argThat(q ->
                 q.employeeIds().equals(List.of("employee-1")) && q.projectionIds().equals(List.of("proj-1"))),
                 org.mockito.ArgumentMatchers.eq(List.of("legacy-form")));
+    }
+
+    @Test
+    void multiMonthQueryIncludesEmployeesOnlyInSecondMonth() {
+        when(principals.currentPrincipalId()).thenReturn(PRINCIPAL);
+        when(sources.listAuthorizedCompanies(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                        YearMonth.of(2026, 8),
+                        NOW))
+                .thenReturn(List.of(new CompanyOption(COMPANY, "测试公司")));
+        when(sources.resolveRealtimeAuthorizationForPeriod(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                        COMPANY,
+                        YearMonth.of(2026, 8),
+                        NOW))
+                .thenReturn(Optional.of(new RealtimeAuthorization(
+                        new AuthorizedScope(
+                                ScopeType.ORGANIZATION,
+                                COMPANY,
+                                "org-1",
+                                "a".repeat(64)),
+                        COMPANY,
+                        false,
+                        "principal-emp",
+                        Set.of("employee-1"),
+                        Set.of("org-1"))));
+        when(sources.resolveRealtimeAuthorizationForPeriod(
+                        PRINCIPAL,
+                        CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                        COMPANY,
+                        YearMonth.of(2026, 9),
+                        NOW))
+                .thenReturn(Optional.of(new RealtimeAuthorization(
+                        new AuthorizedScope(
+                                ScopeType.ORGANIZATION,
+                                COMPANY,
+                                "org-1",
+                                "a".repeat(64)),
+                        COMPANY,
+                        false,
+                        "principal-emp",
+                        Set.of("employee-2"),
+                        Set.of("org-1"))));
+        when(mapper.findLatestPin(
+                        COMPANY,
+                        LocalDate.of(2026, 8, 1),
+                        LocalDate.of(2026, 9, 1)))
+                .thenReturn(new PinRow(
+                        "proj-aug",
+                        "ARP-AUG-" + "a".repeat(59),
+                        "OPEN",
+                        NOW,
+                        "[]"));
+        when(mapper.findLatestPin(
+                        COMPANY,
+                        LocalDate.of(2026, 9, 1),
+                        LocalDate.of(2026, 10, 1)))
+                .thenReturn(new PinRow(
+                        "proj-sep",
+                        "ARP-SEP-" + "a".repeat(59),
+                        "OPEN",
+                        NOW,
+                        "[]"));
+        when(mapper.countExceptions(org.mockito.ArgumentMatchers.any())).thenReturn(2L);
+        when(mapper.listExceptions(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
+                new ExceptionRow("case-1", "employee-1", "001", "Alice", "org-1", "工程部",
+                        LocalDate.of(2026, 8, 15), "MISSED_PUNCH", "HIGH", "PENDING", 0L, "缺卡", null, null),
+                new ExceptionRow("case-2", "employee-2", "002", "Bob", "org-1", "工程部",
+                        LocalDate.of(2026, 9, 10), "MISSED_PUNCH", "HIGH", "PENDING", 0L, "缺卡", null, null)));
+        var page = service.query(command("exceptions", YearMonth.of(2026, 8),
+                LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 30)));
+        assertThat(page.rows()).hasSize(2);
+        ArgumentCaptor<FactQuery> queryCaptor = ArgumentCaptor.forClass(FactQuery.class);
+        verify(mapper).listExceptions(queryCaptor.capture());
+        FactQuery captured = queryCaptor.getValue();
+        assertThat(captured.employeeIds()).containsExactlyInAnyOrder("employee-1", "employee-2");
     }
 
     private void pinAugust() {
@@ -2039,11 +2131,12 @@ class AttendanceReportQueryPageServiceTest {
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.eq(NOW)))
                 .thenReturn(List.of(new CompanyOption(COMPANY, "测试公司")));
-        when(sources.resolveRealtimeAuthorization(
-                        PRINCIPAL,
-                        CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
-                        COMPANY,
-                        NOW))
+        when(sources.resolveRealtimeAuthorizationForPeriod(
+                        org.mockito.ArgumentMatchers.eq(PRINCIPAL),
+                        org.mockito.ArgumentMatchers.eq(CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ),
+                        org.mockito.ArgumentMatchers.eq(COMPANY),
+                        org.mockito.ArgumentMatchers.any(YearMonth.class),
+                        org.mockito.ArgumentMatchers.eq(NOW)))
                 .thenReturn(Optional.of(new RealtimeAuthorization(
                         new AuthorizedScope(
                                 ScopeType.COMPANY,

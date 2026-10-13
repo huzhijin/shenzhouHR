@@ -546,6 +546,9 @@ CREATE TABLE prior_service_record (
     occurred_at TIMESTAMP NOT NULL,
     request_id VARCHAR(128) NOT NULL,
     row_version BIGINT DEFAULT 0 NOT NULL,
+    amount_years DECIMAL(7,2),
+    conversion_basis VARCHAR(20),
+    conversion_version INTEGER,
     UNIQUE (employee_id, request_id),
     UNIQUE (employee_id, row_version)
 );

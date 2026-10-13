@@ -180,7 +180,8 @@ public class AuthenticationController {
     }
 
     private static SessionView toView(SessionIdentity identity) {
-        List<String> availableCapabilities = identity.account().firstPasswordChangeRequired()
+        boolean firstPasswordChangeRequired = identity.account().firstPasswordChangeRequired();
+        List<String> availableCapabilities = firstPasswordChangeRequired
                 ? List.of()
                 : identity.capabilities();
         return new SessionView(
@@ -189,17 +190,23 @@ public class AuthenticationController {
                 identity.account().username(),
                 identity.account().displayName(),
                 identity.session().status(),
-                identity.account().firstPasswordChangeRequired(),
+                firstPasswordChangeRequired,
                 identity.session().createdAt(),
                 identity.session().lastSeenAt(),
                 identity.session().idleExpiresAt(),
                 identity.session().absoluteExpiresAt(),
                 availableCapabilities,
-                menu(availableCapabilities));
+                menu(firstPasswordChangeRequired, availableCapabilities));
     }
 
-    public static List<MenuItem> menu(List<String> capabilities) {
+    public static List<MenuItem> menu(boolean firstPasswordChangeRequired, List<String> capabilities) {
+        if (firstPasswordChangeRequired) {
+            return List.of(new MenuItem(
+                    "first-password-change", "首次修改密码", "/access/first-password-change"));
+        }
+
         List<MenuItem> menu = new ArrayList<>();
+        boolean hasCompletedFirstPasswordChange = !firstPasswordChangeRequired;
         boolean canReadOrganizationDashboard = capabilities.contains(
                 CapabilityCodes.ATTENDANCE_DASHBOARD_READ);
         boolean canReadSelfAttendance = capabilities.contains(
@@ -343,6 +350,9 @@ public class AuthenticationController {
         }
         if (capabilities.contains("AUDIT:READ")) {
             menu.add(new MenuItem("audit", "操作记录", "/access/audit"));
+        }
+        if (hasCompletedFirstPasswordChange) {
+            menu.add(new MenuItem("development-log", "开发日志", "/access/development-log"));
         }
         if (capabilities.contains("PEOPLE_IMPORT:READ")) {
             menu.add(new MenuItem("people-import", "导入人员", "/people/import"));

@@ -74,7 +74,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void getWithoutPinAndWithoutSourcesReturnsEmptyWithoutCalculating() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
 
         var snapshot = service.loadAuthorizedSnapshot(
                         PRINCIPAL_ID,
@@ -96,7 +96,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void getWithoutPinAndWithSourcesFailsClosedAsNotReady() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         when(repository.hasCommittedSourceEvidence(
                         COMPANY_ID, PERIOD, NOW))
                 .thenReturn(true);
@@ -121,7 +121,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void recalculateCalculatesAndCachesTheCompanyMonth() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         when(orchestrator.assemble(
                         org.mockito.ArgumentMatchers.eq(COMPANY_ID),
                         org.mockito.ArgumentMatchers.eq(PERIOD),
@@ -164,7 +164,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void recalculationRefreshesOaBeforeAssemblyAndUsesPostSyncCutoff() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var refresh = org.mockito.Mockito.mock(AttendanceReportSourceRefreshPort.class);
         Instant committed = NOW.plusSeconds(5);
         when(refresh.refresh(COMPANY_ID, PERIOD, NOW)).thenReturn(committed);
@@ -181,7 +181,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void failedOaRefreshDoesNotCalculateOrPublishAndExistingPinRemainsReadable() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var pinned = snapshotFromCommand(command());
         when(repository.loadAuthorizedSnapshot(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
@@ -203,7 +203,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void employeeWindowRefreshesTheSamePlanConsumedByAssembly() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var refresh = org.mockito.Mockito.mock(AttendanceReportSourceRefreshPort.class);
         Instant committed = NOW.plusSeconds(5);
         LocalDate start = PERIOD.atDay(17);
@@ -234,7 +234,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void retainsThePinnedSnapshotAcrossTheNextTimeBucket() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var pinned = snapshotFromCommand(command());
         when(repository.loadAuthorizedSnapshot(
                         org.mockito.ArgumentMatchers.any(),
@@ -270,7 +270,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
     @Test
     void reusesThePinnedSnapshotWithoutAToken() {
         Instant laterInWindow = NOW.plusSeconds(140);
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var pinned = snapshotFromCommand(command());
         when(repository.loadAuthorizedSnapshot(
                         org.mockito.ArgumentMatchers.any(),
@@ -305,7 +305,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void staleExpectedTokenFailsClosedWhenPinVersionChanged() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var pinned = snapshotFromCommand(command());
         when(repository.loadAuthorizedSnapshot(
                         org.mockito.ArgumentMatchers.any(),
@@ -336,16 +336,18 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(
                         new CompanyOption(COMPANY_ID, "测试公司")));
-        when(repository.resolveRealtimeAuthorization(
+        when(repository.resolveRealtimeAuthorizationForPeriod(
                         PRINCIPAL_ID,
                         CAPABILITY,
                         COMPANY_ID,
+                        PERIOD,
                         NOW))
                 .thenReturn(Optional.of(companyAuthorization()));
-        when(repository.resolveRealtimeAuthorization(
+        when(repository.resolveRealtimeAuthorizationForPeriod(
                         org.mockito.ArgumentMatchers.eq(scopedPrincipal),
                         org.mockito.ArgumentMatchers.eq(CAPABILITY),
                         org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                        org.mockito.ArgumentMatchers.eq(PERIOD),
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(Optional.of(new RealtimeAuthorization(
                         scope(ScopeType.ORGANIZATION),
@@ -409,7 +411,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void companyWideDepartmentFilterIncludesCurrentOrgDescendants() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         when(repository.listOrganizationSubtree("organization-a"))
                 .thenReturn(Set.of("organization-a", "organization-b"));
         when(orchestrator.assemble(
@@ -459,10 +461,11 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                         NOW.plusSeconds(10)))
                 .thenReturn(List.of(
                         new CompanyOption(COMPANY_ID, "测试公司")));
-        when(repository.resolveRealtimeAuthorization(
+        when(repository.resolveRealtimeAuthorizationForPeriod(
                         org.mockito.ArgumentMatchers.eq(PRINCIPAL_ID),
                         org.mockito.ArgumentMatchers.eq(CAPABILITY),
                         org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                        org.mockito.ArgumentMatchers.eq(PERIOD),
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(
                         Optional.of(companyAuthorization()),
@@ -498,7 +501,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void filtersFactsWithCurrentOrganizationAuthorization() {
-        authorize(new RealtimeAuthorization(
+        authorizePeriod(new RealtimeAuthorization(
                 scope(ScopeType.ORGANIZATION),
                 COMPANY_ID,
                 false,
@@ -552,10 +555,11 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                         PRINCIPAL_ID, CAPABILITY, PERIOD, NOW))
                 .thenReturn(List.of(
                         new CompanyOption(COMPANY_ID, "测试公司")));
-        when(repository.resolveRealtimeAuthorization(
+        when(repository.resolveRealtimeAuthorizationForPeriod(
                         PRINCIPAL_ID,
                         CAPABILITY,
                         COMPANY_ID,
+                        PERIOD,
                         NOW))
                 .thenReturn(Optional.of(new RealtimeAuthorization(
                         scope(ScopeType.COMPANY),
@@ -588,10 +592,11 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(
                         new CompanyOption(COMPANY_ID, "测试公司")));
-        when(repository.resolveRealtimeAuthorization(
+        when(repository.resolveRealtimeAuthorizationForPeriod(
                         org.mockito.ArgumentMatchers.eq(PRINCIPAL_ID),
                         org.mockito.ArgumentMatchers.eq(CAPABILITY),
                         org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                        org.mockito.ArgumentMatchers.any(YearMonth.class),
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(Optional.of(companyAuthorization()));
         when(orchestrator.assemble(
@@ -643,7 +648,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void realtimeSnapshotKeepsTheSameBusinessValuesAsPublicationCommand() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         PublishCommand publicationCommand = command();
         when(orchestrator.assemble(
                         COMPANY_ID,
@@ -678,7 +683,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void slowEngineDoesNotReturnASecondPunchRoster() throws Exception {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             var waiting = new RealtimeAttendanceReportSnapshotService(
@@ -744,7 +749,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void recordsSafeCalculationFailuresWithoutSensitiveTags() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         when(orchestrator.assemble(
                         org.mockito.ArgumentMatchers.eq(COMPANY_ID),
                         org.mockito.ArgumentMatchers.eq(PERIOD),
@@ -778,7 +783,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void readsPinnedSnapshotWithoutRecalculating() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var pinned = snapshotFromCommand(command());
         when(repository.loadAuthorizedSnapshot(
                         org.mockito.ArgumentMatchers.eq(PRINCIPAL_ID),
@@ -823,11 +828,12 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                         PERIOD,
                         NOW))
                 .thenReturn(List.of(new CompanyOption(COMPANY_ID, "测试公司")));
-        when(repository.resolveRealtimeAuthorization(
+        when(repository.resolveRealtimeAuthorizationForPeriod(
                         PRINCIPAL_ID,
                         com.szsemicon.hr.authorization.domain.CapabilityCodes
                                 .ATTENDANCE_SELF_READ,
                         COMPANY_ID,
+                        PERIOD,
                         NOW))
                 .thenReturn(Optional.of(companyAuthorization()));
         when(repository.hasCommittedSourceEvidence(
@@ -856,7 +862,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void employeeDayRecalcDoesNotCacheAPartialMonth() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         AttendanceReportPublicationModels.PublicationResult published =
                 new AttendanceReportPublicationModels.PublicationResult(
                         "11111111-1111-1111-1111-111111111111",
@@ -905,7 +911,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void firstCompleteCalculationPersistsAPinAndRecalculateReplacesIt() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         authorizeRefresh();
         AttendanceReportPublicationModels.PublicationResult published =
                 new AttendanceReportPublicationModels.PublicationResult(
@@ -975,7 +981,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void failedRecalculateDoesNotRequireANewPinReadOnTheNextGet() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         authorizeRefresh();
         var pinned = snapshotFromCommand(command());
         when(repository.loadAuthorizedSnapshot(
@@ -1111,18 +1117,19 @@ class RealtimeAttendanceReportSnapshotServiceTest {
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(
                         new CompanyOption(COMPANY_ID, "测试公司")));
-        when(repository.resolveRealtimeAuthorization(
+        when(repository.resolveRealtimeAuthorizationForPeriod(
                         org.mockito.ArgumentMatchers.eq(PRINCIPAL_ID),
                         org.mockito.ArgumentMatchers.eq(
                                 CapabilityCodes.ATTENDANCE_REPORT_REFRESH),
                         org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                        org.mockito.ArgumentMatchers.eq(PERIOD),
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(Optional.of(companyAuthorization()));
     }
 
     @Test
     void dateRangeWithoutPublishedBaseDoesNotReadOrPublishSource() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var refresh = org.mockito.Mockito.mock(AttendanceReportSourceRefreshPort.class);
         service.configureSourceRefresh(refresh);
         assertThatThrownBy(() -> service.recalculateRange(PRINCIPAL_ID, CAPABILITY,
@@ -1133,7 +1140,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void rangeRefreshExpansionIsReadAgainBeforeCalculationAndUsesLatestCutoff() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var first = AttendanceReportDependencyPlan.bounded(COMPANY_ID, PERIOD,
                 PERIOD.atDay(16), PERIOD.atDay(18), List.of());
         var expanded = AttendanceReportDependencyPlan.bounded(COMPANY_ID, PERIOD,
@@ -1164,7 +1171,7 @@ class RealtimeAttendanceReportSnapshotServiceTest {
 
     @Test
     void reopenedRangePreservesReopenedPeriodState() {
-        authorize(companyAuthorization());
+        authorizePeriod(companyAuthorization());
         var plan = AttendanceReportDependencyPlan.bounded(COMPANY_ID, PERIOD,
                 PERIOD.atDay(16), PERIOD.atDay(18), List.of());
         when(orchestrator.publishedBaseline(COMPANY_ID, PERIOD)).thenReturn(Optional.of(
@@ -1191,6 +1198,33 @@ class RealtimeAttendanceReportSnapshotServiceTest {
         service.materializeCompanyMonthWindow(COMPANY_ID, PERIOD, RecalcWindow.MONTH, NOW);
         verify(orchestrator).assemble(COMPANY_ID, PERIOD, PeriodState.OPEN, "SYSTEM", NOW);
         verify(orchestrator, never()).publishedBaseline(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    private void authorizePeriod(RealtimeAuthorization authorization) {
+        when(repository.listAuthorizedCompanies(
+                        org.mockito.ArgumentMatchers.eq(PRINCIPAL_ID),
+                        org.mockito.ArgumentMatchers.eq(CAPABILITY),
+                        org.mockito.ArgumentMatchers.eq(PERIOD),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(
+                        new CompanyOption(COMPANY_ID, "测试公司")));
+        when(repository.resolveRealtimeAuthorizationForPeriod(
+                        org.mockito.ArgumentMatchers.eq(PRINCIPAL_ID),
+                        org.mockito.ArgumentMatchers.eq(CAPABILITY),
+                        org.mockito.ArgumentMatchers.eq(COMPANY_ID),
+                        org.mockito.ArgumentMatchers.eq(PERIOD),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Optional.of(authorization));
+        org.mockito.Mockito.lenient().when(repository.loadAuthorizedSnapshot(
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Optional.empty());
+        org.mockito.Mockito.lenient().when(
+                        repository.listCommittedSourceCutoffs(
+                                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
     }
 
     private void authorize(RealtimeAuthorization authorization) {

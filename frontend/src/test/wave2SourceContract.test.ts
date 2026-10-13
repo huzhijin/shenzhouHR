@@ -119,7 +119,8 @@ describe('WAVE-2 people production source contract', () => {
     expect(employeeDetail).toContain("name=\"displayName\"");
     expect(employeeDetail).toMatch(/name="displayName"[^]*?max:\s*100/);
     expect(employees).toMatch(/name="displayName"[^]*?max:\s*100/);
-    expect(employeeDetail).toMatch(/name="amountDays"[^]*?min:\s*-36500[^]*?max:\s*36500/);
+    // 工龄调整字段：界面按年输入(-100.00 至 100.00 年，保留2位小数)，后端接口为整数天数(按365天/年换算)
+    expect(employeeDetail).toMatch(/name="amountYears"[^]*?min:\s*-100\.00[^]*?max:\s*100\.00/);
   });
 
   it('validates import file type and size at both the UI and API boundary', () => {

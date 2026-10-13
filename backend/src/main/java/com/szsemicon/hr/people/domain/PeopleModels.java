@@ -1,5 +1,6 @@
 package com.szsemicon.hr.people.domain;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -226,7 +227,10 @@ public final class PeopleModels {
             String actorId,
             Instant occurredAt,
             String requestId,
-            long rowVersion) {
+            long rowVersion,
+            java.math.BigDecimal amountYears,
+            String conversionBasis,
+            Integer conversionVersion) {
     }
 
     public record PriorServiceReplay(
@@ -234,7 +238,9 @@ public final class PeopleModels {
             int totalDays,
             int recordCount,
             String replayDigest,
-            Instant recalculatedAt) {
+            Instant recalculatedAt,
+            BigDecimal totalYears,
+            Integer completeMonths) {
     }
 
     public record IdempotencyRecord(

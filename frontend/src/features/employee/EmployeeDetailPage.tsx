@@ -72,6 +72,13 @@ import {
   setPunchExemption,
 } from './employeeApi';
 
+// 工龄换算：正负对称的年转天数（按 365 天/年，四舍五入到整数天）
+function convertYearsToDays(years: number): number {
+  // 按绝对值四舍五入再恢复符号，确保正负对称（365天/年）
+  const sign = years < 0 ? -1 : 1;
+  return sign * Math.round(Math.abs(years) * 365);
+}
+
 type DetailState =
   | { status: 'loading' | 'partial-loading' }
   | {
@@ -97,6 +104,11 @@ type EmployeeFormValues = {
   reason: string;
 };
 
+type OriginalEmployeeState = {
+  status: EmployeeStatus;
+  effectiveFrom: string;
+};
+
 type PeriodFormValues = {
   organizationId: string;
   positionId?: string;
@@ -106,7 +118,7 @@ type PeriodFormValues = {
 };
 
 type PriorServiceFormValues = {
-  amountDays: number;
+  amountYears: number; // 界面输入调整年数（保留2位小数），内部转换为天数（365天/年）
   businessDate: dayjs.Dayjs;
   reason: string;
 };
@@ -132,6 +144,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
   const [priorForm] = Form.useForm<PriorServiceFormValues>();
   const [reasonForm] = Form.useForm<{ reason: string }>();
   const mutationKey = useRef<string | undefined>(undefined);
+  const originalEmployeeState = useRef<OriginalEmployeeState | undefined>(undefined);
   const canReadEmployment = capabilities.includes('EMPLOYMENT:READ');
   const canReadPriorService = capabilities.includes('PRIOR_SERVICE:READ');
   const canReadLeave = capabilities.includes('ANNUAL_LEAVE:READ');
@@ -205,6 +218,10 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
       effectiveFrom: dayjs(detail.effectiveFrom),
       effectiveTo: detail.effectiveTo ? dayjs(detail.effectiveTo) : null,
     });
+    originalEmployeeState.current = {
+      status: detail.status,
+      effectiveFrom: detail.effectiveFrom,
+    };
     openDialog('edit');
   };
 
@@ -232,67 +249,84 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
   };
 
   const saveEmployee = async () => {
-    const values = await employeeForm.validateFields();
-    await execute(async () => {
-      await updateLocalEmployee(
-        employeeId,
-        toEmployeeRequest(values),
-        detail.rowVersion,
-        mutationKey.current ?? createIdempotencyKey('employee-edit'),
-      );
-      setFeedback(t('employee.updated'));
-    });
+    try {
+      const values = await employeeForm.validateFields();
+      await execute(async () => {
+        await updateLocalEmployee(
+          employeeId,
+          toEmployeeRequest(values),
+          detail.rowVersion,
+          mutationKey.current ?? createIdempotencyKey('employee-edit'),
+        );
+        setFeedback(t('employee.updated'));
+      });
+    } catch {
+      // validateFields失败时Form会自动显示错误，直接return让Modal保持打开
+      return;
+    }
   };
 
   const savePeriod = async () => {
-    const values = await periodForm.validateFields();
-    await execute(async () => {
-      const request = toPeriodRequest(values);
-      if (dialog === 'period-edit' && periodTarget) {
-        await updateEmploymentPeriod(
-          employeeId,
-          periodTarget.employmentPeriodId,
-          { ...request, terminationDate: request.terminationDate ?? null },
-          periodTarget.rowVersion,
-          mutationKey.current ?? createIdempotencyKey('employment-period-edit'),
-        );
-        setFeedback(t('employee.periodUpdated'));
-      } else {
-        await createEmploymentPeriod(
-          employeeId,
-          request,
-          detail.rowVersion,
-          mutationKey.current ?? createIdempotencyKey('employment-period-create'),
-        );
-        setFeedback(t('employee.rehireCreated'));
-      }
-    });
+    try {
+      const values = await periodForm.validateFields();
+      await execute(async () => {
+        const request = toPeriodRequest(values);
+        if (dialog === 'period-edit' && periodTarget) {
+          await updateEmploymentPeriod(
+            employeeId,
+            periodTarget.employmentPeriodId,
+            { ...request, terminationDate: request.terminationDate ?? null },
+            periodTarget.rowVersion,
+            mutationKey.current ?? createIdempotencyKey('employment-period-edit'),
+          );
+          setFeedback(t('employee.periodUpdated'));
+        } else {
+          await createEmploymentPeriod(
+            employeeId,
+            request,
+            detail.rowVersion,
+            mutationKey.current ?? createIdempotencyKey('employment-period-create'),
+          );
+          setFeedback(t('employee.rehireCreated'));
+        }
+      });
+    } catch {
+      return;
+    }
   };
 
   const savePriorAdjustment = async () => {
-    const values = await priorForm.validateFields();
-    await execute(async () => {
-      await createPriorServiceAdjustment(
-        employeeId,
-        toPriorRequest(values),
-        detail.rowVersion,
-        mutationKey.current ?? createIdempotencyKey('prior-service-adjustment'),
-      );
-      setFeedback(t('employee.priorAdjusted'));
-    });
+    try {
+      const values = await priorForm.validateFields();
+      await execute(async () => {
+        await createPriorServiceAdjustment(
+          employeeId,
+          toPriorRequest(values),
+          detail.rowVersion,
+          mutationKey.current ?? createIdempotencyKey('prior-service-adjustment'),
+        );
+        setFeedback(t('employee.priorAdjusted'));
+      });
+    } catch {
+      return;
+    }
   };
 
   const recalculate = async () => {
-    const values = await reasonForm.validateFields();
-    await execute(async () => {
-      await recalculatePriorService(
-        employeeId,
-        detail.rowVersion,
-        values.reason.trim(),
-        mutationKey.current ?? createIdempotencyKey('prior-service-recalculate'),
-      );
-      setFeedback(t('employee.priorRecalculated'));
-    });
+    try {
+      const values = await reasonForm.validateFields();
+      await execute(async () => {
+        await recalculatePriorService(
+          employeeId,
+          detail.rowVersion,
+          values.reason.trim(),
+          mutationKey.current ?? createIdempotencyKey('prior-service-recalculate'),
+        );
+        setFeedback(t('employee.priorRecalculated'));
+      });
+    } catch {
+      return;
+    }
   };
 
   const execute = async (action: () => Promise<void>) => {
@@ -459,11 +493,11 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
               ) : null}
             </Space>
           </div>
-          {priorService ? (
+          {detail.priorService ? (
             <div className="prior-service-total">
-              <strong>{(priorService.totalDays / 360).toFixed(2)}</strong>
+              <strong>{detail.priorService.totalYears.toFixed(2)}</strong>
               <span>年</span>
-              <span>{priorService.totalDays} {t('employee.days')}</span>
+              <span>{detail.priorService.totalDays} {t('employee.days')}</span>
             </div>
           ) : <StatePanel state="403" />}
         </section>
@@ -530,8 +564,42 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
             rowKey={(row) => row.priorServiceRecordId}
             columns={[
               { key: 'type', title: t('employee.recordType'), render: (row) => <StatusBadge status={row.recordType} /> },
-              { key: 'amount', title: t('employee.amountDays'), render: (row) => <strong>{row.amountDays > 0 ? `+${row.amountDays}` : row.amountDays}</strong> },
-              { key: 'total', title: t('employee.resultingTotal'), render: (row) => row.resultingTotalDays },
+              {
+                key: 'amount',
+                title: '调整量',
+                render: (row) => {
+                  const days = row.amountDays;
+                  const sign = days > 0 ? '+' : '';
+
+                  // 优先显示amountYears（新365记录），否则从天数计算年数
+                  if (row.amountYears != null) {
+                    return <strong>{sign}{days} 天 ({sign}{row.amountYears.toFixed(2)} 年)</strong>;
+                  } else if (row.conversionBasis === 'DAYS_PER_YEAR_360') {
+                    // Excel 360记录：显示为360天/年
+                    const years = (days / 360).toFixed(2);
+                    return <strong>{sign}{days} 天 ({sign}{years} 年 360天/年)</strong>;
+                  } else {
+                    // 旧真实天数记录：从天数估算年数
+                    const years = (days / 365).toFixed(2);
+                    return <strong>{sign}{days} 天 (≈{sign}{years} 年)</strong>;
+                  }
+                }
+              },
+              {
+                key: 'total',
+                title: '累计工龄',
+                render: (row) => {
+                  // 使用后端返回的累计精确年数（从台账replay计算）
+                  if (row.resultingTotalYears != null) {
+                    return `${row.resultingTotalDays} 天 (${row.resultingTotalYears.toFixed(2)} 年)`;
+                  }
+                  // 降级：如果后端未提供，按最后一条记录的basis估算
+                  const years = row.conversionBasis === 'DAYS_PER_YEAR_360'
+                    ? (row.resultingTotalDays / 360).toFixed(2)
+                    : (row.resultingTotalDays / 365).toFixed(2);
+                  return `${row.resultingTotalDays} 天 (≈${years} 年)`;
+                }
+              },
               { key: 'date', title: t('employee.businessDate'), render: (row) => formatDate(row.businessDate) },
               { key: 'reason', title: t('people.reason'), render: (row) => row.reason },
               { key: 'time', title: t('people.changedAt'), render: (row) => formatDateTime(row.occurredAt) },
@@ -604,6 +672,7 @@ export function EmployeeDetailPage({ capabilities = [] }: { capabilities?: strin
         processing={processing}
         error={writeError}
         organizationOptions={organizationOptions}
+        originalEmployeeState={originalEmployeeState.current}
         onCancel={closeEmployeeDialog}
         onSaveEmployee={submitEmployee}
         onSavePeriod={submitPeriod}
@@ -655,6 +724,7 @@ function EmployeeDialogs({
   processing,
   error,
   organizationOptions,
+  originalEmployeeState,
   onCancel,
   onSaveEmployee,
   onSavePeriod,
@@ -673,6 +743,7 @@ function EmployeeDialogs({
   processing: boolean;
   error?: ApiRequestError;
   organizationOptions: EmployeeOrganizationOption[];
+  originalEmployeeState?: OriginalEmployeeState;
   onCancel: () => void;
   onSaveEmployee: () => void;
   onSavePeriod: () => void;
@@ -682,6 +753,8 @@ function EmployeeDialogs({
   onSaveLeaveAdjust: () => void;
 }) {
   const { t } = useTranslation();
+  const currentStatus = Form.useWatch('status', employeeForm);
+  const currentAmountYears = Form.useWatch('amountYears', priorForm);
   const save = dialog === 'edit'
     ? onSaveEmployee
     : dialog === 'period-create' || dialog === 'period-edit'
@@ -695,6 +768,14 @@ function EmployeeDialogs({
             : onRecalculate;
   const chooseStatus = (status: EmployeeStatus) => () => {
     employeeForm.setFieldValue('status', status);
+    // 状态变化时，清空生效日期要求用户明确选择，除非切回原状态
+    if (originalEmployeeState && status !== originalEmployeeState.status) {
+      // 状态变化：清空日期，必须用户明确选择
+      employeeForm.setFieldValue('effectiveFrom', undefined);
+    } else if (originalEmployeeState && status === originalEmployeeState.status) {
+      // 切回原状态：恢复原日期
+      employeeForm.setFieldValue('effectiveFrom', dayjs(originalEmployeeState.effectiveFrom));
+    }
   };
   return (
     <Modal
@@ -725,7 +806,7 @@ function EmployeeDialogs({
                   <AccessibleButton
                     label={t(`employee.status.${status}`)}
                     key={status}
-                    type={employeeForm.getFieldValue('status') === status ? 'primary' : 'default'}
+                    type={currentStatus === status ? 'primary' : 'default'}
                     onClick={chooseStatus(status)}
                   >
                     {t(`employee.status.${status}`)}
@@ -733,16 +814,36 @@ function EmployeeDialogs({
                 ))}
               </Space.Compact>
             </Form.Item>
+            {originalEmployeeState && currentStatus !== originalEmployeeState.status ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="状态变更需明确生效日期"
+                description="状态变化需要新的生效日期（严格晚于原生效日期）。请明确选择生效日期，不要使用默认值。离职状态从该日起生效，保留此前在职历史。"
+                style={{ marginBottom: 16 }}
+              />
+            ) : null}
             <Form.Item
               name="effectiveFrom"
               label={t('people.effectiveFrom')}
-              extra={t('people.identityCorrectionHint')}
-              rules={[{ required: true }]}
+              extra={originalEmployeeState && currentStatus === originalEmployeeState.status
+                ? t('people.identityCorrectionHint')
+                : '状态变更时必须晚于原生效日期'}
+              rules={[
+                { required: true },
+                ...(originalEmployeeState && currentStatus !== originalEmployeeState.status ? [{
+                  validator: async (_: unknown, value: dayjs.Dayjs) => {
+                    if (!value || !value.isAfter(dayjs(originalEmployeeState.effectiveFrom), 'day')) {
+                      throw new Error('新状态生效日期必须严格晚于原生效日期');
+                    }
+                  }
+                }] : []),
+              ]}
             >
-              <DatePicker />
+              <DatePicker style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="effectiveTo" label={t('people.effectiveTo')}>
-              <DatePicker />
+              <DatePicker style={{ width: '100%' }} />
             </Form.Item>
           </div>
           <ReasonField />
@@ -781,14 +882,53 @@ function EmployeeDialogs({
       ) : null}
       {dialog === 'prior-adjust' ? (
         <Form form={priorForm} layout="vertical">
+          <Alert
+            showIcon
+            type="info"
+            description="输入工龄调整年数（正数增加、负数减少），系统将按 365 天/年转换为整数天数保存。最多保留 2 位小数（0.01 年 ≈ 4 天），输入后即可预览转换结果。"
+          />
           <div className="form-grid">
-            <Form.Item name="amountDays" label={t('employee.amountDays')} rules={[{ required: true }, { type: 'number', min: -36500, max: 36500 }]}>
-              <InputNumber precision={0} min={-36500} max={36500} />
+            <Form.Item
+              name="amountYears"
+              label="调整年数"
+              rules={[
+                { required: true, message: '请输入调整年数' },
+                { type: 'number', min: -100.00, max: 100.00, message: '调整年数范围：-100.00 至 100.00 年' },
+                {
+                  validator: async (_: unknown, value: number) => {
+                    if (value !== undefined && value !== null) {
+                      const days = convertYearsToDays(value);
+                      if (days === 0) {
+                        throw new Error('调整量无效：不能为 0 年或折合 0 天');
+                      }
+                    }
+                  }
+                }
+              ]}
+            >
+              <InputNumber
+                precision={2}
+                min={-100.00}
+                max={100.00}
+                step={0.01}
+                addonAfter="年"
+                placeholder="正增负减"
+                style={{ width: '100%' }}
+              />
             </Form.Item>
             <Form.Item name="businessDate" label={t('employee.businessDate')} rules={[{ required: true }]}>
-              <DatePicker />
+              <DatePicker style={{ width: '100%' }} />
             </Form.Item>
           </div>
+          {currentAmountYears !== undefined && currentAmountYears !== null ? (
+            <Alert
+              type="info"
+              showIcon
+              message="转换预览"
+              description={`${currentAmountYears.toFixed(2)} 年 = ${convertYearsToDays(currentAmountYears)} 天（365 天/年四舍五入取整显示，例如 0.01 年 = 3.65 天，显示为 4 天）`}
+              style={{ marginBottom: 16 }}
+            />
+          ) : null}
           <ReasonField />
         </Form>
       ) : null}
@@ -973,8 +1113,11 @@ export function toPeriodRequest(values: PeriodFormValues): EmploymentPeriodCreat
 }
 
 function toPriorRequest(values: PriorServiceFormValues): PriorServiceAdjustmentRequest {
+  // 年数是权威输入，服务端从年数计算天数
+  const amountDays = convertYearsToDays(values.amountYears);
   return {
-    amountDays: values.amountDays,
+    amountYears: values.amountYears,
+    amountDays,
     businessDate: values.businessDate.format('YYYY-MM-DD'),
     reason: values.reason.trim(),
   };

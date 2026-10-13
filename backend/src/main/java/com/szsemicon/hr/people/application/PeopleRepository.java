@@ -211,6 +211,13 @@ public interface PeopleRepository {
 
     List<PriorServiceRecord> listAllPriorServiceRecords(String employeeId);
 
+    /**
+     * Batch query prior service records for multiple employees, filtered by effective date.
+     * Only returns records where effectiveDate <= asOfInclusive.
+     */
+    List<PriorServiceRecord> listPriorServiceRecordsBatch(
+            List<String> employeeIds, LocalDate businessDateInclusive, Instant occurredAtInclusive);
+
     Optional<PriorServiceRecord> findPriorServiceRecord(String priorServiceRecordId);
 
     List<PriorServiceRecord> findPriorServiceRecordsBySourceBatch(String batchId);

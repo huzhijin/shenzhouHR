@@ -230,51 +230,147 @@
 
     <select id="listDirectoryEmployees"
             resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DirectoryEmployeeRow">
-        SELECT employee.employee_id AS employeeId,
-               employee_version.employee_number AS employeeNumber,
-               employee_version.display_name AS employeeName,
-               employment.organization_id AS organizationId,
-               organization_version.name AS organizationName
-        FROM employee employee
-        JOIN employee_version employee_version
-          ON employee_version.employee_id = employee.employee_id
-         AND employee_version.status = 'ACTIVE'
-         AND employee_version.effective_from &lt;= #{asOf}
-         AND (
-                employee_version.effective_to IS NULL
-                OR employee_version.effective_to &gt; #{asOf}
-         )
-        JOIN employment_assignment employment
-          ON employment.employee_id = employee.employee_id
-         AND employment.version_valid_to IS NULL
-         AND employment.record_status = 'ACTIVE'
-         AND employment.effective_from &lt;= #{asOf}
-         AND (
-                employment.effective_to IS NULL
-                OR employment.effective_to &gt; #{asOf}
-         )
-        JOIN organization_version organization_version
-          ON organization_version.organization_id = employment.organization_id
-         AND organization_version.status = 'ACTIVE'
-         AND organization_version.effective_from &lt;= #{asOf}
-         AND (
-                organization_version.effective_to IS NULL
-                OR organization_version.effective_to &gt; #{asOf}
-         )
-        WHERE employee.company_id = #{companyId}
-          <if test="!companyWide">
-              AND employee.employee_id IN
-              <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
-                  #{id}
-              </foreach>
-          </if>
-          <if test="organizationIds != null and organizationIds.size() &gt; 0">
-              AND employment.organization_id IN
-              <foreach collection="organizationIds" item="id" open="(" separator="," close=")">
-                  #{id}
-              </foreach>
-          </if>
-        ORDER BY employee_version.employee_number
+        WITH current_assignment_rows AS (
+            SELECT employee.employee_id,
+                   employee_version.employee_number,
+                   employee_version.display_name,
+                   employment.organization_id,
+                   organization_version.name AS organization_name,
+                   GREATEST(
+                       employee_version.effective_from,
+                       employment.effective_from,
+                       organization_version.effective_from
+                   ) AS overlap_start,
+                   employment.effective_from AS assignment_start,
+                   organization_version.effective_from AS org_version_start,
+                   employment.assignment_id
+            FROM employee employee
+            JOIN employee_version employee_version
+              ON employee_version.employee_id = employee.employee_id
+             AND employee_version.status = 'ACTIVE'
+            JOIN employment_assignment employment
+              ON employment.employee_id = employee.employee_id
+             AND employment.version_valid_to IS NULL
+             AND employment.record_status = 'ACTIVE'
+            JOIN organization_version organization_version
+              ON organization_version.organization_id = employment.organization_id
+             AND organization_version.status = 'ACTIVE'
+            WHERE employee.company_id = #{companyId}
+              <if test="employeeIds != null and employeeIds.size() &gt; 0">
+                  AND employee.employee_id IN
+                  <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </if>
+              <if test="organizationIds != null and organizationIds.size() &gt; 0">
+                  AND employment.organization_id IN
+                  <foreach collection="organizationIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </if>
+              AND GREATEST(
+                      employee_version.effective_from,
+                      employment.effective_from,
+                      organization_version.effective_from
+                  ) &lt; LEAST(
+                      COALESCE(employee_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(employment.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(organization_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      #{periodEndExclusive}
+                  )
+              AND LEAST(
+                      COALESCE(employee_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(employment.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(organization_version.effective_to, TIMESTAMP '9999-12-31 23:59:59')
+                  ) &gt; #{periodStart}
+        ),
+        historical_assignment_rows AS (
+            SELECT employee.employee_id,
+                   employee_version.employee_number,
+                   employee_version.display_name,
+                   employment.organization_id,
+                   organization_version.name AS organization_name,
+                   GREATEST(
+                       employee_version.effective_from,
+                       employment.effective_from,
+                       organization_version.effective_from
+                   ) AS overlap_start,
+                   employment.effective_from AS assignment_start,
+                   organization_version.effective_from AS org_version_start,
+                   employment.assignment_id
+            FROM employee employee
+            JOIN employee_version employee_version
+              ON employee_version.employee_id = employee.employee_id
+            JOIN employment_assignment employment
+              ON employment.employee_id = employee.employee_id
+             AND employment.record_status = 'ACTIVE'
+            JOIN organization_version organization_version
+              ON organization_version.organization_id = employment.organization_id
+             AND organization_version.status = 'ACTIVE'
+            WHERE employee.company_id = #{companyId}
+              AND employee.employment_status IN ('TERMINATED', 'RESIGNED')
+              AND NOT EXISTS (
+                  SELECT 1 FROM employment_assignment current_emp
+                  WHERE current_emp.employee_id = employee.employee_id
+                    AND current_emp.version_valid_to IS NULL
+                    AND current_emp.record_status = 'ACTIVE'
+              )
+              <if test="employeeIds != null and employeeIds.size() &gt; 0">
+                  AND employee.employee_id IN
+                  <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </if>
+              <if test="organizationIds != null and organizationIds.size() &gt; 0">
+                  AND employment.organization_id IN
+                  <foreach collection="organizationIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </if>
+              AND GREATEST(
+                      employee_version.effective_from,
+                      employment.effective_from,
+                      organization_version.effective_from
+                  ) &lt; LEAST(
+                      COALESCE(employee_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(employment.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(organization_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      #{periodEndExclusive}
+                  )
+              AND LEAST(
+                      COALESCE(employee_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(employment.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(organization_version.effective_to, TIMESTAMP '9999-12-31 23:59:59')
+                  ) &gt; #{periodStart}
+        ),
+        authorized_candidate_rows AS (
+            SELECT * FROM current_assignment_rows
+            UNION ALL
+            SELECT * FROM historical_assignment_rows
+        ),
+        ranked_rows AS (
+            SELECT employee_id,
+                   employee_number,
+                   display_name,
+                   organization_id,
+                   organization_name,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY employee_id
+                       ORDER BY overlap_start DESC,
+                                assignment_start DESC,
+                                org_version_start DESC,
+                                assignment_id DESC
+                   ) AS rn
+            FROM authorized_candidate_rows
+        )
+        SELECT employee_id AS employeeId,
+               employee_number AS employeeNumber,
+               display_name AS employeeName,
+               organization_id AS organizationId,
+               organization_name AS organizationName
+        FROM ranked_rows
+        WHERE rn = 1
+        ORDER BY employee_number
         LIMIT 2000
     </select>
 
@@ -698,11 +794,50 @@
 
     <select id="listEmployeeDailyAggregates"
             resultType="com.szsemicon.hr.reporting.application.QueryPageRows$EmployeeDailyAggregateRow">
+        WITH authorized_facts AS (
+            SELECT fact.employee_id,
+                   fact.business_date,
+                   fact.organization_id,
+                   fact.employee_version_id,
+                   fact.organization_version_id,
+                   fact.late_minutes,
+                   fact.penalized_late_minutes,
+                   fact.missing_punch_count,
+                   fact.scheduled_minutes,
+                   fact.paid_overtime_minutes,
+                   fact.compensatory_overtime_minutes,
+                   fact.voluntary_overtime_minutes,
+                   fact.leave_or_time_off_minutes,
+                   fact.leave_type,
+                   fact.actual_work_minutes,
+                   fact.scheduled_attendance_days,
+                   fact.actual_attendance_days,
+                   fact.shift_label
+            FROM attendance_report_daily_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.business_date &gt;= #{fromDate}
+              AND fact.business_date &lt; #{toDateExclusive}
+              <include refid="authorizedEmployee"/>
+        ),
+        last_day_identity AS (
+            SELECT fact.employee_id,
+                   fact.organization_id,
+                   fact.employee_version_id,
+                   fact.organization_version_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fact.employee_id
+                       ORDER BY fact.business_date DESC,
+                                fact.organization_id DESC
+                   ) AS rn
+            FROM authorized_facts fact
+        )
         SELECT fact.employee_id AS employeeId,
                MAX(employee_version.employee_number) AS employeeNumber,
                MAX(employee_version.display_name) AS employeeName,
-               MAX(fact.organization_id) AS organizationId,
-               MAX(organization_version.name) AS organizationName,
+               MAX(CASE WHEN ldi.rn = 1 THEN ldi.organization_id END) AS organizationId,
+               MAX(CASE WHEN ldi.rn = 1 THEN organization_version.name END) AS organizationName,
                SUM(CASE WHEN fact.late_minutes &gt; 0 THEN 1 ELSE 0 END) AS lateEvents,
                SUM(fact.late_minutes) AS lateMinutes,
                SUM(fact.penalized_late_minutes) AS penalizedLateMinutes,
@@ -724,16 +859,15 @@
                SUM(fact.scheduled_attendance_days) AS scheduledAttendanceDays,
                SUM(fact.actual_attendance_days) AS actualAttendanceDays,
                CAST(NULL AS CHAR) AS employmentNote
-        FROM attendance_report_daily_fact fact
+        FROM authorized_facts fact
+        JOIN last_day_identity ldi
+          ON ldi.employee_id = fact.employee_id
+         AND ldi.rn = 1
         JOIN employee_version employee_version
-          ON employee_version.employee_version_id = fact.employee_version_id
+          ON employee_version.employee_version_id = ldi.employee_version_id
         JOIN organization_version organization_version
           ON organization_version.organization_version_id =
-             fact.organization_version_id
-        WHERE <include refid="projectionIn"/>
-          AND fact.business_date &gt;= #{fromDate}
-          AND fact.business_date &lt; #{toDateExclusive}
-          <include refid="authorizedEmployee"/>
+             ldi.organization_version_id
         GROUP BY fact.employee_id
         HAVING 1 = 1
           <include refid="dailyAggregateHaving"/>
@@ -870,23 +1004,45 @@
 
     <select id="listMatrixEmployees"
             resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DirectoryEmployeeRow">
-        SELECT fact.employee_id AS employeeId,
-               MAX(employee_version.employee_number) AS employeeNumber,
-               MAX(employee_version.display_name) AS employeeName,
-               MAX(fact.organization_id) AS organizationId,
-               MAX(organization_version.name) AS organizationName
-        FROM attendance_report_daily_fact fact
+        WITH authorized_facts AS (
+            SELECT fact.employee_id,
+                   fact.business_date,
+                   fact.organization_id,
+                   fact.employee_version_id,
+                   fact.organization_version_id
+            FROM attendance_report_daily_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.business_date &gt;= #{fromDate}
+              AND fact.business_date &lt; #{toDateExclusive}
+              <include refid="authorizedEmployee"/>
+        ),
+        last_day_identity AS (
+            SELECT af.employee_id,
+                   af.organization_id,
+                   af.employee_version_id,
+                   af.organization_version_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY af.employee_id
+                       ORDER BY af.business_date DESC,
+                                af.organization_id DESC
+                   ) AS rn
+            FROM authorized_facts af
+        )
+        SELECT ldi.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               ldi.organization_id AS organizationId,
+               organization_version.name AS organizationName
+        FROM last_day_identity ldi
         JOIN employee_version employee_version
-          ON employee_version.employee_version_id = fact.employee_version_id
+          ON employee_version.employee_version_id = ldi.employee_version_id
         JOIN organization_version organization_version
           ON organization_version.organization_version_id =
-             fact.organization_version_id
-        WHERE <include refid="projectionIn"/>
-          AND fact.business_date &gt;= #{fromDate}
-          AND fact.business_date &lt; #{toDateExclusive}
-          <include refid="authorizedEmployee"/>
-        GROUP BY fact.employee_id
-        ORDER BY MAX(employee_version.employee_number)
+             ldi.organization_version_id
+        WHERE ldi.rn = 1
+        ORDER BY employee_version.employee_number
         LIMIT #{limit} OFFSET #{offset}
     </select>
 

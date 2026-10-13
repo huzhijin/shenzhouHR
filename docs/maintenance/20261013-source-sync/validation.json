@@ -1,0 +1,166 @@
+{
+  "checkedAt": "2026-10-13T06:40:14.193103+00:00",
+  "sourceCommit": "4fe99a6803853b8971faa93647667824d9bba9ca",
+  "manifestFilesMatchingDeliveredSource": 1913,
+  "backend": {
+    "totals": {
+      "tests": 200,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "classes": [
+      {
+        "name": "DevelopmentLogQueryServiceStrictMetadataTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "DevelopmentLogQueryServiceSyntheticTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "DevelopmentLogQueryServiceTest",
+        "tests": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "DevelopmentLogControllerTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "AuthenticationControllerMenuTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "AuthenticationMenuTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "PriorServiceRollbackServiceTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "AttendanceReportHistoricalAuthorizationIntegrationTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "AttendanceReportMultiScopePersistenceIntegrationTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "AttendanceReportQueryPageServiceTest",
+        "tests": 63,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "LeaveStatAssemblerTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "RealtimeAttendanceReportSnapshotServiceTest",
+        "tests": 32,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "KernelFailurePublicationTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "AttendanceReportDataScopeSqlContractTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "AttendanceReportHistoricalDirectoryIntegrationTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "AttendanceReportQueryPageEmployeeNumberFilterTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "PeopleEmployeeStatusIntegrationTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "PriorService365RealIntegrationTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "PriorServiceBatchQueryIntegrationTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "name": "Wave1AuthenticationSecurityIntegrationTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "frontend": {
+    "typecheckExitCode": 0,
+    "testFilesPassed": 4,
+    "testsPassed": 80
+  },
+  "deploymentScripts": {
+    "unitTestsPassed": 9,
+    "additionalRegressionTestsPassed": 5
+  },
+  "rollbackRehearsalPassed": true,
+  "scope": "Local source integration and GitHub publication; no production deployment or recalculation."
+}

@@ -37,7 +37,8 @@ final class LeaveStatAssembler {
             String department) {
         List<MonthlyLeaveUsageRow> used = usedMovements(usage);
         Map<String, Object> row = identity(account, sequence, department);
-        Tenure tenure = tenure(account.hireDate(), year, account.priorServiceDays());
+        Tenure tenure = tenure(account.hireDate(), year, account.priorServiceDays(),
+                account.priorServiceMonths(), account.priorServiceYears());
         row.put("hireDate", account.hireDate() == null ? "" : account.hireDate().toString());
         row.put("companyTenureYears", tenure.companyYears);
         row.put("priorTenureYears", tenure.priorYears);
@@ -195,11 +196,24 @@ final class LeaveStatAssembler {
         return total.setScale(2, RoundingMode.HALF_UP);
     }
 
-    static Tenure tenure(LocalDate hireDate, int year, Integer priorServiceDays) {
-        int priorDays = priorServiceDays == null ? 0 : Math.max(priorServiceDays, 0);
-        int priorMonths = priorDays / 30;
-        BigDecimal priorYears = BigDecimal.valueOf(priorDays)
-                .divide(new BigDecimal("360"), 2, RoundingMode.HALF_UP);
+    static Tenure tenure(LocalDate hireDate, int year, Integer priorServiceDays,
+            Integer priorServiceMonths, BigDecimal priorServiceYears) {
+        // Use ledger-replayed completeMonths if available, else fallback to days approximation
+        int priorMonths;
+        if (priorServiceMonths != null) {
+            priorMonths = priorServiceMonths;
+        } else {
+            int priorDays = priorServiceDays == null ? 0 : Math.max(priorServiceDays, 0);
+            priorMonths = Math.round(priorDays / 30.0f);
+        }
+        // Use precise priorYears from ledger if available, else derive from months
+        BigDecimal priorYears;
+        if (priorServiceYears != null) {
+            priorYears = priorServiceYears;
+        } else {
+            priorYears = BigDecimal.valueOf(priorMonths)
+                    .divide(new BigDecimal("12"), 2, RoundingMode.HALF_UP);
+        }
         LocalDate asOf = LocalDate.of(year, 12, 31);
         if (hireDate == null || asOf.isBefore(hireDate)) {
             return new Tenure(
@@ -217,11 +231,17 @@ final class LeaveStatAssembler {
                 asOf,
                 priorMonths,
                 POLICY.withoutQualificationRequirement());
+
+        // 累计年数 = 内部在职完整月折算年数 + 外部台账精确年数（两位小数）
+        BigDecimal companyYearsFromMonths = years(qualified.currentEmploymentCompletedMonths());
+        BigDecimal cumulativeYears = companyYearsFromMonths.add(priorYears)
+                .setScale(2, RoundingMode.HALF_UP);
+
         return new Tenure(
                 hireDate,
-                years(qualified.currentEmploymentCompletedMonths()),
+                companyYearsFromMonths,
                 priorYears,
-                years(qualified.cumulativeServiceMonths()),
+                cumulativeYears,
                 qualified.days(),
                 newHireCalendarDays(hireDate, year, statutory.days()));
     }
@@ -240,7 +260,7 @@ final class LeaveStatAssembler {
 
     private static BigDecimal years(int months) {
         return BigDecimal.valueOf(months)
-                .divide(new BigDecimal("12"), 1, RoundingMode.HALF_UP);
+                .divide(new BigDecimal("12"), 2, RoundingMode.HALF_UP);
     }
 
     private static BigDecimal hoursToDays(BigDecimal hours) {

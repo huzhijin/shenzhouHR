@@ -893,10 +893,11 @@
     </update>
 
     <update id="correctCurrentEmployeeVersion">
+        <!-- sameDayCorrection仅允许修改员工编号/姓名/生效截止日/原因，禁止修改status -->
+        <!-- status变更必须走新版本创建，否则原地覆盖会导致ACTIVE历史从计算身份SQL消失 -->
         UPDATE employee_version
         SET employee_number = #{employeeNumber},
             display_name = #{displayName},
-            status = #{status},
             effective_to = #{effectiveTo},
             change_reason = #{changeReason}
         WHERE employee_version_id = (
@@ -1193,7 +1194,7 @@
         SELECT prior_service_record_id, employee_id, record_type, amount_days,
                reason, business_date, source_import_batch_id,
                reversal_of_record_id, resulting_total_days, actor_id, occurred_at,
-               request_id, row_version
+               request_id, row_version, amount_years, conversion_basis, conversion_version
         FROM prior_service_record
     </sql>
 
@@ -1210,6 +1211,18 @@
         <include refid="priorServiceColumns"/>
         WHERE employee_id = #{employeeId}
         ORDER BY row_version, occurred_at, prior_service_record_id
+    </select>
+
+    <select id="listPriorServiceRecordsBatch"
+            resultType="com.szsemicon.hr.people.infrastructure.persistence.PeopleRows$PriorServiceRow">
+        <include refid="priorServiceColumns"/>
+        WHERE employee_id IN
+        <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        AND business_date &lt;= #{businessDateInclusive}
+        AND occurred_at &lt;= #{occurredAtInclusive}
+        ORDER BY employee_id, row_version, occurred_at, prior_service_record_id
     </select>
 
     <select id="findPriorServiceRecord"
@@ -1233,11 +1246,13 @@
         INSERT INTO prior_service_record (
             prior_service_record_id, employee_id, record_type, amount_days,
             reason, business_date, source_import_batch_id, reversal_of_record_id,
-            resulting_total_days, actor_id, occurred_at, request_id, row_version
+            resulting_total_days, actor_id, occurred_at, request_id, row_version,
+            amount_years, conversion_basis, conversion_version
         ) VALUES (
             #{priorServiceRecordId}, #{employeeId}, #{recordType}, #{amountDays},
             #{reason}, #{businessDate}, #{sourceImportBatchId}, #{reversalOfRecordId},
-            #{resultingTotalDays}, #{actorId}, #{occurredAt}, #{requestId}, #{rowVersion}
+            #{resultingTotalDays}, #{actorId}, #{occurredAt}, #{requestId}, #{rowVersion},
+            #{amountYears}, #{conversionBasis}, #{conversionVersion}
         )
     </insert>
 </mapper>

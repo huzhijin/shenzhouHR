@@ -37,6 +37,20 @@ public interface AttendanceReportSourceRepository {
             String companyId,
             Instant authorizationTime);
 
+    /**
+     * Resolve authorization with historical fallback for terminated employees.
+     * For active employees with current assignment: uses current assignment.
+     * For terminated employees without current assignment: includes historical
+     * assignments that were valid during the report period and authorized by
+     * current grants at authorizationTime.
+     */
+    Optional<RealtimeAuthorization> resolveRealtimeAuthorizationForPeriod(
+            String principalId,
+            String capabilityCode,
+            String companyId,
+            YearMonth period,
+            Instant authorizationTime);
+
     Optional<ReportSourceSnapshot> loadAuthorizedSnapshot(
             String principalId,
             String capabilityCode,

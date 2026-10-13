@@ -84,6 +84,8 @@ export interface PriorServiceReplayView {
   recordCount: number;
   replayDigest: string;
   recalculatedAt: string;
+  totalYears: number;
+  completeMonths: number;
 }
 
 export interface EmployeeDetail extends EmployeeVersionSummary {
@@ -119,6 +121,10 @@ export interface PriorServiceRecordView {
   actorId: string;
   occurredAt: string;
   requestId: string;
+  amountYears?: number | null;
+  conversionBasis?: string | null;
+  conversionVersion?: number | null;
+  resultingTotalYears?: number | null;
 }
 
 export interface PriorServiceRecordPage {
@@ -166,6 +172,7 @@ export interface PriorServiceAdjustmentRequest {
   amountDays: number;
   businessDate: string;
   reason: string;
+  amountYears?: number;
 }
 
 export interface EmployeeFilters {

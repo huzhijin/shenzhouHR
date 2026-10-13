@@ -89,6 +89,7 @@ public final class PeopleCommands {
     public record AdjustPriorService(
             int amountDays,
             LocalDate businessDate,
-            String reason) {
+            String reason,
+            java.math.BigDecimal amountYears) {
     }
 }

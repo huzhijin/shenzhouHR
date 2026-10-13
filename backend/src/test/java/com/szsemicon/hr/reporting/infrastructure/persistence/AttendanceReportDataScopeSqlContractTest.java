@@ -56,19 +56,16 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("projection.status = 'PUBLISHED'")
                 .contains(
                         "projection.company_id = fact.company_id")
-                .contains(
-                        "fact_organization.organization_id ="
-                                + System.lineSeparator()
-                                + "                        fact.organization_id")
-                .contains(
-                        "fact_organization.company_id ="
-                                + System.lineSeparator()
-                                + "                        fact.company_id")
+                .containsPattern(
+                        "fact_organization\\.organization_id\\s*=\\s+"
+                                + "fact\\.organization_id")
+                .containsPattern(
+                        "fact_organization\\.company_id\\s*=\\s+"
+                                + "fact\\.company_id")
                 .contains("fact_employee.employee_id = fact.employee_id")
-                .contains(
-                        "fact_employee.company_id ="
-                                + System.lineSeparator()
-                                + "                        fact.company_id")
+                .containsPattern(
+                        "fact_employee\\.company_id\\s*=\\s+"
+                                + "fact\\.company_id")
                 .contains("data_scope.scope_type = 'COMPANY'")
                 .contains("data_scope.scope_type = 'ORGANIZATION'")
                 .contains("data_scope.scope_type = 'SELF'")
@@ -77,10 +74,8 @@ class AttendanceReportDataScopeSqlContractTest {
                 .contains("employment_assignment current_assignment")
                 .contains(
                         "current_assignment_organization.identity_status =")
-                .contains(
-                        "organization_current_projection"
-                                + System.lineSeparator()
-                                + "                                "
+                .containsPattern(
+                        "organization_current_projection\\s+"
                                 + "current_assignment_projection")
                 .contains(
                         "current_assignment_version.status = 'ACTIVE'")
@@ -88,25 +83,19 @@ class AttendanceReportDataScopeSqlContractTest {
                         "current_assignment_version.effective_from")
                 .contains(
                         "current_assignment_version.effective_to")
-                .contains(
-                        "current_assignment.employee_id ="
-                                + System.lineSeparator()
-                                + "                                "
-                                + "fact.employee_id")
+                .containsPattern(
+                        "current_assignment\\.employee_id\\s*=\\s+"
+                                + "fact\\.employee_id")
                 .contains(
                         "current_assignment.record_status = 'ACTIVE'")
                 .contains("current_assignment.version_valid_to IS NULL")
-                .contains(
-                        "current_assignment.effective_from"
-                                + System.lineSeparator()
-                                + "                                  "
-                                + "&lt;= #{authorizationTime}")
+                .containsPattern(
+                        "current_assignment\\.effective_from\\s+"
+                                + "&lt;= #\\{authorizationTime\\}")
                 .contains("organization_current_closure closure")
-                .contains(
-                        "closure.descendant_organization_id ="
-                                + System.lineSeparator()
-                                + "                                                    "
-                                + "current_assignment.organization_id")
+                .containsPattern(
+                        "closure\\.descendant_organization_id\\s*=\\s+"
+                                + "current_assignment\\.organization_id")
                 .contains("principal.employee_id = fact.employee_id");
 
         String organizationFilter = between(

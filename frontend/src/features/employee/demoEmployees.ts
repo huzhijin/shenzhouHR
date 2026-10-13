@@ -341,12 +341,18 @@ export function adjustDemoPriorService(
 
 export function recalculateDemoPriorService(employeeId: string): PriorServiceReplayView {
   const page = getDemoPriorServiceRecords(employeeId);
+  // 从天数估算年数和完整月数（demo数据）
+  const totalYears = Math.round((page.totalDays / 365) * 100) / 100; // 保留两位小数
+  const completeMonths = Math.floor(totalYears * 12);
+
   return {
     employeeId,
     totalDays: page.totalDays,
     recordCount: page.total,
     replayDigest: page.replayDigest,
     recalculatedAt: '2026-07-25T03:46:00Z',
+    totalYears,
+    completeMonths,
   };
 }
 

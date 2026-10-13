@@ -28,6 +28,7 @@ const AccountDetailPage = lazy(() => import('../features/access/AccountDetailPag
 const RolesPage = lazy(() => import('../features/access/RolesPage'));
 const AuditPage = lazy(() => import('../features/audit/AuditPage'));
 const AuditDetailPage = lazy(() => import('../features/audit/AuditDetailPage'));
+const DevelopmentLogPage = lazy(() => import('../features/access/DevelopmentLogPage'));
 const AttendanceGroupsPage = lazy(() => import('../features/attendanceSetup/AttendanceGroupsPage'));
 const ShiftsPage = lazy(() => import('../features/attendanceSetup/ShiftsPage'));
 const CalendarsPage = lazy(() => import('../features/attendanceSetup/CalendarsPage'));
@@ -294,6 +295,9 @@ function AuthorizedApplication({ session, reloadSession }: { session: CurrentCap
               <Route path="/access/audit/:auditEventId" element={<AccessDenied />} />
             </>
           )}
+          {session.capabilities.length > 0
+            ? <Route path="/access/development-log" element={<DevelopmentLogPage />} />
+            : <Route path="/access/development-log" element={<AccessDenied />} />}
           <Route
             path="/workbench"
             element={canReadDashboard

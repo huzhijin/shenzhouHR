@@ -648,6 +648,17 @@ public class MyBatisPeopleRepository implements PeopleRepository {
     }
 
     @Override
+    public List<PriorServiceRecord> listPriorServiceRecordsBatch(
+            List<String> employeeIds, LocalDate businessDateInclusive, Instant occurredAtInclusive) {
+        if (employeeIds.isEmpty()) {
+            return List.of();
+        }
+        return mapper.listPriorServiceRecordsBatch(employeeIds, businessDateInclusive, occurredAtInclusive).stream()
+                .map(MyBatisPeopleRepository::toPriorService)
+                .toList();
+    }
+
+    @Override
     public Optional<PriorServiceRecord> findPriorServiceRecord(String priorServiceRecordId) {
         return Optional.ofNullable(mapper.findPriorServiceRecord(priorServiceRecordId))
                 .map(MyBatisPeopleRepository::toPriorService);
@@ -924,7 +935,10 @@ public class MyBatisPeopleRepository implements PeopleRepository {
                 row.actorId(),
                 row.occurredAt(),
                 row.requestId(),
-                row.rowVersion());
+                row.rowVersion(),
+                row.amountYears(),
+                row.conversionBasis(),
+                row.conversionVersion());
     }
 
     private static PeopleRows.PriorServiceRow toPriorServiceRow(PriorServiceRecord record) {
@@ -941,7 +955,10 @@ public class MyBatisPeopleRepository implements PeopleRepository {
                 record.actorId(),
                 record.occurredAt(),
                 record.requestId(),
-                record.rowVersion());
+                record.rowVersion(),
+                record.amountYears(),
+                record.conversionBasis(),
+                record.conversionVersion());
     }
 
     private String writeJson(Object value) {

@@ -169,6 +169,9 @@ final class PeopleRows {
             String actorId,
             Instant occurredAt,
             String requestId,
-            long rowVersion) {
+            long rowVersion,
+            java.math.BigDecimal amountYears,
+            String conversionBasis,
+            Integer conversionVersion) {
     }
 }

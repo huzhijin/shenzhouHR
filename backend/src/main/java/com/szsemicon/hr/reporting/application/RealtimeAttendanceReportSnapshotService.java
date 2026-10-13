@@ -259,10 +259,11 @@ public class RealtimeAttendanceReportSnapshotService {
             return Optional.empty();
         }
         Optional<RealtimeAuthorization> resolvedAuthorization =
-                repository.resolveRealtimeAuthorization(
+                repository.resolveRealtimeAuthorizationForPeriod(
                         principalId,
                         capabilityCode,
                         companyId,
+                        requestedFilter.period(),
                         authorizationTime);
         if (resolvedAuthorization.isEmpty()) {
             return Optional.empty();
@@ -356,10 +357,11 @@ public class RealtimeAttendanceReportSnapshotService {
                     "当前用户没有该报表范围的访问权限");
         }
         RealtimeAuthorization authorization =
-                repository.resolveRealtimeAuthorization(
+                repository.resolveRealtimeAuthorizationForPeriod(
                                 principalId,
                                 capabilityCode,
                                 companyId,
+                                requestedFilter.period(),
                                 authorizationTime)
                         .orElseThrow(() -> new ApiProblemException(
                                 HttpStatus.FORBIDDEN,
@@ -533,10 +535,11 @@ public class RealtimeAttendanceReportSnapshotService {
                     "当前用户没有该报表范围的访问权限");
         }
         RealtimeAuthorization authorization =
-                repository.resolveRealtimeAuthorization(
+                repository.resolveRealtimeAuthorizationForPeriod(
                                 principalId,
                                 capabilityCode,
                                 companyId,
+                                requestedFilter.period(),
                                 authorizationTime)
                         .orElseThrow(() -> new ApiProblemException(
                                 HttpStatus.FORBIDDEN,
@@ -583,7 +586,7 @@ public class RealtimeAttendanceReportSnapshotService {
         }
         String companyId = resolveCompanyId(principalId, capabilityCode, requestedFilter, authorizationTime);
         RealtimeAuthorization authorization = companyId == null ? null : repository
-                .resolveRealtimeAuthorization(principalId, capabilityCode, companyId, authorizationTime)
+                .resolveRealtimeAuthorizationForPeriod(principalId, capabilityCode, companyId, period, authorizationTime)
                 .orElse(null);
         if (authorization == null || !authorization.companyWide()) {
             throw new ApiProblemException(HttpStatus.FORBIDDEN,
@@ -637,10 +640,11 @@ public class RealtimeAttendanceReportSnapshotService {
                     "当前用户没有该报表范围的访问权限");
         }
         RealtimeAuthorization authorization =
-                repository.resolveRealtimeAuthorization(
+                repository.resolveRealtimeAuthorizationForPeriod(
                                 principalId,
                                 capabilityCode,
                                 companyId,
+                                requestedFilter.period(),
                                 authorizationTime)
                         .orElseThrow(() -> new ApiProblemException(
                                 HttpStatus.FORBIDDEN,
@@ -691,10 +695,11 @@ public class RealtimeAttendanceReportSnapshotService {
                     "当前用户没有该报表范围的访问权限");
         }
         RealtimeAuthorization authorization =
-                repository.resolveRealtimeAuthorization(
+                repository.resolveRealtimeAuthorizationForPeriod(
                                 principalId,
                                 capabilityCode,
                                 companyId,
+                                requestedFilter.period(),
                                 authorizationTime)
                         .orElseThrow(() -> new ApiProblemException(
                                 HttpStatus.FORBIDDEN,

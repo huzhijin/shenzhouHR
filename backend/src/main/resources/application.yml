@@ -152,3 +152,5 @@ shenzhouhr:
       sync-not-before: ${OA_MYSQL_SYNC_NOT_BEFORE:2016-01-01}
   payroll-reservation:
     enabled: ${SHENZHOUHR_PAYROLL_RESERVATION_ENABLED:false}
+  development-log:
+    history-file: ${SHENZHOUHR_DEVELOPMENT_LOG_HISTORY_FILE:/var/shenzhouhr/deployment-history.json}

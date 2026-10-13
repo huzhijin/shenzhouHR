@@ -215,67 +215,113 @@
                                         &gt; #{authorizationTime}
                               )
                         )
-                        AND EXISTS (
-                            SELECT 1
-                            FROM employment_assignment current_assignment
-                            JOIN organization_identity
-                                current_assignment_organization
-                              ON current_assignment_organization.organization_id =
-                                 current_assignment.organization_id
-                             AND current_assignment_organization.company_id =
-                                 fact.company_id
-                             AND current_assignment_organization.identity_status =
-                                 'ACTIVE'
-                            JOIN organization_current_projection
-                                current_assignment_projection
-                              ON current_assignment_projection.organization_id =
-                                 current_assignment_organization.organization_id
-                            JOIN organization_version
-                                current_assignment_version
-                              ON current_assignment_version.organization_version_id =
-                                 current_assignment_projection.current_version_id
-                             AND current_assignment_version.organization_id =
-                                 current_assignment_organization.organization_id
-                             AND current_assignment_version.status = 'ACTIVE'
-                             AND current_assignment_version.effective_from
-                                 &lt;= #{authorizationTime}
-                             AND (
-                                    current_assignment_version.effective_to
-                                        IS NULL
-                                    OR current_assignment_version.effective_to
-                                        &gt; #{authorizationTime}
-                             )
-                            WHERE current_assignment.employee_id =
-                                fact.employee_id
-                              AND current_assignment.record_status = 'ACTIVE'
-                              AND current_assignment.version_valid_to IS NULL
-                              AND current_assignment.effective_from
-                                  &lt;= #{authorizationTime}
-                              AND (
-                                    current_assignment.effective_to IS NULL
-                                    OR current_assignment.effective_to
-                                        &gt; #{authorizationTime}
-                              )
-                              AND (
-                                    (
-                                        data_scope.include_descendants = FALSE
-                                        AND data_scope.organization_id =
-                                            current_assignment.organization_id
-                                    )
-                                    OR (
-                                        data_scope.include_descendants = TRUE
-                                        AND EXISTS (
-                                            SELECT 1
-                                            FROM organization_current_closure closure
-                                            WHERE
-                                                closure.ancestor_organization_id =
-                                                    data_scope.organization_id
-                                              AND
-                                                closure.descendant_organization_id =
-                                                    current_assignment.organization_id
+                        AND (
+                            EXISTS (
+                                SELECT 1
+                                FROM employment_assignment current_assignment
+                                JOIN organization_identity
+                                    current_assignment_organization
+                                  ON current_assignment_organization.organization_id =
+                                     current_assignment.organization_id
+                                 AND current_assignment_organization.company_id =
+                                     fact.company_id
+                                 AND current_assignment_organization.identity_status =
+                                     'ACTIVE'
+                                JOIN organization_current_projection
+                                    current_assignment_projection
+                                  ON current_assignment_projection.organization_id =
+                                     current_assignment_organization.organization_id
+                                JOIN organization_version
+                                    current_assignment_version
+                                  ON current_assignment_version.organization_version_id =
+                                     current_assignment_projection.current_version_id
+                                 AND current_assignment_version.organization_id =
+                                     current_assignment_organization.organization_id
+                                 AND current_assignment_version.status = 'ACTIVE'
+                                 AND current_assignment_version.effective_from
+                                     &lt;= #{authorizationTime}
+                                 AND (
+                                        current_assignment_version.effective_to
+                                            IS NULL
+                                        OR current_assignment_version.effective_to
+                                            &gt; #{authorizationTime}
+                                 )
+                                WHERE current_assignment.employee_id =
+                                    fact.employee_id
+                                  AND current_assignment.record_status = 'ACTIVE'
+                                  AND current_assignment.version_valid_to IS NULL
+                                  AND current_assignment.effective_from
+                                      &lt;= #{authorizationTime}
+                                  AND (
+                                        current_assignment.effective_to IS NULL
+                                        OR current_assignment.effective_to
+                                            &gt; #{authorizationTime}
+                                  )
+                                  AND (
+                                        (
+                                            data_scope.include_descendants = FALSE
+                                            AND data_scope.organization_id =
+                                                current_assignment.organization_id
                                         )
-                                    )
-                              )
+                                        OR (
+                                            data_scope.include_descendants = TRUE
+                                            AND EXISTS (
+                                                SELECT 1
+                                                FROM organization_current_closure closure
+                                                WHERE
+                                                    closure.ancestor_organization_id =
+                                                        data_scope.organization_id
+                                                  AND
+                                                    closure.descendant_organization_id =
+                                                        current_assignment.organization_id
+                                            )
+                                        )
+                                  )
+                            )
+                            OR (
+                                EXISTS (
+                                    SELECT 1
+                                    FROM employee fact_employee_check
+                                    WHERE fact_employee_check.employee_id = fact.employee_id
+                                      AND fact_employee_check.company_id = fact.company_id
+                                      AND fact_employee_check.employment_status = 'TERMINATED'
+                                )
+                                AND NOT EXISTS (
+                                    SELECT 1
+                                    FROM employment_assignment current_check
+                                    WHERE current_check.employee_id = fact.employee_id
+                                      AND current_check.record_status = 'ACTIVE'
+                                      AND current_check.version_valid_to IS NULL
+                                      AND current_check.effective_from &lt;= #{authorizationTime}
+                                      AND (current_check.effective_to IS NULL
+                                           OR current_check.effective_to &gt; #{authorizationTime})
+                                )
+                                AND EXISTS (
+                                    SELECT 1
+                                    FROM employment_assignment historical_assignment
+                                    JOIN organization_identity historical_org
+                                      ON historical_org.organization_id = historical_assignment.organization_id
+                                     AND historical_org.company_id = fact.company_id
+                                     AND historical_org.identity_status = 'ACTIVE'
+                                    WHERE historical_assignment.employee_id = fact.employee_id
+                                      AND historical_assignment.record_status = 'ACTIVE'
+                                      AND historical_assignment.version_valid_to IS NULL
+                                      AND historical_assignment.effective_from &lt; projection.period_end_exclusive
+                                      AND (historical_assignment.effective_to IS NULL
+                                           OR historical_assignment.effective_to &gt; projection.period_start)
+                                      AND (
+                                          (data_scope.include_descendants = FALSE
+                                           AND data_scope.organization_id = historical_assignment.organization_id)
+                                          OR (data_scope.include_descendants = TRUE
+                                              AND EXISTS (
+                                                  SELECT 1
+                                                  FROM organization_current_closure closure
+                                                  WHERE closure.ancestor_organization_id = data_scope.organization_id
+                                                    AND closure.descendant_organization_id = historical_assignment.organization_id
+                                              ))
+                                      )
+                                )
+                            )
                         )
                     )
                     OR (
@@ -1063,6 +1109,107 @@
         WHERE candidate_employee.company_id = #{companyId}
           AND <include refid="firstScopeEmployeeVisibility"/>
           AND <include refid="secondScopeEmployeeVisibility"/>
+        ORDER BY candidate_employee.employee_id
+    </select>
+
+    <select id="listAuthorizedEmployeeIdsForPeriod"
+            timeout="3"
+            resultType="string">
+        SELECT DISTINCT candidate_employee.employee_id
+        FROM employee candidate_employee
+        WHERE candidate_employee.company_id = #{companyId}
+          AND (
+              <include refid="firstScopeEmployeeVisibility"/>
+              OR (
+                  candidate_employee.employment_status = 'TERMINATED'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM employment_assignment current_check
+                      WHERE current_check.employee_id = candidate_employee.employee_id
+                        AND current_check.record_status = 'ACTIVE'
+                        AND current_check.version_valid_to IS NULL
+                        AND current_check.effective_from &lt;= #{authorizationTime}
+                        AND (current_check.effective_to IS NULL
+                             OR current_check.effective_to &gt; #{authorizationTime})
+                  )
+                  AND EXISTS (
+                      SELECT 1
+                      FROM employment_assignment historical_assignment
+                      JOIN organization_identity historical_org
+                        ON historical_org.organization_id = historical_assignment.organization_id
+                       AND historical_org.company_id = candidate_employee.company_id
+                       AND historical_org.identity_status = 'ACTIVE'
+                      WHERE historical_assignment.employee_id = candidate_employee.employee_id
+                       AND historical_assignment.record_status = 'ACTIVE'
+                       AND historical_assignment.version_valid_to IS NULL
+                       AND historical_assignment.effective_from &lt; #{periodEndExclusive}
+                       AND (historical_assignment.effective_to IS NULL
+                            OR historical_assignment.effective_to &gt; #{periodStart})
+                       AND (
+                          <foreach collection="firstScopes" item="scope" separator=" OR ">
+                              (#{scope.scopeType} = 'ORGANIZATION'
+                               AND (
+                                   (#{scope.includeDescendants} = FALSE
+                                    AND #{scope.organizationId} = historical_assignment.organization_id)
+                                   OR (#{scope.includeDescendants} = TRUE
+                                       AND EXISTS (
+                                           SELECT 1
+                                           FROM organization_current_closure closure
+                                           WHERE closure.ancestor_organization_id = #{scope.organizationId}
+                                             AND closure.descendant_organization_id = historical_assignment.organization_id
+                                       ))
+                               ))
+                          </foreach>
+                       )
+                  )
+              )
+          )
+          AND (
+              <include refid="secondScopeEmployeeVisibility"/>
+              OR (
+                  candidate_employee.employment_status = 'TERMINATED'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM employment_assignment current_check
+                      WHERE current_check.employee_id = candidate_employee.employee_id
+                        AND current_check.record_status = 'ACTIVE'
+                        AND current_check.version_valid_to IS NULL
+                        AND current_check.effective_from &lt;= #{authorizationTime}
+                        AND (current_check.effective_to IS NULL
+                             OR current_check.effective_to &gt; #{authorizationTime})
+                  )
+                  AND EXISTS (
+                      SELECT 1
+                      FROM employment_assignment historical_assignment
+                      JOIN organization_identity historical_org
+                        ON historical_org.organization_id = historical_assignment.organization_id
+                       AND historical_org.company_id = candidate_employee.company_id
+                       AND historical_org.identity_status = 'ACTIVE'
+                      WHERE historical_assignment.employee_id = candidate_employee.employee_id
+                       AND historical_assignment.record_status = 'ACTIVE'
+                       AND historical_assignment.version_valid_to IS NULL
+                       AND historical_assignment.effective_from &lt; #{periodEndExclusive}
+                       AND (historical_assignment.effective_to IS NULL
+                            OR historical_assignment.effective_to &gt; #{periodStart})
+                       AND (
+                          <foreach collection="secondScopes" item="scope" separator=" OR ">
+                              (#{scope.scopeType} = 'ORGANIZATION'
+                               AND (
+                                   (#{scope.includeDescendants} = FALSE
+                                    AND #{scope.organizationId} = historical_assignment.organization_id)
+                                   OR (#{scope.includeDescendants} = TRUE
+                                       AND EXISTS (
+                                           SELECT 1
+                                           FROM organization_current_closure closure
+                                           WHERE closure.ancestor_organization_id = #{scope.organizationId}
+                                             AND closure.descendant_organization_id = historical_assignment.organization_id
+                                       ))
+                               ))
+                          </foreach>
+                       )
+                  )
+              )
+          )
         ORDER BY candidate_employee.employee_id
     </select>
 

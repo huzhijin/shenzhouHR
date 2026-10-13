@@ -2,8 +2,12 @@ package com.szsemicon.hr.reporting.application;
 
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
+import com.szsemicon.hr.people.application.PeopleRepository;
+import com.szsemicon.hr.people.domain.PeopleModels.PriorServiceRecord;
+import com.szsemicon.hr.people.domain.PriorServiceLedger;
 import com.szsemicon.hr.reporting.application.AttendanceReportSourceRepository.RealtimeAuthorization;
 import com.szsemicon.hr.reporting.domain.AttendanceReportCalculator;
+import com.szsemicon.hr.reporting.domain.AttendanceReportModels.AuthorizedScope;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportFilter;
 import com.szsemicon.hr.reporting.domain.AttendanceReportModels.ReportType;
 import com.szsemicon.hr.reporting.application.QueryPageWorkbookExportPort.WorkbookFile;
@@ -25,10 +29,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.ibatis.exceptions.PersistenceException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
@@ -53,6 +59,7 @@ public class AttendanceReportQueryPageService {
     private final AttendanceReportSourceRepository sources;
     private final QueryPageReadPort mapper;
     private final QueryPageWorkbookExportPort excelEncoder;
+    private final PeopleRepository peopleRepository;
     private final Clock clock;
 
     public AttendanceReportQueryPageService(
@@ -61,13 +68,15 @@ public class AttendanceReportQueryPageService {
             AttendanceReportSourceRepository sources,
             QueryPageReadPort mapper,
             QueryPageWorkbookExportPort excelEncoder,
+            PeopleRepository peopleRepository,
             Clock clock) {
         this.capabilities = capabilities;
         this.principals = principals;
         this.sources = sources;
         this.mapper = mapper;
-        this.clock = clock;
         this.excelEncoder = excelEncoder;
+        this.peopleRepository = peopleRepository;
+        this.clock = clock;
     }
 
     public DirectoryPage directory(String companyId, YearMonth period) {
@@ -92,7 +101,7 @@ public class AttendanceReportQueryPageService {
                     companies,
                     List.of());
         }
-        Resolved resolved = resolve(companyId, null, month, at);
+        Resolved resolved = resolve(companyId, null, DateWindow.of(month.atDay(1), month.atEndOfMonth()), at);
         List<String> orgFilter = resolved.selectedOrAuthorizedOrgs(null);
         boolean companyWide = resolved.authorization().companyWide()
                 && orgFilter.isEmpty();
@@ -110,6 +119,8 @@ public class AttendanceReportQueryPageService {
                         orgFilter.isEmpty() ? null : orgFilter,
                         companyWide,
                         resolved.employeeIdList(),
+                        month.atDay(1).atStartOfDay(BUSINESS_ZONE).toInstant(),
+                        month.atEndOfMonth().plusDays(1).atStartOfDay(BUSINESS_ZONE).toInstant(),
                         at)
                         .stream()
                         .map(row -> withDirectoryDepartment(row, departments))
@@ -162,7 +173,7 @@ public class AttendanceReportQueryPageService {
         Resolved resolved = resolve(
                 command.companyId(),
                 command.organizationId(),
-                window.months().getFirst(),
+                window,
                 at);
         if (window.months().size() > MAX_RANGE_MONTHS) {
             throw new ApiProblemException(
@@ -667,8 +678,46 @@ public class AttendanceReportQueryPageService {
                     command, resolved, pins, omitted, window, total, size, page, List.of(),
                     leaveStatActions());
         }
+        // Batch compute completeMonths and priorYears for all employees
         List<String> pageEmployeeIds = accounts.stream()
                 .map(LeaveStatAccountRow::employeeId)
+                .toList();
+        // Business date is the end of reporting period in Shanghai timezone
+        LocalDate businessDateInclusive = window.to();
+        // Knowledge cutoff is the data snapshot time
+        Instant occurredAtInclusive = latest.dataAsOf();
+        List<PriorServiceRecord> allRecords = peopleRepository.listPriorServiceRecordsBatch(
+                pageEmployeeIds, businessDateInclusive, occurredAtInclusive);
+        Map<String, List<PriorServiceRecord>> recordsByEmployee = allRecords.stream()
+                .collect(Collectors.groupingBy(PriorServiceRecord::employeeId));
+        Map<String, Integer> employeeMonths = new HashMap<>();
+        Map<String, BigDecimal> employeePriorYears = new HashMap<>();
+        for (String employeeId : pageEmployeeIds) {
+            List<PriorServiceRecord> records = recordsByEmployee.getOrDefault(employeeId, List.of());
+            if (!records.isEmpty()) {
+                var ledger = PriorServiceLedger.replay(records);
+                employeeMonths.put(employeeId, ledger.completeMonths());
+                employeePriorYears.put(employeeId, ledger.priorYears());
+            }
+        }
+        // Enrich accounts with completeMonths and priorYears
+        List<LeaveStatAccountRow> enriched = accounts.stream()
+                .map(acc -> new LeaveStatAccountRow(
+                        acc.employeeId(),
+                        acc.employeeNumber(),
+                        acc.employeeName(),
+                        acc.organizationId(),
+                        acc.organizationName(),
+                        acc.accountType(),
+                        acc.openingHours(),
+                        acc.grantedHours(),
+                        acc.overtimeCreditHours(),
+                        acc.usedHours(),
+                        acc.remainingHours(),
+                        acc.hireDate(),
+                        acc.priorServiceDays(),
+                        employeeMonths.get(acc.employeeId()),
+                        employeePriorYears.get(acc.employeeId())))
                 .toList();
         FactQuery usageQuery = withEmployeeIds(query, pageEmployeeIds);
         Map<String, List<MonthlyLeaveUsageRow>> usage = new LinkedHashMap<>();
@@ -679,7 +728,7 @@ public class AttendanceReportQueryPageService {
         int year = window.from().getYear();
         List<Map<String, Object>> rows = new ArrayList<>();
         int sequence = page * size;
-        for (QueryPageRows.LeaveStatAccountRow account : accounts) {
+        for (QueryPageRows.LeaveStatAccountRow account : enriched) {
             sequence++;
             String department = reportDepartment(
                     account.organizationId(),
@@ -747,6 +796,8 @@ public class AttendanceReportQueryPageService {
                 row.overtimeCreditHours(),
                 row.usedHours(),
                 row.remainingHours(),
+                null,
+                null,
                 null,
                 null);
     }
@@ -1465,14 +1516,15 @@ public class AttendanceReportQueryPageService {
     private Resolved resolve(
             String companyId,
             String organizationId,
-            YearMonth period,
+            DateWindow window,
             Instant at) {
+        YearMonth firstMonth = window.months().getFirst();
         String principalId = principals.currentPrincipalId();
         List<AttendanceReportSourceRepository.CompanyOption> companies =
                 sources.listAuthorizedCompanies(
                         principalId,
                         CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
-                        period,
+                        firstMonth,
                         at);
         String resolvedCompany = companyId;
         if (resolvedCompany == null && companies.size() == 1) {
@@ -1487,16 +1539,67 @@ public class AttendanceReportQueryPageService {
                     "ATTENDANCE_REPORT_SCOPE_NOT_AVAILABLE",
                     "当前用户没有该报表范围的访问权限");
         }
-        RealtimeAuthorization authorization = sources.resolveRealtimeAuthorization(
-                        principalId,
-                        CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
-                        selectedCompany,
-                        at)
-                .orElseThrow(() -> new ApiProblemException(
-                        HttpStatus.FORBIDDEN,
-                        "ATTENDANCE_REPORT_SCOPE_NOT_AVAILABLE",
-                        "当前用户没有该报表范围的访问权限"));
+        RealtimeAuthorization authorization = resolveAuthorizationForWindow(
+                principalId,
+                selectedCompany,
+                window,
+                at);
         return new Resolved(selectedCompany, authorization, organizationId);
+    }
+
+    private RealtimeAuthorization resolveAuthorizationForWindow(
+            String principalId,
+            String companyId,
+            DateWindow window,
+            Instant at) {
+        List<YearMonth> months = window.months();
+        if (months.size() == 1) {
+            return sources.resolveRealtimeAuthorizationForPeriod(
+                            principalId,
+                            CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                            companyId,
+                            months.getFirst(),
+                            at)
+                    .orElseThrow(() -> new ApiProblemException(
+                            HttpStatus.FORBIDDEN,
+                            "ATTENDANCE_REPORT_SCOPE_NOT_AVAILABLE",
+                            "当前用户没有该报表范围的访问权限"));
+        }
+        Set<String> allEmployeeIds = new LinkedHashSet<>();
+        Set<String> allOrgIds = new LinkedHashSet<>();
+        boolean anyCompanyWide = false;
+        String principalEmployeeId = null;
+        AuthorizedScope mergedScope = null;
+        for (YearMonth month : months) {
+            RealtimeAuthorization monthAuth = sources.resolveRealtimeAuthorizationForPeriod(
+                            principalId,
+                            CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                            companyId,
+                            month,
+                            at)
+                    .orElseThrow(() -> new ApiProblemException(
+                            HttpStatus.FORBIDDEN,
+                            "ATTENDANCE_REPORT_SCOPE_NOT_AVAILABLE",
+                            "当前用户没有该报表范围的访问权限"));
+            if (monthAuth.companyWide()) {
+                anyCompanyWide = true;
+            }
+            allEmployeeIds.addAll(monthAuth.employeeIds());
+            allOrgIds.addAll(monthAuth.organizationIds());
+            if (principalEmployeeId == null) {
+                principalEmployeeId = monthAuth.principalEmployeeId();
+            }
+            if (mergedScope == null) {
+                mergedScope = monthAuth.scope();
+            }
+        }
+        return new RealtimeAuthorization(
+                mergedScope,
+                companyId,
+                anyCompanyWide,
+                principalEmployeeId,
+                Set.copyOf(allEmployeeIds),
+                Set.copyOf(allOrgIds));
     }
 
     private boolean hasSourceEvidence(String companyId, YearMonth month, Instant at) {

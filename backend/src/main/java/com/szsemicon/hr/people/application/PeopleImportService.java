@@ -27,6 +27,7 @@ import com.szsemicon.hr.people.domain.PeopleModels.Rollback;
 import com.szsemicon.hr.people.domain.PeopleModels.TemplateField;
 import com.szsemicon.hr.people.domain.PeopleModels.TemplateType;
 import com.szsemicon.hr.people.domain.PeopleModels.TemplateVersion;
+import com.szsemicon.hr.people.domain.PriorServiceLedger;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.security.SecurityTokenService;
 import com.szsemicon.hr.shared.validation.IdempotencyKeyPolicy;
@@ -1306,9 +1307,6 @@ public class PeopleImportService {
                 repository.findEmployeeAggregateVersion(employee.employeeId());
         List<PriorServiceRecord> existing =
                 repository.listAllPriorServiceRecords(employee.employeeId());
-        int currentTotal = existing.isEmpty()
-                ? 0
-                : existing.get(existing.size() - 1).resultingTotalDays();
         int amount = integer(values, "amountDays");
         LocalDate businessDate = date(values, "businessDate");
         if (!existing.isEmpty()
@@ -1317,12 +1315,22 @@ public class PeopleImportService {
                     "PEOPLE_IMPORT_PRECHECK_STALE",
                     "累计工龄业务日期已被后续调整推进，请重新预检");
         }
-        long resultingTotal = Math.addExact((long) currentTotal, (long) amount);
+
+        // 使用共享ledger计算
+        PriorServiceLedger.ProjectionResult projection = PriorServiceLedger.project(
+                existing, null, amount);
+        int resultingTotal = projection.resultingTotalDays();
+
         if (resultingTotal < 0 || resultingTotal > Integer.MAX_VALUE) {
             throw conflict(
                     "PEOPLE_IMPORT_PRECHECK_STALE",
                     "累计工龄结果超出允许范围，请重新预检");
         }
+
+        // 计算新记录的row_version：现有最大rowVersion + 1
+        long newRowVersion = existing.isEmpty() ? 0 :
+                existing.stream().mapToLong(PriorServiceRecord::rowVersion).max().orElse(0) + 1;
+
         PriorServiceRecord record = new PriorServiceRecord(
                 UUID.randomUUID().toString(),
                 employee.employeeId(),
@@ -1332,16 +1340,20 @@ public class PeopleImportService {
                 businessDate,
                 batch.batchId(),
                 null,
-                (int) resultingTotal,
+                resultingTotal,
                 actor,
                 now,
                 auditService.currentCorrelationId(),
-                existing.size());
+                newRowVersion,
+                null,
+                "ACTUAL_DAYS",
+                1);
         repository.savePriorServiceRecord(record);
         repository.touchEmployee(employee.employeeId(), aggregateVersion, now);
+        int previousTotal = existing.isEmpty() ? 0 : existing.get(existing.size() - 1).resultingTotalDays();
         auditService.record(
                 actor, "PRIOR_SERVICE_ADJUSTED", "EMPLOYEE", employee.employeeId(),
-                "SUCCESS", record.reason(), digest(currentTotal), digest(record.resultingTotalDays()));
+                "SUCCESS", record.reason(), digest(previousTotal), digest(record.resultingTotalDays()));
         return record;
     }
 
@@ -1523,20 +1535,56 @@ public class PeopleImportService {
                         importedPriorService.employeeId());
                 List<PriorServiceRecord> records = repository.listAllPriorServiceRecords(
                         importedPriorService.employeeId());
-                int currentTotal = records.isEmpty()
-                        ? 0
-                        : records.get(records.size() - 1).resultingTotalDays();
-                int restoredTotal = currentTotal - importedPriorService.amountDays();
-                if (restoredTotal < 0) {
+
+                // 使用ledger replay获取真实delta单位，而非reversalUnits的估算
+                PriorServiceLedger.ReplayResult fullReplay = PriorServiceLedger.replay(records);
+                Long actualDeltaUnits = fullReplay.items().stream()
+                        .filter(item -> item.recordId().equals(importedPriorService.priorServiceRecordId()))
+                        .map(PriorServiceLedger.LineItem::deltaUnits)
+                        .findFirst()
+                        .orElse(null);
+
+                if (actualDeltaUnits == null) {
+                    throw conflict(
+                            "PEOPLE_IMPORT_ROLLBACK_RECORD_NOT_FOUND",
+                            "撤销的工龄记录在台账replay中不存在");
+                }
+
+                long reversalUnits = -actualDeltaUnits;
+
+                // 当前累计
+                PriorServiceLedger.ReplayResult currentReplay = PriorServiceLedger.replay(records);
+                long resultingUnits = currentReplay.cumulativeUnits() + reversalUnits;
+
+                if (resultingUnits < 0) {
                     throw conflict(
                             "PEOPLE_IMPORT_ROLLBACK_HAS_REFERENCES",
                             "累计工龄已有后续依赖，只能前向更正");
                 }
+
+                // 计算restoredTotal
+                long absDays = Math.abs(resultingUnits) / 360L;
+                if (Math.abs(resultingUnits) % 360L >= 180L) {
+                    absDays++;
+                }
+                int restoredTotal = resultingUnits >= 0 ? (int) absDays : -(int) absDays;
+
+                // 计算新记录的row_version：现有最大rowVersion + 1
+                long newRowVersion = records.isEmpty() ? 0 :
+                        records.stream().mapToLong(PriorServiceRecord::rowVersion).max().orElse(0) + 1;
+
+                // reversal的amountDays和amountYears：保持原记录metadata用于审计，但ledger使用reversalOfRecordId
+                Integer reversalAmountDays = -importedPriorService.amountDays();
+                java.math.BigDecimal reversalAmountYears = importedPriorService.amountYears() == null
+                        ? null
+                        : importedPriorService.amountYears().negate();
+                String reversalBasis = importedPriorService.conversionBasis();
+
                 PriorServiceRecord reversal = new PriorServiceRecord(
                         UUID.randomUUID().toString(),
                         importedPriorService.employeeId(),
                         "REVERSAL",
-                        -importedPriorService.amountDays(),
+                        reversalAmountDays,
                         reason,
                         businessDate,
                         null,
@@ -1545,11 +1593,15 @@ public class PeopleImportService {
                         actor,
                         now,
                         auditService.currentCorrelationId(),
-                        records.size());
+                        newRowVersion,
+                        reversalAmountYears,
+                        reversalBasis,
+                        1);
                 repository.savePriorServiceRecord(reversal);
                 repository.touchEmployee(
                         importedPriorService.employeeId(), aggregateVersion, now);
                 restoredIds.add(reversal.priorServiceRecordId());
+                int currentTotal = records.isEmpty() ? 0 : records.get(records.size() - 1).resultingTotalDays();
                 auditService.record(
                         actor, "PRIOR_SERVICE_ADJUSTED", "EMPLOYEE",
                         reversal.employeeId(), "SUCCESS", reason,
@@ -1784,9 +1836,11 @@ public class PeopleImportService {
             }
             List<PriorServiceRecord> current =
                     repository.listAllPriorServiceRecords(employee.employeeId());
-            int runningTotal = current.isEmpty()
-                    ? 0
-                    : current.get(current.size() - 1).resultingTotalDays();
+
+            // 使用共享ledger获取当前累计
+            PriorServiceLedger.ReplayResult currentReplay = PriorServiceLedger.replay(current);
+            long runningUnits = currentReplay.cumulativeUnits();
+
             LocalDate latestBusinessDate = current.isEmpty()
                     ? null
                     : current.get(current.size() - 1).businessDate();
@@ -1813,7 +1867,10 @@ public class PeopleImportService {
                                     IssueSeverity.BLOCKING, List.of(employee.employeeId())));
                     valid = false;
                 }
-                if ((long) runningTotal + amount < 0) {
+
+                // 使用精确单位校验
+                long adjustmentUnits = (long) amount * 360L;
+                if (runningUnits + adjustmentUnits < 0) {
                     addBatchIssue(
                             issuesByRow,
                             issue(batch.batchId(), rowNumber, "amountDays",
@@ -1823,7 +1880,7 @@ public class PeopleImportService {
                     valid = false;
                 }
                 if (valid) {
-                    runningTotal = Math.addExact(runningTotal, amount);
+                    runningUnits += adjustmentUnits;
                     latestBusinessDate = businessDate;
                 }
             }

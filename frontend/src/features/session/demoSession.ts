@@ -116,6 +116,7 @@ export function getDemoSession(): CurrentCapabilities {
       { key: 'accounts', label: translate('access.accounts'), path: '/access/accounts' },
       { key: 'roles', label: translate('access.roles'), path: '/access/roles' },
       { key: 'audit', label: '操作记录', path: '/access/audit' },
+      { key: 'development-log', label: '开发日志', path: '/access/development-log' },
       { key: 'people-import', label: '导入人员', path: '/people/import' },
       { key: 'organization', label: '部门与组织', path: '/people/organization' },
       { key: 'employees', label: '员工', path: '/people/employees' },

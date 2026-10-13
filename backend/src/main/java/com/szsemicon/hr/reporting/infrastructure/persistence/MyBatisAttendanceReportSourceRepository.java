@@ -258,6 +258,94 @@ public class MyBatisAttendanceReportSourceRepository
     }
 
     @Override
+    public Optional<RealtimeAuthorization> resolveRealtimeAuthorizationForPeriod(
+            String principalId,
+            String capabilityCode,
+            String companyId,
+            YearMonth period,
+            Instant authorizationTime) {
+        Objects.requireNonNull(period, "period");
+        Objects.requireNonNull(authorizationTime, "authorizationTime");
+        String normalizedCompanyId = normalizedReference(companyId);
+        if (principalId == null
+                || principalId.isBlank()
+                || !REALTIME_SCOPE_CAPABILITIES.contains(capabilityCode)
+                || normalizedCompanyId == null) {
+            return Optional.empty();
+        }
+        List<ReportRows.ScopeRow> scopeRows = nullSafe(
+                mapper.listRealtimeAuthorizedScopes(
+                        principalId,
+                        capabilityCode,
+                        normalizedCompanyId,
+                        authorizationTime));
+        if (!validRealtimeScopeRows(scopeRows, normalizedCompanyId)) {
+            return Optional.empty();
+        }
+        boolean companyWide = scopeRows.stream().anyMatch(row ->
+                ScopeType.COMPANY.name().equals(row.scopeType()));
+        if (companyWide) {
+            return Optional.of(new RealtimeAuthorization(
+                    authorizedScope(scopeRows),
+                    normalizedCompanyId,
+                    true,
+                    scopeRows.getFirst().principalEmployeeId(),
+                    Set.of(),
+                    Set.of()));
+        }
+        boolean selfOnly = scopeRows.stream().allMatch(row ->
+                ScopeType.SELF.name().equals(row.scopeType()));
+        if (selfOnly) {
+            String principalEmployeeId =
+                    scopeRows.getFirst().principalEmployeeId();
+            if (normalizedReference(principalEmployeeId) == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new RealtimeAuthorization(
+                    authorizedScope(scopeRows),
+                    normalizedCompanyId,
+                    false,
+                    principalEmployeeId,
+                    Set.of(principalEmployeeId),
+                    Set.of()));
+        }
+        LocalDate periodStart = period.atDay(1);
+        LocalDate periodEndExclusive = period.plusMonths(1).atDay(1);
+        Instant periodStartInstant = periodStart
+                .atStartOfDay(BUSINESS_ZONE).toInstant();
+        Instant periodEndExclusiveInstant = periodEndExclusive
+                .atStartOfDay(BUSINESS_ZONE).toInstant();
+        Optional<Set<String>> employeeIds = immutableReferenceSet(nullSafe(
+                mapper.listAuthorizedEmployeeIdsForPeriod(
+                        normalizedCompanyId,
+                        scopeRows,
+                        scopeRows,
+                        periodStartInstant,
+                        periodEndExclusiveInstant,
+                        authorizationTime)));
+        Optional<Set<String>> organizationIds = immutableReferenceSet(nullSafe(
+                mapper.listAuthorizedOrganizationIds(
+                        normalizedCompanyId,
+                        scopeRows,
+                        authorizationTime)));
+        if (employeeIds.isEmpty() || organizationIds.isEmpty()) {
+            return Optional.empty();
+        }
+        Set<String> resolvedEmployeeIds = employeeIds.orElseThrow();
+        Set<String> resolvedOrganizationIds = organizationIds.orElseThrow();
+        return Optional.of(new RealtimeAuthorization(
+                authorizedScope(
+                        scopeRows,
+                        resolvedEmployeeIds,
+                        resolvedOrganizationIds),
+                normalizedCompanyId,
+                false,
+                scopeRows.getFirst().principalEmployeeId(),
+                resolvedEmployeeIds,
+                resolvedOrganizationIds));
+    }
+
+    @Override
     public boolean hasCommittedSourceEvidence(
             String companyId,
             YearMonth period,

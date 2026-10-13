@@ -32,6 +32,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.YearMonth;
 import java.util.List;
@@ -1144,7 +1145,9 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                     ('2f000000-0000-0000-0000-000000000002',
                         'ATTENDANCE_DASHBOARD:READ'),
                     ('2f000000-0000-0000-0000-000000000003',
-                        'ATTENDANCE_REPORT:EXPORT_CREATE')
+                        'ATTENDANCE_REPORT:EXPORT_CREATE'),
+                    ('2f000000-0000-0000-0000-000000000004',
+                        'ATTENDANCE_REPORT_QUERY:READ')
                 """);
         jdbc.update(
                 """
@@ -1152,9 +1155,10 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 VALUES
                     (?, '2f000000-0000-0000-0000-000000000001'),
                     (?, '2f000000-0000-0000-0000-000000000002'),
-                    (?, '2f000000-0000-0000-0000-000000000003')
+                    (?, '2f000000-0000-0000-0000-000000000003'),
+                    (?, '2f000000-0000-0000-0000-000000000004')
                 """,
-                ROLE, ROLE, ROLE);
+                ROLE, ROLE, ROLE, ROLE);
         jdbc.update(
                 """
                 INSERT INTO auth_data_scope (
@@ -1446,9 +1450,9 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                     employee_version_id, organization_id,
                     organization_version_id, document_type, leave_type_code,
                     interval_start, interval_end, recognized_minutes,
-                    source_status, source_version
+                    source_status, source_version, allocation_semantics
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'LEAVE', ?, ?, ?, ?,
-                    'APPROVED', 'oa-test-v1')
+                    'APPROVED', 'oa-test-v1', NULL)
                 """,
                 factId,
                 PROJECTION_A,
@@ -1497,6 +1501,13 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
     }
 
     private static final List<String> REPORTING_SCHEMA = List.of(
+            """
+            CREATE TABLE IF NOT EXISTS company (
+                company_id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                status VARCHAR(32) NOT NULL
+            )
+            """,
             """
             CREATE TABLE IF NOT EXISTS oa_attendance_document (
                 oa_attendance_document_id VARCHAR(36) PRIMARY KEY,
@@ -1621,4 +1632,111 @@ class AttendanceReportMultiScopePersistenceIntegrationTest {
                 ledger_version VARCHAR(128) NOT NULL
             )
             """);
+
+    @Test
+    void terminatedEmployeeWithHistoricalAssignmentIsVisibleInPeriodQuery() {
+        String terminatedEmployee = "cf000000-0000-0000-0000-000000000001";
+        String terminatedVersion = "df000000-0000-0000-0000-000000000001";
+
+        jdbc.update("INSERT INTO employee (employee_id, company_id, display_name, " +
+                "employment_status, employee_number) " +
+                "VALUES (?, ?, 'Terminated Employee', 'TERMINATED', 'E9001')",
+                terminatedEmployee, COMPANY_A);
+
+        jdbc.update("INSERT INTO employee_version (employee_version_id, employee_id, " +
+                "employee_number, display_name, status, effective_from, " +
+                "source_authority, change_reason, created_at) " +
+                "VALUES (?, ?, 'E9001', 'Terminated Employee', 'TERMINATED', ?, 'LOCAL', 'test', ?)",
+                terminatedVersion, terminatedEmployee,
+                Date.valueOf(LocalDate.of(2020, 1, 1)),
+                Timestamp.from(AUTHORIZATION_TIME.minusSeconds(86400 * 90)));
+
+        Instant periodStart = PERIOD.atDay(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant();
+        Instant periodEnd = PERIOD.plusMonths(1).atDay(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant();
+        Instant terminationDate = LocalDate.of(2026, 8, 3).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant();
+
+        String assignmentId = "af000000-0000-0000-0000-000000000099";
+        jdbc.update("INSERT INTO employment_assignment (assignment_id, employment_period_id, " +
+                "employee_id, organization_id, effective_from, effective_to, " +
+                "record_status, version_valid_to) " +
+                "VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NULL)",
+                assignmentId, assignmentId, terminatedEmployee, ORGANIZATION_A,
+                Timestamp.from(periodStart.minusSeconds(86400 * 60)),
+                Timestamp.from(terminationDate));
+
+        var auth = reportRepository.resolveRealtimeAuthorizationForPeriod(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                COMPANY_A,
+                PERIOD,
+                AUTHORIZATION_TIME);
+
+        assertThat(auth).isPresent();
+        assertThat(auth.get().employeeIds()).contains(terminatedEmployee);
+    }
+
+    @Test
+    void activeEmployeeWhoTransferredAwayFromAuthorizedOrgLosesHistoricalAccess() {
+        String transferEmployee = "cf000000-0000-0000-0000-000000000002";
+        String transferVersion = "df000000-0000-0000-0000-000000000002";
+        String otherOrg = "4f000000-0000-0000-0000-000000000099";
+        String otherOrgVersion = "5f000000-0000-0000-0000-000000000099";
+
+        jdbc.update("INSERT INTO organization_identity (organization_id, company_id, identity_status) " +
+                "VALUES (?, ?, 'ACTIVE')", otherOrg, COMPANY_A);
+
+        jdbc.update("INSERT INTO organization_version (organization_version_id, organization_id, " +
+                "parent_organization_id, code, name, org_type, status, effective_from, effective_to) " +
+                "VALUES (?, ?, NULL, 'OTHER', 'Other Dept', 'DEPARTMENT', 'ACTIVE', ?, NULL)",
+                otherOrgVersion, otherOrg, Timestamp.from(Instant.parse("2020-01-01T00:00:00Z")));
+
+        jdbc.update("INSERT INTO organization_current_projection (organization_id, current_version_id) " +
+                "VALUES (?, ?)", otherOrg, otherOrgVersion);
+
+        jdbc.update("INSERT INTO organization_current_closure (ancestor_organization_id, " +
+                "descendant_organization_id, depth) VALUES (?, ?, 0)", otherOrg, otherOrg);
+
+        jdbc.update("INSERT INTO employee (employee_id, company_id, display_name, " +
+                "employment_status, employee_number) " +
+                "VALUES (?, ?, 'Transfer Employee', 'ACTIVE', 'E9002')",
+                transferEmployee, COMPANY_A);
+
+        jdbc.update("INSERT INTO employee_version (employee_version_id, employee_id, " +
+                "employee_number, display_name, status, effective_from, " +
+                "source_authority, change_reason, created_at) " +
+                "VALUES (?, ?, 'E9002', 'Transfer Employee', 'ACTIVE', ?, 'LOCAL', 'test', ?)",
+                transferVersion, transferEmployee,
+                Date.valueOf(LocalDate.of(2020, 1, 1)),
+                Timestamp.from(AUTHORIZATION_TIME.minusSeconds(86400 * 90)));
+
+        Instant periodStart = PERIOD.atDay(1).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant();
+        Instant transferDate = LocalDate.of(2026, 8, 3).atStartOfDay(ZoneId.of("Asia/Shanghai")).toInstant();
+
+        String oldAssignment = "af000000-0000-0000-0000-000000000097";
+        jdbc.update("INSERT INTO employment_assignment (assignment_id, employment_period_id, " +
+                "employee_id, organization_id, effective_from, effective_to, " +
+                "record_status, version_valid_to) " +
+                "VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', NULL)",
+                oldAssignment, oldAssignment, transferEmployee, ORGANIZATION_A,
+                Timestamp.from(periodStart.minusSeconds(86400 * 30)),
+                Timestamp.from(transferDate));
+
+        String newAssignment = "af000000-0000-0000-0000-000000000098";
+        jdbc.update("INSERT INTO employment_assignment (assignment_id, employment_period_id, " +
+                "employee_id, organization_id, effective_from, effective_to, " +
+                "record_status, version_valid_to) " +
+                "VALUES (?, ?, ?, ?, ?, NULL, 'ACTIVE', NULL)",
+                newAssignment, newAssignment, transferEmployee, otherOrg,
+                Timestamp.from(transferDate));
+
+        var auth = reportRepository.resolveRealtimeAuthorizationForPeriod(
+                PRINCIPAL,
+                CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ,
+                COMPANY_A,
+                PERIOD,
+                AUTHORIZATION_TIME);
+
+        assertThat(auth).isPresent();
+        assertThat(auth.get().employeeIds()).doesNotContain(transferEmployee);
+    }
 }

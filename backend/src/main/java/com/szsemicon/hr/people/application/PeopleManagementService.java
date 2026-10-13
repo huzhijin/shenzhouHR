@@ -8,6 +8,8 @@ import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.Assignmen
 import com.szsemicon.hr.attendance.application.AttendanceGroupService;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateEmployee;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateEmployment;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateOrganization;
 import com.szsemicon.hr.people.application.PeopleCommands.UpdateEmployee;
 import com.szsemicon.hr.people.application.PeopleCommands.UpdateEmployment;
@@ -18,6 +20,7 @@ import com.szsemicon.hr.people.domain.PeopleModels.IdempotencyRecord;
 import com.szsemicon.hr.people.domain.PeopleModels.OrganizationVersion;
 import com.szsemicon.hr.people.domain.PeopleModels.PriorServiceRecord;
 import com.szsemicon.hr.people.domain.PeopleModels.PriorServiceReplay;
+import com.szsemicon.hr.people.domain.PriorServiceLedger;
 import com.szsemicon.hr.shared.domain.ExternalPreciseId;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.security.ResourceNotAvailableAccessDeniedException;
@@ -419,7 +422,9 @@ public class PeopleManagementService {
         }
         Instant now = clock.instant();
         boolean sameDayCorrection = command.effectiveFrom().equals(current.effectiveFrom());
-        if (sameDayCorrection) {
+        // 禁止status变更走sameDayCorrection：会原地覆盖旧版本status，导致ACTIVE历史消失
+        boolean statusChanged = !command.status().equals(current.status());
+        if (sameDayCorrection && !statusChanged) {
             validatePeriod(command.effectiveFrom(), command.effectiveTo());
             repository.correctCurrentEmployeeVersion(
                     employeeId,
@@ -434,6 +439,7 @@ public class PeopleManagementService {
                     current.effectiveFrom(), current.effectiveTo(), command.effectiveFrom());
             repository.closeCurrentEmployeeVersion(
                     employeeId, command.effectiveFrom(), expectedVersion);
+            sameDayCorrection = false; // 强制走新版本创建分支
         }
         repository.updateEmployeeIdentity(
                 employeeId,
@@ -675,13 +681,24 @@ public class PeopleManagementService {
         requireEmployeeForHistory(employeeId, CapabilityCodes.PRIOR_SERVICE_READ);
         List<PriorServiceRecord> all = repository.listAllPriorServiceRecords(employeeId);
         PriorServiceReplay replay = replay(employeeId, all);
+
+        // 构建recordId -> 累计精确年数的映射
+        java.util.Map<String, BigDecimal> cumulativeYearsMap = new java.util.HashMap<>();
+        PriorServiceLedger.ReplayResult ledgerReplay = PriorServiceLedger.replay(all);
+        for (var item : ledgerReplay.items()) {
+            BigDecimal cumulativeYears = BigDecimal.valueOf(item.cumulativeUnits())
+                    .divide(BigDecimal.valueOf(131400), 2, RoundingMode.HALF_UP);
+            cumulativeYearsMap.put(item.recordId(), cumulativeYears);
+        }
+
         return new PriorServicePage(
                 repository.listPriorServiceRecords(employeeId, size, page * size),
                 replay.totalDays(),
                 replay.replayDigest(),
                 repository.countPriorServiceRecords(employeeId),
                 page,
-                size);
+                size,
+                cumulativeYearsMap);
     }
 
     @Transactional
@@ -692,9 +709,42 @@ public class PeopleManagementService {
             String idempotencyKey) {
         requireReason(command.reason());
         requireIdempotencyKey(idempotencyKey);
+
+        // 计算天数：优先使用amountYears（365天/年），否则使用amountDays（向后兼容）
+        int amountDays;
+        java.math.BigDecimal amountYears;
+        String conversionBasis;
+        Integer conversionVersion;
+
+        if (command.amountYears() != null) {
+            // 新API：从年数计算天数（365天/年，按绝对值四舍五入后恢复符号）
+            amountYears = command.amountYears()
+                    .setScale(2, java.math.RoundingMode.HALF_UP);
+            if (amountYears.compareTo(java.math.BigDecimal.valueOf(-100.00)) < 0
+                    || amountYears.compareTo(java.math.BigDecimal.valueOf(100.00)) > 0) {
+                throw invalid("年数范围必须在 ±100.00 年之间");
+            }
+            java.math.BigDecimal absoluteYears = amountYears.abs();
+            java.math.BigDecimal absoluteDays = absoluteYears.multiply(java.math.BigDecimal.valueOf(365));
+            int roundedAbsoluteDays = absoluteDays.setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+            amountDays = amountYears.signum() * roundedAbsoluteDays;
+
+            if (amountDays == 0) {
+                throw invalid("调整量无效：不能为 0 年或折合 0 天");
+            }
+            conversionBasis = "DAYS_PER_YEAR_365";
+            conversionVersion = 1;
+        } else {
+            // 旧API：直接使用天数（新写入标记为ACTUAL_DAYS以区分历史）
+            amountDays = command.amountDays();
+            amountYears = null;
+            conversionBasis = "ACTUAL_DAYS";
+            conversionVersion = 1;
+        }
+
         if (command.businessDate() == null
-                || command.amountDays() < -36500
-                || command.amountDays() > 36500) {
+                || amountDays < -36500
+                || amountDays > 36500) {
             throw invalid("累计工龄发生额或业务日期无效");
         }
         EmployeeVersion employee = requireEmployeeForHistory(
@@ -713,6 +763,9 @@ public class PeopleManagementService {
         }
         requireExpected(employee.rowVersion(), expectedVersion);
         repository.lockEmployee(employeeId);
+        requireExpected(
+                repository.findEmployeeAggregateVersion(employeeId), expectedVersion);
+        Instant now = clock.instant();
         List<PriorServiceRecord> records = repository.listAllPriorServiceRecords(employeeId);
         if (!records.isEmpty()
                 && command.businessDate().isBefore(
@@ -721,20 +774,27 @@ public class PeopleManagementService {
                     "PRIOR_SERVICE_BUSINESS_DATE_OUT_OF_ORDER",
                     "累计工龄业务日期不得早于最新发生额");
         }
-        int previousTotal = records.isEmpty()
-                ? 0
-                : records.get(records.size() - 1).resultingTotalDays();
-        int resultingTotal = Math.addExact(previousTotal, command.amountDays());
-        if (resultingTotal < 0) {
+
+        // 使用共享ledger计算
+        PriorServiceLedger.ProjectionResult projection;
+        try {
+            projection = PriorServiceLedger.project(records, amountYears, amountDays);
+        } catch (IllegalStateException e) {
             throw invalid("累计工龄不能小于零");
         }
-        Instant now = clock.instant();
+        int resultingTotal = projection.resultingTotalDays();
+        int previousTotal = records.isEmpty() ? 0 : records.get(records.size() - 1).resultingTotalDays();
+
+        // 计算新记录的row_version：现有最大rowVersion + 1
+        long newRowVersion = records.isEmpty() ? 0 :
+                records.stream().mapToLong(PriorServiceRecord::rowVersion).max().orElse(0) + 1;
+
         String recordId = UUID.randomUUID().toString();
         PriorServiceRecord record = new PriorServiceRecord(
                 recordId,
                 employeeId,
                 "ADJUSTMENT",
-                command.amountDays(),
+                amountDays,
                 command.reason().trim(),
                 command.businessDate(),
                 null,
@@ -743,7 +803,10 @@ public class PeopleManagementService {
                 actor,
                 now,
                 idempotencyKey,
-                records.size());
+                newRowVersion,
+                amountYears,
+                conversionBasis,
+                conversionVersion);
         repository.savePriorServiceRecord(record);
         repository.touchEmployee(employeeId, expectedVersion, now);
         saveIdempotency(
@@ -874,26 +937,35 @@ public class PeopleManagementService {
 
     private PriorServiceReplay replay(
             String employeeId, List<PriorServiceRecord> records) {
-        int total = 0;
-        for (PriorServiceRecord record : records) {
-            total = Math.addExact(total, record.amountDays());
-            if (total < 0 || total != record.resultingTotalDays()) {
-                throw new IllegalStateException("prior service replay invariant violated");
-            }
-        }
+        // 使用共享ledger计算
+        PriorServiceLedger.ReplayResult result = PriorServiceLedger.replay(records);
+
+        // 保留两位小数的年数
+        java.math.BigDecimal totalYears = result.cumulativeYears()
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+
         return new PriorServiceReplay(
                 employeeId,
-                total,
+                result.totalDays(),
                 records.size(),
-                digest(records.stream().map(record -> List.of(
-                        record.priorServiceRecordId(),
-                        record.recordType(),
-                        record.amountDays(),
-                        record.businessDate(),
-                        record.resultingTotalDays(),
-                        record.actorId(),
-                        record.occurredAt())).toList()),
-                clock.instant());
+                digest(records.stream().map(record -> {
+                    // 固定字段位置，null字段使用空字符串占位
+                    var fields = new java.util.ArrayList<>();
+                    fields.add(record.priorServiceRecordId());
+                    fields.add(record.recordType());
+                    fields.add(record.amountDays());
+                    fields.add(record.businessDate());
+                    fields.add(record.resultingTotalDays());
+                    fields.add(record.actorId());
+                    fields.add(record.occurredAt());
+                    fields.add(record.amountYears() != null ? record.amountYears() : "");
+                    fields.add(record.conversionBasis() != null ? record.conversionBasis() : "");
+                    fields.add(record.conversionVersion() != null ? record.conversionVersion() : "");
+                    return fields;
+                }).toList()),
+                clock.instant(),
+                totalYears,
+                result.completeMonths());
     }
 
     private IdempotencyRecord existing(
@@ -1077,6 +1149,7 @@ public class PeopleManagementService {
             String replayDigest,
             long total,
             int page,
-            int size) {
+            int size,
+            java.util.Map<String, BigDecimal> cumulativeYearsByRecordId) {
     }
 }

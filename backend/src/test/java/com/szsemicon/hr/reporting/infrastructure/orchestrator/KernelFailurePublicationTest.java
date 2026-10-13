@@ -221,7 +221,7 @@ class KernelFailurePublicationTest {
     private void authorize() {
         when(repository.listAuthorizedCompanies(eq(PRINCIPAL), eq(CAPABILITY), eq(PERIOD), any()))
                 .thenReturn(List.of(new CompanyOption(COMPANY, "测试公司")));
-        when(repository.resolveRealtimeAuthorization(eq(PRINCIPAL), eq(CAPABILITY), eq(COMPANY), any()))
+        when(repository.resolveRealtimeAuthorizationForPeriod(eq(PRINCIPAL), eq(CAPABILITY), eq(COMPANY), eq(PERIOD), any()))
                 .thenReturn(Optional.of(new RealtimeAuthorization(
                         scope(ScopeType.COMPANY), COMPANY, true, null,
                         Set.of(EMPLOYEE), Set.of("org-kt"))));

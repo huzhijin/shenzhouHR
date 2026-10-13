@@ -30,6 +30,8 @@ public interface AttendanceReportQueryPageMapper extends QueryPageReadPort {
             @Param("organizationIds") List<String> organizationIds,
             @Param("companyWide") boolean companyWide,
             @Param("employeeIds") List<String> employeeIds,
+            @Param("periodStart") Instant periodStart,
+            @Param("periodEndExclusive") Instant periodEndExclusive,
             @Param("asOf") Instant asOf);
 
     long countExceptions(QueryPageRows.FactQuery query);

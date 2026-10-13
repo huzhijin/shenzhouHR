@@ -522,7 +522,7 @@ describe('attendance setup demo pages', () => {
     );
 
     expect((await screen.findAllByText('苏州一号晶圆厂')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('一号厂 A 班四班两倒').length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('一号厂 A 班四班两倒')).length).toBeGreaterThan(0);
     expect(screen.queryByText('a'.repeat(64))).not.toBeInTheDocument();
     expect(screen.queryByText('c'.repeat(64))).not.toBeInTheDocument();
     expect(await screen.findByRole(

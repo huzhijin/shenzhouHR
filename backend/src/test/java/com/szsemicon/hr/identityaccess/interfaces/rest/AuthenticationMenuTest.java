@@ -10,7 +10,7 @@ class AuthenticationMenuTest {
 
     @Test
     void workbenchIsFirstAndReportUsesTheCanonicalRoute() {
-        var menu = AuthenticationController.menu(List.of(
+        var menu = AuthenticationController.menu(false, List.of(
                 "POLICY:READ",
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 CapabilityCodes.ATTENDANCE_DASHBOARD_READ));
@@ -27,7 +27,7 @@ class AuthenticationMenuTest {
 
     @Test
     void queryCapabilityShowsAllNineQueryPagesAndKeepsOfficialReport() {
-        var menu = AuthenticationController.menu(List.of(
+        var menu = AuthenticationController.menu(false, List.of(
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 CapabilityCodes.ATTENDANCE_REPORT_QUERY_READ));
 
@@ -63,7 +63,7 @@ class AuthenticationMenuTest {
 
     @Test
     void technicalCapabilitiesAloneDoNotExposeBusinessDashboard() {
-        var menu = AuthenticationController.menu(List.of(
+        var menu = AuthenticationController.menu(false, List.of(
                 "ACCOUNT:READ",
                 "ROLE:READ",
                 "OPERATIONS:READ"));
@@ -75,7 +75,7 @@ class AuthenticationMenuTest {
 
     @Test
     void employeeSelfMenuStartsWithPersonalWorkbench() {
-        var menu = AuthenticationController.menu(List.of(
+        var menu = AuthenticationController.menu(false, List.of(
                 CapabilityCodes.ATTENDANCE_FEEDBACK_READ,
                 CapabilityCodes.LEAVE_SELF_READ,
                 CapabilityCodes.ATTENDANCE_SELF_READ));
@@ -104,7 +104,7 @@ class AuthenticationMenuTest {
 
     @Test
     void managementWorkbenchRemainsAheadOfSelfAndReportMenus() {
-        var menu = AuthenticationController.menu(List.of(
+        var menu = AuthenticationController.menu(false, List.of(
                 CapabilityCodes.ATTENDANCE_REPORT_READ,
                 CapabilityCodes.ATTENDANCE_SELF_READ,
                 CapabilityCodes.ATTENDANCE_DASHBOARD_READ));
@@ -125,7 +125,7 @@ class AuthenticationMenuTest {
 
     @Test
     void managementMenusUsePlainBusinessLabels() {
-        var menu = AuthenticationController.menu(List.of(
+        var menu = AuthenticationController.menu(false, List.of(
                 "POLICY:READ",
                 "ACCOUNT:READ",
                 "ROLE:READ",
@@ -165,5 +165,42 @@ class AuthenticationMenuTest {
                         "attendance-punch-imports", "导入打卡文件", "/sources/attendance-excel"));
         assertThat(menu).noneMatch(item ->
                 "/attendance/paper-overtime".equals(item.path()));
+    }
+
+    @Test
+    void emptyCapabilitiesWithoutFirstPasswordChangeShowsDevelopmentLog() {
+        var menu = AuthenticationController.menu(false, List.of());
+
+        assertThat(menu)
+                .extracting(AuthenticationController.MenuItem::path)
+                .containsExactly("/access/development-log");
+        assertThat(menu.getFirst())
+                .isEqualTo(new AuthenticationController.MenuItem(
+                        "development-log", "开发日志", "/access/development-log"));
+    }
+
+    @Test
+    void firstPasswordChangeRequiredShowsOnlyPasswordChange() {
+        var menu = AuthenticationController.menu(true, List.of());
+
+        assertThat(menu)
+                .extracting(AuthenticationController.MenuItem::path)
+                .containsExactly("/access/first-password-change");
+        assertThat(menu.getFirst())
+                .isEqualTo(new AuthenticationController.MenuItem(
+                        "first-password-change", "首次修改密码", "/access/first-password-change"));
+    }
+
+    @Test
+    void firstPasswordChangeIgnoresAllOtherCapabilities() {
+        var menu = AuthenticationController.menu(true, List.of(
+                CapabilityCodes.ATTENDANCE_DASHBOARD_READ,
+                CapabilityCodes.ATTENDANCE_REPORT_READ,
+                "ACCOUNT:READ",
+                "POLICY:READ"));
+
+        assertThat(menu)
+                .extracting(AuthenticationController.MenuItem::path)
+                .containsExactly("/access/first-password-change");
     }
 }

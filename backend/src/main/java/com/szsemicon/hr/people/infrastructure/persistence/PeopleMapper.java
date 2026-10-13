@@ -364,6 +364,11 @@ interface PeopleMapper {
     List<PeopleRows.PriorServiceRow> listAllPriorServiceRecords(
             @Param("employeeId") String employeeId);
 
+    List<PeopleRows.PriorServiceRow> listPriorServiceRecordsBatch(
+            @Param("employeeIds") List<String> employeeIds,
+            @Param("businessDateInclusive") LocalDate businessDateInclusive,
+            @Param("occurredAtInclusive") Instant occurredAtInclusive);
+
     PeopleRows.PriorServiceRow findPriorServiceRecord(
             @Param("priorServiceRecordId") String priorServiceRecordId);
 

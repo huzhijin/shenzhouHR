@@ -25,6 +25,8 @@ public interface QueryPageReadPort {
             List<String> organizationIds,
             boolean companyWide,
             List<String> employeeIds,
+            Instant periodStart,
+            Instant periodEndExclusive,
             Instant asOf);
 
     long countExceptions(QueryPageRows.FactQuery query);
