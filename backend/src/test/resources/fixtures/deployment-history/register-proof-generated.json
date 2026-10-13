@@ -1,0 +1,16 @@
+{
+  "deployments": [
+    {
+      "deploymentId": "deploy-20261013-001246-366000",
+      "deployedAt": "2026-10-13T00:12:46+00:00",
+      "verifiedAt": "2026-10-13T00:13:57+00:00",
+      "version": "shenzhouhr-release-20261012234213",
+      "jarSha256": "db63faee78b953592eda8aebd168cf7991987cb4db3ca0fb1d748dcead9edf9c",
+      "title": "开发日志严格读取集成回放",
+      "description": "本地测试真实登记脚本输出与服务读取",
+      "details": "- 员工号筛选补齐历史身份关联\n- 开发日志兼容登记审计字段",
+      "_frontendFingerprint": "39f34f8c5145419e",
+      "_receiptReleaseName": "shenzhouhr-release-20261012234213"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Page;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyCatalog;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.Impact;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.ConfigurationSnapshot;
+import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.MatchedMealWindow;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.PolicyBinding;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.PolicyKind;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.PunchDirection;
@@ -16,6 +17,7 @@ import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.SimulationResul
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.SimulationStatus;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyParameterValidator;
 import com.szsemicon.hr.attendance.domain.CalendarModels.DayType;
+import com.szsemicon.hr.attendance.domain.MealDeductionPolicyResolver;
 import com.szsemicon.hr.attendance.domain.ShiftModels.Segment;
 import com.szsemicon.hr.attendance.domain.ShiftModels.SegmentType;
 import com.szsemicon.hr.attendance.domain.ShiftSegmentValidator;
@@ -97,6 +99,16 @@ public class AttendancePolicyService {
     @Transactional(readOnly = true)
     public Page<PolicyBinding> listBindings(
             String groupId, LocalDate asOf, int page, int size) {
+        return listBindings(null, groupId, asOf, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PolicyBinding> listBindings(
+            String companyId,
+            String groupId,
+            LocalDate asOf,
+            int page,
+            int size) {
         AttendanceSetupRules.page(page, size);
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
         if (groupId != null) {
@@ -108,6 +120,7 @@ public class AttendancePolicyService {
                 repository.listBindings(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         groupId,
                         asOf,
                         size,
@@ -116,6 +129,7 @@ public class AttendancePolicyService {
                 repository.countBindings(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         groupId,
                         asOf,
                         at),
@@ -230,7 +244,7 @@ public class AttendancePolicyService {
         Instant now = clock.instant();
         PolicyBinding created = new PolicyBinding(
                 UUID.randomUUID().toString(), UUID.randomUUID().toString(),
-                1, group.legalEntityId(), command.policyKind(),
+                1, group.companyId(), command.policyKind(),
                 command.policyVersionId(), group.groupId(),
                 group.groupRevisionId(),
                 command.effectiveFrom(), command.effectiveTo(),
@@ -285,7 +299,7 @@ public class AttendancePolicyService {
         Instant now = clock.instant();
         PolicyBinding replacement = new PolicyBinding(
                 current.bindingId(), UUID.randomUUID().toString(),
-                current.revisionNumber() + 1, current.legalEntityId(),
+                current.revisionNumber() + 1, current.companyId(),
                 command.policyKind(), command.policyVersionId(), command.groupId(),
                 command.groupRevisionId(),
                 command.effectiveFrom(), command.effectiveTo(),
@@ -323,7 +337,7 @@ public class AttendancePolicyService {
     private void requirePublishedSourceThrough(
             PolicyBinding current, LocalDate successorEffectiveFrom) {
         if (!repository.publishedVersionMatchesKind(
-                current.legalEntityId(),
+                current.companyId(),
                 current.policyVersionId(),
                 current.policyKind(),
                 current.effectiveFrom(),
@@ -389,7 +403,12 @@ public class AttendancePolicyService {
                         "POLICY_AMBIGUOUS", "同一策略类型解析出多个绑定");
             }
         }
-        if (bindings.size() != PolicyKind.values().length) {
+        // Only the three calculation-critical kinds are required for simulation.
+        // Management kinds (PUNCH_WINDOW, PERIOD_CLOSE) are pass-through: present
+        // → forwarded, absent → not blocking.
+        if (!bindings.containsKey(PolicyKind.MEAL_DEDUCTION)
+                || !bindings.containsKey(PolicyKind.LATE_GRACE)
+                || !bindings.containsKey(PolicyKind.MONTHLY_LATE_EXEMPTION)) {
             throw AttendanceSetupRules.conflict(
                     "POLICY_MISSING", "权威试算要求三类策略恰好各一个绑定");
         }
@@ -465,8 +484,12 @@ public class AttendancePolicyService {
         candidates.forEach(binding ->
                 byKind.computeIfAbsent(binding.policyKind(), ignored -> new ArrayList<>())
                         .add(binding));
+        // Calculation-critical kinds: required, error if absent or ambiguous.
         List<PolicyBinding> resolved = new ArrayList<>();
-        for (PolicyKind kind : PolicyKind.values()) {
+        for (PolicyKind kind : List.of(
+                PolicyKind.MEAL_DEDUCTION,
+                PolicyKind.LATE_GRACE,
+                PolicyKind.MONTHLY_LATE_EXEMPTION)) {
             List<PolicyBinding> matching = byKind.getOrDefault(kind, List.of());
             if (matching.isEmpty()) {
                 throw AttendanceSetupRules.conflict(
@@ -480,6 +503,21 @@ public class AttendancePolicyService {
             }
             resolved.add(matching.getFirst());
         }
+        // Management kinds (PUNCH_WINDOW, PERIOD_CLOSE): pass-through — present
+        // → forwarded, absent → not blocking.
+        for (PolicyKind kind : List.of(
+                PolicyKind.PUNCH_WINDOW,
+                PolicyKind.PERIOD_CLOSE)) {
+            List<PolicyBinding> matching = byKind.getOrDefault(kind, List.of());
+            if (matching.size() > 1) {
+                throw AttendanceSetupRules.conflict(
+                        "ATTENDANCE_POLICY_AMBIGUOUS",
+                        "考勤基础策略解析出现多绑定歧义");
+            }
+            if (matching.size() == 1) {
+                resolved.add(matching.getFirst());
+            }
+        }
         return List.copyOf(resolved);
     }
 
@@ -490,46 +528,86 @@ public class AttendancePolicyService {
             PolicyBinding binding,
             AttendanceMonthlyExemptionUsageProvider.UsageSnapshot usage) {
         boolean enabled = bool(parameters, "enabled");
-        int configuredDeduction = integer(parameters, "deductionMinutes");
-        int trigger = integer(parameters, "triggerMinutes");
         DayType dayType = configuration.calendarDay().dayType();
+        var resolvedMeals = MealDeductionPolicyResolver.resolveAll(
+                parameters, dayType, input.businessDate());
         Object applicableValue = parameters.get("applicableDayTypes");
         boolean applicable = applicableValue instanceof List<?> values
                 && values.contains(dayType.name());
         ZoneId zone = ZoneId.of(configuration.shiftVersion().timeZone());
-        Instant firstEntry = punchTime(
-                input.punches(), PunchDirection.ENTRY, zone, true, null);
-        Instant lastExit = punchTime(
-                input.punches(), PunchDirection.EXIT, zone, false, null);
-        Instant[] window = mealWindow(
-                input.businessDate(),
-                Objects.toString(parameters.get("mealWindowStart"), ""),
-                Objects.toString(parameters.get("mealWindowEnd"), ""),
-                zone);
-        boolean intervalValid = firstEntry != null
-                && lastExit != null
-                && lastExit.isAfter(firstEntry);
-        long attendedMinutes = intervalValid
-                ? Duration.between(firstEntry, lastExit).toMinutes()
-                : 0;
-        boolean serverWindowMatched = intervalValid
-                && !firstEntry.isAfter(window[0])
-                && !lastExit.isBefore(window[1]);
-        boolean matched = enabled
-                && serverWindowMatched
-                && applicable
-                && attendedMinutes >= trigger;
+        List<PresenceWindow> presenceWindows =
+                pairSimulationPresence(input.punches());
+        long attendedMinutes = presenceWindows.stream()
+                .mapToLong(window -> Duration.between(
+                                window.start(), window.end())
+                        .toMinutes())
+                .sum();
+        List<MatchedMealWindow> matchedMealWindows = new ArrayList<>();
+        int totalDeductionMinutes = 0;
+        for (var resolvedMeal : resolvedMeals) {
+            Instant[] window = mealWindow(
+                    input.businessDate(),
+                    resolvedMeal.mealWindowStart(),
+                    resolvedMeal.mealWindowEnd(),
+                    zone);
+            boolean serverWindowMatched = presenceWindows.stream()
+                    .anyMatch(presence ->
+                            !presence.start().isAfter(window[0])
+                                    && !presence.end().isBefore(window[1]));
+            boolean windowMatched = enabled
+                    && serverWindowMatched
+                    && applicable
+                    && attendedMinutes >= resolvedMeal.triggerMinutes();
+            if (!windowMatched) {
+                continue;
+            }
+            totalDeductionMinutes = Math.addExact(
+                    totalDeductionMinutes, resolvedMeal.deductionMinutes());
+            matchedMealWindows.add(new MatchedMealWindow(
+                    resolvedMeal.windowId(),
+                    resolvedMeal.mealType(),
+                    resolvedMeal.source(),
+                    resolvedMeal.mealWindowStart(),
+                    resolvedMeal.mealWindowEnd(),
+                    resolvedMeal.deductionMinutes(),
+                    resolvedMeal.triggerMinutes()));
+        }
+        boolean matched = !matchedMealWindows.isEmpty();
+        String matchedWindowExplanation = matchedMealWindows.stream()
+                .map(windowValue -> "%s[%s,%s) 扣 %d 分钟"
+                        .formatted(
+                                mealWindowLabel(windowValue),
+                                windowValue.windowStart(),
+                                windowValue.windowEnd(),
+                                windowValue.deductionMinutes()))
+                .collect(java.util.stream.Collectors.joining("；"));
         return new SimulationResult(
                 binding.policyKind(),
                 matched ? SimulationStatus.MATCHED : SimulationStatus.NOT_MATCHED,
                 binding.policyVersionId(), configuration.configurationDigest(),
                 matched, false,
                 null, 0, usage.provenance(), usage.knowledgeTime(),
-                matched ? configuredDeduction : null, null, null,
+                matched ? Math.max(0, totalDeductionMinutes) : null,
+                matchedMealWindows,
+                null, null,
                 matched
-                        ? "服务端根据打卡时间、班次时区、已发布晚餐窗口、门槛和日期类型判定命中"
-                        : "服务端计算的打卡区间未同时覆盖晚餐窗口、门槛和日期类型",
+                        ? "服务端按日历日期类型 %s、打卡时间、班次时区、完整覆盖和各窗门槛判定：%s；总扣减 %d 分钟，每个餐窗最多扣一次"
+                                .formatted(
+                                        dayType.name(),
+                                        matchedWindowExplanation,
+                                        totalDeductionMinutes)
+                        : "服务端按日历日期类型 %s 计算，打卡区间未同时满足候选午餐/晚餐窗口完整覆盖、各窗门槛和日期类型"
+                                .formatted(
+                                        dayType.name()),
                 false);
+    }
+
+    private String mealWindowLabel(MatchedMealWindow window) {
+        return window.mealType()
+                == MealDeductionPolicyResolver.MealType.DINNER
+                ? window.source().description()
+                        + window.mealType().description()
+                : window.source().description();
     }
 
     private LateDecision lateDecision(
@@ -624,7 +702,7 @@ public class AttendancePolicyService {
                 matched, consumesAllowance, late.rawLateMinutes(),
                 consumesAllowance ? 1 : 0,
                 usage.provenance(), usage.knowledgeTime(),
-                null, null, null, late.explanation(), false);
+                null, List.of(), null, null, late.explanation(), false);
     }
 
     private record LateDecision(
@@ -699,6 +777,34 @@ public class AttendancePolicyService {
                 : values.max(Instant::compareTo).orElse(null);
     }
 
+    private List<PresenceWindow> pairSimulationPresence(
+            List<PunchInput> punches) {
+        List<PunchInput> ordered = punches.stream()
+                .filter(punch -> punch.association() == null
+                        || punch.association().isBlank()
+                        || "SCHEDULED_WORK".equals(punch.association()))
+                .sorted(Comparator.comparing(
+                        punch -> punch.instant().toInstant()))
+                .toList();
+        if (ordered.size() < 2 || ordered.size() % 2 != 0) {
+            return List.of();
+        }
+        List<PresenceWindow> result = new ArrayList<>();
+        for (int index = 1; index < ordered.size(); index += 2) {
+            PunchInput entry = ordered.get(index - 1);
+            PunchInput exit = ordered.get(index);
+            Instant start = entry.instant().toInstant();
+            Instant end = exit.instant().toInstant();
+            if (entry.direction() != PunchDirection.ENTRY
+                    || exit.direction() != PunchDirection.EXIT
+                    || !start.isBefore(end)) {
+                return List.of();
+            }
+            result.add(new PresenceWindow(start, end));
+        }
+        return List.copyOf(result);
+    }
+
     private String segmentAssociation(int segmentIndex) {
         return "segment-" + segmentIndex;
     }
@@ -716,12 +822,10 @@ public class AttendancePolicyService {
 
     private Instant[] mealWindow(
             LocalDate businessDate,
-            String configuredStart,
-            String configuredEnd,
+            LocalTime start,
+            LocalTime end,
             ZoneId zone) {
         try {
-            LocalTime start = LocalTime.parse(configuredStart);
-            LocalTime end = LocalTime.parse(configuredEnd);
             LocalDateTime from = businessDate.atTime(start);
             LocalDateTime to = businessDate.atTime(end);
             if (!to.isAfter(from)) {
@@ -765,6 +869,9 @@ public class AttendancePolicyService {
         return transition.getInstant();
     }
 
+    private record PresenceWindow(Instant start, Instant end) {
+    }
+
     private Map<String, Object> parameters(String policyVersionId) {
         String json = repository.publishedVersionParameters(policyVersionId);
         try {
@@ -789,9 +896,9 @@ public class AttendancePolicyService {
     private AttendanceGroup requireGroup(String groupId, String capability) {
         AttendanceGroup group = groupRepository.findGroup(groupId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        if (!peopleRepository.canAccessLegalEntity(
+        if (!peopleRepository.canAccessCompany(
                 principalProvider.currentPrincipalId(), capability,
-                group.legalEntityId(), clock.instant())) {
+                group.companyId(), clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         return group;
@@ -812,7 +919,7 @@ public class AttendancePolicyService {
         }
         AttendanceGroup revision = revisions.getFirst();
         if (!revision.groupRevisionId().equals(command.groupRevisionId())
-                || !revision.legalEntityId().equals(identity.legalEntityId())) {
+                || !revision.companyId().equals(identity.companyId())) {
             throw AttendanceSetupRules.conflict(
                     "GROUP_REVISION_MISMATCH",
                     "策略绑定必须显式引用生效日解析出的考勤组 revision");
@@ -829,9 +936,9 @@ public class AttendancePolicyService {
 
     private boolean accessible(String groupId, String capability) {
         return groupRepository.findGroup(groupId)
-                .map(group -> peopleRepository.canAccessLegalEntity(
+                .map(group -> peopleRepository.canAccessCompany(
                         principalProvider.currentPrincipalId(), capability,
-                        group.legalEntityId(), clock.instant()))
+                        group.companyId(), clock.instant()))
                 .orElse(false);
     }
 
@@ -860,7 +967,7 @@ public class AttendancePolicyService {
     private String requirePublishedVersion(
             AttendanceGroup group, BindingCommand command) {
         if (!repository.publishedVersionMatchesKind(
-                group.legalEntityId(), command.policyVersionId(),
+                group.companyId(), command.policyVersionId(),
                 command.policyKind(), command.effectiveFrom(),
                 command.effectiveTo())) {
             throw new ResourceNotAvailableAccessDeniedException();

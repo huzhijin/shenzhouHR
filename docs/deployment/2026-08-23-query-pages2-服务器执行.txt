@@ -1,0 +1,48 @@
+# 查询报表分块筛选 + 调休额度页。换 jar 和前端。含 Flyway V58。
+# 不要覆盖 /opt/shenzhouhr/start-prod.sh。
+# 若 /root/reload-deli-august-daily.sh 还在跑，等它跑完再部署。
+# 传到 /root 后整段粘贴。
+
+set -euo pipefail
+export COPYFILE_DISABLE=1
+cd /root
+test -f /root/shenzhouhr-release-20260823-query-pages2.tar.gz
+tar --no-same-owner -xzf /root/shenzhouhr-release-20260823-query-pages2.tar.gz
+test -f /root/shenzhouhr-release-20260823-query-pages2/backend/shenzhou-hr.jar
+test -f /root/shenzhouhr-release-20260823-query-pages2/web/index.html
+test -f /root/shenzhouhr-release-20260823-query-pages2/db/migration/V58__attendance_report_query_pages.sql
+grep -q '/attendance/queries/' /root/shenzhouhr-release-20260823-query-pages2/web/assets/*.js
+grep -q '调休额度' /root/shenzhouhr-release-20260823-query-pages2/web/assets/*.js
+grep -q 'time-off' /root/shenzhouhr-release-20260823-query-pages2/web/assets/*.js
+grep -q 'query-report__groups' /root/shenzhouhr-release-20260823-query-pages2/web/assets/*.css
+
+mkdir -p /opt/shenzhouhr/backups
+TS=$(date +%Y%m%d%H%M%S)
+cp -a /opt/shenzhouhr/app/shenzhou-hr.jar \
+  /opt/shenzhouhr/backups/shenzhou-hr.jar.before-query-pages2-$TS
+tar -czf /opt/shenzhouhr/backups/web-192.168.160.226-before-query-pages2-$TS.tar.gz \
+  -C /www/wwwroot 192.168.160.226
+
+pkill -15 -f 'shenzhou-hr.jar' || true
+sleep 3
+pkill -9 -f 'shenzhou-hr.jar' || true
+sleep 1
+if pgrep -f 'shenzhou-hr.jar' >/dev/null; then
+  echo '失败：进程仍在'
+  pgrep -af 'shenzhou-hr.jar'
+  exit 1
+fi
+
+cp -f /root/shenzhouhr-release-20260823-query-pages2/backend/shenzhou-hr.jar \
+  /opt/shenzhouhr/app/shenzhou-hr.jar
+rsync -a --delete --exclude '.user.ini' \
+  /root/shenzhouhr-release-20260823-query-pages2/web/ \
+  /www/wwwroot/192.168.160.226/
+
+/opt/shenzhouhr/start-prod.sh
+sleep 8
+curl -sS -m 5 -o /dev/null -w 'health %{http_code}\n' \
+  http://127.0.0.1:9090/api/v1/auth/session || true
+pgrep -af 'shenzhou-hr.jar' | awk '{print $1,$2,$3}'
+test -f /www/wwwroot/192.168.160.226/index.html
+echo '部署完成。浏览器 Ctrl+F5。查询报表应有十页（含调休额度）。OPEN 月若还没有核算结果，由得力/OA 定时同步成功后约 30 分钟自动补，或由有权限的人点重新计算。'

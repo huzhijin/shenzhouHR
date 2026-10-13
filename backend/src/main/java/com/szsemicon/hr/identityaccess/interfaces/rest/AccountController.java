@@ -4,7 +4,11 @@ import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.AccountDetail;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.AccountPage;
+import com.szsemicon.hr.identityaccess.application.AccountAccessService.BulkAccountCreationResult;
 import com.szsemicon.hr.identityaccess.application.AccountAccessService.CreateAccountCommand;
+import com.szsemicon.hr.identityaccess.application.AccountAccessService.EmployeeAccountCandidatePage;
+import com.szsemicon.hr.identityaccess.application.AccountAccessService.GrantableCompany;
+import com.szsemicon.hr.identityaccess.application.AccountAccessService.GrantableOrganization;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleAssignmentInput;
 import com.szsemicon.hr.identityaccess.application.IdentityAccessRepository.RoleRecord;
 import com.szsemicon.hr.identityaccess.interfaces.rest.AuthenticationController.AcceptedOperation;
@@ -20,6 +24,7 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -27,6 +32,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -56,16 +62,43 @@ public class AccountController {
     }
 
     @PostMapping("/accounts")
-    @PreAuthorize("hasAuthority('ACCOUNT:CREATE')")
+    @PreAuthorize("hasAuthority('ACCOUNT:CREATE') and hasAuthority('ROLE:ASSIGN')")
     ResponseEntity<AccountDetail> createAccount(
             @Valid @RequestBody AccountCreateRequest request) {
         AccountDetail detail = accountService.createAccount(new CreateAccountCommand(
                 request.username(),
                 request.displayName(),
                 request.temporaryPassword(),
+                request.employeeId(),
                 request.roleAssignments().stream().map(RoleAssignmentRequest::toInput).toList()));
         return ResponseEntity.created(URI.create("/api/v1/access/accounts/" + detail.accountId()))
                 .body(detail);
+    }
+
+    @GetMapping("/account-provisioning/candidates")
+    @PreAuthorize("hasAuthority('ACCOUNT:CREATE') and hasAuthority('ROLE:ASSIGN')")
+    ResponseEntity<EmployeeAccountCandidatePage> accountProvisioningCandidates(
+            @RequestParam @Size(max = 36) String companyId,
+            @RequestParam(defaultValue = "") @Size(max = 100) String query,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(accountService.listEmployeeAccountCandidates(
+                        companyId, query, page, size));
+    }
+
+    @PostMapping("/account-provisioning/accounts")
+    @PreAuthorize("hasAuthority('ACCOUNT:CREATE') and hasAuthority('ROLE:ASSIGN')")
+    ResponseEntity<BulkAccountCreationResult> createEmployeeAccounts(
+            @Valid @RequestBody EmployeeAccountsCreateRequest request,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("Provisioning-Recovery-Key") String recoveryKey) {
+        BulkAccountCreationResult result = accountService.createEmployeeAccounts(
+                request.employeeIds(), idempotencyKey, recoveryKey);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(result);
     }
 
     @GetMapping("/accounts/{accountId}")
@@ -114,6 +147,18 @@ public class AccountController {
                 .body(new AcceptedOperation(true, auditService.currentCorrelationId()));
     }
 
+    @PostMapping("/accounts/{accountId}/temporary-password-reset")
+    @PreAuthorize("hasAuthority('ACCOUNT:RESET_PASSWORD')")
+    ResponseEntity<Void> resetTemporaryPassword(
+            @PathVariable String accountId,
+            @Valid @RequestBody TemporaryPasswordResetRequest request) {
+        accountService.resetTemporaryPassword(
+                accountId,
+                request.temporaryPassword(),
+                request.reason());
+        return ResponseEntity.noContent().build();
+    }
+
     @PutMapping("/accounts/{accountId}/role-assignments")
     @PreAuthorize("hasAuthority('ROLE:ASSIGN')")
     AccountDetail replaceRoleAssignments(
@@ -132,11 +177,44 @@ public class AccountController {
         return accountService.listRoles();
     }
 
+    @GetMapping("/grantable-scopes/companies")
+    @PreAuthorize("hasAuthority('ROLE:ASSIGN')")
+    ResponseEntity<List<GrantableCompany>> listGrantableCompanies(
+            @RequestParam String scopeType,
+            @RequestParam(defaultValue = "ROLE_ASSIGNMENT") String usage) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(accountService.listGrantableCompanies(scopeType, usage));
+    }
+
+    @GetMapping("/grantable-scopes/companies/{companyId}/organizations")
+    @PreAuthorize("hasAuthority('ROLE:ASSIGN')")
+    ResponseEntity<List<GrantableOrganization>> listGrantableOrganizations(
+            @PathVariable String companyId,
+            @RequestParam(defaultValue = "ROLE_ASSIGNMENT") String usage) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(accountService.listGrantableOrganizations(
+                        companyId, usage));
+    }
+
     public record AccountCreateRequest(
             @NotBlank @Size(min = 3, max = 128) String username,
             @NotBlank @Size(max = 100) String displayName,
             @NotBlank @Size(min = 12, max = 256) String temporaryPassword,
-            @NotEmpty List<@Valid RoleAssignmentRequest> roleAssignments) {
+            @Size(max = 36) String employeeId,
+            @NotEmpty @Size(max = 100)
+            List<@Valid RoleAssignmentRequest> roleAssignments) {
+    }
+
+    public record EmployeeAccountsCreateRequest(
+            @NotEmpty @Size(max = 20)
+            List<@NotBlank @Size(max = 36) String> employeeIds) {
+    }
+
+    public record TemporaryPasswordResetRequest(
+            @NotBlank @Size(min = 12, max = 256) String temporaryPassword,
+            @NotBlank @Size(min = 2, max = 500) String reason) {
     }
 
     public record AccountStatusUpdateRequest(
@@ -152,9 +230,10 @@ public class AccountController {
     }
 
     public record RoleAssignmentRequest(
-            @NotBlank String roleId,
+            @NotBlank @Size(max = 36) String roleId,
             @NotBlank String scopeType,
-            String scopeResourceId,
+            @Size(max = 36) String scopeResourceId,
+            Boolean includeDescendants,
             @NotNull Instant validFrom,
             Instant validTo) {
 
@@ -163,6 +242,9 @@ public class AccountController {
                     roleId,
                     scopeType,
                     scopeResourceId,
+                    "ORGANIZATION".equals(scopeType)
+                            ? !Boolean.FALSE.equals(includeDescendants)
+                            : !"SELF".equals(scopeType),
                     validFrom,
                     validTo);
         }

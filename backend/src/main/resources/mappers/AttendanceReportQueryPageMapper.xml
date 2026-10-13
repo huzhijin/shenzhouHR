@@ -1,0 +1,2023 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.AttendanceReportQueryPageMapper">
+
+    <select id="findLatestPin"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$PinRow">
+        SELECT projection.attendance_report_projection_id AS projectionId,
+               projection.projection_version AS projectionVersion,
+               projection.period_state AS periodState,
+               projection.data_as_of AS dataAsOf,
+               projection.source_versions_json AS sourceVersionsJson
+        FROM attendance_report_projection projection
+        WHERE projection.company_id = #{companyId}
+          AND projection.period_start = #{periodStart}
+          AND projection.period_end_exclusive = #{periodEndExclusive}
+          AND projection.status = 'PUBLISHED'
+          AND projection.formula_catalog_version =
+              'FULL_CALCULATION_OA_FORM_HOURS_V8'
+        ORDER BY projection.published_at DESC,
+                 projection.attendance_report_projection_id DESC
+        LIMIT 1
+    </select>
+
+    <select id="companyHasSourceEvidence" resultType="boolean">
+        SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM effective_attendance_event event
+            JOIN employee roster_employee
+              ON roster_employee.employee_id = event.employee_id
+             AND roster_employee.company_id = #{companyId}
+            WHERE event.created_at &lt;= #{dataAsOf}
+              AND (
+                    (
+                        event.event_kind = 'PUNCH_POINT'
+                        AND event.point_instant &gt;= TIMESTAMPADD(HOUR, -8, CAST(#{periodStart} AS DATETIME))
+                        AND event.point_instant &lt; TIMESTAMPADD(HOUR, -8, CAST(#{periodEndExclusive} AS DATETIME))
+                    )
+                    OR (
+                        event.event_kind = 'OA_INTERVAL'
+                        AND event.interval_end &gt; TIMESTAMPADD(HOUR, -8, CAST(#{periodStart} AS DATETIME))
+                        AND event.interval_start &lt; TIMESTAMPADD(HOUR, -8, CAST(#{periodEndExclusive} AS DATETIME))
+                    )
+                  )
+        ) THEN 1 ELSE 0 END AS hasEvidence
+    </select>
+
+    <select id="listDescendantOrganizationIds" resultType="string">
+        SELECT #{organizationId}
+        UNION
+        SELECT closure.descendant_organization_id
+        FROM organization_current_closure closure
+        WHERE closure.ancestor_organization_id = #{organizationId}
+    </select>
+
+    <sql id="authorizedEmployee">
+        <if test="employeeIds != null and employeeIds.size() &gt; 0">
+            AND fact.employee_id IN
+            <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        </if>
+        <if test="employeeId != null">
+            AND fact.employee_id = #{employeeId}
+        </if>
+        <if test="employeeNumber != null and employeeNumber != ''">
+            AND employee_version.employee_number = #{employeeNumber}
+        </if>
+        <if test="organizationIds != null and organizationIds.size() &gt; 0">
+            AND fact.organization_id IN
+            <foreach collection="organizationIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        </if>
+    </sql>
+
+    <sql id="projectionIn">
+        fact.attendance_report_projection_id IN
+        <foreach collection="projectionIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        AND fact.company_id = #{companyId}
+    </sql>
+
+    <sql id="exceptionTypeFilter">
+        <choose>
+            <when test="exceptionType == 'MISSING_PUNCH'">
+                AND fact.exception_type IN (
+                    'MISSING_PUNCH',
+                    'MISSING_PUNCH_PENDING',
+                    'MISSING_PUNCH_OVERDUE',
+                    'MISSING_ON_DUTY',
+                    'MISSING_OFF_DUTY')
+            </when>
+            <when test="exceptionType == 'ACTIONABLE'">
+                AND fact.exception_type IN (
+                    'LATE',
+                    'EARLY_DEPARTURE',
+                    'MISSING_PUNCH_PENDING',
+                    'MISSING_PUNCH_OVERDUE',
+                    'MISSING_PUNCH',
+                    'MISSING_ON_DUTY',
+                    'MISSING_OFF_DUTY',
+                    'ABSENCE',
+                    'FAKE_OVERTIME',
+                    'OVERTIME_FORM_BEYOND_LAST_PUNCH',
+                    'NEGATIVE_LEAVE_BALANCE',
+                    'NEGATIVE_ANNUAL_LEAVE_BALANCE',
+                    'NEGATIVE_TIME_OFF_BALANCE')
+            </when>
+            <when test="exceptionType != null and exceptionType != ''">
+                AND fact.exception_type = #{exceptionType}
+            </when>
+        </choose>
+    </sql>
+
+    <sql id="hideWuhanDalianAugustExceptions">
+        AND NOT (
+            fact.business_date &gt;= '2026-08-01'
+            AND fact.business_date &lt; '2026-09-01'
+            AND (
+                EXISTS (
+                    SELECT 1
+                    FROM organization_version own_version
+                    WHERE own_version.organization_id = fact.organization_id
+                      AND own_version.effective_to IS NULL
+                      AND (
+                            own_version.name LIKE '%武汉%'
+                            OR own_version.name LIKE '%大连%'
+                      )
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM organization_current_closure closure
+                    JOIN organization_version ancestor_version
+                      ON ancestor_version.organization_id =
+                         closure.ancestor_organization_id
+                     AND ancestor_version.effective_to IS NULL
+                    WHERE closure.descendant_organization_id = fact.organization_id
+                      AND (
+                            ancestor_version.name LIKE '%武汉%'
+                            OR ancestor_version.name LIKE '%大连%'
+                      )
+                )
+            )
+        )
+    </sql>
+
+    <sql id="punchSideFilter">
+        <if test="punchSide == '上班缺卡'">
+            AND fact.exception_type = 'MISSING_ON_DUTY'
+        </if>
+        <if test="punchSide == '下班缺卡'">
+            AND fact.exception_type = 'MISSING_OFF_DUTY'
+        </if>
+    </sql>
+
+    <sql id="oaDocumentType">
+        <if test="documentType == 'LEAVE'">
+            AND fact.document_type IN ('LEAVE', 'TIME_OFF')
+        </if>
+        <if test="documentType == 'OVERTIME'">
+            AND fact.document_type = 'OVERTIME'
+        </if>
+        <if test="documentType != null and documentType != 'LEAVE' and documentType != 'OVERTIME'">
+            AND fact.document_type = #{documentType}
+        </if>
+    </sql>
+
+    <!-- OA instants are persisted in UTC; query dates are Shanghai business
+         dates. Keep daily business_date predicates as DATE comparisons.
+         A point at the first midnight belongs to the selected day. -->
+    <sql id="oaBusinessDateWindow">
+        <bind name="recognizedDatePattern" value="@com.szsemicon.hr.reporting.application.OaRecognizedDayMinutes@anyDatePattern(fromDate, toDateExclusive)"/>
+        AND (
+            -- Facts with non-empty daymap JSON: use date keys (including 0 for REST44)
+            (fact.document_type IN ('LEAVE', 'TIME_OFF')
+             AND fact.recognized_minutes_by_date_json IS NOT NULL
+             AND fact.recognized_minutes_by_date_json != ''
+             AND fact.recognized_minutes_by_date_json != '{}'
+             AND CONCAT('', fact.recognized_minutes_by_date_json)
+                    REGEXP #{recognizedDatePattern})
+            -- Facts without daymap, empty {}, or non-LEAVE: use original interval
+            -- Empty {} and NULL both preserve original interval for audit trail
+            OR (
+                (fact.document_type NOT IN ('LEAVE', 'TIME_OFF')
+                 OR fact.recognized_minutes_by_date_json IS NULL
+                 OR fact.recognized_minutes_by_date_json = ''
+                 OR fact.recognized_minutes_by_date_json = '{}')
+                AND COALESCE(fact.interval_end,
+                    TIMESTAMPADD(MICROSECOND, 1, fact.point_instant))
+                  &gt; TIMESTAMPADD(HOUR, -8, CAST(#{fromDate} AS DATETIME))
+                AND COALESCE(fact.interval_start, fact.point_instant)
+                  &lt; TIMESTAMPADD(HOUR, -8, CAST(#{toDateExclusive} AS DATETIME))
+            )
+        )
+    </sql>
+
+    <sql id="oaContextJoin">
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id =
+             fact.oa_attendance_document_id
+    </sql>
+
+    <sql id="oaOvertimeTreatment">
+        <if test="overtimeTreatment == '计薪加班' or overtimeTreatment == '加班费'">
+            AND (
+                  fact.leave_type_code LIKE '%PAID%'
+                  OR fact.leave_type_code LIKE '%计薪%'
+                  OR fact.leave_type_code LIKE '%加班费%'
+                  OR context.overtime_type IN ('PAID', 'COMPENSATED_OVERTIME')
+            )
+        </if>
+        <if test="overtimeTreatment == '转调休加班' or overtimeTreatment == '转调休'">
+            AND (
+                  fact.leave_type_code LIKE '%COMPENSATORY%'
+                  OR fact.leave_type_code LIKE '%调休%'
+                  OR context.overtime_type IN ('COMPENSATORY', 'TIME_OFF_IN_LIEU')
+            )
+        </if>
+        <if test="overtimeTreatment == '义务加班'">
+            AND (
+                  fact.leave_type_code LIKE '%VOLUNTARY%'
+                  OR fact.leave_type_code LIKE '%义务%'
+                  OR context.overtime_type IN ('VOLUNTARY', 'OBLIGATORY_OVERTIME')
+            )
+        </if>
+    </sql>
+
+    <select id="listDirectoryEmployees"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DirectoryEmployeeRow">
+        WITH current_assignment_rows AS (
+            SELECT employee.employee_id,
+                   employee_version.employee_number,
+                   employee_version.display_name,
+                   employment.organization_id,
+                   organization_version.name AS organization_name,
+                   GREATEST(
+                       employee_version.effective_from,
+                       employment.effective_from,
+                       organization_version.effective_from
+                   ) AS overlap_start,
+                   employment.effective_from AS assignment_start,
+                   organization_version.effective_from AS org_version_start,
+                   employment.assignment_id
+            FROM employee employee
+            JOIN employee_version employee_version
+              ON employee_version.employee_id = employee.employee_id
+             AND employee_version.status = 'ACTIVE'
+            JOIN employment_assignment employment
+              ON employment.employee_id = employee.employee_id
+             AND employment.version_valid_to IS NULL
+             AND employment.record_status = 'ACTIVE'
+            JOIN organization_version organization_version
+              ON organization_version.organization_id = employment.organization_id
+             AND organization_version.status = 'ACTIVE'
+            WHERE employee.company_id = #{companyId}
+              <if test="employeeIds != null and employeeIds.size() &gt; 0">
+                  AND employee.employee_id IN
+                  <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </if>
+              <if test="organizationIds != null and organizationIds.size() &gt; 0">
+                  AND employment.organization_id IN
+                  <foreach collection="organizationIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </if>
+              AND GREATEST(
+                      employee_version.effective_from,
+                      employment.effective_from,
+                      organization_version.effective_from
+                  ) &lt; LEAST(
+                      COALESCE(employee_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(employment.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(organization_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      #{periodEndExclusive}
+                  )
+              AND LEAST(
+                      COALESCE(employee_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(employment.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(organization_version.effective_to, TIMESTAMP '9999-12-31 23:59:59')
+                  ) &gt; #{periodStart}
+        ),
+        historical_assignment_rows AS (
+            SELECT employee.employee_id,
+                   employee_version.employee_number,
+                   employee_version.display_name,
+                   employment.organization_id,
+                   organization_version.name AS organization_name,
+                   GREATEST(
+                       employee_version.effective_from,
+                       employment.effective_from,
+                       organization_version.effective_from
+                   ) AS overlap_start,
+                   employment.effective_from AS assignment_start,
+                   organization_version.effective_from AS org_version_start,
+                   employment.assignment_id
+            FROM employee employee
+            JOIN employee_version employee_version
+              ON employee_version.employee_id = employee.employee_id
+            JOIN employment_assignment employment
+              ON employment.employee_id = employee.employee_id
+             AND employment.record_status = 'ACTIVE'
+            JOIN organization_version organization_version
+              ON organization_version.organization_id = employment.organization_id
+             AND organization_version.status = 'ACTIVE'
+            WHERE employee.company_id = #{companyId}
+              AND employee.employment_status IN ('TERMINATED', 'RESIGNED')
+              AND NOT EXISTS (
+                  SELECT 1 FROM employment_assignment current_emp
+                  WHERE current_emp.employee_id = employee.employee_id
+                    AND current_emp.version_valid_to IS NULL
+                    AND current_emp.record_status = 'ACTIVE'
+              )
+              <if test="employeeIds != null and employeeIds.size() &gt; 0">
+                  AND employee.employee_id IN
+                  <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </if>
+              <if test="organizationIds != null and organizationIds.size() &gt; 0">
+                  AND employment.organization_id IN
+                  <foreach collection="organizationIds" item="id" open="(" separator="," close=")">
+                      #{id}
+                  </foreach>
+              </if>
+              AND GREATEST(
+                      employee_version.effective_from,
+                      employment.effective_from,
+                      organization_version.effective_from
+                  ) &lt; LEAST(
+                      COALESCE(employee_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(employment.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(organization_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      #{periodEndExclusive}
+                  )
+              AND LEAST(
+                      COALESCE(employee_version.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(employment.effective_to, TIMESTAMP '9999-12-31 23:59:59'),
+                      COALESCE(organization_version.effective_to, TIMESTAMP '9999-12-31 23:59:59')
+                  ) &gt; #{periodStart}
+        ),
+        authorized_candidate_rows AS (
+            SELECT * FROM current_assignment_rows
+            UNION ALL
+            SELECT * FROM historical_assignment_rows
+        ),
+        ranked_rows AS (
+            SELECT employee_id,
+                   employee_number,
+                   display_name,
+                   organization_id,
+                   organization_name,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY employee_id
+                       ORDER BY overlap_start DESC,
+                                assignment_start DESC,
+                                org_version_start DESC,
+                                assignment_id DESC
+                   ) AS rn
+            FROM authorized_candidate_rows
+        )
+        SELECT employee_id AS employeeId,
+               employee_number AS employeeNumber,
+               display_name AS employeeName,
+               organization_id AS organizationId,
+               organization_name AS organizationName
+        FROM ranked_rows
+        WHERE rn = 1
+        ORDER BY employee_number
+        LIMIT 2000
+    </select>
+
+    <sql id="hideApprovedOaCoveredExceptions">
+        AND NOT EXISTS (
+            SELECT 1
+            FROM attendance_report_oa_fact oa
+            WHERE oa.attendance_report_projection_id =
+                  fact.attendance_report_projection_id
+              AND oa.employee_id = fact.employee_id
+              AND (CASE WHEN oa.source_status = 'UNKNOWN'
+                    AND oa.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+               THEN 'PENDING' ELSE oa.source_status END) IN (
+                    'APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+              AND DATE(DATE_ADD(
+                    COALESCE(oa.interval_start, oa.point_instant),
+                    INTERVAL 8 HOUR)) &lt;= fact.business_date
+              AND DATE(DATE_ADD(
+                    DATE_SUB(
+                        COALESCE(oa.interval_end, oa.point_instant),
+                        INTERVAL 1 SECOND),
+                    INTERVAL 8 HOUR)) &gt;= fact.business_date
+              AND (
+                    (oa.document_type IN (
+                            'LEAVE', 'TIME_OFF', 'OUTING', 'TRIP', 'EXEMPT_PUNCH')
+                        AND fact.exception_type IN (
+                            'LATE',
+                            'EARLY_DEPARTURE',
+                            'ABSENCE',
+                            'MISSING_PUNCH',
+                            'MISSING_PUNCH_PENDING',
+                            'MISSING_PUNCH_OVERDUE',
+                            'MISSING_ON_DUTY',
+                            'MISSING_OFF_DUTY'))
+                    OR (
+                        oa.document_type = 'PUNCH_CORRECTION'
+                        AND (
+                            (fact.exception_type IN (
+                                    'MISSING_ON_DUTY', 'LATE')
+                                AND TIME(DATE_ADD(
+                                    COALESCE(oa.point_instant, oa.interval_start),
+                                    INTERVAL 8 HOUR)) &lt; '12:00:00')
+                            OR (fact.exception_type IN (
+                                    'MISSING_OFF_DUTY', 'EARLY_DEPARTURE')
+                                AND TIME(DATE_ADD(
+                                    COALESCE(oa.point_instant, oa.interval_start),
+                                    INTERVAL 8 HOUR)) &gt;= '12:00:00')
+                            OR fact.exception_type IN (
+                                    'MISSING_PUNCH',
+                                    'MISSING_PUNCH_PENDING',
+                                    'MISSING_PUNCH_OVERDUE')
+                        )
+                    )
+                    OR (
+                        oa.document_type = 'OVERTIME'
+                        AND fact.exception_type IN (
+                            'MISSING_OFF_DUTY',
+                            'MISSING_PUNCH',
+                            'MISSING_PUNCH_PENDING',
+                            'MISSING_PUNCH_OVERDUE')
+                        AND DAYOFWEEK(fact.business_date) IN (1, 7)
+                    )
+              )
+        )
+    </sql>
+
+    <!-- Start from the selected projection facts, not every employee/org version
+         and its historical exceptions. Only the join order changes. -->
+    <select id="countExceptions" resultType="long">
+        SELECT /*!80000 STRAIGHT_JOIN */ COUNT(*)
+        FROM attendance_report_exception_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          <include refid="authorizedEmployee"/>
+          <include refid="exceptionTypeFilter"/>
+          <if test="severity != null and severity != ''">
+              AND fact.severity = #{severity}
+          </if>
+          <if test="state != null and state != ''">
+              AND fact.state = #{state}
+          </if>
+          <include refid="punchSideFilter"/>
+          <include refid="hideApprovedOaCoveredExceptions"/>
+          <include refid="hideWuhanDalianAugustExceptions"/>
+    </select>
+
+    <select id="listExceptions"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$ExceptionRow">
+        SELECT /*!80000 STRAIGHT_JOIN */ fact.exception_case_id AS caseId,
+               fact.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               fact.organization_id AS organizationId,
+               organization_version.name AS organizationName,
+               fact.business_date AS businessDate,
+               fact.exception_type AS exceptionType,
+               fact.severity,
+               fact.state,
+               fact.exception_minutes AS exceptionMinutes,
+               fact.safe_evidence_summary AS details,
+               daily.first_punch_at AS firstPunchAt,
+               daily.last_punch_at AS lastPunchAt
+        FROM attendance_report_exception_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        LEFT JOIN (
+            SELECT daily_fact.attendance_report_projection_id,
+                   daily_fact.employee_id,
+                   daily_fact.business_date,
+                   MIN(daily_fact.first_punch_at) AS first_punch_at,
+                   MAX(daily_fact.last_punch_at) AS last_punch_at
+            FROM attendance_report_daily_fact daily_fact
+            WHERE daily_fact.attendance_report_projection_id IN
+            <foreach collection="projectionIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+            GROUP BY daily_fact.attendance_report_projection_id,
+                     daily_fact.employee_id,
+                     daily_fact.business_date
+        ) daily
+          ON daily.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+         AND daily.employee_id = fact.employee_id
+         AND daily.business_date = fact.business_date
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          <include refid="authorizedEmployee"/>
+          <include refid="exceptionTypeFilter"/>
+          <if test="severity != null and severity != ''">
+              AND fact.severity = #{severity}
+          </if>
+          <if test="state != null and state != ''">
+              AND fact.state = #{state}
+          </if>
+          <include refid="punchSideFilter"/>
+          <include refid="hideApprovedOaCoveredExceptions"/>
+          <include refid="hideWuhanDalianAugustExceptions"/>
+        ORDER BY fact.business_date,
+                 employee_version.employee_number,
+                 fact.exception_case_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countOaDocuments" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT fact.attendance_report_oa_fact_id
+            FROM attendance_report_oa_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            <if test="overtimeTreatment != null and overtimeTreatment != ''">
+                <include refid="oaContextJoin"/>
+            </if>
+            WHERE <include refid="projectionIn"/>
+              AND (CASE WHEN fact.source_status = 'UNKNOWN'
+                        AND fact.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+                   THEN 'PENDING' ELSE fact.source_status END) IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+              <include refid="oaBusinessDateWindow"/>
+              <include refid="authorizedEmployee"/>
+              <include refid="oaDocumentType"/>
+              <if test="leaveType != null and leaveType != ''">
+                  AND (
+                        fact.leave_type_code = #{leaveType}
+                        OR (#{leaveType} = 'COMPENSATORY'
+                            AND fact.document_type = 'TIME_OFF')
+                  )
+              </if>
+              <if test="sourceStatus != null and sourceStatus != ''">
+                  AND (CASE WHEN fact.source_status = 'UNKNOWN'
+                        AND fact.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+                   THEN 'PENDING' ELSE fact.source_status END) = #{sourceStatus}
+              </if>
+              <include refid="oaOvertimeTreatment"/>
+              <if test="occurrenceDay != null">
+                  AND DAY(TIMESTAMPADD(HOUR, 8,
+                        COALESCE(fact.interval_start, fact.point_instant)))
+                        = #{occurrenceDay}
+              </if>
+            UNION ALL
+            SELECT fact.attendance_report_hr_paper_fact_id
+            FROM attendance_report_hr_paper_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE fact.attendance_report_projection_id IN
+            <foreach collection="projectionIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+              AND fact.company_id = #{companyId}
+              AND fact.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+              <include refid="oaBusinessDateWindow"/>
+              <include refid="authorizedEmployee"/>
+              <include refid="oaDocumentType"/>
+              <if test="leaveType != null and leaveType != ''">
+                  AND (
+                        fact.leave_type_code = #{leaveType}
+                        OR (#{leaveType} = 'COMPENSATORY'
+                            AND fact.document_type = 'TIME_OFF')
+                  )
+              </if>
+              <if test="sourceStatus != null and sourceStatus != ''">
+                  AND fact.source_status = #{sourceStatus}
+              </if>
+              <if test="occurrenceDay != null">
+                  AND DAY(TIMESTAMPADD(HOUR, 8,
+                        COALESCE(fact.interval_start, fact.point_instant)))
+                        = #{occurrenceDay}
+              </if>
+        ) AS combined_facts
+    </select>
+
+    <select id="listOaDocuments"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$OaRow">
+        SELECT documentId, employeeId, employeeNumber, employeeName, organizationId,
+               organizationName, documentType, leaveType, startAt, endExclusive,
+               recognizedMinutes, sourceStatus, sourceOrigin, projectionStart,
+               projectionEndExclusive, recognizedMinutesByDateJson, projectionDataAsOf
+        FROM (
+            SELECT fact.oa_attendance_document_id AS documentId,
+                   fact.employee_id AS employeeId,
+                   employee_version.employee_number AS employeeNumber,
+                   employee_version.display_name AS employeeName,
+                   fact.organization_id AS organizationId,
+                   organization_version.name AS organizationName,
+                   fact.document_type AS documentType,
+                   COALESCE(
+                       NULLIF(fact.leave_type_code, ''),
+                       context.overtime_type,
+                       CASE WHEN fact.document_type = 'TIME_OFF'
+                            THEN 'TIME_OFF' END) AS leaveType,
+                   COALESCE(fact.interval_start, fact.point_instant) AS startAt,
+                   COALESCE(fact.interval_end,
+                            TIMESTAMPADD(MICROSECOND, 1, fact.point_instant))
+                       AS endExclusive,
+                   fact.recognized_minutes AS recognizedMinutes,
+                   CASE WHEN fact.source_status = 'UNKNOWN'
+                        AND fact.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+                   THEN 'PENDING' ELSE fact.source_status END AS sourceStatus,
+                   CASE
+                       WHEN document.source_business_key LIKE 'PAPER:%'
+                           THEN 'PAPER'
+                       ELSE 'OA'
+                   END AS sourceOrigin,
+                   projection.period_start AS projectionStart,
+                   projection.period_end_exclusive AS projectionEndExclusive,
+                   fact.recognized_minutes_by_date_json AS recognizedMinutesByDateJson,
+                   projection.data_as_of AS projectionDataAsOf
+            FROM attendance_report_oa_fact fact
+            JOIN attendance_report_projection projection
+              ON projection.attendance_report_projection_id =
+                 fact.attendance_report_projection_id
+            LEFT JOIN oa_attendance_document document
+              ON document.oa_attendance_document_id = fact.oa_attendance_document_id
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            JOIN organization_version organization_version
+              ON organization_version.organization_version_id =
+                 fact.organization_version_id
+            <include refid="oaContextJoin"/>
+            WHERE <include refid="projectionIn"/>
+              AND (CASE WHEN fact.source_status = 'UNKNOWN'
+                        AND fact.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+                   THEN 'PENDING' ELSE fact.source_status END) IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+              <include refid="oaBusinessDateWindow"/>
+              <include refid="authorizedEmployee"/>
+              <include refid="oaDocumentType"/>
+              <if test="leaveType != null and leaveType != ''">
+                  AND (
+                        fact.leave_type_code = #{leaveType}
+                        OR (#{leaveType} = 'COMPENSATORY'
+                            AND fact.document_type = 'TIME_OFF')
+                  )
+              </if>
+              <if test="sourceStatus != null and sourceStatus != ''">
+                  AND (CASE WHEN fact.source_status = 'UNKNOWN'
+                        AND fact.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+                   THEN 'PENDING' ELSE fact.source_status END) = #{sourceStatus}
+              </if>
+              <include refid="oaOvertimeTreatment"/>
+              <if test="occurrenceDay != null">
+                  AND DAY(TIMESTAMPADD(HOUR, 8,
+                        COALESCE(fact.interval_start, fact.point_instant)))
+                        = #{occurrenceDay}
+              </if>
+            UNION ALL
+            SELECT fact.source_document_key AS documentId,
+                   fact.employee_id AS employeeId,
+                   employee_version.employee_number AS employeeNumber,
+                   employee_version.display_name AS employeeName,
+                   fact.organization_id AS organizationId,
+                   organization_version.name AS organizationName,
+                   fact.document_type AS documentType,
+                   COALESCE(
+                       NULLIF(fact.leave_type_code, ''),
+                       CASE WHEN fact.document_type = 'TIME_OFF'
+                            THEN 'TIME_OFF' END) AS leaveType,
+                   COALESCE(fact.interval_start, fact.point_instant) AS startAt,
+                   COALESCE(fact.interval_end,
+                            TIMESTAMPADD(MICROSECOND, 1, fact.point_instant))
+                       AS endExclusive,
+                   fact.recognized_minutes AS recognizedMinutes,
+                   fact.source_status AS sourceStatus,
+                   'PAPER' AS sourceOrigin,
+                   projection.period_start AS projectionStart,
+                   projection.period_end_exclusive AS projectionEndExclusive,
+                   fact.recognized_minutes_by_date_json AS recognizedMinutesByDateJson,
+                   projection.data_as_of AS projectionDataAsOf
+            FROM attendance_report_hr_paper_fact fact
+            JOIN attendance_report_projection projection
+              ON projection.attendance_report_projection_id =
+                 fact.attendance_report_projection_id
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            JOIN organization_version organization_version
+              ON organization_version.organization_version_id =
+                 fact.organization_version_id
+            WHERE fact.attendance_report_projection_id IN
+            <foreach collection="projectionIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+              AND fact.company_id = #{companyId}
+              AND fact.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+              <include refid="oaBusinessDateWindow"/>
+              <include refid="authorizedEmployee"/>
+              <include refid="oaDocumentType"/>
+              <if test="leaveType != null and leaveType != ''">
+                  AND (
+                        fact.leave_type_code = #{leaveType}
+                        OR (#{leaveType} = 'COMPENSATORY'
+                            AND fact.document_type = 'TIME_OFF')
+                  )
+              </if>
+              <if test="sourceStatus != null and sourceStatus != ''">
+                  AND fact.source_status = #{sourceStatus}
+              </if>
+              <if test="occurrenceDay != null">
+                  AND DAY(TIMESTAMPADD(HOUR, 8,
+                        COALESCE(fact.interval_start, fact.point_instant)))
+                        = #{occurrenceDay}
+              </if>
+        ) AS combined
+        ORDER BY startAt, employeeNumber
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <sql id="dailyAggregateHaving">
+        <if test="lateCountBand == '2次及以上'">
+            AND SUM(CASE WHEN fact.late_minutes &gt; 0 THEN 1 ELSE 0 END) &gt;= 2
+        </if>
+        <if test="lateCountBand == '3次及以上'">
+            AND SUM(CASE WHEN fact.late_minutes &gt; 0 THEN 1 ELSE 0 END) &gt;= 3
+        </if>
+        <if test="lateMinuteBand == '10分钟以内'">
+            AND SUM(fact.late_minutes) &gt; 0
+            AND SUM(fact.late_minutes) &lt;= 10
+        </if>
+        <if test="lateMinuteBand == '11-30分钟'">
+            AND SUM(fact.late_minutes) BETWEEN 11 AND 30
+        </if>
+        <if test="lateMinuteBand == '30分钟以上'">
+            AND SUM(fact.late_minutes) &gt; 30
+        </if>
+        <if test="overtimeTreatment == '计薪加班' or overtimeTreatment == '加班费'">
+            AND SUM(fact.paid_overtime_minutes) &gt; 0
+        </if>
+        <if test="overtimeTreatment == '转调休加班' or overtimeTreatment == '转调休'">
+            AND SUM(fact.compensatory_overtime_minutes) &gt; 0
+        </if>
+        <if test="overtimeTreatment == '义务加班'">
+            AND SUM(fact.voluntary_overtime_minutes) &gt; 0
+        </if>
+        <if test="occurrenceDay != null">
+            AND SUM(CASE
+                    WHEN DAY(fact.business_date) = #{occurrenceDay}
+                     AND (fact.paid_overtime_minutes
+                          + fact.compensatory_overtime_minutes
+                          + fact.voluntary_overtime_minutes) &gt; 0
+                    THEN 1 ELSE 0 END) &gt; 0
+        </if>
+        <if test="employmentStatus == '本月入职'">
+            AND MAX(fact.shift_label) LIKE '%入职%'
+        </if>
+        <if test="employmentStatus == '本月离职'">
+            AND MAX(fact.shift_label) LIKE '%离职%'
+        </if>
+        <if test="rateBelow != null">
+            AND SUM(fact.scheduled_attendance_days) &gt; 0
+            AND (SUM(fact.actual_attendance_days)
+                 * 100.0
+                 / SUM(fact.scheduled_attendance_days)) &lt; #{rateBelow}
+        </if>
+        <if test="attendanceType != null and attendanceType != ''">
+            AND MAX(fact.leave_type) = #{attendanceType}
+        </if>
+    </sql>
+
+    <select id="countEmployeeDailyAggregates" resultType="long">
+        SELECT COUNT(*) FROM (
+            SELECT fact.employee_id
+            FROM attendance_report_daily_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.business_date &gt;= #{fromDate}
+              AND fact.business_date &lt; #{toDateExclusive}
+              <include refid="authorizedEmployee"/>
+            GROUP BY fact.employee_id
+            HAVING 1 = 1
+              <include refid="dailyAggregateHaving"/>
+              <if test="sheet == 'late'">
+                  AND SUM(fact.late_minutes) &gt; 0
+              </if>
+        ) aggregated
+    </select>
+
+    <select id="listEmployeeDailyAggregates"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$EmployeeDailyAggregateRow">
+        WITH authorized_facts AS (
+            SELECT fact.employee_id,
+                   fact.business_date,
+                   fact.organization_id,
+                   fact.employee_version_id,
+                   fact.organization_version_id,
+                   fact.late_minutes,
+                   fact.penalized_late_minutes,
+                   fact.missing_punch_count,
+                   fact.scheduled_minutes,
+                   fact.paid_overtime_minutes,
+                   fact.compensatory_overtime_minutes,
+                   fact.voluntary_overtime_minutes,
+                   fact.leave_or_time_off_minutes,
+                   fact.leave_type,
+                   fact.actual_work_minutes,
+                   fact.scheduled_attendance_days,
+                   fact.actual_attendance_days,
+                   fact.shift_label
+            FROM attendance_report_daily_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.business_date &gt;= #{fromDate}
+              AND fact.business_date &lt; #{toDateExclusive}
+              <include refid="authorizedEmployee"/>
+        ),
+        last_day_identity AS (
+            SELECT fact.employee_id,
+                   fact.organization_id,
+                   fact.employee_version_id,
+                   fact.organization_version_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fact.employee_id
+                       ORDER BY fact.business_date DESC,
+                                fact.organization_id DESC
+                   ) AS rn
+            FROM authorized_facts fact
+        )
+        SELECT fact.employee_id AS employeeId,
+               MAX(employee_version.employee_number) AS employeeNumber,
+               MAX(employee_version.display_name) AS employeeName,
+               MAX(CASE WHEN ldi.rn = 1 THEN ldi.organization_id END) AS organizationId,
+               MAX(CASE WHEN ldi.rn = 1 THEN organization_version.name END) AS organizationName,
+               SUM(CASE WHEN fact.late_minutes &gt; 0 THEN 1 ELSE 0 END) AS lateEvents,
+               SUM(fact.late_minutes) AS lateMinutes,
+               SUM(fact.penalized_late_minutes) AS penalizedLateMinutes,
+               SUM(fact.missing_punch_count) AS missingPunches,
+               SUM(fact.scheduled_minutes) AS scheduledMinutes,
+               SUM(fact.paid_overtime_minutes) AS paidOvertimeMinutes,
+               SUM(fact.compensatory_overtime_minutes)
+                   AS compensatoryOvertimeMinutes,
+               SUM(fact.voluntary_overtime_minutes) AS voluntaryOvertimeMinutes,
+               SUM(fact.leave_or_time_off_minutes) AS leaveMinutes,
+               SUM(CASE WHEN fact.leave_type IN ('ANNUAL', 'ANNUAL_LEAVE')
+                        THEN fact.leave_or_time_off_minutes ELSE 0 END)
+                   AS annualLeaveMinutes,
+               SUM(CASE WHEN fact.leave_type IN (
+                            'TIME_OFF', 'COMPENSATORY')
+                        THEN fact.leave_or_time_off_minutes ELSE 0 END)
+                   AS timeOffMinutes,
+               SUM(fact.actual_work_minutes) AS actualWorkMinutes,
+               SUM(fact.scheduled_attendance_days) AS scheduledAttendanceDays,
+               SUM(fact.actual_attendance_days) AS actualAttendanceDays,
+               CAST(NULL AS CHAR) AS employmentNote
+        FROM authorized_facts fact
+        JOIN last_day_identity ldi
+          ON ldi.employee_id = fact.employee_id
+         AND ldi.rn = 1
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = ldi.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             ldi.organization_version_id
+        GROUP BY fact.employee_id
+        HAVING 1 = 1
+          <include refid="dailyAggregateHaving"/>
+          <if test="sheet == 'late'">
+              AND SUM(fact.late_minutes) &gt; 0
+          </if>
+        ORDER BY MAX(employee_version.employee_number)
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countTimeAccounts" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_report_time_account_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="projectionIn"/>
+          <choose>
+              <when test="accountType == 'TIME_OFF'">
+                  AND fact.account_type IN ('TIME_OFF', 'COMP_TIME')
+              </when>
+              <when test="accountType != null and accountType != ''">
+                  AND fact.account_type = #{accountType}
+              </when>
+              <otherwise>
+                  AND fact.account_type = 'ANNUAL_LEAVE'
+              </otherwise>
+          </choose>
+          <include refid="authorizedEmployee"/>
+          <if test="annualBalanceBand == '有余额'">
+              AND (fact.opening_hours + fact.granted_hours
+                   + fact.overtime_credit_hours + fact.manual_increase_hours
+                   - fact.used_hours - fact.expired_hours
+                   - fact.returned_hours - fact.manual_deduction_hours) &gt; 0
+          </if>
+          <if test="annualBalanceBand == '已用完'">
+              AND (fact.opening_hours + fact.granted_hours
+                   + fact.overtime_credit_hours + fact.manual_increase_hours
+                   - fact.used_hours - fact.expired_hours
+                   - fact.returned_hours - fact.manual_deduction_hours) &lt;= 0
+          </if>
+          <if test="annualBalanceBand == '余额不足2天'">
+              AND (fact.opening_hours + fact.granted_hours
+                   + fact.overtime_credit_hours + fact.manual_increase_hours
+                   - fact.used_hours - fact.expired_hours
+                   - fact.returned_hours - fact.manual_deduction_hours)
+                  BETWEEN 0.01 AND 16
+          </if>
+          <if test="annualLevelOne != null and annualLevelOne != ''">
+              AND organization_version.name LIKE CONCAT('%', #{annualLevelOne}, '%')
+          </if>
+          <if test="annualLevelTwo != null and annualLevelTwo != ''">
+              AND organization_version.name LIKE CONCAT('%', #{annualLevelTwo}, '%')
+          </if>
+    </select>
+
+    <select id="listTimeAccounts"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$TimeAccountRow">
+        SELECT fact.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               fact.organization_id AS organizationId,
+               organization_version.name AS organizationName,
+               fact.account_type AS accountType,
+               fact.opening_hours AS openingHours,
+               fact.granted_hours AS grantedHours,
+               fact.overtime_credit_hours AS overtimeCreditHours,
+               fact.used_hours AS usedHours,
+               (fact.opening_hours + fact.granted_hours
+                + fact.overtime_credit_hours + fact.manual_increase_hours
+                - fact.used_hours - fact.expired_hours
+                - fact.returned_hours - fact.manual_deduction_hours)
+                   AS remainingHours
+        FROM attendance_report_time_account_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="projectionIn"/>
+          <choose>
+              <when test="accountType == 'TIME_OFF'">
+                  AND fact.account_type IN ('TIME_OFF', 'COMP_TIME')
+              </when>
+              <when test="accountType != null and accountType != ''">
+                  AND fact.account_type = #{accountType}
+              </when>
+              <otherwise>
+                  AND fact.account_type = 'ANNUAL_LEAVE'
+              </otherwise>
+          </choose>
+          <include refid="authorizedEmployee"/>
+          <if test="annualBalanceBand == '有余额'">
+              AND (fact.opening_hours + fact.granted_hours
+                   + fact.overtime_credit_hours + fact.manual_increase_hours
+                   - fact.used_hours - fact.expired_hours
+                   - fact.returned_hours - fact.manual_deduction_hours) &gt; 0
+          </if>
+          <if test="annualBalanceBand == '已用完'">
+              AND (fact.opening_hours + fact.granted_hours
+                   + fact.overtime_credit_hours + fact.manual_increase_hours
+                   - fact.used_hours - fact.expired_hours
+                   - fact.returned_hours - fact.manual_deduction_hours) &lt;= 0
+          </if>
+          <if test="annualBalanceBand == '余额不足2天'">
+              AND (fact.opening_hours + fact.granted_hours
+                   + fact.overtime_credit_hours + fact.manual_increase_hours
+                   - fact.used_hours - fact.expired_hours
+                   - fact.returned_hours - fact.manual_deduction_hours)
+                  BETWEEN 0.01 AND 16
+          </if>
+          <if test="annualLevelOne != null and annualLevelOne != ''">
+              AND organization_version.name LIKE CONCAT('%', #{annualLevelOne}, '%')
+          </if>
+          <if test="annualLevelTwo != null and annualLevelTwo != ''">
+              AND organization_version.name LIKE CONCAT('%', #{annualLevelTwo}, '%')
+          </if>
+        ORDER BY employee_version.employee_number
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countMatrixEmployees" resultType="long">
+        SELECT COUNT(DISTINCT fact.employee_id)
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          <include refid="authorizedEmployee"/>
+    </select>
+
+    <select id="listMatrixEmployees"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DirectoryEmployeeRow">
+        WITH authorized_facts AS (
+            SELECT fact.employee_id,
+                   fact.business_date,
+                   fact.organization_id,
+                   fact.employee_version_id,
+                   fact.organization_version_id
+            FROM attendance_report_daily_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.business_date &gt;= #{fromDate}
+              AND fact.business_date &lt; #{toDateExclusive}
+              <include refid="authorizedEmployee"/>
+        ),
+        last_day_identity AS (
+            SELECT af.employee_id,
+                   af.organization_id,
+                   af.employee_version_id,
+                   af.organization_version_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY af.employee_id
+                       ORDER BY af.business_date DESC,
+                                af.organization_id DESC
+                   ) AS rn
+            FROM authorized_facts af
+        )
+        SELECT ldi.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               ldi.organization_id AS organizationId,
+               organization_version.name AS organizationName
+        FROM last_day_identity ldi
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = ldi.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             ldi.organization_version_id
+        WHERE ldi.rn = 1
+        ORDER BY employee_version.employee_number
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listDailyCells"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DailyCellRow">
+        SELECT fact.employee_id AS employeeId,
+               fact.business_date AS businessDate,
+               fact.day_type AS dayType,
+               fact.leave_type AS leaveType,
+               fact.late_minutes AS lateMinutes,
+               fact.early_departure_minutes AS earlyDepartureMinutes,
+               fact.missing_punch_count AS missingPunchCount,
+               fact.first_punch_at AS firstPunchAt,
+               fact.last_punch_at AS lastPunchAt,
+               fact.paid_overtime_minutes AS paidOvertimeMinutes,
+               fact.compensatory_overtime_minutes AS compensatoryOvertimeMinutes
+        FROM attendance_report_daily_fact fact
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.employee_id IN
+          <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+        ORDER BY fact.employee_id, fact.business_date
+    </select>
+
+    <select id="listOaForEmployees"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$OaRow">
+        SELECT fact.oa_attendance_document_id AS documentId,
+               fact.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               fact.organization_id AS organizationId,
+               organization_version.name AS organizationName,
+               fact.document_type AS documentType,
+               COALESCE(
+                   NULLIF(fact.leave_type_code, ''),
+                   context.overtime_type,
+                   CASE WHEN fact.document_type = 'TIME_OFF'
+                        THEN 'TIME_OFF' END) AS leaveType,
+               COALESCE(fact.interval_start, fact.point_instant) AS startAt,
+               COALESCE(fact.interval_end,
+                        TIMESTAMPADD(MICROSECOND, 1, fact.point_instant))
+                   AS endExclusive,
+               fact.recognized_minutes AS recognizedMinutes,
+               CASE WHEN fact.source_status = 'UNKNOWN'
+                    AND fact.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+               THEN 'PENDING' ELSE fact.source_status END AS sourceStatus,
+               CASE
+                   WHEN document.source_business_key LIKE 'PAPER:%'
+                       THEN 'PAPER'
+                   ELSE 'OA'
+               END AS sourceOrigin,
+               projection.period_start AS projectionStart,
+               projection.period_end_exclusive AS projectionEndExclusive,
+               fact.recognized_minutes_by_date_json AS recognizedMinutesByDateJson,
+               projection.data_as_of AS projectionDataAsOf
+        FROM attendance_report_oa_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        LEFT JOIN oa_attendance_document document
+          ON document.oa_attendance_document_id =
+             fact.oa_attendance_document_id
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id =
+             fact.oa_attendance_document_id
+        WHERE <include refid="projectionIn"/>
+          AND (CASE WHEN fact.source_status = 'UNKNOWN'
+                    AND fact.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+               THEN 'PENDING' ELSE fact.source_status END) IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+          <include refid="oaBusinessDateWindow"/>
+          AND fact.employee_id IN
+          <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+        UNION ALL
+        SELECT fact.source_document_key AS documentId,
+               fact.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               fact.organization_id AS organizationId,
+               organization_version.name AS organizationName,
+               fact.document_type AS documentType,
+               COALESCE(
+                   NULLIF(fact.leave_type_code, ''),
+                   CASE WHEN fact.document_type = 'TIME_OFF'
+                        THEN 'TIME_OFF' END) AS leaveType,
+               COALESCE(fact.interval_start, fact.point_instant) AS startAt,
+               COALESCE(fact.interval_end,
+                        TIMESTAMPADD(MICROSECOND, 1, fact.point_instant))
+                   AS endExclusive,
+               fact.recognized_minutes AS recognizedMinutes,
+               fact.source_status AS sourceStatus,
+               'PAPER' AS sourceOrigin,
+               projection.period_start AS projectionStart,
+               projection.period_end_exclusive AS projectionEndExclusive,
+               fact.recognized_minutes_by_date_json AS recognizedMinutesByDateJson,
+               projection.data_as_of AS projectionDataAsOf
+        FROM attendance_report_hr_paper_fact fact
+        JOIN attendance_report_projection projection
+          ON projection.attendance_report_projection_id =
+             fact.attendance_report_projection_id
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE fact.attendance_report_projection_id IN
+        <foreach collection="projectionIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+          AND fact.company_id = #{companyId}
+          AND fact.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+          <include refid="oaBusinessDateWindow"/>
+          AND fact.employee_id IN
+          <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+    </select>
+
+    <select id="listExceptionsForEmployees"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$ExceptionRow">
+        SELECT fact.exception_case_id AS caseId,
+               fact.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               fact.organization_id AS organizationId,
+               organization_version.name AS organizationName,
+               fact.business_date AS businessDate,
+               fact.exception_type AS exceptionType,
+               fact.severity,
+               fact.state,
+               fact.exception_minutes AS exceptionMinutes,
+               fact.safe_evidence_summary AS details
+        FROM attendance_report_exception_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.employee_id IN
+          <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+          <include refid="hideApprovedOaCoveredExceptions"/>
+    </select>
+
+    <sql id="dailyJournalColumns">
+        fact.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               fact.organization_id AS organizationId,
+               organization_version.name AS organizationName,
+               fact.business_date AS businessDate,
+               fact.day_type AS dayType,
+               fact.shift_label AS shiftLabel,
+               fact.leave_type AS leaveType,
+               fact.first_punch_at AS firstPunchAt,
+               fact.last_punch_at AS lastPunchAt,
+               fact.late_minutes AS lateMinutes,
+               fact.early_departure_minutes AS earlyDepartureMinutes,
+               fact.absence_minutes AS absenceMinutes,
+               fact.leave_or_time_off_minutes AS leaveOrTimeOffMinutes,
+               fact.recognized_overtime_minutes AS recognizedOvertimeMinutes,
+               fact.scheduled_minutes AS scheduledMinutes,
+               fact.missing_punch_count AS missingPunchCount,
+               fact.paid_overtime_minutes AS paidOvertimeMinutes,
+               fact.compensatory_overtime_minutes AS compensatoryOvertimeMinutes,
+               fact.voluntary_overtime_minutes AS voluntaryOvertimeMinutes
+    </sql>
+
+    <sql id="dailyJournalSelect">
+        SELECT <include refid="dailyJournalColumns"/>
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          <include refid="authorizedEmployee"/>
+    </sql>
+
+    <sql id="leaveSummaryType">
+        COALESCE(
+            NULLIF(fact.leave_type_code, ''),
+            CASE WHEN fact.document_type = 'TIME_OFF'
+                 THEN 'TIME_OFF' END)
+    </sql>
+
+    <select id="countLeaveSummary" resultType="long">
+        SELECT COUNT(*) FROM (
+            SELECT fact.employee_id,
+                   <include refid="leaveSummaryType"/> AS leaveType
+            FROM attendance_report_oa_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.document_type IN ('LEAVE', 'TIME_OFF')
+              <include refid="oaBusinessDateWindow"/>
+              <include refid="authorizedEmployee"/>
+              <if test="leaveType != null and leaveType != ''">
+                  AND (
+                        fact.leave_type_code = #{leaveType}
+                        OR (#{leaveType} = 'COMPENSATORY'
+                            AND fact.document_type = 'TIME_OFF')
+                  )
+              </if>
+            GROUP BY fact.employee_id, leaveType
+        ) summarized
+    </select>
+
+    <select id="listLeaveSummary"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$LeaveSummaryRow">
+        SELECT fact.employee_id AS employeeId,
+               MAX(employee_version.employee_number) AS employeeNumber,
+               MAX(employee_version.display_name) AS employeeName,
+               MAX(fact.organization_id) AS organizationId,
+               MAX(organization_version.name) AS organizationName,
+               <include refid="leaveSummaryType"/> AS leaveType,
+               SUM(fact.recognized_minutes) AS recognizedMinutes,
+               COUNT(*) AS documentCount
+        FROM attendance_report_oa_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.document_type IN ('LEAVE', 'TIME_OFF')
+          <include refid="oaBusinessDateWindow"/>
+          <include refid="authorizedEmployee"/>
+          <if test="leaveType != null and leaveType != ''">
+              AND (
+                    fact.leave_type_code = #{leaveType}
+                    OR (#{leaveType} = 'COMPENSATORY'
+                        AND fact.document_type = 'TIME_OFF')
+              )
+          </if>
+        GROUP BY fact.employee_id, leaveType
+        ORDER BY MAX(employee_version.employee_number), leaveType
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!--
+      考勤日报不列出 EXECUTIVE 角色或常设免打卡名单人员。
+      按当前工号跨公司匹配，在业务日上海午夜检查完整半开有效区间。
+      先物化查询日期和去重后的免卡员工日，避免逐条日报相关查询；
+      不把多段名单合成最早起点/最晚终点，以保留中间非免卡日期。
+    -->
+    <sql id="dailyJournalPunchExemptionCte">
+        WITH exemption_assignments AS (
+            SELECT role_employee.employee_number, assignment.valid_from, assignment.valid_to
+            FROM auth_role role
+            JOIN auth_principal_role_assignment assignment
+              ON assignment.role_id = role.role_id
+            JOIN auth_principal principal
+              ON principal.principal_id = assignment.principal_id
+            JOIN employee role_employee
+              ON role_employee.employee_id = principal.employee_id
+            WHERE role.role_code = 'EXECUTIVE'
+            UNION ALL
+            SELECT listed_employee.employee_number, assignment.valid_from, assignment.valid_to
+            FROM punch_exemption_assignment assignment
+            JOIN employee listed_employee
+              ON listed_employee.employee_id = assignment.employee_id
+            WHERE assignment.source = 'STANDING_LIST'
+        ), journal_dates AS (
+            SELECT DISTINCT fact.business_date
+            FROM attendance_report_daily_fact fact
+            WHERE <include refid="projectionIn"/>
+              AND fact.business_date &gt;= #{fromDate}
+              AND fact.business_date &lt; #{toDateExclusive}
+        ), exempt_employee_days AS (
+            SELECT DISTINCT roster.employee_id, journal_day.business_date
+            FROM employee roster
+            JOIN exemption_assignments exemption
+              ON exemption.employee_number = roster.employee_number
+            JOIN journal_dates journal_day
+              ON exemption.valid_from &lt;= TIMESTAMPADD(HOUR, -8, CAST(journal_day.business_date AS DATETIME))
+             AND (exemption.valid_to IS NULL
+                  OR exemption.valid_to &gt; TIMESTAMPADD(HOUR, -8, CAST(journal_day.business_date AS DATETIME)))
+            WHERE roster.company_id = #{companyId}
+        )
+    </sql>
+
+    <sql id="dailyJournalPunchExemptionJoin">
+        LEFT JOIN exempt_employee_days exemption
+          ON exemption.employee_id = fact.employee_id
+         AND exemption.business_date = fact.business_date
+    </sql>
+
+    <select id="countDailyJournal" resultType="long">
+        <include refid="dailyJournalPunchExemptionCte"/>
+        SELECT COUNT(*)
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        <include refid="dailyJournalPunchExemptionJoin"/>
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          <include refid="authorizedEmployee"/>
+          AND exemption.employee_id IS NULL
+    </select>
+
+    <select id="listDailyJournal"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DailyJournalRow">
+        <include refid="dailyJournalPunchExemptionCte"/>
+        SELECT /*!80000 STRAIGHT_JOIN */ <include refid="dailyJournalColumns"/>
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        <include refid="dailyJournalPunchExemptionJoin"/>
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          <include refid="authorizedEmployee"/>
+          AND exemption.employee_id IS NULL
+        ORDER BY employee_version.employee_number, fact.business_date
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countOvertimeDaily" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.recognized_overtime_minutes &gt; 0
+          <include refid="authorizedEmployee"/>
+          <include refid="dailyOvertimeTreatment"/>
+    </select>
+
+    <select id="listOvertimeDaily"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DailyJournalRow">
+        <include refid="dailyJournalSelect"/>
+          AND fact.recognized_overtime_minutes &gt; 0
+          <include refid="dailyOvertimeTreatment"/>
+        ORDER BY employee_version.employee_number, fact.business_date
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <sql id="dailyOvertimeTreatment">
+        <if test="overtimeTreatment == '义务加班'">
+            AND fact.voluntary_overtime_minutes &gt; 0
+        </if>
+        <if test="overtimeTreatment == '加班费' or overtimeTreatment == '计薪加班'">
+            AND fact.paid_overtime_minutes &gt; 0
+        </if>
+        <if test="overtimeTreatment == '转调休' or overtimeTreatment == '转调休加班'">
+            AND fact.compensatory_overtime_minutes &gt; 0
+        </if>
+    </sql>
+
+    <select id="countTimeOffDaily" resultType="long">
+        SELECT COUNT(*)
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.leave_or_time_off_minutes &gt; 0
+          AND UPPER(COALESCE(fact.leave_type, '')) IN (
+                'TIME_OFF', 'COMPENSATORY', '调休', '调休假')
+          <include refid="authorizedEmployee"/>
+    </select>
+
+    <select id="listTimeOffDaily"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DailyJournalRow">
+        <include refid="dailyJournalSelect"/>
+          AND fact.leave_or_time_off_minutes &gt; 0
+          AND UPPER(COALESCE(fact.leave_type, '')) IN (
+                'TIME_OFF', 'COMPENSATORY', '调休', '调休假')
+        ORDER BY employee_version.employee_number, fact.business_date
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <sql id="financeOvertimePeopleWhere">
+        <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.recognized_overtime_minutes &gt; 0
+          <include refid="authorizedEmployee"/>
+          <if test="occurrenceDay != null">
+            AND DAY(fact.business_date) = #{occurrenceDay}
+          </if>
+          <if test="overtimeTreatment == '平时加班' or attendanceType == '平时加班'">
+            AND EXISTS (
+                SELECT 1
+                FROM attendance_report_daily_fact bucket
+                WHERE bucket.attendance_report_projection_id =
+                      fact.attendance_report_projection_id
+                  AND bucket.employee_id = fact.employee_id
+                  AND bucket.business_date &gt;= #{fromDate}
+                  AND bucket.business_date &lt; #{toDateExclusive}
+                  AND bucket.recognized_overtime_minutes &gt; 0
+                  AND bucket.day_type IN (
+                      'WEEKDAY', 'WORKDAY', 'WORKING_DAY', 'ADJUSTED_WORKDAY')
+            )
+          </if>
+          <if test="overtimeTreatment == '周末加班' or attendanceType == '周末加班'">
+            AND EXISTS (
+                SELECT 1
+                FROM attendance_report_daily_fact bucket
+                WHERE bucket.attendance_report_projection_id =
+                      fact.attendance_report_projection_id
+                  AND bucket.employee_id = fact.employee_id
+                  AND bucket.business_date &gt;= #{fromDate}
+                  AND bucket.business_date &lt; #{toDateExclusive}
+                  AND bucket.recognized_overtime_minutes &gt; 0
+                  AND (
+                    bucket.day_type IN ('SATURDAY', 'SUNDAY')
+                    OR (
+                      bucket.day_type IN ('PUBLIC_HOLIDAY', 'HOLIDAY')
+                      AND bucket.business_date &gt;= '2026-01-01'
+                      AND bucket.business_date &lt; '2027-01-01'
+                      AND bucket.business_date NOT IN (
+                        '2026-01-01',
+                        '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19',
+                        '2026-04-05',
+                        '2026-05-01', '2026-05-02',
+                        '2026-06-19',
+                        '2026-09-25',
+                        '2026-10-01', '2026-10-02', '2026-10-03')
+                    )
+                  )
+            )
+          </if>
+          <include refid="dailyOvertimeTreatment"/>
+          <if test="overtimeTreatment == '节假日加班' or attendanceType == '节假日加班'">
+            AND EXISTS (
+                SELECT 1
+                FROM attendance_report_daily_fact bucket
+                WHERE bucket.attendance_report_projection_id =
+                      fact.attendance_report_projection_id
+                  AND bucket.employee_id = fact.employee_id
+                  AND bucket.business_date &gt;= #{fromDate}
+                  AND bucket.business_date &lt; #{toDateExclusive}
+                  AND bucket.recognized_overtime_minutes &gt; 0
+                  AND bucket.day_type IN ('PUBLIC_HOLIDAY', 'HOLIDAY')
+                  AND (
+                    bucket.business_date &lt; '2026-01-01'
+                    OR bucket.business_date &gt;= '2027-01-01'
+                    OR bucket.business_date IN (
+                      '2026-01-01',
+                      '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19',
+                      '2026-04-05',
+                      '2026-05-01', '2026-05-02',
+                      '2026-06-19',
+                      '2026-09-25',
+                      '2026-10-01', '2026-10-02', '2026-10-03')
+                  )
+            )
+          </if>
+    </sql>
+
+    <select id="countFinanceOvertimePeople" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT fact.employee_id
+            FROM attendance_report_daily_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="financeOvertimePeopleWhere"/>
+            GROUP BY fact.employee_id
+            <if test="rateBelow != null">
+                HAVING SUM(fact.recognized_overtime_minutes)
+                    &gt;= #{rateBelow} * 60
+            </if>
+        ) people
+    </select>
+
+    <select id="listFinanceOvertimePeople"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DirectoryEmployeeRow">
+        SELECT fact.employee_id AS employeeId,
+               MAX(employee_version.employee_number) AS employeeNumber,
+               MAX(employee_version.display_name) AS employeeName,
+               MAX(fact.organization_id) AS organizationId,
+               MAX(organization_version.name) AS organizationName
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="financeOvertimePeopleWhere"/>
+        GROUP BY fact.employee_id
+        <if test="rateBelow != null">
+            HAVING SUM(fact.recognized_overtime_minutes)
+                &gt;= #{rateBelow} * 60
+        </if>
+        ORDER BY MAX(employee_version.employee_number)
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listFinanceOvertimeCells"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$FinanceOvertimeCellRow">
+        SELECT fact.employee_id AS employeeId,
+               fact.business_date AS businessDate,
+               fact.day_type AS dayType,
+               fact.recognized_overtime_minutes AS recognizedOvertimeMinutes,
+               fact.paid_overtime_minutes AS paidOvertimeMinutes,
+               fact.compensatory_overtime_minutes AS compensatoryOvertimeMinutes,
+               fact.voluntary_overtime_minutes AS voluntaryOvertimeMinutes
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.recognized_overtime_minutes &gt; 0
+          <include refid="authorizedEmployee"/>
+          <if test="occurrenceDay != null">
+            AND DAY(fact.business_date) = #{occurrenceDay}
+          </if>
+        ORDER BY fact.employee_id, fact.business_date
+    </select>
+
+    <select id="countAbsenceStatPeople" resultType="long">
+        SELECT COUNT(*) FROM (
+            SELECT fact.employee_id
+            FROM attendance_report_daily_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.business_date &gt;= #{fromDate}
+              AND fact.business_date &lt; #{toDateExclusive}
+              AND fact.absence_minutes &gt; 0
+              <include refid="authorizedEmployee"/>
+            GROUP BY fact.employee_id
+        ) people
+    </select>
+
+    <select id="listAbsenceStatPeople"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DirectoryEmployeeRow">
+        SELECT fact.employee_id AS employeeId,
+               MAX(employee_version.employee_number) AS employeeNumber,
+               MAX(employee_version.display_name) AS employeeName,
+               MAX(fact.organization_id) AS organizationId,
+               MAX(organization_version.name) AS organizationName
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.absence_minutes &gt; 0
+          <include refid="authorizedEmployee"/>
+        GROUP BY fact.employee_id
+        ORDER BY MAX(employee_version.employee_number)
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listAbsenceStatCells"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DailyMetricCellRow">
+        SELECT fact.employee_id AS employeeId,
+               fact.business_date AS businessDate,
+               fact.day_type AS dayType,
+               fact.absence_minutes AS minutes
+        FROM attendance_report_daily_fact fact
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.absence_minutes &gt; 0
+          AND fact.employee_id IN
+          <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+        ORDER BY fact.employee_id, fact.business_date
+    </select>
+
+    <select id="countLeaveStatPeople" resultType="long">
+        SELECT COUNT(*) FROM (
+            SELECT fact.employee_id
+            FROM attendance_report_daily_fact fact
+            JOIN employee_version employee_version
+              ON employee_version.employee_version_id = fact.employee_version_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.business_date &gt;= #{fromDate}
+              AND fact.business_date &lt; #{toDateExclusive}
+              AND fact.leave_or_time_off_minutes &gt; 0
+              <include refid="authorizedEmployee"/>
+            GROUP BY fact.employee_id
+        ) people
+    </select>
+
+    <select id="listLeaveStatPeople"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DirectoryEmployeeRow">
+        SELECT fact.employee_id AS employeeId,
+               MAX(employee_version.employee_number) AS employeeNumber,
+               MAX(employee_version.display_name) AS employeeName,
+               MAX(fact.organization_id) AS organizationId,
+               MAX(organization_version.name) AS organizationName
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.leave_or_time_off_minutes &gt; 0
+          <include refid="authorizedEmployee"/>
+        GROUP BY fact.employee_id
+        ORDER BY MAX(employee_version.employee_number)
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listLeaveStatCells"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DailyMetricCellRow">
+        SELECT fact.employee_id AS employeeId,
+               fact.business_date AS businessDate,
+               fact.leave_type AS dayType,
+               fact.leave_or_time_off_minutes AS minutes
+        FROM attendance_report_daily_fact fact
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.leave_or_time_off_minutes &gt; 0
+          AND fact.employee_id IN
+          <foreach collection="employeeIds" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+        ORDER BY fact.employee_id, fact.business_date
+    </select>
+
+    <sql id="missedPunchStatMakeupEmployees">
+        SELECT fact.employee_id AS employee_id
+        FROM attendance_report_oa_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.document_type = 'PUNCH_CORRECTION'
+          AND (CASE WHEN fact.source_status = 'UNKNOWN'
+                    AND fact.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'
+               THEN 'PENDING' ELSE fact.source_status END) IN (
+              'APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+          <include refid="oaBusinessDateWindow"/>
+          <include refid="authorizedEmployee"/>
+        GROUP BY fact.employee_id
+    </sql>
+
+    <sql id="missedPunchStatMissingEmployees">
+        SELECT fact.employee_id AS employee_id
+        FROM attendance_report_daily_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        WHERE <include refid="projectionIn"/>
+          AND fact.business_date &gt;= #{fromDate}
+          AND fact.business_date &lt; #{toDateExclusive}
+          AND fact.missing_punch_count &gt; 0
+          <include refid="authorizedEmployee"/>
+          <include refid="missedPunchStatPunchSide"/>
+        GROUP BY fact.employee_id
+    </sql>
+
+    <sql id="missedPunchStatUniverse">
+        <choose>
+            <when test="exceptionType == 'PUNCH_CORRECTION' or exceptionType == '已补签' or exceptionType == 'MAKEUP'">
+                <include refid="missedPunchStatMakeupEmployees"/>
+            </when>
+            <when test="exceptionType == 'MISSING_PUNCH' or exceptionType == '漏刷'">
+                <include refid="missedPunchStatMissingEmployees"/>
+            </when>
+            <otherwise>
+                <include refid="missedPunchStatMissingEmployees"/>
+                UNION
+                <include refid="missedPunchStatMakeupEmployees"/>
+            </otherwise>
+        </choose>
+    </sql>
+
+    <sql id="missedPunchStatPunchSide">
+        <if test="punchSide == 'MORNING' or punchSide == '上班漏' or punchSide == '上班缺卡'">
+            AND (
+                fact.first_punch_at IS NULL
+                OR HOUR(CONVERT_TZ(fact.first_punch_at, '+00:00', '+08:00')) &gt;= 12
+            )
+        </if>
+        <if test="punchSide == 'AFTERNOON' or punchSide == '下班漏' or punchSide == '下班缺卡'">
+            AND (
+                fact.last_punch_at IS NULL
+                OR HOUR(CONVERT_TZ(fact.last_punch_at, '+00:00', '+08:00')) &lt; 12
+            )
+        </if>
+    </sql>
+
+    <select id="countMissedPunchStatEmployees" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            <include refid="missedPunchStatUniverse"/>
+        ) missed_employees
+    </select>
+
+    <select id="listMissedPunchStatEmployees"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$DirectoryEmployeeRow">
+        SELECT universe.employee_id AS employeeId,
+               MAX(employee_version.employee_number) AS employeeNumber,
+               MAX(employee_version.display_name) AS employeeName,
+               MAX(fact.organization_id) AS organizationId,
+               MAX(organization_version.name) AS organizationName
+        FROM (
+            <include refid="missedPunchStatUniverse"/>
+        ) universe
+        JOIN attendance_report_daily_fact fact
+          ON fact.employee_id = universe.employee_id
+         AND <include refid="projectionIn"/>
+         AND fact.business_date &gt;= #{fromDate}
+         AND fact.business_date &lt; #{toDateExclusive}
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE 1 = 1
+          <include refid="authorizedEmployee"/>
+        GROUP BY universe.employee_id
+        ORDER BY MAX(employee_version.employee_number), universe.employee_id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <sql id="leaveStatAccountWhere">
+        <include refid="projectionIn"/>
+        <choose>
+            <when test="accountType == 'TIME_OFF'">
+                AND fact.account_type IN ('TIME_OFF', 'COMP_TIME')
+            </when>
+            <when test="accountType != null and accountType != ''">
+                AND fact.account_type = #{accountType}
+            </when>
+            <otherwise>
+                AND fact.account_type = 'ANNUAL_LEAVE'
+            </otherwise>
+        </choose>
+        <include refid="authorizedEmployee"/>
+        <if test="annualBalanceBand == '有余额'">
+            AND (fact.opening_hours + fact.granted_hours
+                 + fact.overtime_credit_hours + fact.manual_increase_hours
+                 - fact.used_hours - fact.expired_hours
+                 - fact.returned_hours - fact.manual_deduction_hours) &gt; 0
+        </if>
+        <if test="annualBalanceBand == '已用完'">
+            AND (fact.opening_hours + fact.granted_hours
+                 + fact.overtime_credit_hours + fact.manual_increase_hours
+                 - fact.used_hours - fact.expired_hours
+                 - fact.returned_hours - fact.manual_deduction_hours) &lt;= 0
+        </if>
+        <if test="annualBalanceBand == '余额不足2天'">
+            AND (fact.opening_hours + fact.granted_hours
+                 + fact.overtime_credit_hours + fact.manual_increase_hours
+                 - fact.used_hours - fact.expired_hours
+                 - fact.returned_hours - fact.manual_deduction_hours)
+                BETWEEN 0.01 AND 16
+        </if>
+        <if test="annualLevelOne != null and annualLevelOne != ''">
+            AND organization_version.name LIKE CONCAT('%', #{annualLevelOne}, '%')
+        </if>
+        <if test="annualLevelTwo != null and annualLevelTwo != ''">
+            AND organization_version.name LIKE CONCAT('%', #{annualLevelTwo}, '%')
+        </if>
+    </sql>
+
+    <select id="countLeaveStatAccounts" resultType="long">
+        SELECT COUNT(DISTINCT fact.employee_id)
+        FROM attendance_report_time_account_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        WHERE <include refid="leaveStatAccountWhere"/>
+    </select>
+
+    <select id="listLeaveStatAccounts"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$LeaveStatAccountRow">
+        SELECT fact.employee_id AS employeeId,
+               employee_version.employee_number AS employeeNumber,
+               employee_version.display_name AS employeeName,
+               fact.organization_id AS organizationId,
+               organization_version.name AS organizationName,
+               fact.account_type AS accountType,
+               fact.opening_hours AS openingHours,
+               fact.granted_hours AS grantedHours,
+               fact.overtime_credit_hours AS overtimeCreditHours,
+               fact.used_hours AS usedHours,
+               (fact.opening_hours + fact.granted_hours
+                + fact.overtime_credit_hours + fact.manual_increase_hours
+                - fact.used_hours - fact.expired_hours
+                - fact.returned_hours - fact.manual_deduction_hours)
+                   AS remainingHours,
+               CASE
+                   WHEN first_hire.first_effective_from IS NULL THEN NULL
+                   WHEN CAST(first_hire.first_effective_from AS CHAR)
+                        &lt; '1970-01-02' THEN NULL
+                   ELSE DATE(first_hire.first_effective_from)
+               END AS hireDate,
+               CAST(COALESCE(latest_prior.resulting_total_days, 0) AS SIGNED)
+                   AS priorServiceDays
+        FROM attendance_report_time_account_fact fact
+        JOIN employee_version employee_version
+          ON employee_version.employee_version_id = fact.employee_version_id
+        JOIN organization_version organization_version
+          ON organization_version.organization_version_id =
+             fact.organization_version_id
+        LEFT JOIN (
+            SELECT hire.employee_id AS employee_id,
+                   MIN(hire.effective_from) AS first_effective_from
+            FROM employee_version hire
+            WHERE CAST(hire.effective_from AS CHAR) &gt;= '1970-01-02'
+            GROUP BY hire.employee_id
+        ) first_hire
+          ON first_hire.employee_id = fact.employee_id
+        LEFT JOIN (
+            SELECT prior.employee_id AS employee_id,
+                   prior.resulting_total_days AS resulting_total_days
+            FROM prior_service_record prior
+            JOIN (
+                SELECT employee_id, MAX(row_version) AS row_version
+                FROM prior_service_record
+                GROUP BY employee_id
+            ) newest
+              ON newest.employee_id = prior.employee_id
+             AND newest.row_version = prior.row_version
+        ) latest_prior
+          ON latest_prior.employee_id = fact.employee_id
+        WHERE <include refid="leaveStatAccountWhere"/>
+        ORDER BY employee_version.employee_number
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- ASCII legacy type codes are compared in the JDBC connection charset. -->
+    <select id="listLeaveUsageDocuments"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$OaUsageDocumentRow">
+        SELECT documents.document_id AS documentId,
+               documents.employee_id AS employeeId,
+               documents.period_start AS projectionStart,
+               documents.period_end_exclusive AS projectionEndExclusive,
+               documents.start_at AS startAt,
+               documents.end_exclusive AS endExclusive,
+               documents.recognized_minutes AS recognizedMinutes,
+               documents.kind AS kind,
+               documents.recognized_minutes_by_date_json AS recognizedMinutesByDateJson
+        FROM (
+            SELECT COALESCE(fact.oa_attendance_document_id,
+                            fact.attendance_report_oa_fact_id) AS document_id,
+                   fact.employee_id,
+                   projection.period_start,
+                   projection.period_end_exclusive,
+                   COALESCE(fact.interval_start, fact.point_instant) AS start_at,
+                   COALESCE(fact.interval_end, fact.point_instant) AS end_exclusive,
+                   fact.recognized_minutes,
+                   fact.recognized_minutes_by_date_json,
+                   CASE
+                       WHEN fact.document_type = 'LEAVE'
+                            AND (CAST(fact.leave_type_code AS CHAR(64)) IN ('ANNUAL', 'ANNUAL_LEAVE')
+                                 OR CAST(fact.leave_type_code AS CHAR(64)) LIKE '%年假%')
+                       THEN 'ANNUAL'
+                       WHEN fact.document_type = 'TIME_OFF'
+                            OR (fact.document_type = 'LEAVE'
+                                AND UPPER(COALESCE(CAST(fact.leave_type_code AS CHAR(64)), ''))
+                                    IN ('COMPENSATORY', 'TIME_OFF', '调休', '调休假'))
+                       THEN 'TIME_OFF'
+                       WHEN fact.document_type = 'OVERTIME'
+                            AND (CAST(fact.leave_type_code AS CHAR(64)) LIKE '%COMPENSATORY%'
+                                 OR CAST(fact.leave_type_code AS CHAR(64)) LIKE '%TIME_OFF%'
+                                 OR CAST(fact.leave_type_code AS CHAR(64)) LIKE '%调休%')
+                       THEN 'COMPENSATORY_OT'
+                       ELSE NULL
+                   END AS kind
+            FROM attendance_report_oa_fact fact
+            JOIN attendance_report_projection projection
+              ON projection.attendance_report_projection_id = fact.attendance_report_projection_id
+             AND projection.company_id = fact.company_id
+            WHERE <include refid="projectionIn"/>
+              AND fact.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
+              AND COALESCE(fact.interval_start, fact.point_instant) IS NOT NULL
+              AND CAST(COALESCE(fact.interval_start, fact.point_instant) AS CHAR) &gt;= '1970-01-01'
+              <choose>
+                  <when test="employeeIds == null or employeeIds.size() == 0">AND 1 = 0</when>
+                  <otherwise>
+                      AND fact.employee_id IN
+                      <foreach collection="employeeIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+                  </otherwise>
+              </choose>
+        ) documents
+        WHERE documents.kind IS NOT NULL
+          <choose>
+              <when test="accountType == 'TIME_OFF'">AND documents.kind IN ('TIME_OFF', 'COMPENSATORY_OT')</when>
+              <otherwise>AND documents.kind = 'ANNUAL'</otherwise>
+          </choose>
+        ORDER BY documents.employee_id, documents.document_id, documents.period_start
+    </select>
+    <!-- Legacy cross-month attribution is permitted only from the same published
+         pin. Count every effective competing leave, including zero and pending
+         forms; candidate/account/date filters must never narrow this count. -->
+    <select id="listLegacyLeaveDayEvidence"
+            resultType="com.szsemicon.hr.reporting.application.QueryPageRows$LegacyLeaveDayEvidenceRow">
+        SELECT COALESCE(fact.oa_attendance_document_id, fact.attendance_report_oa_fact_id) AS documentId,
+               fact.employee_id AS employeeId,
+               projection.period_start AS projectionStart,
+               daily.business_date AS businessDate,
+               daily.leave_or_time_off_minutes AS leaveMinutes,
+               daily.leave_type AS leaveType,
+               (SELECT COUNT(*)
+                  FROM attendance_report_oa_fact competing
+                 WHERE competing.attendance_report_projection_id = fact.attendance_report_projection_id
+                   AND competing.company_id = fact.company_id
+                   AND competing.employee_id = fact.employee_id
+                   AND competing.document_type IN ('LEAVE', 'TIME_OFF')
+                   AND (competing.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+                        OR (competing.source_status = 'UNKNOWN'
+                            AND competing.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$'))
+                   AND competing.interval_start &lt; TIMESTAMPADD(DAY, 1, TIMESTAMPADD(HOUR, -8, CAST(daily.business_date AS DATETIME)))
+                   AND competing.interval_end &gt; TIMESTAMPADD(HOUR, -8, CAST(daily.business_date AS DATETIME))) AS effectiveDocumentCount
+          FROM attendance_report_oa_fact fact
+          JOIN attendance_report_projection projection
+            ON projection.attendance_report_projection_id = fact.attendance_report_projection_id
+           AND projection.company_id = fact.company_id
+          JOIN attendance_report_daily_fact daily
+            ON daily.attendance_report_projection_id = fact.attendance_report_projection_id
+           AND daily.company_id = fact.company_id
+           AND daily.employee_id = fact.employee_id
+           AND daily.business_date &gt;= projection.period_start
+           AND daily.business_date &lt; projection.period_end_exclusive
+           AND fact.interval_start &lt; TIMESTAMPADD(DAY, 1, TIMESTAMPADD(HOUR, -8, CAST(daily.business_date AS DATETIME)))
+           AND fact.interval_end &gt; TIMESTAMPADD(HOUR, -8, CAST(daily.business_date AS DATETIME))
+         WHERE fact.company_id = #{query.companyId}
+           AND fact.document_type IN ('LEAVE', 'TIME_OFF')
+           AND fact.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED')
+           AND fact.recognized_minutes &gt; 0
+           AND fact.recognized_minutes_by_date_json IS NULL
+           <choose>
+               <when test="query.projectionIds != null and query.projectionIds.size() &gt; 0">
+                   AND fact.attendance_report_projection_id IN
+                   <foreach collection="query.projectionIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+               </when>
+               <otherwise>AND 1 = 0</otherwise>
+           </choose>
+           <choose>
+               <when test="query.employeeIds != null and query.employeeIds.size() &gt; 0">
+                   AND fact.employee_id IN
+                   <foreach collection="query.employeeIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+               </when>
+               <otherwise>AND 1 = 0</otherwise>
+           </choose>
+           <choose>
+               <when test="documentIds != null and documentIds.size() &gt; 0">
+                   AND COALESCE(fact.oa_attendance_document_id, fact.attendance_report_oa_fact_id) IN
+                   <foreach collection="documentIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+               </when>
+               <otherwise>AND 1 = 0</otherwise>
+           </choose>
+         ORDER BY fact.employee_id, documentId, projection.period_start, daily.business_date
+    </select>
+</mapper>

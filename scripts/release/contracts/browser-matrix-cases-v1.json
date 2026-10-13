@@ -1,0 +1,110 @@
+{
+  "schema_version": "shenzhouhr.w9.browser-matrix-cases/v1",
+  "platforms": [
+    "chrome-current",
+    "chrome-previous",
+    "edge-current",
+    "edge-previous",
+    "ios-safari-approved",
+    "android-chrome-approved"
+  ],
+  "viewports": [
+    "390x844",
+    "768x1024",
+    "1024x768",
+    "1366x768",
+    "1440x900",
+    "1920x1080",
+    "3840x2160"
+  ],
+  "cases": [
+    {
+      "id": "BROWSER-ROLE-ALLOW",
+      "route": "/attendance/reports",
+      "role": "EMPLOYEE",
+      "state": "normal",
+      "coverage": "role-allow",
+      "expected": "authorized data is visible only within server scope"
+    },
+    {
+      "id": "BROWSER-ROLE-DENY",
+      "route": "/attendance/reports",
+      "role": "EMPLOYEE",
+      "state": "out-of-scope",
+      "coverage": "role-deny",
+      "expected": "no data flash; route and API deny without object disclosure"
+    },
+    {
+      "id": "BROWSER-LOADING",
+      "route": "/attendance/reports",
+      "role": "HR",
+      "state": "loading",
+      "coverage": "loading",
+      "expected": "real pending request presents stable accessible loading state"
+    },
+    {
+      "id": "BROWSER-EMPTY",
+      "route": "/attendance/reports",
+      "role": "DEPARTMENT_MANAGER",
+      "state": "empty",
+      "coverage": "empty",
+      "expected": "empty state is distinct from permission denial"
+    },
+    {
+      "id": "BROWSER-ERROR-RETRY",
+      "route": "/attendance/reports",
+      "role": "HR",
+      "state": "error-retry",
+      "coverage": "error-retry",
+      "expected": "controlled 5xx or network failure offers recovery and succeeds on retry"
+    },
+    {
+      "id": "BROWSER-FORBIDDEN",
+      "route": "/attendance/reports",
+      "role": "UNAUTHORIZED",
+      "state": "forbidden-403",
+      "coverage": "forbidden-403",
+      "expected": "403 state has no sensitive payload or stale data"
+    },
+    {
+      "id": "BROWSER-FROZEN",
+      "route": "/attendance/reports",
+      "role": "HR",
+      "state": "frozen",
+      "coverage": "frozen",
+      "expected": "frozen period remains readable and disallows protected mutation"
+    },
+    {
+      "id": "BROWSER-KEYBOARD",
+      "route": "/attendance/reports",
+      "role": "EMPLOYEE",
+      "state": "keyboard-focus",
+      "coverage": "keyboard-focus",
+      "expected": "skip link, focus order, dialog trap and focus restoration work"
+    },
+    {
+      "id": "BROWSER-OVERFLOW",
+      "route": "/attendance/reports",
+      "role": "HR",
+      "state": "dense-overflow",
+      "coverage": "overflow",
+      "expected": "no page-level horizontal overflow, clipping or inaccessible action"
+    },
+    {
+      "id": "BROWSER-CACHE-REVOCATION",
+      "route": "/attendance/reports",
+      "role": "HR",
+      "state": "revoked",
+      "coverage": "cache-revocation",
+      "expected": "logout or revocation plus history or restored tab reveals no protected data"
+    },
+    {
+      "id": "BROWSER-PAYROLL-ZERO",
+      "route": "/",
+      "role": "ALL_APPROVED_NON_PAYROLL_ROLES",
+      "state": "payroll-zero",
+      "coverage": "payroll-zero",
+      "expected": "menus, routes, search, prefetch, cache, telemetry and ordinary API reveal no payroll detail"
+    }
+  ]
+}

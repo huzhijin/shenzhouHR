@@ -35,6 +35,24 @@ describe('AttendanceSetupNotice replay state', () => {
     );
 
     expect(view.container.querySelector('[data-state="replay"]')).toBeInTheDocument();
-    expect(screen.getByText(/精确重放/)).toBeInTheDocument();
+    expect(screen.getByText(/已经成功完成/)).toBeInTheDocument();
+    expect(screen.queryByText(/幂等|重放/)).not.toBeInTheDocument();
+  });
+
+  it('keeps internal correlation metadata out of business notices', () => {
+    render(
+      <AttendanceSetupNotice
+        notice={{
+          kind: 'error',
+          message: '保存失败，请稍后重试。',
+          correlationId: 'attendance-request-internal-500',
+          state: 'error',
+        }}
+      />,
+    );
+
+    expect(screen.getByText('保存失败，请稍后重试。')).toBeInTheDocument();
+    expect(screen.queryByText(/attendance-request-internal-500/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/关联 ID|关联标识/)).not.toBeInTheDocument();
   });
 });

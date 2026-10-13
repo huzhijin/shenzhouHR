@@ -1,0 +1,4233 @@
+{
+  "authority": "Wave-3 review-owned attendance setup company-current API semantics; independent of Controller/OpenAPI/Java runtime derivation",
+  "errorResponseContracts": [
+    "content=application/json:{\"$ref\":\"#/components/schemas/ApiError\"}|headers="
+  ],
+  "javaRecords": [
+    {
+      "fields": [
+        "employeeId|String|required",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|optional",
+        "reason|String|required"
+      ],
+      "record": "AttendanceGroupDtos.AssignmentRequest",
+      "schema": "AttendanceGroupAssignmentRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "companyId|String|required",
+        "code|String|required",
+        "name|String|required",
+        "locationId|String|required",
+        "calendarId|String|required",
+        "shiftTemplateId|String|required",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|optional",
+        "reason|String|required"
+      ],
+      "record": "AttendanceGroupDtos.GroupRequest",
+      "schema": "AttendanceGroupRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "companyId|String|required",
+        "code|String|required",
+        "name|String|required",
+        "timeZone|String|required",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|optional",
+        "reason|String|required"
+      ],
+      "record": "AttendanceGroupDtos.LocationRequest",
+      "schema": "AttendanceLocationRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "policyKind|PolicyKind|required",
+        "policyVersionId|String|required",
+        "groupId|String|required",
+        "groupRevisionId|String|required",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|optional",
+        "reason|String|required"
+      ],
+      "record": "AttendancePolicyDtos.BindingPreviewRequest",
+      "schema": "AttendancePolicyBindingPreviewRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "policyKind|PolicyKind|required",
+        "policyVersionId|String|required",
+        "groupId|String|required",
+        "groupRevisionId|String|required",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|optional",
+        "reason|String|required",
+        "impactToken|String|required"
+      ],
+      "record": "AttendancePolicyDtos.BindingRequest",
+      "schema": "AttendancePolicyBindingRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "effectiveFrom|LocalDate|required",
+        "reason|String|required"
+      ],
+      "record": "AttendancePolicyLifecycleController.DeactivateRequest",
+      "schema": "AttendancePolicyDeactivateRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "basedOnVersionId|String|optional",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|optional",
+        "reason|String|required"
+      ],
+      "record": "AttendancePolicyLifecycleController.DraftRequest",
+      "schema": "AttendancePolicyDraftRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "parameters|List<ParameterRequest>|required",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|optional",
+        "reason|String|required"
+      ],
+      "record": "AttendancePolicyLifecycleController.UpdateRequest",
+      "schema": "AttendancePolicyDraftUpdateRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "key|String|required",
+        "value|Object|required"
+      ],
+      "record": "AttendancePolicyLifecycleController.ParameterRequest",
+      "schema": "AttendancePolicyParameter",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "targetVersionId|String|required",
+        "effectiveFrom|LocalDate|required",
+        "reason|String|required"
+      ],
+      "record": "AttendancePolicyLifecycleController.RollbackRequest",
+      "schema": "AttendancePolicyRollbackRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "employeeId|String|required",
+        "businessDate|LocalDate|required",
+        "correctionAsOf|OffsetDateTime|required",
+        "punches|List<PunchSimulationInput>|required"
+      ],
+      "record": "AttendancePolicyDtos.SimulationRequest",
+      "schema": "AttendancePolicySimulationRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "direction|PunchDirection|required",
+        "instant|OffsetDateTime|required",
+        "workSegmentId|String|optional",
+        "association|String|optional"
+      ],
+      "record": "AttendancePolicyDtos.PunchSimulationInput",
+      "schema": "AttendancePolicySimulationRequest#/properties/punches/items",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "businessEffectiveFrom|LocalDate|required",
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.FutureDeactivationRequest",
+      "schema": "FutureDeactivationRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "reason|String|required"
+      ],
+      "record": "AttendanceGroupDtos.ReasonRequest",
+      "schema": "ReasonRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "reason|String|required"
+      ],
+      "record": "AttendancePolicyLifecycleController.ReasonRequest",
+      "schema": "ReasonRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.ReasonRequest",
+      "schema": "ReasonRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "segmentType|SegmentType|required",
+        "startLocalTime|LocalTime|required",
+        "startDayOffset|Integer|required",
+        "endLocalTime|LocalTime|required",
+        "endDayOffset|Integer|required"
+      ],
+      "record": "ShiftCalendarDtos.SegmentRequest",
+      "schema": "ShiftSegment",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "companyId|String|required",
+        "locationId|String|required",
+        "code|String|required",
+        "name|String|required",
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.ShiftTemplateRequest",
+      "schema": "ShiftTemplateRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "status|LifecycleStatus|required",
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.ShiftTemplateStatusRequest",
+      "schema": "ShiftTemplateStatusRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|optional",
+        "segments|List<SegmentRequest>|required",
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.ShiftVersionRequest",
+      "schema": "ShiftVersionRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "status|DeactivationStatus|required",
+        "businessEffectiveFrom|LocalDate|required",
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.ShiftVersionStatusRequest",
+      "schema": "ShiftVersionStatusRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "businessDate|LocalDate|required",
+        "dayType|com.szsemicon.hr.attendance.domain.CalendarModels.DayType|required",
+        "shiftVersionOverrideId|String|optional"
+      ],
+      "record": "ShiftCalendarDtos.CalendarDayRequest",
+      "schema": "WorkCalendarDayRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "companyId|String|required",
+        "locationId|String|required",
+        "code|String|required",
+        "name|String|required",
+        "calendarYear|Integer|required",
+        "timeZone|String|required",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|required",
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.CalendarRequest",
+      "schema": "WorkCalendarRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "status|DeactivationStatus|required",
+        "businessEffectiveFrom|LocalDate|required",
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.CalendarStatusRequest",
+      "schema": "WorkCalendarStatusRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "name|String|required",
+        "calendarYear|Integer|required",
+        "timeZone|String|required",
+        "effectiveFrom|LocalDate|required",
+        "effectiveTo|LocalDate|required",
+        "reason|String|required"
+      ],
+      "record": "ShiftCalendarDtos.CalendarVersionRequest",
+      "schema": "WorkCalendarVersionRequest",
+      "surface": "request"
+    },
+    {
+      "fields": [
+        "status|String|optional",
+        "employeeId|String|optional",
+        "businessDate|LocalDate|optional",
+        "groupId|String|optional",
+        "groupRevisionId|String|optional",
+        "locationRevisionId|String|optional",
+        "calendarVersionId|String|optional",
+        "calendarDay|ShiftCalendarDtos.CalendarDayView|optional",
+        "shiftVersion|ShiftCalendarDtos.ShiftVersionView|optional",
+        "policyBindings|List<BindingView>|optional",
+        "configurationDigest|String|optional",
+        "monthlyContextKey|String|optional",
+        "explanation|String|optional"
+      ],
+      "record": "AttendancePolicyDtos.ConfigurationView",
+      "schema": "AttendanceConfigurationView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<AssignmentView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "AttendanceGroupDtos.AssignmentPage",
+      "schema": "AttendanceGroupAssignmentPage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "assignmentId|String|optional",
+        "groupId|String|optional",
+        "employeeId|String|optional",
+        "effectiveFrom|LocalDate|optional",
+        "effectiveTo|LocalDate|optional",
+        "rowVersion|long|required",
+        "monthlyContextKey|String|optional",
+        "changeReason|String|optional",
+        "updatedAt|Instant|optional"
+      ],
+      "record": "AttendanceGroupDtos.AssignmentView",
+      "schema": "AttendanceGroupAssignmentView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<GroupView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "AttendanceGroupDtos.GroupPage",
+      "schema": "AttendanceGroupPage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "groupId|String|optional",
+        "companyId|String|optional",
+        "code|String|optional",
+        "groupRevisionId|String|optional",
+        "revisionNumber|int|required",
+        "name|String|optional",
+        "locationId|String|optional",
+        "locationRevisionId|String|optional",
+        "calendarId|String|optional",
+        "shiftTemplateId|String|optional",
+        "status|String|optional",
+        "effectiveFrom|LocalDate|optional",
+        "effectiveTo|LocalDate|optional",
+        "snapshotDigest|String|optional",
+        "rowVersion|long|required",
+        "changeReason|String|optional",
+        "updatedAt|Instant|optional"
+      ],
+      "record": "AttendanceGroupDtos.GroupView",
+      "schema": "AttendanceGroupView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<LocationView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "AttendanceGroupDtos.LocationPage",
+      "schema": "AttendanceLocationPage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "locationId|String|optional",
+        "companyId|String|optional",
+        "code|String|optional",
+        "locationRevisionId|String|optional",
+        "revisionNumber|int|required",
+        "name|String|optional",
+        "timeZone|String|optional",
+        "status|String|optional",
+        "effectiveFrom|LocalDate|optional",
+        "effectiveTo|LocalDate|optional",
+        "snapshotDigest|String|optional",
+        "rowVersion|long|required",
+        "changeReason|String|optional",
+        "updatedAt|Instant|optional"
+      ],
+      "record": "AttendanceGroupDtos.LocationView",
+      "schema": "AttendanceLocationView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<BindingView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "AttendancePolicyDtos.BindingPage",
+      "schema": "AttendancePolicyBindingPage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "bindingId|String|optional",
+        "bindingRevisionId|String|optional",
+        "revisionNumber|int|required",
+        "companyId|String|optional",
+        "policyKind|String|optional",
+        "policyVersionId|String|optional",
+        "groupId|String|optional",
+        "groupRevisionId|String|optional",
+        "effectiveFrom|LocalDate|optional",
+        "effectiveTo|LocalDate|optional",
+        "status|String|optional",
+        "snapshotDigest|String|optional",
+        "rowVersion|long|required",
+        "changeReason|String|optional",
+        "updatedAt|java.time.Instant|optional"
+      ],
+      "record": "AttendancePolicyDtos.BindingView",
+      "schema": "AttendancePolicyBindingView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "templateId|String|optional",
+        "policyKind|AttendancePolicyModels.PolicyKind|optional",
+        "name|String|optional",
+        "fields|List<FieldDefinition>|optional"
+      ],
+      "record": "AttendancePolicyCatalog.TemplateDefinition",
+      "schema": "AttendancePolicyCatalogEntry",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "key|String|optional",
+        "label|String|optional",
+        "valueType|String|optional",
+        "required|boolean|required"
+      ],
+      "record": "AttendancePolicyCatalog.FieldDefinition",
+      "schema": "AttendancePolicyCatalogField",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "groupCount|int|required",
+        "assignmentCount|int|required",
+        "countSource|String|optional",
+        "impactToken|String|optional",
+        "expiresAt|java.time.Instant|optional"
+      ],
+      "record": "AttendancePolicyDtos.ImpactView",
+      "schema": "AttendancePolicyImpactView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "key|String|optional",
+        "value|Object|optional"
+      ],
+      "record": "AttendancePolicyLifecycleDtos.ParameterView",
+      "schema": "AttendancePolicyParameter",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "configurationDigest|String|optional",
+        "results|List<SimulationView>|optional"
+      ],
+      "record": "AttendancePolicyDtos.SimulationBatchView",
+      "schema": "AttendancePolicySimulationBatchView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "policyKind|String|optional",
+        "status|String|optional",
+        "policyVersionId|String|optional",
+        "configurationDigest|String|optional",
+        "matched|boolean|required",
+        "consumesAllowance|boolean|required",
+        "rawLateMinutes|Integer|optional",
+        "predictedMonthlyConsumption|int|required",
+        "usageProvenance|String|optional",
+        "usageKnowledgeTime|java.time.Instant|optional",
+        "deductionMinutes|Integer|optional",
+        "matchedMealWindows|List<MatchedMealWindowView>|optional",
+        "correctionDeadline|LocalDate|optional",
+        "affectedSegment|String|optional",
+        "explanation|String|optional",
+        "writesFormalResult|boolean|required"
+      ],
+      "record": "AttendancePolicyDtos.SimulationView",
+      "schema": "AttendancePolicySimulationView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "valid|boolean|required",
+        "issues|List<ValidationIssueView>|optional",
+        "validatedAt|Instant|optional"
+      ],
+      "record": "AttendancePolicyLifecycleDtos.ValidationView",
+      "schema": "AttendancePolicyValidation",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "code|String|optional",
+        "field|String|optional",
+        "message|String|optional"
+      ],
+      "record": "AttendancePolicyLifecycleDtos.ValidationIssueView",
+      "schema": "AttendancePolicyValidationIssue",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "scopedVersionId|String|optional",
+        "scopeId|String|optional",
+        "templateId|String|optional",
+        "companyId|String|optional",
+        "policyKind|String|optional",
+        "versionNumber|int|required",
+        "status|String|optional",
+        "parameters|List<ParameterView>|optional",
+        "effectiveFrom|LocalDate|optional",
+        "effectiveTo|LocalDate|optional",
+        "changeReason|String|optional",
+        "validation|ValidationView|optional",
+        "snapshotDigest|String|optional",
+        "rollbackOfScopedVersionId|String|optional",
+        "rowVersion|long|required",
+        "createdBy|String|optional",
+        "createdAt|Instant|optional",
+        "publishedAt|Instant|optional",
+        "updatedBy|String|optional",
+        "updatedAt|Instant|optional",
+        "deactivationEffectiveFrom|LocalDate|optional"
+      ],
+      "record": "AttendancePolicyLifecycleDtos.VersionView",
+      "schema": "AttendancePolicyVersionDetail",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<VersionView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "AttendancePolicyLifecycleDtos.VersionPage",
+      "schema": "AttendancePolicyVersionPage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<ShiftTemplateView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "ShiftCalendarDtos.ShiftTemplatePage",
+      "schema": "ShiftTemplatePage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "shiftId|String|optional",
+        "companyId|String|optional",
+        "locationId|String|optional",
+        "code|String|optional",
+        "name|String|optional",
+        "status|String|optional",
+        "rowVersion|long|required",
+        "changeReason|String|optional",
+        "updatedAt|Instant|optional"
+      ],
+      "record": "ShiftCalendarDtos.ShiftTemplateView",
+      "schema": "ShiftTemplateView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<ShiftVersionView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "ShiftCalendarDtos.ShiftVersionPage",
+      "schema": "ShiftVersionPage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "shiftVersionId|String|optional",
+        "shiftId|String|optional",
+        "versionNumber|int|required",
+        "status|String|optional",
+        "effectiveFrom|LocalDate|optional",
+        "effectiveTo|LocalDate|optional",
+        "timeZone|String|optional",
+        "segments|List<Segment>|optional",
+        "snapshotDigest|String|optional",
+        "rowVersion|long|required",
+        "changeReason|String|optional",
+        "publishedAt|Instant|optional",
+        "updatedAt|Instant|optional"
+      ],
+      "record": "ShiftCalendarDtos.ShiftVersionView",
+      "schema": "ShiftVersionView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<CalendarDayView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "ShiftCalendarDtos.CalendarDayPage",
+      "schema": "WorkCalendarDayPage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "calendarDayId|String|optional",
+        "calendarId|String|optional",
+        "calendarVersionId|String|optional",
+        "businessDate|LocalDate|optional",
+        "dayType|String|optional",
+        "shiftVersionOverrideId|String|optional",
+        "rowVersion|long|required",
+        "changeReason|String|optional"
+      ],
+      "record": "ShiftCalendarDtos.CalendarDayView",
+      "schema": "WorkCalendarDayView",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "items|List<CalendarView>|optional",
+        "total|long|required",
+        "page|int|required",
+        "size|int|required"
+      ],
+      "record": "ShiftCalendarDtos.CalendarPage",
+      "schema": "WorkCalendarPage",
+      "surface": "response"
+    },
+    {
+      "fields": [
+        "calendarId|String|optional",
+        "companyId|String|optional",
+        "locationId|String|optional",
+        "code|String|optional",
+        "calendarVersionId|String|optional",
+        "versionNumber|int|required",
+        "name|String|optional",
+        "calendarYear|int|required",
+        "timeZone|String|optional",
+        "status|String|optional",
+        "effectiveFrom|LocalDate|optional",
+        "effectiveTo|LocalDate|optional",
+        "snapshotDigest|String|optional",
+        "rowVersion|long|required",
+        "changeReason|String|optional",
+        "updatedAt|Instant|optional"
+      ],
+      "record": "ShiftCalendarDtos.CalendarView",
+      "schema": "WorkCalendarView",
+      "surface": "response"
+    }
+  ],
+  "operationCount": 54,
+  "operations": [
+    {
+      "controller": {
+        "javaMethod": "listCalendars",
+        "parameters": [
+          "query|year|optional|Integer",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<CalendarPage>",
+        "semanticSha256": "175a8bc3fa1ecafd4be51e889e9b4bd66d4b5cc10077c93542ad82ef142d3679",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403"
+        ],
+        "operationId": "listWorkCalendars",
+        "parameters": [
+          "query|year|optional|{\"maximum\":2100,\"minimum\":2000,\"type\":\"integer\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "96165475e2a361bd0864d936f092b12d2806c01b9e2db5eac1767089873f0f71",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars"
+    },
+    {
+      "controller": {
+        "javaMethod": "createCalendar",
+        "parameters": [
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|CalendarRequest",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "3147b593bc7b2f63892c7466a52042a9043ef8c9698f4e38e1df1656c2d0b708",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "409"
+        ],
+        "operationId": "createWorkCalendar",
+        "parameters": [
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/WorkCalendarRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "4522eddf9cd123cdbc4e0a7c3368d0a77af0766387b3aad7ef62b624d9b4f36d",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateCalendar",
+        "parameters": [
+          "path|calendarId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|CalendarRequest",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "4d78e8cf2a12ec23e30a788f5f9c18283c135b3bdd60e9f8b8f60fcfe902e499",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateWorkCalendar",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/WorkCalendarRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "a7796fda9cc06c69e225384ff61a39485fdd8b4aaf64bea5461d00588b5a3bf8",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "listCalendarDays",
+        "parameters": [
+          "path|calendarId|required|String",
+          "query|from|required|LocalDate",
+          "query|to|required|LocalDate",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<CalendarDayPage>",
+        "semanticSha256": "fcdc2faa4b36d3e4bee8506ff4c136d835e7f2c5b910efd7f737bca18bc2671e",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "listWorkCalendarDays",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|from|required|{\"format\":\"date\",\"type\":\"string\"}",
+          "query|to|required|{\"format\":\"date\",\"type\":\"string\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "049b65cf18f9aeb034a69bb76eb2dcd76c19698da4569d6d5e4baf612ab4bdf1",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarDayPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/days"
+    },
+    {
+      "controller": {
+        "javaMethod": "replaceCalendarDays",
+        "parameters": [
+          "path|calendarId|required|String",
+          "header|X-Change-Reason|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String"
+        ],
+        "requestBody": "required|List<CalendarDayRequest>",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "ee7cf40c0ae7abd9f1aafa683a2ed18d66ccedf9ff63bade7ffabee1a7fe8faf",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "replaceWorkCalendarDays",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"items\":{\"$ref\":\"#/components/schemas/WorkCalendarDayRequest\"},\"maxItems\":366,\"minItems\":1,\"type\":\"array\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "57378fcd0f8beaa5a097f5c076eb66e5cc2f58fb33686a21dfb8b3d0ae97c492",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/days"
+    },
+    {
+      "controller": {
+        "javaMethod": "publishCalendar",
+        "parameters": [
+          "path|calendarId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ReasonRequest",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "dc74148ba2b436265c3c04e02a5dbf2dfc9a4dad6023b2ea0de5e3c95218882d",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "publishWorkCalendar",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ReasonRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "d1b06be54d69e6775d492a862af529796d45da4c41f40baceb7d150f887df16a",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/publish"
+    },
+    {
+      "controller": {
+        "javaMethod": "changeCalendarStatus",
+        "parameters": [
+          "path|calendarId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|CalendarStatusRequest",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "878e98428744e69e03b3bf4b74838426e78dcbb655b2eb2633643fa1502ade6a",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "changeWorkCalendarStatus",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/WorkCalendarStatusRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "80e661c4a360bd8232b66232fc668ae7e9a26b41501e6cb42a4af9177d811421",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/status"
+    },
+    {
+      "controller": {
+        "javaMethod": "listCalendarVersions",
+        "parameters": [
+          "path|calendarId|required|String",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<CalendarPage>",
+        "semanticSha256": "25f4d97645a458b6d4dbfd138ad2c3f5be33b36c5a8060133b9f30325736c72c",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "listWorkCalendarVersions",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "eabbcd46a3e1f9010530607b8a840dd98900a62fcb841db471e3f795cb5ae6f3",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/versions"
+    },
+    {
+      "controller": {
+        "javaMethod": "createCalendarVersion",
+        "parameters": [
+          "path|calendarId|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|CalendarVersionRequest",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "0825b0e204731f99e0072acc0c4786690a4357170c7c0c9d86088d9a633b2b51",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "createWorkCalendarVersion",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/WorkCalendarVersionRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "8a2f4d0296f9952010ccc94754a485468e0a290ef6fefd57f365a0d67b8953df",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/versions"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateCalendarVersion",
+        "parameters": [
+          "path|calendarId|required|String",
+          "path|versionId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|CalendarVersionRequest",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "37aee98e7af0b786eb3488e32a963d2d7d5105ca18e9108598f7d51e8c24fc63",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateWorkCalendarVersion",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/WorkCalendarVersionRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "273abccf5f8f1c69cbc5cc3ebac2ee3b9e29f03fdc0b8cc51ae590450b56e18b",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/versions/{versionId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "listCalendarVersionDays",
+        "parameters": [
+          "path|calendarId|required|String",
+          "path|versionId|required|String",
+          "query|from|required|LocalDate",
+          "query|to|required|LocalDate",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<CalendarDayPage>",
+        "semanticSha256": "a6dc1e8dac127fcaf7e5a7fe3abfe69a521637c38f7b792341e4aa9fde769723",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "listWorkCalendarVersionDays",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|from|required|{\"format\":\"date\",\"type\":\"string\"}",
+          "query|to|required|{\"format\":\"date\",\"type\":\"string\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "3e3078f5b4d5a421489a76bca921b83578524134a234c5d015ab4e4f3e45b180",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarDayPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/versions/{versionId}/days"
+    },
+    {
+      "controller": {
+        "javaMethod": "upsertCalendarVersionDays",
+        "parameters": [
+          "path|calendarId|required|String",
+          "path|versionId|required|String",
+          "header|X-Change-Reason|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String"
+        ],
+        "requestBody": "required|List<CalendarDayRequest>",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "e7f743068eade2615a36693723e2466a60fa24c6249098c8cc6aa63f82760a1e",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "PATCH",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "patchWorkCalendarVersionDays",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"items\":{\"$ref\":\"#/components/schemas/WorkCalendarDayRequest\"},\"maxItems\":366,\"minItems\":1,\"type\":\"array\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "356128c3fb3897db62a4e7aeb5fda80e9f5152b5ef25e43f153e4951ab1a0a00",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/versions/{versionId}/days"
+    },
+    {
+      "controller": {
+        "javaMethod": "deactivateCalendarVersion",
+        "parameters": [
+          "path|calendarId|required|String",
+          "path|versionId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|FutureDeactivationRequest",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "e855e01ba77c390b534e18fc5e823d47db5beadab9871c6e8fd94edfdb77faaa",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "deactivateWorkCalendarVersion",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/FutureDeactivationRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "f9f9e0fae2c86a1cb7012999b1bddceeddf98c9ada80a1b074211be51c235639",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/versions/{versionId}/deactivate"
+    },
+    {
+      "controller": {
+        "javaMethod": "publishCalendarVersion",
+        "parameters": [
+          "path|calendarId|required|String",
+          "path|versionId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ReasonRequest",
+        "returnType": "ResponseEntity<CalendarView>",
+        "semanticSha256": "4264779e67fb1f2a3cf8cce8cbca0f8bdda5c4172a52acb46af437ada3706304",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_CALENDAR",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "publishWorkCalendarVersion",
+        "parameters": [
+          "path|calendarId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ReasonRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "ffa966c7411663846fbfd06945ce485ba67575696e1cbde8e27bc5571d450a73",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/WorkCalendarView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/calendars/{calendarId}/versions/{versionId}/publish"
+    },
+    {
+      "controller": {
+        "javaMethod": "listGroups",
+        "parameters": [
+          "query|asOf|optional|LocalDate",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<GroupPage>",
+        "semanticSha256": "77046c24fc1527d3a6e03309b751ef1269d2d7d5e8307f39fd790c82e048bc11",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403"
+        ],
+        "operationId": "listAttendanceGroups",
+        "parameters": [
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}",
+          "query|asOf|optional|{\"format\":\"date\",\"type\":\"string\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "baccdf5d09d7cc553238d2cf2da5a1a46f8e803553f52a1617e6e0c9eb74f169",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups"
+    },
+    {
+      "controller": {
+        "javaMethod": "createGroup",
+        "parameters": [
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|GroupRequest",
+        "returnType": "ResponseEntity<GroupView>",
+        "semanticSha256": "191a74825b130e549e0b919051b9188ba1b2f7208089862a156f3b10592d384a",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_GROUP",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "createAttendanceGroup",
+        "parameters": [
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendanceGroupRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "1902f795e62a55c8df5b972b973af5423675446851efd13272dc28814c2a349c",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups"
+    },
+    {
+      "controller": {
+        "javaMethod": "getGroup",
+        "parameters": [
+          "path|groupId|required|String"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<GroupView>",
+        "semanticSha256": "f1852a8e29c5c910ca4864a843a5dad406eebf462a15751d51396732f68681c2",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "getAttendanceGroup",
+        "parameters": [
+          "path|groupId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "14b3e5ebe2e951d76c078b32cb1836ddb76c92afbe57debf3828286f50b05895",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups/{groupId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateGroup",
+        "parameters": [
+          "path|groupId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|GroupRequest",
+        "returnType": "ResponseEntity<GroupView>",
+        "semanticSha256": "7eba8ed563c3acf55402b9da5ccdddc2c3db8e005c8648e12a5e82f970ec00e6",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_GROUP",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateAttendanceGroup",
+        "parameters": [
+          "path|groupId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendanceGroupRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "df4416baccb76dc82f19e4cda1e870f3b2aa4a30116bfd9cabf28b948d4da70b",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups/{groupId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "listAssignments",
+        "parameters": [
+          "path|groupId|required|String",
+          "query|asOf|optional|LocalDate",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<AssignmentPage>",
+        "semanticSha256": "6c98e3524c972fe54a715769aef96031d21102af0cbeda88551659ba5080721a",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "listAttendanceGroupAssignments",
+        "parameters": [
+          "path|groupId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|asOf|optional|{\"format\":\"date\",\"type\":\"string\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "7890b5c310d12dda080fc88fd0cfe7bff5f30214b2e23f606676b75d577a9ca5",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupAssignmentPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups/{groupId}/assignments"
+    },
+    {
+      "controller": {
+        "javaMethod": "createAssignment",
+        "parameters": [
+          "path|groupId|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|AssignmentRequest",
+        "returnType": "ResponseEntity<AssignmentView>",
+        "semanticSha256": "7b6989f5c13eeb936715a2b90485e84f26e7a4f95f8dd65dafb9ae8a41d71ace",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:ASSIGN",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "createAttendanceGroupAssignment",
+        "parameters": [
+          "path|groupId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendanceGroupAssignmentRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "ca420a6c2a0b5ebda80c7433caaaf38f81da619fe6d4629144ec95fa45ea19d4",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupAssignmentView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups/{groupId}/assignments"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateAssignment",
+        "parameters": [
+          "path|groupId|required|String",
+          "path|assignmentId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|AssignmentRequest",
+        "returnType": "ResponseEntity<AssignmentView>",
+        "semanticSha256": "d4496bc26f861543b09432b035ba15bbfa79fd975d9e5e85c53033095222a2b3",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:ASSIGN",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateAttendanceGroupAssignment",
+        "parameters": [
+          "path|groupId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|assignmentId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendanceGroupAssignmentRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "13d7d764386bf245b63a3c44edfd6c2de36b137e49c05ae4f710bd22a639e472",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupAssignmentView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups/{groupId}/assignments/{assignmentId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "listGroupRevisions",
+        "parameters": [
+          "path|groupId|required|String",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<GroupPage>",
+        "semanticSha256": "f2229f4a28a456a7dc08485bc8e8bb46b09ea06e08e94255485292c99d560187",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "listAttendanceGroupRevisions",
+        "parameters": [
+          "path|groupId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "9b90ec6b39b79161103f03dd63612e814a00227f37587dcf4ebd01be01e57186",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups/{groupId}/revisions"
+    },
+    {
+      "controller": {
+        "javaMethod": "changeGroupStatus",
+        "parameters": [
+          "path|groupId|required|String",
+          "path|lifecycleAction|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ReasonRequest",
+        "returnType": "ResponseEntity<GroupView>",
+        "semanticSha256": "9ae7a5e598015980a15401429ece4d403582d51c00a5ce172b9213841023dca5",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_GROUP",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "changeAttendanceGroupLifecycle",
+        "parameters": [
+          "path|groupId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|lifecycleAction|required|{\"enum\":[\"activate\",\"deactivate\"],\"type\":\"string\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ReasonRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "1c89f2e351bb2f3fe559dcbcaf2bf946fa314ad80b7e73b19cb20d0142f7b257",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceGroupView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/groups/{groupId}/{lifecycleAction}"
+    },
+    {
+      "controller": {
+        "javaMethod": "listLocations",
+        "parameters": [
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<LocationPage>",
+        "semanticSha256": "5784cf2a814ff62fc55d671fde8767acca47de4e28d4912c8b6118eb40f5703f",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403"
+        ],
+        "operationId": "listAttendanceLocations",
+        "parameters": [
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "9f7df775a83ee0a479ffd4f537f4a9c93a3906bec90a13e972cb18a2f6e0bf5f",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceLocationPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/locations"
+    },
+    {
+      "controller": {
+        "javaMethod": "createLocation",
+        "parameters": [
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|LocationRequest",
+        "returnType": "ResponseEntity<LocationView>",
+        "semanticSha256": "ea4fc532ea736176e4b983fff6d4a0c3c53c758a603a15b7bc4ed862a43df61e",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_GROUP",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "409"
+        ],
+        "operationId": "createAttendanceLocation",
+        "parameters": [
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendanceLocationRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "cf484f2bd838d0d3984464f35920caa219144b3d83aaa876e7a416df72101d28",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceLocationView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/locations"
+    },
+    {
+      "controller": {
+        "javaMethod": "getLocation",
+        "parameters": [
+          "path|locationId|required|String"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<LocationView>",
+        "semanticSha256": "270fa3266936bc9ba44fe2991efa20087c2491a1a1bcde64e8647320c1025386",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "getAttendanceLocation",
+        "parameters": [
+          "path|locationId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "fb03e3ad53d33436ff1f31febcbba0abbc23ecb957c5ac0ecbd70b16b461093c",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceLocationView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/locations/{locationId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateLocation",
+        "parameters": [
+          "path|locationId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|LocationRequest",
+        "returnType": "ResponseEntity<LocationView>",
+        "semanticSha256": "b55b92ecd48d01c933161132ea57fbf68e4bfb26364d9f0633344a5b0b5195d3",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_GROUP",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateAttendanceLocation",
+        "parameters": [
+          "path|locationId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendanceLocationRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "94550b830f60aca303d901cd56b8e02a9f67e91da18d452d9e5dc7818f28d8ba",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceLocationView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/locations/{locationId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "listLocationRevisions",
+        "parameters": [
+          "path|locationId|required|String",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<LocationPage>",
+        "semanticSha256": "c71e5f9e8f6d82f7d5a032e886292712043b5040a39890486892ee5a775709ce",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "listAttendanceLocationRevisions",
+        "parameters": [
+          "path|locationId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "358ddf9b5224b2ebaf64828becd78f579bf184e818ebd6a306ae1cdd745596c4",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceLocationPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/locations/{locationId}/revisions"
+    },
+    {
+      "controller": {
+        "javaMethod": "changeLocationStatus",
+        "parameters": [
+          "path|locationId|required|String",
+          "path|lifecycleAction|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ReasonRequest",
+        "returnType": "ResponseEntity<LocationView>",
+        "semanticSha256": "92a4a1d557f7c1410b93cc3f799420a8408c8ce3ef9a65fa35b33e10e56ae2c8",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendanceGroupController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_GROUP",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "changeAttendanceLocationLifecycle",
+        "parameters": [
+          "path|locationId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|lifecycleAction|required|{\"enum\":[\"activate\",\"deactivate\"],\"type\":\"string\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ReasonRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "3ff3b02446abc6484af1bc309387a9ba9e231e2bc957640d2d156047a02f0080",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceLocationView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/locations/{locationId}/{lifecycleAction}"
+    },
+    {
+      "controller": {
+        "javaMethod": "listBindings",
+        "parameters": [
+          "query|groupId|optional|String",
+          "query|asOf|optional|LocalDate",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<BindingPage>",
+        "semanticSha256": "859b143700ad269dc9ce8e099a3b0c1b9759d283ac167a960e4fab1eb94d30a0",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403"
+        ],
+        "operationId": "listAttendancePolicyBindings",
+        "parameters": [
+          "query|groupId|optional|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|asOf|optional|{\"format\":\"date\",\"type\":\"string\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "4689d99fc9377480e9d6a06320b317da69fa8be957dcdbc71fc2f9bd5293322f",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyBindingPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-bindings"
+    },
+    {
+      "controller": {
+        "javaMethod": "createBinding",
+        "parameters": [
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|BindingRequest",
+        "returnType": "ResponseEntity<BindingView>",
+        "semanticSha256": "eccc9e21c1eb808d9bdbbdf30d944f39bf661d93eb6bee3f91379d4c350224a8",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "createAttendancePolicyBinding",
+        "parameters": [
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendancePolicyBindingRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "5a529942695c2d0febbe0429366bea91d9edb3deb97eac489cbbae3581a40294",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyBindingView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-bindings"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateBinding",
+        "parameters": [
+          "path|bindingId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|BindingRequest",
+        "returnType": "ResponseEntity<BindingView>",
+        "semanticSha256": "b18bb84bc95cadfd5370b003ea1d9c627933e45c9bcfb4f489abee6f052aafa8",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateAttendancePolicyBinding",
+        "parameters": [
+          "path|bindingId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendancePolicyBindingRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "136e3d90ae7d210df7f13353b2565f789bb7a16f7a27a0480ef98d7d67345d63",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyBindingView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-bindings/{bindingId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "catalog",
+        "parameters": [],
+        "requestBody": null,
+        "returnType": "ResponseEntity<List<AttendancePolicyCatalog.TemplateDefinition>>",
+        "semanticSha256": "de55b350fe20799b0a91b7972a3880b0795e3f13355a116fcd47cf71d1e3d6e8",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403"
+        ],
+        "operationId": "listAttendancePolicyCatalog",
+        "parameters": [],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "80ece7c257d34267a54cb40137091356697a5e88c5d47b7deccae561c573c123",
+        "successResponses": [
+          "200|content=application/json:{\"items\":{\"$ref\":\"#/components/schemas/AttendancePolicyCatalogEntry\"},\"maxItems\":3,\"minItems\":3,\"type\":\"array\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-catalog"
+    },
+    {
+      "controller": {
+        "javaMethod": "previewImpact",
+        "parameters": [],
+        "requestBody": "required|BindingPreviewRequest",
+        "returnType": "ResponseEntity<ImpactView>",
+        "semanticSha256": "86e6b5fd596f4745e21e66e588a772f5c5da11edda3066ab38b1fe04f2e149ad",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "previewAttendancePolicyImpact",
+        "parameters": [
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendancePolicyBindingPreviewRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "60768728e58935368c31b0d53a2a5998e06b61ba422f5a06fddb07c7c83732cf",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyImpactView\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-impact-preview"
+    },
+    {
+      "controller": {
+        "javaMethod": "getVersionContext",
+        "parameters": [
+          "path|versionId|required|String"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.VersionView>",
+        "semanticSha256": "80a86485544abbeb12d20728a5df8c8443c73b31bdf520ea30b1c377d6a01374",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "getAttendancePolicyVersionContext",
+        "parameters": [
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "26e0a001d029c41f460507d11fcce2ecea63cefe45b61a706f947ca5ad7a1641",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyVersionDetail\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/versions/{versionId}/context"
+    },
+    {
+      "controller": {
+        "javaMethod": "listVersions",
+        "parameters": [
+          "path|templateId|required|String",
+          "query|companyId|required|String",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.VersionPage>",
+        "semanticSha256": "95de8a82fbe9975164bb0183b8ac7291983aef40285d19d8ccfc82b56fa9e7f6",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "listAttendancePolicyVersions",
+        "parameters": [
+          "path|templateId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|companyId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "38c1ca916a01fac009f9598ad1ddbf0dffd701e552f18d2dea962b9ff0a9ffe9",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyVersionPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/{templateId}/versions"
+    },
+    {
+      "controller": {
+        "javaMethod": "createDraft",
+        "parameters": [
+          "path|templateId|required|String",
+          "query|companyId|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|DraftRequest",
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.VersionView>",
+        "semanticSha256": "9cd303b0761d29a9cb4fce25e1d31598986385b4267dbe468ef5c26ca6f84718",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "createAttendancePolicyDraft",
+        "parameters": [
+          "path|templateId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|companyId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendancePolicyDraftRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "a3d43c5bb66dc8d6d14835482363fc799c4727b8183515c4449fa6a85fbcc1c5",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyVersionDetail\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Key:optional:{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/{templateId}/versions"
+    },
+    {
+      "controller": {
+        "javaMethod": "getVersion",
+        "parameters": [
+          "path|templateId|required|String",
+          "path|versionId|required|String",
+          "query|companyId|required|String"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.VersionView>",
+        "semanticSha256": "a2cbd0c7fa4dcdb2e3a79dc3d17105ddb8b9571d530e44d32661b28a9cf23aae",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "getAttendancePolicyVersion",
+        "parameters": [
+          "path|templateId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|companyId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "369beb88ef574158a00631d210ee4ce430991219da30c694c12166d397bbea2e",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyVersionDetail\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateDraft",
+        "parameters": [
+          "path|templateId|required|String",
+          "path|versionId|required|String",
+          "query|companyId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|UpdateRequest",
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.VersionView>",
+        "semanticSha256": "53f3d47aa8928e243d3f54e3f669a5ec34fdc4b081c6481b8c01f8717bc2b389",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "PATCH",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateAttendancePolicyDraft",
+        "parameters": [
+          "path|templateId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|companyId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendancePolicyDraftUpdateRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "29561bea8a3abab833b30c25125b3d42670b754a03eed95593ee2f976c4f96ad",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyVersionDetail\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Key:optional:{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "deactivate",
+        "parameters": [
+          "path|templateId|required|String",
+          "path|versionId|required|String",
+          "query|companyId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|DeactivateRequest",
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.VersionView>",
+        "semanticSha256": "ac1a9ef22daef2ad87a6cc60db587734eb58e9c279e163063f4fde7d68bbf3ab",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "deactivateAttendancePolicyVersion",
+        "parameters": [
+          "path|templateId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|companyId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendancePolicyDeactivateRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "5aa370e9b38c2530786045ae31552be2d8fc4f0816f4a686316f5c7d18a09c45",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyVersionDetail\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Key:optional:{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/deactivate"
+    },
+    {
+      "controller": {
+        "javaMethod": "publish",
+        "parameters": [
+          "path|templateId|required|String",
+          "path|versionId|required|String",
+          "query|companyId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ReasonRequest",
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.VersionView>",
+        "semanticSha256": "4ecb9bc3f06357b4176a079c3a203817e1a26c8ca2ef6efaf71caf89b35943d4",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "publishAttendancePolicyVersion",
+        "parameters": [
+          "path|templateId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|companyId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ReasonRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "bfee09e72ad8f89a1432e54231542b444738f8bbfd8822dd6d23b10a3d222d19",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyVersionDetail\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Key:optional:{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/publish"
+    },
+    {
+      "controller": {
+        "javaMethod": "rollback",
+        "parameters": [
+          "path|templateId|required|String",
+          "path|versionId|required|String",
+          "query|companyId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|RollbackRequest",
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.VersionView>",
+        "semanticSha256": "9f7505816e9c26ff6fb7f1caaa82f5a0d77cfa352b687ca4e35335bdde948dbb",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "rollbackAttendancePolicyVersion",
+        "parameters": [
+          "path|templateId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|companyId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendancePolicyRollbackRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "1f3a02bc2a7d39df37cf6ec37e41c2faebb76be3fd9fe9f6f72efc46ad512c37",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyVersionDetail\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Key:optional:{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/rollback"
+    },
+    {
+      "controller": {
+        "javaMethod": "validate",
+        "parameters": [
+          "path|templateId|required|String",
+          "path|versionId|required|String",
+          "query|companyId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<AttendancePolicyLifecycleDtos.ValidationView>",
+        "semanticSha256": "5668f0fd8177694155c7c5d5b06db220d326df525bf81382b56b640db88a9268",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyLifecycleController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "validateAttendancePolicyVersion",
+        "parameters": [
+          "path|templateId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|versionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|companyId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "15f256fdd5ff24e0b3b2475b04451e79671fd0d29cfc6fcf6443808b070dbc26",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicyValidation\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Key:optional:{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate"
+    },
+    {
+      "controller": {
+        "javaMethod": "simulate",
+        "parameters": [],
+        "requestBody": "required|SimulationRequest",
+        "returnType": "ResponseEntity<SimulationBatchView>",
+        "semanticSha256": "c7a2f6bc33dc8f83becf1c89a7cd5fa9779ace4cf854687a2eac809110e068af",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_POLICY",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "simulateAttendanceBasePolicy",
+        "parameters": [
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/AttendancePolicySimulationRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "efcb7ab11fb959de3ecb231588acb5922333c999784569286d01209e1e0ef45a",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendancePolicySimulationBatchView\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/policy-simulations"
+    },
+    {
+      "controller": {
+        "javaMethod": "resolve",
+        "parameters": [
+          "query|employeeId|required|String",
+          "query|businessDate|required|LocalDate"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<ConfigurationView>",
+        "semanticSha256": "21d39dff1d862bfccedad3ace9dc94c708f3c749f5ff543c4a0d4954d2d7a1fe",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/AttendancePolicyController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "resolveAttendanceConfiguration",
+        "parameters": [
+          "query|employeeId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|businessDate|required|{\"format\":\"date\",\"type\":\"string\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "d8e63f9dd37c6375ec2d9dae1619a44186d6a8b688e6a68c62d0f5cbbc3c442e",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/AttendanceConfigurationView\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/resolve"
+    },
+    {
+      "controller": {
+        "javaMethod": "listShifts",
+        "parameters": [
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<ShiftTemplatePage>",
+        "semanticSha256": "e7771684b2a0391d384ebe4535362b55c0912fc074f401b82e786e4aa8bef742",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403"
+        ],
+        "operationId": "listShiftTemplates",
+        "parameters": [
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "12cf35d3b8631b6d96574155b46bab5a149f3cacd1a5e6273c9dce5da1842ca4",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/ShiftTemplatePage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts"
+    },
+    {
+      "controller": {
+        "javaMethod": "createShift",
+        "parameters": [
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ShiftTemplateRequest",
+        "returnType": "ResponseEntity<ShiftTemplateView>",
+        "semanticSha256": "3d667f9bb51127ab911650cd389db0a90b66d19cda46925d788d5b04c99302e7",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_SHIFT",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "409"
+        ],
+        "operationId": "createShiftTemplate",
+        "parameters": [
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ShiftTemplateRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "10e6620861850ba732120fe550c4183c7ca09fae742e963003ec175ee2d79399",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/ShiftTemplateView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateShift",
+        "parameters": [
+          "path|shiftId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ShiftTemplateRequest",
+        "returnType": "ResponseEntity<ShiftTemplateView>",
+        "semanticSha256": "91ebad26b10987147444be5261fc877fb73cb21f0b58c6b522c2271ce2ecc707",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_SHIFT",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateShiftTemplate",
+        "parameters": [
+          "path|shiftId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ShiftTemplateRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "3b3210adc0096e2ce2f53c482afe270668faa0896fb4a0f1ad7ecfd42a7e634c",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/ShiftTemplateView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts/{shiftId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "changeShiftStatus",
+        "parameters": [
+          "path|shiftId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ShiftTemplateStatusRequest",
+        "returnType": "ResponseEntity<ShiftTemplateView>",
+        "semanticSha256": "7161f0c23bc029996d974a8fbf6e5f95689e2939c882730e86b2592338bddf61",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_SHIFT",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "changeShiftTemplateStatus",
+        "parameters": [
+          "path|shiftId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ShiftTemplateStatusRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "2e73cf0941fb21cf0fb5313eb5d6a96c962d1f3bb7aa14a6ddf1be02ad048fa8",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/ShiftTemplateView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts/{shiftId}/status"
+    },
+    {
+      "controller": {
+        "javaMethod": "listShiftVersions",
+        "parameters": [
+          "path|shiftId|required|String",
+          "query|page|optional|int",
+          "query|size|optional|int"
+        ],
+        "requestBody": null,
+        "returnType": "ResponseEntity<ShiftVersionPage>",
+        "semanticSha256": "6f7c138836c4cbc1228770554a345b199f0c179b9062b75c5708ccf5efae75da",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "GET",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:READ",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "401",
+          "403",
+          "404"
+        ],
+        "operationId": "listShiftVersions",
+        "parameters": [
+          "path|shiftId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "query|page|optional|{\"default\":0,\"minimum\":0,\"type\":\"integer\"}",
+          "query|size|optional|{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"}"
+        ],
+        "requestBody": null,
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "658d52bf59c67eb2118d4cb14b80541ec8558f21cdce24b28832e494347cfcfc",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/ShiftVersionPage\"}|headers=X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts/{shiftId}/versions"
+    },
+    {
+      "controller": {
+        "javaMethod": "createShiftVersion",
+        "parameters": [
+          "path|shiftId|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ShiftVersionRequest",
+        "returnType": "ResponseEntity<ShiftVersionView>",
+        "semanticSha256": "2f78f28b44eb758657f9fca335ab274ee9754e258130c2f95237f2554937c454",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_SHIFT",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "createShiftVersion",
+        "parameters": [
+          "path|shiftId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ShiftVersionRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "17226551e120000566a6c351dabf1258f814ba91f65e5ab12762239dfdadc00f",
+        "successResponses": [
+          "201|content=application/json:{\"$ref\":\"#/components/schemas/ShiftVersionView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts/{shiftId}/versions"
+    },
+    {
+      "controller": {
+        "javaMethod": "updateShiftVersion",
+        "parameters": [
+          "path|shiftId|required|String",
+          "path|shiftVersionId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ShiftVersionRequest",
+        "returnType": "ResponseEntity<ShiftVersionView>",
+        "semanticSha256": "e1b8cb0abde3db5483dfbadf7e292fd791dd8ed8720676e36da642e71e364b63",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "PUT",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_SHIFT",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "updateShiftVersion",
+        "parameters": [
+          "path|shiftId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|shiftVersionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ShiftVersionRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "e19052234c6c12f115495ef06daef2fd2f3c7b79030841b153ef6ced064a30e7",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/ShiftVersionView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts/{shiftId}/versions/{shiftVersionId}"
+    },
+    {
+      "controller": {
+        "javaMethod": "publishShiftVersion",
+        "parameters": [
+          "path|shiftId|required|String",
+          "path|shiftVersionId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ReasonRequest",
+        "returnType": "ResponseEntity<ShiftVersionView>",
+        "semanticSha256": "bc38b19f3f096632b04a70258cf9b5aa4adf4521ac8934378739af268f7fc076",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_SHIFT",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "publishShiftVersion",
+        "parameters": [
+          "path|shiftId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|shiftVersionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ReasonRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "b402415a87aebe5fdb09eb7b6c38194ff4278577a55e6a4fb3b3617c76a7109f",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/ShiftVersionView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts/{shiftId}/versions/{shiftVersionId}/publish"
+    },
+    {
+      "controller": {
+        "javaMethod": "changeShiftVersionStatus",
+        "parameters": [
+          "path|shiftId|required|String",
+          "path|shiftVersionId|required|String",
+          "header|If-Match|required|String",
+          "header|Idempotency-Key|required|String",
+          "header|X-Change-Reason|required|String"
+        ],
+        "requestBody": "required|ShiftVersionStatusRequest",
+        "returnType": "ResponseEntity<ShiftVersionView>",
+        "semanticSha256": "9cb35f7e056524338aa81c3d3543c81d48fb72f1b32a5916b68f366ec5260b6b",
+        "source": "backend/src/main/java/com/szsemicon/hr/attendance/interfaces/rest/ShiftCalendarController.java"
+      },
+      "method": "POST",
+      "openapi": {
+        "capability": "ATTENDANCE_SETUP:MANAGE_SHIFT",
+        "dataScope": "ATTENDANCE_SETUP:COMPANY",
+        "errorStatuses": [
+          "400",
+          "401",
+          "403",
+          "404",
+          "409"
+        ],
+        "operationId": "changeShiftVersionStatus",
+        "parameters": [
+          "path|shiftId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "path|shiftVersionId|required|{\"$ref\":\"#/components/schemas/ResourceId\"}",
+          "header|X-CSRF-TOKEN|required|{\"maxLength\":256,\"minLength\":32,\"type\":\"string\"}",
+          "header|Idempotency-Key|required|{\"maxLength\":128,\"minLength\":16,\"pattern\":\"^[A-Za-z0-9._:-]+$\",\"type\":\"string\"}",
+          "header|If-Match|required|{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"}",
+          "header|X-Change-Reason|required|{\"maxLength\":4510,\"minLength\":2,\"type\":\"string\"}"
+        ],
+        "requestBody": {
+          "content": [
+            "application/json|{\"$ref\":\"#/components/schemas/ShiftVersionStatusRequest\"}"
+          ],
+          "required": true
+        },
+        "security": "[{\"sessionCookie\":[]}]",
+        "semanticSha256": "0c045dac85aaf86b358a60386e72ffb78c69a4a5511ee4dbe381428aa6c49de1",
+        "successResponses": [
+          "200|content=application/json:{\"$ref\":\"#/components/schemas/ShiftVersionView\"}|headers=ETag:optional:{\"pattern\":\"^\\\"[0-9]+\\\"$\",\"type\":\"string\"},Idempotency-Replayed:optional:{\"type\":\"boolean\"},X-Correlation-ID:optional:{\"maxLength\":64,\"minLength\":1,\"type\":\"string\"}"
+        ]
+      },
+      "path": "/attendance-setup/shifts/{shiftId}/versions/{shiftVersionId}/status"
+    }
+  ],
+  "reviewedChanges": [
+    "54 operations use ATTENDANCE_SETUP:COMPANY as the reviewed top-level data scope",
+    "11 company-bound request/view schemas and 11 linked Java records use companyId",
+    "AttendancePolicyMatchedMealWindowView is included in the reviewed 54-schema closure"
+  ],
+  "schemas": [
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "code",
+        "message",
+        "correlationId",
+        "retryable",
+        "fieldErrors",
+        "details"
+      ],
+      "name": "ApiError",
+      "nullableFields": [],
+      "required": [
+        "code",
+        "correlationId",
+        "message",
+        "retryable"
+      ],
+      "semanticSha256": "298341651996071b2f483d62620e8aed49f9a19362288e47f5399c2aff0495f4"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "status",
+        "employeeId",
+        "businessDate",
+        "groupId",
+        "groupRevisionId",
+        "locationRevisionId",
+        "calendarVersionId",
+        "calendarDay",
+        "shiftVersion",
+        "policyBindings",
+        "configurationDigest",
+        "monthlyContextKey",
+        "explanation"
+      ],
+      "name": "AttendanceConfigurationView",
+      "nullableFields": [
+        "calendarDay",
+        "calendarVersionId",
+        "configurationDigest",
+        "groupId",
+        "groupRevisionId",
+        "locationRevisionId",
+        "monthlyContextKey",
+        "shiftVersion"
+      ],
+      "required": [
+        "businessDate",
+        "calendarDay",
+        "calendarVersionId",
+        "configurationDigest",
+        "employeeId",
+        "explanation",
+        "groupId",
+        "groupRevisionId",
+        "locationRevisionId",
+        "monthlyContextKey",
+        "policyBindings",
+        "shiftVersion",
+        "status"
+      ],
+      "semanticSha256": "4c34847657e0e181f736615ffe5ffca80e305d252361cb1aae7b5537c989e369"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "total",
+        "page",
+        "size"
+      ],
+      "name": "AttendanceGroupAssignmentPage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "c726e728454991be8b4d3da76af18b6164268ad64955e610df5c076f9eda54c0"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "employeeId",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason"
+      ],
+      "name": "AttendanceGroupAssignmentRequest",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "effectiveFrom",
+        "employeeId",
+        "reason"
+      ],
+      "semanticSha256": "052a74bcf731684d49a527dd01317a44226d49f925089fb3a33926ce103b2a85"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "assignmentId",
+        "groupId",
+        "employeeId",
+        "effectiveFrom",
+        "effectiveTo",
+        "rowVersion",
+        "monthlyContextKey",
+        "changeReason",
+        "updatedAt"
+      ],
+      "name": "AttendanceGroupAssignmentView",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "assignmentId",
+        "changeReason",
+        "effectiveFrom",
+        "effectiveTo",
+        "employeeId",
+        "groupId",
+        "monthlyContextKey",
+        "rowVersion",
+        "updatedAt"
+      ],
+      "semanticSha256": "e5940b9d2a1bae7a1609fccb04942e2b3a4fcfea6a43219cd9b9f2291b2a886c"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "name": "AttendanceGroupPage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "7eb930dd201ed0abec809f665f90011e1d839ee224f3de44290460271b7c369b"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "companyId",
+        "code",
+        "name",
+        "locationId",
+        "calendarId",
+        "shiftTemplateId",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason"
+      ],
+      "name": "AttendanceGroupRequest",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "calendarId",
+        "code",
+        "companyId",
+        "effectiveFrom",
+        "locationId",
+        "name",
+        "reason",
+        "shiftTemplateId"
+      ],
+      "semanticSha256": "edcf8c15f1a9e8854e7566032d4140da908c3c76b8608086c2972d6f0cf01df7"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "groupId",
+        "companyId",
+        "code",
+        "groupRevisionId",
+        "revisionNumber",
+        "name",
+        "locationId",
+        "locationRevisionId",
+        "calendarId",
+        "shiftTemplateId",
+        "status",
+        "effectiveFrom",
+        "effectiveTo",
+        "snapshotDigest",
+        "rowVersion",
+        "changeReason",
+        "updatedAt"
+      ],
+      "name": "AttendanceGroupView",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "calendarId",
+        "changeReason",
+        "code",
+        "companyId",
+        "effectiveFrom",
+        "effectiveTo",
+        "groupId",
+        "groupRevisionId",
+        "locationId",
+        "locationRevisionId",
+        "name",
+        "revisionNumber",
+        "rowVersion",
+        "shiftTemplateId",
+        "snapshotDigest",
+        "status",
+        "updatedAt"
+      ],
+      "semanticSha256": "171091211fe68ade2fe35fbf00366f75eaa844e850db31cc4e51652983068f5d"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "name": "AttendanceLocationPage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "ad4a6da32f4c81e6019c50aa6f625b2606a670c68cfefe6499cfb7a42e8a1eb5"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "companyId",
+        "code",
+        "name",
+        "timeZone",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason"
+      ],
+      "name": "AttendanceLocationRequest",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "code",
+        "companyId",
+        "effectiveFrom",
+        "name",
+        "reason",
+        "timeZone"
+      ],
+      "semanticSha256": "a95c09f33e077169aa09beea105348ace8869b6983b435babcc77c6a10a92aed"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "locationId",
+        "companyId",
+        "code",
+        "locationRevisionId",
+        "revisionNumber",
+        "name",
+        "timeZone",
+        "status",
+        "effectiveFrom",
+        "effectiveTo",
+        "snapshotDigest",
+        "rowVersion",
+        "changeReason",
+        "updatedAt"
+      ],
+      "name": "AttendanceLocationView",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "changeReason",
+        "code",
+        "companyId",
+        "effectiveFrom",
+        "effectiveTo",
+        "locationId",
+        "locationRevisionId",
+        "name",
+        "revisionNumber",
+        "rowVersion",
+        "snapshotDigest",
+        "status",
+        "timeZone",
+        "updatedAt"
+      ],
+      "semanticSha256": "bf83cac96c69ba8ecd2922e63ee97f7dc299ae58c1c660e49fbb4906c919e716"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "total",
+        "page",
+        "size"
+      ],
+      "name": "AttendancePolicyBindingPage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "b571824dfff5fb5809706a03fa4a69eced4fde4c937d1b10fe267be7ca98de94"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "policyKind",
+        "policyVersionId",
+        "groupId",
+        "groupRevisionId",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason"
+      ],
+      "name": "AttendancePolicyBindingPreviewRequest",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "effectiveFrom",
+        "groupId",
+        "groupRevisionId",
+        "policyKind",
+        "policyVersionId",
+        "reason"
+      ],
+      "semanticSha256": "0eafc83ab89d6f3f74c64d67e28e19a58cc0fd1dd867f6ba953b67951e2fb691"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "policyKind",
+        "policyVersionId",
+        "groupId",
+        "groupRevisionId",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason",
+        "impactToken"
+      ],
+      "name": "AttendancePolicyBindingRequest",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "effectiveFrom",
+        "groupId",
+        "groupRevisionId",
+        "impactToken",
+        "policyKind",
+        "policyVersionId",
+        "reason"
+      ],
+      "semanticSha256": "ef4ab77d47f6d529fd5223c28c14f6755ec5c0a42d0d10ab7bb9454f73a209c3"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "bindingId",
+        "bindingRevisionId",
+        "revisionNumber",
+        "companyId",
+        "policyKind",
+        "policyVersionId",
+        "groupId",
+        "groupRevisionId",
+        "effectiveFrom",
+        "effectiveTo",
+        "status",
+        "snapshotDigest",
+        "rowVersion",
+        "changeReason",
+        "updatedAt"
+      ],
+      "name": "AttendancePolicyBindingView",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "bindingId",
+        "bindingRevisionId",
+        "changeReason",
+        "companyId",
+        "effectiveFrom",
+        "effectiveTo",
+        "groupId",
+        "groupRevisionId",
+        "policyKind",
+        "policyVersionId",
+        "revisionNumber",
+        "rowVersion",
+        "snapshotDigest",
+        "status",
+        "updatedAt"
+      ],
+      "semanticSha256": "af00bd759b516355028fb10227e9c83d591faee4e2516fad09df46e2bd7f1e05"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "templateId",
+        "policyKind",
+        "name",
+        "fields"
+      ],
+      "name": "AttendancePolicyCatalogEntry",
+      "nullableFields": [],
+      "required": [
+        "fields",
+        "name",
+        "policyKind",
+        "templateId"
+      ],
+      "semanticSha256": "666a31be3966967ce194f66c8ce8d47186ca26fdd915a2afb38f4e3f945758e7"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "key",
+        "label",
+        "valueType",
+        "required"
+      ],
+      "name": "AttendancePolicyCatalogField",
+      "nullableFields": [],
+      "required": [
+        "key",
+        "label",
+        "required",
+        "valueType"
+      ],
+      "semanticSha256": "f077bb475da19e2d4619f87f9a1deadb3f67ad9dd5107e7bfc298f3f4bf115d5"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "effectiveFrom",
+        "reason"
+      ],
+      "name": "AttendancePolicyDeactivateRequest",
+      "nullableFields": [],
+      "required": [
+        "effectiveFrom",
+        "reason"
+      ],
+      "semanticSha256": "52b0afa30006f5a56f7719a1a03cf157ebee20afd98a39005d6b2ba0fed81d5b"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "basedOnVersionId",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason"
+      ],
+      "name": "AttendancePolicyDraftRequest",
+      "nullableFields": [
+        "basedOnVersionId",
+        "effectiveTo"
+      ],
+      "required": [
+        "effectiveFrom",
+        "reason"
+      ],
+      "semanticSha256": "2623582f7c87be853992bb58032a193cc9c68241db56e873dadc771a94b4f31c"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "parameters",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason"
+      ],
+      "name": "AttendancePolicyDraftUpdateRequest",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "effectiveFrom",
+        "parameters",
+        "reason"
+      ],
+      "semanticSha256": "4b7a87df1ba22e6957cc307c961b4fbab258a3fd78baff495911532a065bd574"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "groupCount",
+        "assignmentCount",
+        "countSource",
+        "impactToken",
+        "expiresAt"
+      ],
+      "name": "AttendancePolicyImpactView",
+      "nullableFields": [],
+      "required": [
+        "assignmentCount",
+        "countSource",
+        "expiresAt",
+        "groupCount",
+        "impactToken"
+      ],
+      "semanticSha256": "215f591b357a624fbf6bfa9aa5a45bd9a79f12cd513d64cf464413ccded3ac37"
+    },
+    {
+      "additionalProperties": null,
+      "fieldOrder": [],
+      "name": "AttendancePolicyKind",
+      "nullableFields": [],
+      "required": [],
+      "semanticSha256": "eaea1aeb357285b1565cd8086f81d8361fa7da929d4beb8b55ecf864984b64ab"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "windowId",
+        "mealType",
+        "source",
+        "windowStart",
+        "windowEnd",
+        "deductionMinutes",
+        "triggerMinutes"
+      ],
+      "name": "AttendancePolicyMatchedMealWindowView",
+      "nullableFields": [],
+      "required": [
+        "deductionMinutes",
+        "mealType",
+        "source",
+        "triggerMinutes",
+        "windowEnd",
+        "windowId",
+        "windowStart"
+      ],
+      "semanticSha256": "73b97df58e7d0edf82fa6efd3df1565d02cb234e57d54caa9f82d68b63165c72"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "key",
+        "value"
+      ],
+      "name": "AttendancePolicyParameter",
+      "nullableFields": [],
+      "required": [
+        "key",
+        "value"
+      ],
+      "semanticSha256": "a07f06063514ba00461c084015d59ab6b11b7ea0e3aa6d75c66c59652d423f8c"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "targetVersionId",
+        "effectiveFrom",
+        "reason"
+      ],
+      "name": "AttendancePolicyRollbackRequest",
+      "nullableFields": [],
+      "required": [
+        "effectiveFrom",
+        "reason",
+        "targetVersionId"
+      ],
+      "semanticSha256": "ae700ea27ef277a18d44414f21f6419a4426bca783cd0c2837783d3ce6cf72cc"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "configurationDigest",
+        "results"
+      ],
+      "name": "AttendancePolicySimulationBatchView",
+      "nullableFields": [],
+      "required": [
+        "configurationDigest",
+        "results"
+      ],
+      "semanticSha256": "1e10648a6453fe0ec8cf8307de8eb194150ddcd7cbbfe6047a92a2b6ec9f6692"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "employeeId",
+        "businessDate",
+        "correctionAsOf",
+        "punches"
+      ],
+      "name": "AttendancePolicySimulationRequest",
+      "nullableFields": [],
+      "required": [
+        "businessDate",
+        "correctionAsOf",
+        "employeeId",
+        "punches"
+      ],
+      "semanticSha256": "9fedc5a624f3335c5ee44316e30032dca2f501ed0d9ae4e9d2428ea6ae08e9a8"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "policyKind",
+        "status",
+        "policyVersionId",
+        "configurationDigest",
+        "matched",
+        "consumesAllowance",
+        "rawLateMinutes",
+        "predictedMonthlyConsumption",
+        "usageProvenance",
+        "usageKnowledgeTime",
+        "deductionMinutes",
+        "matchedMealWindows",
+        "correctionDeadline",
+        "affectedSegment",
+        "explanation",
+        "writesFormalResult"
+      ],
+      "name": "AttendancePolicySimulationView",
+      "nullableFields": [
+        "affectedSegment",
+        "correctionDeadline",
+        "deductionMinutes",
+        "rawLateMinutes"
+      ],
+      "required": [
+        "affectedSegment",
+        "configurationDigest",
+        "consumesAllowance",
+        "correctionDeadline",
+        "deductionMinutes",
+        "explanation",
+        "matched",
+        "matchedMealWindows",
+        "policyKind",
+        "policyVersionId",
+        "predictedMonthlyConsumption",
+        "rawLateMinutes",
+        "status",
+        "usageKnowledgeTime",
+        "usageProvenance",
+        "writesFormalResult"
+      ],
+      "semanticSha256": "de4ef97042725e83d132a8298b12638b8387ebf11d0b0a5f1355fe898fe8f0c2"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "valid",
+        "issues",
+        "validatedAt"
+      ],
+      "name": "AttendancePolicyValidation",
+      "nullableFields": [
+        "validatedAt"
+      ],
+      "required": [
+        "issues",
+        "valid",
+        "validatedAt"
+      ],
+      "semanticSha256": "adb80f40fd6ece44759720246716f874d1db686a85e660cde397ce33b961f297"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "code",
+        "field",
+        "message"
+      ],
+      "name": "AttendancePolicyValidationIssue",
+      "nullableFields": [],
+      "required": [
+        "code",
+        "field",
+        "message"
+      ],
+      "semanticSha256": "4dc105f5d867245eb60a6dd917307ffe57ccb7b9c307ee46d4ade9d28d0410c0"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "scopedVersionId",
+        "scopeId",
+        "templateId",
+        "companyId",
+        "policyKind",
+        "versionNumber",
+        "status",
+        "parameters",
+        "effectiveFrom",
+        "effectiveTo",
+        "changeReason",
+        "validation",
+        "snapshotDigest",
+        "rollbackOfScopedVersionId",
+        "rowVersion",
+        "createdBy",
+        "createdAt",
+        "publishedAt",
+        "updatedBy",
+        "updatedAt",
+        "deactivationEffectiveFrom"
+      ],
+      "name": "AttendancePolicyVersionDetail",
+      "nullableFields": [
+        "deactivationEffectiveFrom",
+        "effectiveTo",
+        "publishedAt",
+        "rollbackOfScopedVersionId",
+        "snapshotDigest",
+        "updatedAt",
+        "updatedBy"
+      ],
+      "required": [
+        "changeReason",
+        "companyId",
+        "createdAt",
+        "createdBy",
+        "deactivationEffectiveFrom",
+        "effectiveFrom",
+        "effectiveTo",
+        "parameters",
+        "policyKind",
+        "publishedAt",
+        "rollbackOfScopedVersionId",
+        "rowVersion",
+        "scopeId",
+        "scopedVersionId",
+        "snapshotDigest",
+        "status",
+        "templateId",
+        "updatedAt",
+        "updatedBy",
+        "validation",
+        "versionNumber"
+      ],
+      "semanticSha256": "92ec95bc35c22a24d75854769bb0d420c5852a313eff57213e84d698548d5a63"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "total",
+        "page",
+        "size"
+      ],
+      "name": "AttendancePolicyVersionPage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "357d75f691b8ab6a8751dc1a5aa40e6cd3b0f709b6deea66c83981bc4e8715a9"
+    },
+    {
+      "additionalProperties": null,
+      "fieldOrder": [],
+      "name": "AttendanceSetupStatus",
+      "nullableFields": [],
+      "required": [],
+      "semanticSha256": "e59f79a918f8679dcc1d796275a433deb604d76586e8dae1f6abbf1ce2cf3089"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "field",
+        "code",
+        "message"
+      ],
+      "name": "FieldError",
+      "nullableFields": [],
+      "required": [
+        "code",
+        "field",
+        "message"
+      ],
+      "semanticSha256": "4dc105f5d867245eb60a6dd917307ffe57ccb7b9c307ee46d4ade9d28d0410c0"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "businessEffectiveFrom",
+        "reason"
+      ],
+      "name": "FutureDeactivationRequest",
+      "nullableFields": [],
+      "required": [
+        "businessEffectiveFrom",
+        "reason"
+      ],
+      "semanticSha256": "c78997045660035986727868ff7240d395111caefaa6a25b97c1ebd713b8b125"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "reason"
+      ],
+      "name": "ReasonRequest",
+      "nullableFields": [],
+      "required": [
+        "reason"
+      ],
+      "semanticSha256": "bf04679da1a0c3f2735fed59c7f86e67023304bcbca9e95222307bcfcbded07b"
+    },
+    {
+      "additionalProperties": null,
+      "fieldOrder": [],
+      "name": "ResourceId",
+      "nullableFields": [],
+      "required": [],
+      "semanticSha256": "014d78f5083b14f3dce2890d64e30c96586097394cb354cbbf586848ed66476b"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "segmentType",
+        "startLocalTime",
+        "startDayOffset",
+        "endLocalTime",
+        "endDayOffset"
+      ],
+      "name": "ShiftSegment",
+      "nullableFields": [],
+      "required": [
+        "endDayOffset",
+        "endLocalTime",
+        "segmentType",
+        "startDayOffset",
+        "startLocalTime"
+      ],
+      "semanticSha256": "833f60895742d1cfb4e6b7437489a782473dfe6dae4b6e748027a4bb07308884"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "total",
+        "page",
+        "size"
+      ],
+      "name": "ShiftTemplatePage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "aaf4253171c3f56c093bc0f63b9d5c97abad6afc186344bd8af78798b37dbe70"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "companyId",
+        "locationId",
+        "code",
+        "name",
+        "reason"
+      ],
+      "name": "ShiftTemplateRequest",
+      "nullableFields": [],
+      "required": [
+        "code",
+        "companyId",
+        "locationId",
+        "name",
+        "reason"
+      ],
+      "semanticSha256": "af97dc6845ef60d6abe194ee195b41b50cfd45dd5e76127c764f094c48690796"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "status",
+        "reason"
+      ],
+      "name": "ShiftTemplateStatusRequest",
+      "nullableFields": [],
+      "required": [
+        "reason",
+        "status"
+      ],
+      "semanticSha256": "d4c1337336d858162246df552caaf0ecdb34870f69e6f42fcc25384fa5a86646"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "shiftId",
+        "companyId",
+        "locationId",
+        "code",
+        "name",
+        "status",
+        "rowVersion",
+        "changeReason",
+        "updatedAt"
+      ],
+      "name": "ShiftTemplateView",
+      "nullableFields": [],
+      "required": [
+        "changeReason",
+        "code",
+        "companyId",
+        "locationId",
+        "name",
+        "rowVersion",
+        "shiftId",
+        "status",
+        "updatedAt"
+      ],
+      "semanticSha256": "1ebdbc764b83123debd8fed6108ce01d6c5ccf595a75a3c0466a54047ba2d0e8"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "total",
+        "page",
+        "size"
+      ],
+      "name": "ShiftVersionPage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "f69f777a7c268ff2b68e3ec76d564e7024e4b99eb230c460f9a7454f7365e4be"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "effectiveFrom",
+        "effectiveTo",
+        "segments",
+        "reason"
+      ],
+      "name": "ShiftVersionRequest",
+      "nullableFields": [
+        "effectiveTo"
+      ],
+      "required": [
+        "effectiveFrom",
+        "reason",
+        "segments"
+      ],
+      "semanticSha256": "afc923855ce4f793af1b0a9e357027a3be597a5f4ff866b85c60304203affa7c"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "status",
+        "businessEffectiveFrom",
+        "reason"
+      ],
+      "name": "ShiftVersionStatusRequest",
+      "nullableFields": [],
+      "required": [
+        "businessEffectiveFrom",
+        "reason",
+        "status"
+      ],
+      "semanticSha256": "b89e91c638156894e983c6b35297590e8fee17015352708238dc7d7b65a506b7"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "shiftVersionId",
+        "shiftId",
+        "versionNumber",
+        "status",
+        "effectiveFrom",
+        "effectiveTo",
+        "timeZone",
+        "segments",
+        "snapshotDigest",
+        "rowVersion",
+        "changeReason",
+        "publishedAt",
+        "updatedAt"
+      ],
+      "name": "ShiftVersionView",
+      "nullableFields": [
+        "effectiveTo",
+        "publishedAt"
+      ],
+      "required": [
+        "changeReason",
+        "effectiveFrom",
+        "effectiveTo",
+        "publishedAt",
+        "rowVersion",
+        "segments",
+        "shiftId",
+        "shiftVersionId",
+        "snapshotDigest",
+        "status",
+        "timeZone",
+        "updatedAt",
+        "versionNumber"
+      ],
+      "semanticSha256": "43660c27aaad09180e59eaac6c7703a05915df6310967069587047248425e280"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "total",
+        "page",
+        "size"
+      ],
+      "name": "WorkCalendarDayPage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "1bb2daf7817dd6dfc315818f26331aecde860bf2712cef3d329d080e992d1354"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "businessDate",
+        "dayType",
+        "shiftVersionOverrideId"
+      ],
+      "name": "WorkCalendarDayRequest",
+      "nullableFields": [
+        "shiftVersionOverrideId"
+      ],
+      "required": [
+        "businessDate",
+        "dayType"
+      ],
+      "semanticSha256": "3b0a3d4491525ee5928686ab1b9ba936a686f2a7497c8a1335fdf9c562608b6a"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "calendarDayId",
+        "calendarId",
+        "calendarVersionId",
+        "businessDate",
+        "dayType",
+        "shiftVersionOverrideId",
+        "rowVersion",
+        "changeReason"
+      ],
+      "name": "WorkCalendarDayView",
+      "nullableFields": [
+        "shiftVersionOverrideId"
+      ],
+      "required": [
+        "businessDate",
+        "calendarDayId",
+        "calendarId",
+        "calendarVersionId",
+        "changeReason",
+        "dayType",
+        "rowVersion",
+        "shiftVersionOverrideId"
+      ],
+      "semanticSha256": "42a8ccc510da0b3562b9edf7ed806db790d94cd1e7bc237430c922d138212c8a"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "items",
+        "total",
+        "page",
+        "size"
+      ],
+      "name": "WorkCalendarPage",
+      "nullableFields": [],
+      "required": [
+        "items",
+        "page",
+        "size",
+        "total"
+      ],
+      "semanticSha256": "e058a5c85d1b32308fc62800bedda1a5ca2f7f0c386074709eba7d88f3f5ce69"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "companyId",
+        "locationId",
+        "code",
+        "name",
+        "calendarYear",
+        "timeZone",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason"
+      ],
+      "name": "WorkCalendarRequest",
+      "nullableFields": [],
+      "required": [
+        "calendarYear",
+        "code",
+        "companyId",
+        "effectiveFrom",
+        "effectiveTo",
+        "locationId",
+        "name",
+        "reason",
+        "timeZone"
+      ],
+      "semanticSha256": "732251031add103904fc50d0e7fdcfbe659d663bd6543d0f9b470160bba68c18"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "status",
+        "businessEffectiveFrom",
+        "reason"
+      ],
+      "name": "WorkCalendarStatusRequest",
+      "nullableFields": [],
+      "required": [
+        "businessEffectiveFrom",
+        "reason",
+        "status"
+      ],
+      "semanticSha256": "b89e91c638156894e983c6b35297590e8fee17015352708238dc7d7b65a506b7"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "name",
+        "calendarYear",
+        "timeZone",
+        "effectiveFrom",
+        "effectiveTo",
+        "reason"
+      ],
+      "name": "WorkCalendarVersionRequest",
+      "nullableFields": [],
+      "required": [
+        "calendarYear",
+        "effectiveFrom",
+        "effectiveTo",
+        "name",
+        "reason",
+        "timeZone"
+      ],
+      "semanticSha256": "1f389e863ac93133ca269b83145c781ff48053de4b364c780fe66907b1897716"
+    },
+    {
+      "additionalProperties": false,
+      "fieldOrder": [
+        "calendarId",
+        "companyId",
+        "locationId",
+        "code",
+        "calendarVersionId",
+        "versionNumber",
+        "name",
+        "calendarYear",
+        "timeZone",
+        "status",
+        "effectiveFrom",
+        "effectiveTo",
+        "snapshotDigest",
+        "rowVersion",
+        "changeReason",
+        "updatedAt"
+      ],
+      "name": "WorkCalendarView",
+      "nullableFields": [],
+      "required": [
+        "calendarId",
+        "calendarVersionId",
+        "calendarYear",
+        "changeReason",
+        "code",
+        "companyId",
+        "effectiveFrom",
+        "effectiveTo",
+        "locationId",
+        "name",
+        "rowVersion",
+        "snapshotDigest",
+        "status",
+        "timeZone",
+        "updatedAt",
+        "versionNumber"
+      ],
+      "semanticSha256": "c2ac05f70c0c87d80de17658c0dcce45059f3a5ad23f7b3416022b4296fc5035"
+    }
+  ],
+  "version": 2
+}

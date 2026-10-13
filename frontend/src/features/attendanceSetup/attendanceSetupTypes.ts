@@ -1,7 +1,7 @@
 export type LifecycleStatus = 'ACTIVE' | 'INACTIVE';
 export type VersionStatus = 'DRAFT' | 'PUBLISHED' | 'INACTIVE';
 export type CalendarStatus = 'DRAFT' | 'PUBLISHED' | 'INACTIVE';
-export type PolicyVersionStatus = 'DRAFT' | 'VALIDATED' | 'PUBLISHED';
+export type PolicyVersionStatus = 'DRAFT' | 'VALIDATED' | 'PUBLISHED' | 'INACTIVE';
 export type PolicySimulationStatus =
   | 'MATCHED'
   | 'NOT_MATCHED'
@@ -13,7 +13,9 @@ export type CalendarDayType = 'WORKDAY' | 'WEEKEND' | 'PUBLIC_HOLIDAY' | 'SPECIA
 export type AttendancePolicyKind =
   | 'MEAL_DEDUCTION'
   | 'LATE_GRACE'
-  | 'MONTHLY_LATE_EXEMPTION';
+  | 'MONTHLY_LATE_EXEMPTION'
+  | 'PUNCH_WINDOW'
+  | 'PERIOD_CLOSE';
 
 export interface Page<T> {
   items: T[];
@@ -23,8 +25,11 @@ export interface Page<T> {
 }
 
 export interface LocationView {
+  /** @deprecated Use sharedLocationId for shared edits and companyLocationId for company setup. */
   locationId: string;
-  legalEntityId: string;
+  sharedLocationId: string;
+  companyLocationId: string;
+  companyId: string;
   code: string;
   locationRevisionId: string;
   revisionNumber: number;
@@ -35,12 +40,13 @@ export interface LocationView {
   effectiveTo?: string | null;
   snapshotDigest: string;
   rowVersion: number;
+  sharedManagementAllowed: boolean;
   changeReason: string;
   updatedAt: string;
 }
 
 export interface LocationInput {
-  legalEntityId: string;
+  companyId: string;
   code: string;
   name: string;
   timeZone: string;
@@ -51,7 +57,7 @@ export interface LocationInput {
 
 export interface AttendanceGroupView {
   groupId: string;
-  legalEntityId: string;
+  companyId: string;
   code: string;
   groupRevisionId: string;
   revisionNumber: number;
@@ -70,7 +76,7 @@ export interface AttendanceGroupView {
 }
 
 export interface AttendanceGroupInput {
-  legalEntityId: string;
+  companyId: string;
   code: string;
   name: string;
   locationId: string;
@@ -89,6 +95,8 @@ export interface AssignmentView {
   effectiveTo?: string | null;
   rowVersion: number;
   monthlyContextKey: string;
+  hasSuccessor: boolean;
+  transferable: boolean;
   changeReason: string;
   updatedAt: string;
 }
@@ -100,9 +108,15 @@ export interface AssignmentInput {
   reason: string;
 }
 
+export interface AssignmentTransferInput {
+  targetGroupId: string;
+  effectiveFrom: string;
+  reason: string;
+}
+
 export interface ShiftTemplateView {
   shiftId: string;
-  legalEntityId: string;
+  companyId: string;
   locationId: string;
   code: string;
   name: string;
@@ -113,7 +127,7 @@ export interface ShiftTemplateView {
 }
 
 export interface ShiftTemplateInput {
-  legalEntityId: string;
+  companyId: string;
   locationId: string;
   code: string;
   name: string;
@@ -153,7 +167,7 @@ export interface ShiftVersionInput {
 
 export interface WorkCalendarView {
   calendarId: string;
-  legalEntityId: string;
+  companyId: string;
   locationId: string;
   code: string;
   calendarVersionId: string;
@@ -171,7 +185,7 @@ export interface WorkCalendarView {
 }
 
 export interface WorkCalendarInput {
-  legalEntityId: string;
+  companyId: string;
   locationId: string;
   code: string;
   name: string;
@@ -226,7 +240,7 @@ export interface PolicyBindingView {
   bindingId: string;
   bindingRevisionId: string;
   revisionNumber: number;
-  legalEntityId: string;
+  companyId: string;
   policyKind: AttendancePolicyKind;
   policyVersionId: string;
   groupId: string;
@@ -278,10 +292,35 @@ export interface PolicySimulationView {
   usageProvenance: string;
   usageKnowledgeTime: string;
   deductionMinutes?: number | null;
+  matchedMealWindows: PolicyMatchedMealWindowView[];
   correctionDeadline?: string | null;
   affectedSegment?: string | null;
   explanation: string;
   writesFormalResult: boolean;
+}
+
+export interface PolicyMatchedMealWindowView {
+  windowId:
+    | 'BASE_DINNER'
+    | 'SATURDAY_DINNER'
+    | 'SUNDAY_DINNER'
+    | 'PUBLIC_HOLIDAY_DINNER'
+    | 'SATURDAY_LUNCH'
+    | 'SUNDAY_LUNCH'
+    | 'PUBLIC_HOLIDAY_LUNCH';
+  mealType: 'LUNCH' | 'DINNER';
+  source:
+    | 'BASE'
+    | 'SATURDAY_OVERRIDE'
+    | 'SUNDAY_OVERRIDE'
+    | 'PUBLIC_HOLIDAY_OVERRIDE'
+    | 'SATURDAY_LUNCH'
+    | 'SUNDAY_LUNCH'
+    | 'PUBLIC_HOLIDAY_LUNCH';
+  windowStart: string;
+  windowEnd: string;
+  deductionMinutes: number;
+  triggerMinutes: number;
 }
 
 export interface PolicySimulationBatchView {
@@ -310,7 +349,7 @@ export interface AttendancePolicyVersionSummary {
   scopedVersionId: string;
   scopeId: string;
   templateId: string;
-  legalEntityId: string;
+  companyId: string;
   policyKind: AttendancePolicyKind;
   versionNumber: number;
   status: PolicyVersionStatus;

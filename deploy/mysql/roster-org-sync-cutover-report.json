@@ -1,0 +1,1194 @@
+{
+  "rosterRows": 615,
+  "exempt": 61,
+  "liveOrgs": 156,
+  "liveEmployees": 615,
+  "liveAccounts": 616,
+  "ambiguities": [],
+  "rename": [
+    {
+      "organizationId": "c97c06c6-eac1-5994-be74-ea49be651536",
+      "from": "上海人事行政部",
+      "to": "人事行政部",
+      "path": "人事行政部"
+    },
+    {
+      "organizationId": "32ecfaed-80f9-5f42-addd-8190d1a3895a",
+      "from": "上海总经办",
+      "to": "总经办",
+      "path": "总经办"
+    },
+    {
+      "organizationId": "3c79006f-a64a-5c5a-a7c3-9915b3ef141c",
+      "from": "上海RD1",
+      "to": "RD1",
+      "path": "RD1"
+    },
+    {
+      "organizationId": "9108d87d-4118-53b6-a0fd-02610c58b20a",
+      "from": "上海射频组",
+      "to": "射频组",
+      "path": "RD1/射频组"
+    },
+    {
+      "organizationId": "3e628310-3d75-5569-917f-972ec7070203",
+      "from": "上海测试组",
+      "to": "测试组",
+      "path": "RD1/测试组"
+    },
+    {
+      "organizationId": "9986fa57-2084-53d0-9e4a-fcde8fbbbda6",
+      "from": "上海结构组",
+      "to": "结构组",
+      "path": "RD1/结构组"
+    },
+    {
+      "organizationId": "b84804dc-0f04-5573-94be-8f13c01a1b4c",
+      "from": "上海软件设计组",
+      "to": "软件设计组",
+      "path": "RD1/软件设计组"
+    },
+    {
+      "organizationId": "bafd743e-570b-5458-bed0-a29a145c8504",
+      "from": "上海项目组",
+      "to": "项目组",
+      "path": "RD1/项目组"
+    },
+    {
+      "organizationId": "256dead5-95c8-5610-a145-0ff44789ff2d",
+      "from": "上海销售部",
+      "to": "销售部",
+      "path": "销售部"
+    },
+    {
+      "organizationId": "4486d071-9bf7-52fd-9d09-7fb7f9ad130e",
+      "from": "制造中心-制造工程部",
+      "to": "制造工程部",
+      "path": "制造中心/制造工程部"
+    },
+    {
+      "organizationId": "a2dc9850-e10a-562e-9fd5-6981666c466f",
+      "from": "制造中心-制造部",
+      "to": "制造部",
+      "path": "制造中心/制造部"
+    },
+    {
+      "organizationId": "06c0ad0c-6d8f-5ea3-918a-e334dbbbfd38",
+      "from": "制造部-制造一部",
+      "to": "制造一部",
+      "path": "制造中心/制造部/制造一部"
+    },
+    {
+      "organizationId": "ec89847c-6ae4-5e59-91a1-9cb620ddfbdd",
+      "from": "制造一部-测试组",
+      "to": "测试组",
+      "path": "制造中心/制造部/制造一部/测试组"
+    },
+    {
+      "organizationId": "29fb9b6c-dcc8-5578-bfc4-9cade50887fc",
+      "from": "制造一部-焊接装配组",
+      "to": "焊接装配组",
+      "path": "制造中心/制造部/制造一部/焊接装配组"
+    },
+    {
+      "organizationId": "43ba005a-d17c-5290-ad1a-681482bf0ba9",
+      "from": "制造一部-装配组",
+      "to": "装配组",
+      "path": "制造中心/制造部/制造一部/装配组"
+    },
+    {
+      "organizationId": "5230d05e-24fc-5328-93d1-96176ec55abf",
+      "from": "制造部-制造二部",
+      "to": "制造二部",
+      "path": "制造中心/制造部/制造二部"
+    },
+    {
+      "organizationId": "d27436c8-a9bb-525e-81df-4df5be39afeb",
+      "from": "制造二部-测试组",
+      "to": "测试组",
+      "path": "制造中心/制造部/制造二部/测试组"
+    },
+    {
+      "organizationId": "c4ff635d-c28d-5bed-b761-6cdc0dafb173",
+      "from": "制造二部-焊接装配组",
+      "to": "焊接装配组",
+      "path": "制造中心/制造部/制造二部/焊接装配组"
+    },
+    {
+      "organizationId": "2f7d6281-7b7a-53f6-9379-b1ce96d57f89",
+      "from": "制造二部-装配组",
+      "to": "装配组",
+      "path": "制造中心/制造部/制造二部/装配组"
+    },
+    {
+      "organizationId": "80f1dbdd-54ea-5944-be79-4571785d8f5e",
+      "from": "技术支持中心-产品技术支持部",
+      "to": "产品技术支持部",
+      "path": "技术支持中心/产品技术支持部"
+    },
+    {
+      "organizationId": "8de6bbc1-32bc-536e-a015-46171980cc70",
+      "from": "技术支持中心-产品技术支持部-DC技术组",
+      "to": "DC技术组",
+      "path": "技术支持中心/产品技术支持部/DC技术组"
+    },
+    {
+      "organizationId": "95b98868-a0d3-585c-96f8-738f651d3141",
+      "from": "技术支持中心-产品技术支持部-MATCH技术组",
+      "to": "MATCH技术组",
+      "path": "技术支持中心/产品技术支持部/MATCH技术组"
+    },
+    {
+      "organizationId": "f88cf4bf-b38c-5caa-a2d5-10deb928b586",
+      "from": "技术支持中心-产品技术支持部-RF技术组",
+      "to": "RF技术组",
+      "path": "技术支持中心/产品技术支持部/RF技术组"
+    },
+    {
+      "organizationId": "b8e9de85-eb5e-5f80-abcc-a22cf4390fd8",
+      "from": "技术支持中心-产品技术支持部-RPS技术组",
+      "to": "RPS技术组",
+      "path": "技术支持中心/产品技术支持部/RPS技术组"
+    },
+    {
+      "organizationId": "034251e2-66a8-5cc7-bfeb-3a866f760fd8",
+      "from": "技术支持中心-产品技术支持部-电子技术组",
+      "to": "电子技术组",
+      "path": "技术支持中心/产品技术支持部/电子技术组"
+    },
+    {
+      "organizationId": "036b8e12-5abd-5e97-ac32-4b8b7d447450",
+      "from": "技术支持中心-现场服务部",
+      "to": "现场服务部",
+      "path": "技术支持中心/现场服务部"
+    },
+    {
+      "organizationId": "dd217dfc-c7ed-5e1b-aa1c-5af14ffa9fe4",
+      "from": "技术支持中心-现场服务部-武汉产品服务组",
+      "to": "武汉产品服务组",
+      "path": "技术支持中心/现场服务部/武汉产品服务组"
+    },
+    {
+      "organizationId": "3993ab0a-87de-5f92-b046-792b6a0ab5b9",
+      "from": "技术支持中心-现场服务部-现场技术服务组",
+      "to": "现场技术服务组",
+      "path": "技术支持中心/现场服务部/现场技术服务组"
+    },
+    {
+      "organizationId": "7d354af6-a759-53db-b254-f006de560b50",
+      "from": "技术支持中心-生管部",
+      "to": "生管部",
+      "path": "技术支持中心/生管部"
+    },
+    {
+      "organizationId": "7f1f971b-291d-5445-8857-7aab7ea80db5",
+      "from": "服务中心-PCB部",
+      "to": "PCB部",
+      "path": "服务中心/PCB部"
+    },
+    {
+      "organizationId": "955a36f3-bd96-50a3-aca4-b4b6d4135329",
+      "from": "服务中心-厂务部",
+      "to": "厂务部",
+      "path": "服务中心/厂务部"
+    },
+    {
+      "organizationId": "b310e8f8-1c4d-5142-8660-d05371d5480d",
+      "from": "服务中心-客户现场服务部",
+      "to": "客户现场服务部",
+      "path": "服务中心/客户现场服务部"
+    },
+    {
+      "organizationId": "7f9fbef2-da5c-549d-ba75-5151e55d35e6",
+      "from": "客户现场服务部-合肥办事处",
+      "to": "合肥办事处",
+      "path": "服务中心/客户现场服务部/合肥办事处"
+    },
+    {
+      "organizationId": "109fcbff-cd98-5f40-b34a-b4660b9e7981",
+      "from": "客户现场服务部-大连办事处",
+      "to": "大连办事处",
+      "path": "服务中心/客户现场服务部/大连办事处"
+    },
+    {
+      "organizationId": "2cc480b9-c1da-5008-93c3-65599965c067",
+      "from": "客户现场服务部-武汉办事处",
+      "to": "武汉办事处",
+      "path": "服务中心/客户现场服务部/武汉办事处"
+    },
+    {
+      "organizationId": "8bfb2736-af52-5b9c-bb02-605a36f642a3",
+      "from": "客户现场服务部-深圳办事处",
+      "to": "深圳办事处",
+      "path": "服务中心/客户现场服务部/深圳办事处"
+    },
+    {
+      "organizationId": "2ce8b5c6-9d48-5329-83d2-8e7be1def2a5",
+      "from": "服务中心-工程一部",
+      "to": "工程一部",
+      "path": "服务中心/工程一部"
+    },
+    {
+      "organizationId": "e8a8bd56-39aa-5c4c-80d7-4a49a0e101b5",
+      "from": "工程一部-DC组",
+      "to": "DC组",
+      "path": "服务中心/工程一部/DC组"
+    },
+    {
+      "organizationId": "4c99a04c-7824-5ac8-9419-1c7cc19fe607",
+      "from": "工程一部-MATCH组",
+      "to": "MATCH组",
+      "path": "服务中心/工程一部/MATCH组"
+    },
+    {
+      "organizationId": "53c5fc98-c912-5d99-bc03-72ee47f20413",
+      "from": "工程一部-MATCH组-MATCH1组",
+      "to": "MATCH1组",
+      "path": "服务中心/工程一部/MATCH组/MATCH1组"
+    },
+    {
+      "organizationId": "cd3c7e9b-2916-5ac9-b7dc-0e4d187ecd19",
+      "from": "工程一部-MATCH组-MATCH2组",
+      "to": "MATCH2组",
+      "path": "服务中心/工程一部/MATCH组/MATCH2组"
+    },
+    {
+      "organizationId": "b2b8abe5-e1e9-5a6f-9daf-20538ac20e0e",
+      "from": "工程一部-RPS组",
+      "to": "RPS组",
+      "path": "服务中心/工程一部/RPS组"
+    },
+    {
+      "organizationId": "6edaaf20-111c-58ec-9c49-4c9541081b34",
+      "from": "服务中心-工程二部",
+      "to": "工程二部",
+      "path": "服务中心/工程二部"
+    },
+    {
+      "organizationId": "ad6368c5-c5cd-5267-8cce-84bfb7e964b5",
+      "from": "工程二部-RF-A组",
+      "to": "RF-A组",
+      "path": "服务中心/工程二部/RF-A组"
+    },
+    {
+      "organizationId": "b8d374e1-5925-5051-8ad7-49abec1eebd6",
+      "from": "工程二部-RF-B组",
+      "to": "RF-B组",
+      "path": "服务中心/工程二部/RF-B组"
+    },
+    {
+      "organizationId": "b6172908-fc6e-5784-813c-c92a0353f59d",
+      "from": "工程二部-RF-E组",
+      "to": "RF-E组",
+      "path": "服务中心/工程二部/RF-E组"
+    },
+    {
+      "organizationId": "db852575-6249-570f-acd2-e86d4058bad9",
+      "from": "工程二部-RF-F组",
+      "to": "RF-F组",
+      "path": "服务中心/工程二部/RF-F组"
+    },
+    {
+      "organizationId": "48e41d3d-037e-5183-979b-e9a9ba9cdfbb",
+      "from": "工程二部-RF-G组",
+      "to": "RF-G组",
+      "path": "服务中心/工程二部/RF-G组"
+    },
+    {
+      "organizationId": "0327816e-0f3e-5199-9f4b-2d8e64016887",
+      "from": "服务中心-服务技改部",
+      "to": "服务技改部",
+      "path": "服务中心/服务技改部"
+    },
+    {
+      "organizationId": "b5a71397-c95f-5721-aa1d-fa9e43ce7f6c",
+      "from": "服务技改部-技改组",
+      "to": "技改组",
+      "path": "服务中心/服务技改部/技改组"
+    },
+    {
+      "organizationId": "96986ccf-abc9-5b75-97fd-eebcf583f442",
+      "from": "服务技改部-测台开发组",
+      "to": "测台开发组",
+      "path": "服务中心/服务技改部/测台开发组"
+    },
+    {
+      "organizationId": "574d3b0f-56a6-5fa3-bf1a-ec841e41ed62",
+      "from": "服务中心-生管部",
+      "to": "生管部",
+      "path": "服务中心/生管部"
+    },
+    {
+      "organizationId": "45e44535-66f2-5b97-92fc-b9f699b6dc1a",
+      "from": "生管部-PMC部",
+      "to": "PMC部",
+      "path": "服务中心/生管部/PMC部"
+    },
+    {
+      "organizationId": "1ea1df64-8bee-5e3b-9686-ec6ad829e321",
+      "from": "研发中心-DC部",
+      "to": "DC部",
+      "path": "研发中心/DC部"
+    },
+    {
+      "organizationId": "6d9e88f4-a0ef-5323-b9b8-eb8912e3870a",
+      "from": "DC部-工艺组",
+      "to": "工艺组",
+      "path": "研发中心/DC部/工艺组"
+    },
+    {
+      "organizationId": "0340f18f-4f8d-5341-a137-1fae74d1e5be",
+      "from": "DC部-测试组",
+      "to": "测试组",
+      "path": "研发中心/DC部/测试组"
+    },
+    {
+      "organizationId": "255ed1d0-f899-5ff1-b57a-3d22c17e1c7c",
+      "from": "DC部-硬件设计组",
+      "to": "硬件设计组",
+      "path": "研发中心/DC部/硬件设计组"
+    },
+    {
+      "organizationId": "6b3936c3-5434-515a-a164-ef045fb55cb1",
+      "from": "DC部-结构组",
+      "to": "结构组",
+      "path": "研发中心/DC部/结构组"
+    },
+    {
+      "organizationId": "ff0d08d8-5ad5-5b2d-9948-8b52f0d2aeb7",
+      "from": "DC部-软件设计组",
+      "to": "软件设计组",
+      "path": "研发中心/DC部/软件设计组"
+    },
+    {
+      "organizationId": "9a334755-b31d-5900-b9e6-bcf06c69ec41",
+      "from": "DC部-项目组",
+      "to": "项目组",
+      "path": "研发中心/DC部/项目组"
+    },
+    {
+      "organizationId": "ef3b9b64-6555-515e-9b3f-2cfe231f3d34",
+      "from": "研发中心-MATCH部",
+      "to": "MATCH部",
+      "path": "研发中心/MATCH部"
+    },
+    {
+      "organizationId": "2c0d4762-4b58-5dc0-b75d-5a87bf8ff7d8",
+      "from": "MATCH部-工艺组",
+      "to": "工艺组",
+      "path": "研发中心/MATCH部/工艺组"
+    },
+    {
+      "organizationId": "6002626f-220b-5ddc-89af-6d5b90021f5d",
+      "from": "MATCH部-总体组",
+      "to": "总体组",
+      "path": "研发中心/MATCH部/总体组"
+    },
+    {
+      "organizationId": "e39abf52-be05-593d-91c6-657c430e89ca",
+      "from": "MATCH部-测试组",
+      "to": "测试组",
+      "path": "研发中心/MATCH部/测试组"
+    },
+    {
+      "organizationId": "f68fed57-7b46-5191-aa0a-ef73fc5110f4",
+      "from": "MATCH部-硬件设计组",
+      "to": "硬件设计组",
+      "path": "研发中心/MATCH部/硬件设计组"
+    },
+    {
+      "organizationId": "0acb53e6-36f3-5232-adb5-abb1a4228faf",
+      "from": "MATCH部-结构组",
+      "to": "结构组",
+      "path": "研发中心/MATCH部/结构组"
+    },
+    {
+      "organizationId": "5ece321e-2660-5050-ab7f-fc8bebac528b",
+      "from": "MATCH部-软件设计组",
+      "to": "软件设计组",
+      "path": "研发中心/MATCH部/软件设计组"
+    },
+    {
+      "organizationId": "fb3c6a18-1c68-5db8-861c-79c67e697579",
+      "from": "MATCH部-项目组",
+      "to": "项目组",
+      "path": "研发中心/MATCH部/项目组"
+    },
+    {
+      "organizationId": "860aef8d-c271-503b-948a-0d752cde3d2e",
+      "from": "研发中心-RF部",
+      "to": "RF部",
+      "path": "研发中心/RF部"
+    },
+    {
+      "organizationId": "780b209d-f939-51d8-8f64-f75b33c70a8f",
+      "from": "RF部-射频组",
+      "to": "射频组",
+      "path": "研发中心/RF部/射频组"
+    },
+    {
+      "organizationId": "6d2b533f-0bde-5081-a56f-1ab7b6047e77",
+      "from": "RF部-工艺组",
+      "to": "工艺组",
+      "path": "研发中心/RF部/工艺组"
+    },
+    {
+      "organizationId": "a81fac6b-f71f-5ead-a67e-0ff9df725b02",
+      "from": "RF部-测试组",
+      "to": "测试组",
+      "path": "研发中心/RF部/测试组"
+    },
+    {
+      "organizationId": "c868fc21-7521-514b-9cd0-6c5f0d0a4586",
+      "from": "RF部-硬件设计组",
+      "to": "硬件设计组",
+      "path": "研发中心/RF部/硬件设计组"
+    },
+    {
+      "organizationId": "0e9e0795-ecc2-58cf-8566-d77707468c8d",
+      "from": "RF部-结构组",
+      "to": "结构组",
+      "path": "研发中心/RF部/结构组"
+    },
+    {
+      "organizationId": "b63e2342-df50-5f8a-bd1b-14a88ca18f5c",
+      "from": "RF部-软件设计组",
+      "to": "软件设计组",
+      "path": "研发中心/RF部/软件设计组"
+    },
+    {
+      "organizationId": "5ab05ed8-0ff1-5825-abd5-4567607a7ceb",
+      "from": "RF部-项目组",
+      "to": "项目组",
+      "path": "研发中心/RF部/项目组"
+    },
+    {
+      "organizationId": "824a89cf-8a0e-59f2-a7b4-8ba702c8850f",
+      "from": "研发中心-RPS部",
+      "to": "RPS部",
+      "path": "研发中心/RPS部"
+    },
+    {
+      "organizationId": "40a96c34-295e-5c53-ac27-1bddbe60ed46",
+      "from": "RPS部-工艺组",
+      "to": "工艺组",
+      "path": "研发中心/RPS部/工艺组"
+    },
+    {
+      "organizationId": "232c5d58-5bd4-5795-b136-bcf6baabd3d3",
+      "from": "RPS部-测试组",
+      "to": "测试组",
+      "path": "研发中心/RPS部/测试组"
+    },
+    {
+      "organizationId": "918440a8-328d-5571-aba7-02454973cedb",
+      "from": "RPS部-硬件设计组",
+      "to": "硬件设计组",
+      "path": "研发中心/RPS部/硬件设计组"
+    },
+    {
+      "organizationId": "9174aa22-4088-56d6-942e-a59a83b724fb",
+      "from": "RPS部-结构组",
+      "to": "结构组",
+      "path": "研发中心/RPS部/结构组"
+    },
+    {
+      "organizationId": "962351c7-3b78-5335-bc36-8890a58653ba",
+      "from": "RPS部-软件设计组",
+      "to": "软件设计组",
+      "path": "研发中心/RPS部/软件设计组"
+    },
+    {
+      "organizationId": "ed91426f-b4c1-586d-b2f0-eb7ecd39c076",
+      "from": "RPS部-项目组",
+      "to": "项目组",
+      "path": "研发中心/RPS部/项目组"
+    },
+    {
+      "organizationId": "042f83ad-800e-5aff-a10c-0120e8b6009e",
+      "from": "董事长室",
+      "to": "董事长",
+      "path": "董事长"
+    },
+    {
+      "organizationId": "5db8b918-8012-5b40-80ed-0628cb39b323",
+      "from": "财务中心-会计核算部",
+      "to": "会计核算部",
+      "path": "财务中心/会计核算部"
+    },
+    {
+      "organizationId": "d73b9862-517f-5ab8-8364-f872bc8014f6",
+      "from": "财务中心-投资部",
+      "to": "投资部",
+      "path": "财务中心/投资部"
+    },
+    {
+      "organizationId": "9c5a138c-8b80-5d66-b120-b0ed1045234d",
+      "from": "质量中心-制造Q部",
+      "to": "制造Q部",
+      "path": "质量中心/制造Q部"
+    },
+    {
+      "organizationId": "33ef21fc-a3de-5623-ae1f-2e073960d81f",
+      "from": "制造Q部-FQC组",
+      "to": "FQC组",
+      "path": "质量中心/制造Q部/FQC组"
+    },
+    {
+      "organizationId": "595d0fbf-d044-5d75-9bd1-be9fdefa88bb",
+      "from": "制造Q部-IQC组",
+      "to": "IQC组",
+      "path": "质量中心/制造Q部/IQC组"
+    },
+    {
+      "organizationId": "ae753faa-c30d-5830-9d08-c88aa775597c",
+      "from": "制造Q部-PQC组",
+      "to": "PQC组",
+      "path": "质量中心/制造Q部/PQC组"
+    },
+    {
+      "organizationId": "6e82aeb8-d4bf-5fd4-9b73-3f0d562069e1",
+      "from": "制造Q部-QE组",
+      "to": "QE组",
+      "path": "质量中心/制造Q部/QE组"
+    },
+    {
+      "organizationId": "77194cee-35f8-50cb-90e5-2e3284243efd",
+      "from": "质量中心-服务Q部",
+      "to": "服务Q部",
+      "path": "质量中心/服务Q部"
+    },
+    {
+      "organizationId": "fce02a16-4be2-5929-89fe-78e7cacc15b0",
+      "from": "服务Q部-DCC组",
+      "to": "DCC组",
+      "path": "质量中心/服务Q部/DCC组"
+    },
+    {
+      "organizationId": "b9b8aee7-e0e4-5cfe-ae32-913872f7a8a2",
+      "from": "服务Q部-IQC组",
+      "to": "IQC组",
+      "path": "质量中心/服务Q部/IQC组"
+    },
+    {
+      "organizationId": "20744037-55b8-5def-b1cb-b460de050bbf",
+      "from": "服务Q部-PQC组",
+      "to": "PQC组",
+      "path": "质量中心/服务Q部/PQC组"
+    },
+    {
+      "organizationId": "20f40a4d-510f-5f6d-91c4-396d4ca0d4de",
+      "from": "服务Q部-SE组",
+      "to": "SE组",
+      "path": "质量中心/服务Q部/SE组"
+    },
+    {
+      "organizationId": "38d1d7b4-89d3-55cd-a1f2-d9d985d1c6a9",
+      "from": "资材中心-PMC部",
+      "to": "PMC部",
+      "path": "资材中心/PMC部"
+    },
+    {
+      "organizationId": "37138050-314e-5a35-b1c4-70baf493d67c",
+      "from": "资材中心-仓储管理部",
+      "to": "仓储管理部",
+      "path": "资材中心/仓储管理部"
+    },
+    {
+      "organizationId": "6c3b4862-a25a-5d39-94ba-50321ae0c945",
+      "from": "资材中心-采购部",
+      "to": "采购部",
+      "path": "资材中心/采购部"
+    },
+    {
+      "organizationId": "334d4d21-f69d-5c00-a67d-4117a5472170",
+      "from": "运营中心-IT部",
+      "to": "IT部",
+      "path": "运营中心/IT部"
+    },
+    {
+      "organizationId": "bad67da8-12ba-5d39-8ed6-021e4e355ab8",
+      "from": "运营中心-人事部",
+      "to": "人事部",
+      "path": "运营中心/人事部"
+    },
+    {
+      "organizationId": "65132111-dbee-5291-b199-1c6c07702cd5",
+      "from": "运营中心-物流部",
+      "to": "物流部",
+      "path": "运营中心/物流部"
+    },
+    {
+      "organizationId": "354a15a0-9a9b-552c-a9b6-73737a54e45f",
+      "from": "运营中心-行政部",
+      "to": "行政部",
+      "path": "运营中心/行政部"
+    },
+    {
+      "organizationId": "f109d867-06a3-5a30-9e50-bc8c3c8f1ec3",
+      "from": "销售中心-新品部",
+      "to": "新品部",
+      "path": "销售中心/新品部"
+    },
+    {
+      "organizationId": "bf49add2-dea0-5107-a84a-dddf7d86829e",
+      "from": "销售中心-服务部",
+      "to": "服务部",
+      "path": "销售中心/服务部"
+    },
+    {
+      "organizationId": "0f917881-f474-5127-a4e3-b8424837e6c9",
+      "from": "服务部-国内销售部",
+      "to": "国内销售部",
+      "path": "销售中心/服务部/国内销售部"
+    },
+    {
+      "organizationId": "bcd8ec0b-e523-55dc-b738-e80dd97ab576",
+      "from": "服务部-国际销售部",
+      "to": "国际销售部",
+      "path": "销售中心/服务部/国际销售部"
+    },
+    {
+      "organizationId": "1ee1ab02-27d4-5e60-b50a-f2fcb92ef714",
+      "from": "销售中心-贸易部",
+      "to": "贸易部",
+      "path": "销售中心/贸易部"
+    }
+  ],
+  "createOrg": [
+    {
+      "company": "上海昇州半导体科技有限公司",
+      "path": "维修部",
+      "name": "维修部",
+      "parentPath": "",
+      "type": "DEPARTMENT"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/厂务部/上海昇州",
+      "name": "上海昇州",
+      "parentPath": "服务中心/厂务部",
+      "type": "DEPARTMENT"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/工程一部/DC组/DC组",
+      "name": "DC组",
+      "parentPath": "服务中心/工程一部/DC组",
+      "type": "TEAM"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/工程一部/RPS组/RPS组",
+      "name": "RPS组",
+      "parentPath": "服务中心/工程一部/RPS组",
+      "type": "TEAM"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/工程二部/RF-A组/RF-A组",
+      "name": "RF-A组",
+      "parentPath": "服务中心/工程二部/RF-A组",
+      "type": "TEAM"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/工程二部/RF-B组/RF-B组",
+      "name": "RF-B组",
+      "parentPath": "服务中心/工程二部/RF-B组",
+      "type": "TEAM"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/工程二部/RF-E组/RF-E组",
+      "name": "RF-E组",
+      "parentPath": "服务中心/工程二部/RF-E组",
+      "type": "TEAM"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/工程二部/RF-F组/RF-F组",
+      "name": "RF-F组",
+      "parentPath": "服务中心/工程二部/RF-F组",
+      "type": "TEAM"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/工程二部/RF-G组/RF-G组",
+      "name": "RF-G组",
+      "parentPath": "服务中心/工程二部/RF-G组",
+      "type": "TEAM"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/服务技改部/技改组/技改组",
+      "name": "技改组",
+      "parentPath": "服务中心/服务技改部/技改组",
+      "type": "TEAM"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "质量中心/服务Q部/FQC/OQC组",
+      "name": "FQC/OQC组",
+      "parentPath": "质量中心/服务Q部",
+      "type": "DEPARTMENT"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "资材中心/仓储管理部/原物料仓",
+      "name": "原物料仓",
+      "parentPath": "资材中心/仓储管理部",
+      "type": "DEPARTMENT"
+    },
+    {
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "资材中心/仓储管理部/成品备品仓",
+      "name": "成品备品仓",
+      "parentPath": "资材中心/仓储管理部",
+      "type": "DEPARTMENT"
+    }
+  ],
+  "retireOrg": [
+    {
+      "organizationId": "7557e556-4479-5812-be29-0c091c422996",
+      "name": "总经办",
+      "path": "总经办"
+    },
+    {
+      "organizationId": "508cb90c-db81-5aa4-8666-f1e963103080",
+      "name": "上海人事行政部（审批2）",
+      "path": "人事行政部/人事行政部（审批2）"
+    },
+    {
+      "organizationId": "1067bba8-4c65-517b-851e-c2dede03c0aa",
+      "name": "上海人事行政部（审批）",
+      "path": "人事行政部/人事行政部（审批）"
+    },
+    {
+      "organizationId": "712ba98f-6dd6-5071-b641-5e45a367e28d",
+      "name": "上海总经办（审批2）",
+      "path": "总经办/总经办（审批2）"
+    },
+    {
+      "organizationId": "2841c9ea-fd8a-5e25-ace9-11e55ce8ca3b",
+      "name": "上海总经办（审批）",
+      "path": "总经办/总经办（审批）"
+    },
+    {
+      "organizationId": "40b47813-b562-5fd9-8d2b-8eea36a1b63c",
+      "name": "上海研发部",
+      "path": ""
+    },
+    {
+      "organizationId": "c7b6db3f-1a38-5436-bcbd-08267923455f",
+      "name": "上海硬件设计组",
+      "path": "RD1/硬件设计组"
+    },
+    {
+      "organizationId": "9c7faed5-7ed5-5f5c-8243-c543b3786db6",
+      "name": "总经理室",
+      "path": "总经理室"
+    },
+    {
+      "organizationId": "306b7c16-ce40-54cf-a27f-d1b2e895825e",
+      "name": "各地办事处管理",
+      "path": "总经办/各地办事处管理"
+    },
+    {
+      "organizationId": "14a58e6b-2570-506f-8d61-1b6b6a5179e4",
+      "name": "大客户管理部",
+      "path": "总经办/大客户管理部"
+    },
+    {
+      "organizationId": "2d7a798e-5305-50b1-b1d2-730cd60f3dc3",
+      "name": "审计办",
+      "path": "总经办/审计办"
+    },
+    {
+      "organizationId": "073a8c10-afad-5a35-ba15-667647c9f545",
+      "name": "总经办",
+      "path": "总经办/总经办"
+    },
+    {
+      "organizationId": "9a90cad4-0e5b-5ee4-ae0a-d6ada6967f4c",
+      "name": "法务部",
+      "path": "总经办/法务部"
+    },
+    {
+      "organizationId": "1566b560-483e-5f18-a826-56715638cce6",
+      "name": "计划办",
+      "path": "总经办/计划办"
+    },
+    {
+      "organizationId": "c13980c8-8fa8-55b6-9f89-ed3e7dc7c810",
+      "name": "总经理",
+      "path": "总经理"
+    },
+    {
+      "organizationId": "bd07e3d6-635a-51ad-97f1-adc3ad96031e",
+      "name": "服务中心-医疗部",
+      "path": "服务中心/医疗部"
+    },
+    {
+      "organizationId": "016b69cc-2714-531b-bf9c-b184b1fe5339",
+      "name": "服务中心-厂务部-上海昇州",
+      "path": "服务中心/厂务部/昇州"
+    },
+    {
+      "organizationId": "ba6da9fd-807c-59a7-a377-0285a68b2356",
+      "name": "服务技改部-标准制定组",
+      "path": "服务中心/服务技改部/标准制定组"
+    },
+    {
+      "organizationId": "62c48d4e-f7c8-5448-92e0-b1d7e73578df",
+      "name": "服务技改部-自制产品组",
+      "path": "服务中心/服务技改部/自制产品组"
+    },
+    {
+      "organizationId": "f15acf3d-8832-5679-a177-ec0b5e70b880",
+      "name": "MATCH部-电气组",
+      "path": "研发中心/MATCH部/电气组"
+    },
+    {
+      "organizationId": "666def20-f8af-5656-897a-e536749601f1",
+      "name": "财务中心-财务管理部",
+      "path": "财务中心/财务管理部"
+    },
+    {
+      "organizationId": "611e25ca-c81f-50c1-aaf7-c7132ab272ee",
+      "name": "制造Q部-IPQC组",
+      "path": "质量中心/制造Q部/IPQC组"
+    },
+    {
+      "organizationId": "0e4a8211-3d4c-5821-aa90-56309ef16186",
+      "name": "服务Q部-FQC组",
+      "path": "质量中心/服务Q部/FQC组"
+    },
+    {
+      "organizationId": "6ba9fb17-2d8c-5ff9-8cc0-c54573ed1822",
+      "name": "服务Q部-OQC组",
+      "path": "质量中心/服务Q部/OQC组"
+    },
+    {
+      "organizationId": "05efbce0-911b-51dd-9fe3-7049edff1f21",
+      "name": "服务Q部-QE组",
+      "path": "质量中心/服务Q部/QE组"
+    },
+    {
+      "organizationId": "b5851c0b-568d-5b40-a5fd-ca948a737ef6",
+      "name": "资材中心-供应商管理部",
+      "path": "资材中心/供应商管理部"
+    }
+  ],
+  "moveAssignment": [
+    {
+      "employeeId": "9100619c-8a4e-5f0d-b881-9c490704b97e",
+      "employeeNumber": "SZST0001",
+      "name": "朱培文",
+      "from": "总经理",
+      "to": "董事长",
+      "toOrganizationId": "042f83ad-800e-5aff-a10c-0120e8b6009e"
+    },
+    {
+      "employeeId": "86d445d3-cd50-5dc0-8f3e-aeed09192ed1",
+      "employeeNumber": "SZST0019",
+      "name": "马雨",
+      "from": "上海销售部",
+      "to": "销售中心/新品部",
+      "toOrganizationId": "f109d867-06a3-5a30-9e50-bc8c3c8f1ec3"
+    },
+    {
+      "employeeId": "440df047-f797-56fd-923c-90d80f8027cb",
+      "employeeNumber": "SZST0156",
+      "name": "徐东亚",
+      "from": "研发中心-MATCH部",
+      "to": "研发中心/MATCH部/测试组",
+      "toOrganizationId": "e39abf52-be05-593d-91c6-657c430e89ca"
+    },
+    {
+      "employeeId": "f266ab3f-b259-5fc5-8f8b-c37d1ce48ea5",
+      "employeeNumber": "SZST0223",
+      "name": "刘晨旭",
+      "from": "MATCH部-软件设计组",
+      "to": "研发中心/MATCH部/总体组",
+      "toOrganizationId": "6002626f-220b-5ddc-89af-6d5b90021f5d"
+    },
+    {
+      "employeeId": "c1210d9c-9842-5d3e-afc3-31a1d9476cd9",
+      "employeeNumber": "SZST0242",
+      "name": "王杰",
+      "from": "RPS部-结构组",
+      "to": "研发中心/RPS部/软件设计组",
+      "toOrganizationId": "962351c7-3b78-5335-bc36-8890a58653ba"
+    },
+    {
+      "employeeId": "ac6a0129-edcb-5b83-a819-321696422cfb",
+      "employeeNumber": "SZST0524",
+      "name": "丁昊",
+      "from": "总经办",
+      "to": "总经办",
+      "toOrganizationId": "adb68ab4-d520-5210-a400-8bc5d96c04bc"
+    },
+    {
+      "employeeId": "7b3125de-0ff2-5b2b-bed2-be5a8c39dd6a",
+      "employeeNumber": "SZSZ0000",
+      "name": "叶剑",
+      "from": "总经办",
+      "to": "总经办",
+      "toOrganizationId": "adb68ab4-d520-5210-a400-8bc5d96c04bc"
+    },
+    {
+      "employeeId": "fa6eb7c1-ff4a-5ebd-82bd-01213d64af09",
+      "employeeNumber": "SZJN0021",
+      "name": "时晨",
+      "from": "上海总经办（审批）",
+      "to": "总经办",
+      "toOrganizationId": "32ecfaed-80f9-5f42-addd-8190d1a3895a"
+    },
+    {
+      "employeeId": "ca477659-c0bb-5f4c-8687-af3c0a9e6140",
+      "employeeNumber": "SZJN0023",
+      "name": "徐超明",
+      "from": "上海总经办（审批2）",
+      "to": "总经办",
+      "toOrganizationId": "32ecfaed-80f9-5f42-addd-8190d1a3895a"
+    },
+    {
+      "employeeId": "cdf5a101-5e5f-5931-ac67-ab6b8aafe7c5",
+      "employeeNumber": "SZJN0028",
+      "name": "唐郁雯",
+      "from": "上海人事行政部（审批）",
+      "to": "人事行政部",
+      "toOrganizationId": "c97c06c6-eac1-5994-be74-ea49be651536"
+    },
+    {
+      "employeeId": "18567f26-28f2-5e0d-be41-704519194cf7",
+      "employeeNumber": "SZJN0029",
+      "name": "顾光耀",
+      "from": "上海人事行政部（审批）",
+      "to": "人事行政部",
+      "toOrganizationId": "c97c06c6-eac1-5994-be74-ea49be651536"
+    },
+    {
+      "employeeId": "86d9bc29-e4db-5b2c-a1f2-72d56103a643",
+      "employeeNumber": "SZJN0030",
+      "name": "王颂雅",
+      "from": "上海总经办（审批）",
+      "to": "总经办",
+      "toOrganizationId": "32ecfaed-80f9-5f42-addd-8190d1a3895a"
+    }
+  ],
+  "numberCorrection": [
+    {
+      "employeeId": "29bdd476-410c-55cf-8d89-7c3183a98e2e",
+      "from": "SZT0687",
+      "to": "SZST0687",
+      "name": "吕加军"
+    },
+    {
+      "employeeId": "cdde7543-b5d9-5a10-afcc-9aeb6bf3bde2",
+      "from": "SZT0709",
+      "to": "SZST0709",
+      "name": "杨玲"
+    }
+  ],
+  "terminate": [
+    {
+      "employeeId": "052526bd-e063-5e9a-b79f-5f43385a8a33",
+      "employeeNumber": "SZST0641",
+      "name": "陈柏宇"
+    },
+    {
+      "employeeId": "f9ecec37-d77a-594f-ad34-bc17eae3a3ed",
+      "employeeNumber": "SZST0674",
+      "name": "徐利民"
+    },
+    {
+      "employeeId": "39cb2d48-f259-577e-a4b5-d38ba6bcdc80",
+      "employeeNumber": "SZJN0026",
+      "name": "陈惠"
+    },
+    {
+      "employeeId": "ff08254f-42b4-5cdf-b9e3-e0681ee4050c",
+      "employeeNumber": "SZJNSX05",
+      "name": "周坤"
+    },
+    {
+      "employeeId": "1ed72ac7-44e1-5ed5-a68d-600e848b9b2c",
+      "employeeNumber": "SZST0598",
+      "name": "范康搏"
+    },
+    {
+      "employeeId": "14c1c598-988a-566f-aa09-d6c15013c08a",
+      "employeeNumber": "SZST0652",
+      "name": "江梦圆"
+    },
+    {
+      "employeeId": "54374130-235a-5e78-8ded-911789fad1cd",
+      "employeeNumber": "SZST0638",
+      "name": "刘梓轩"
+    },
+    {
+      "employeeId": "85ed6e35-edda-50d7-b1fc-7764d21b7d0f",
+      "employeeNumber": "SZST0662",
+      "name": "李恩琪"
+    },
+    {
+      "employeeId": "94d7aaac-4c12-5c9e-8bef-509e4c65bb44",
+      "employeeNumber": "SZJN0031",
+      "name": "徐赛杰"
+    }
+  ],
+  "createEmployee": [
+    {
+      "employeeNumber": "SZST0560",
+      "name": "韩迎平",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "研发中心/RF部/工艺组",
+      "hireDate": "2025-12-01"
+    },
+    {
+      "employeeNumber": "SZST0573",
+      "name": "张晓龙",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "销售中心/服务部",
+      "hireDate": "2022-02-01"
+    },
+    {
+      "employeeNumber": "SZST0670",
+      "name": "黄兆隆",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/客户现场服务部/深圳办事处",
+      "hireDate": "2026-07-06"
+    },
+    {
+      "employeeNumber": "SZST0715",
+      "name": "胡乐雅",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "研发中心/MATCH部/工艺组",
+      "hireDate": "2026-08-10"
+    },
+    {
+      "employeeNumber": "SZST0716",
+      "name": "何伟豪",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "技术支持中心/现场服务部/现场技术服务组",
+      "hireDate": "2026-08-10"
+    },
+    {
+      "employeeNumber": "SZST0717",
+      "name": "钱龙",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "制造中心/制造部/制造二部/装配组",
+      "hireDate": "2026-08-10"
+    },
+    {
+      "employeeNumber": "SZST0718",
+      "name": "陈家辉",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/服务技改部/技改组",
+      "hireDate": "2026-08-10"
+    },
+    {
+      "employeeNumber": "SZST0719",
+      "name": "龚航航",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "制造中心/制造部/制造二部/测试组",
+      "hireDate": "2026-08-10"
+    },
+    {
+      "employeeNumber": "SZST0720",
+      "name": "叶凯",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "制造中心/制造部/制造二部/测试组",
+      "hireDate": "2026-08-10"
+    },
+    {
+      "employeeNumber": "SZST0721",
+      "name": "崔雨",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "服务中心/客户现场服务部/大连办事处",
+      "hireDate": "2026-08-11"
+    },
+    {
+      "employeeNumber": "SZST0722",
+      "name": "张自豪",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "制造中心/制造部/制造二部/装配组",
+      "hireDate": "2026-08-17"
+    },
+    {
+      "employeeNumber": "SZST0723",
+      "name": "汪洋",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "技术支持中心/现场服务部/现场技术服务组",
+      "hireDate": "2026-08-17"
+    },
+    {
+      "employeeNumber": "SZST0724",
+      "name": "袁秋阳",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "资材中心/采购部",
+      "hireDate": "2026-08-17"
+    },
+    {
+      "employeeNumber": "SZST0725",
+      "name": "张磊",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "质量中心/制造Q部/QE组",
+      "hireDate": "2026-08-17"
+    },
+    {
+      "employeeNumber": "SZSTSX109",
+      "name": "马振雯",
+      "company": "江苏神州半导体科技股份有限公司",
+      "path": "运营中心/人事部",
+      "hireDate": "2026-08-11"
+    },
+    {
+      "employeeNumber": "SZJN0041",
+      "name": "汤嘉鸣",
+      "company": "上海晟州聚能半导体科技有限公司",
+      "path": "总经办",
+      "hireDate": "2026-08-07"
+    },
+    {
+      "employeeNumber": "SZSZ0002",
+      "name": "赵子奇",
+      "company": "上海昇州半导体科技有限公司",
+      "path": "维修部",
+      "hireDate": "2021-11-09"
+    },
+    {
+      "employeeNumber": "SZSZ0003",
+      "name": "张衡",
+      "company": "上海昇州半导体科技有限公司",
+      "path": "维修部",
+      "hireDate": "2022-03-01"
+    }
+  ],
+  "accountSync": [
+    {
+      "accountId": "88214641-10b5-4ad9-8d0e-8d8c977d8669",
+      "username": "SZT0687",
+      "employeeId": "29bdd476-410c-55cf-8d89-7c3183a98e2e",
+      "newUsername": "SZST0687"
+    },
+    {
+      "accountId": "e73a9465-1528-4e15-b9e0-60ed12a95614",
+      "username": "SZT0709",
+      "employeeId": "cdde7543-b5d9-5a10-afcc-9aeb6bf3bde2",
+      "newUsername": "SZST0709"
+    }
+  ],
+  "standingExempt": 61,
+  "protectedLogins": [
+    "SZST0007",
+    "SZST0036",
+    "SZST0381",
+    "SZST0392",
+    "SZST0615",
+    "SZST0673",
+    "szsc_admin_faa41d5bd802"
+  ]
+}

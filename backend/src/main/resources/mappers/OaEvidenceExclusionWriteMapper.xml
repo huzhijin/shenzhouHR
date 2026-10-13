@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.OaEvidenceExclusionWriteMapper">
+
+    <resultMap id="exclusionRowMap"
+               type="com.szsemicon.hr.reporting.infrastructure.persistence.OaEvidenceExclusionWriteMapper$ExclusionRow">
+        <constructor>
+            <arg column="exclusion_id" javaType="String" name="exclusionId"/>
+            <arg column="company_id" javaType="String" name="companyId"/>
+            <arg column="employee_id" javaType="String" name="employeeId"/>
+            <arg column="attendance_source_id" javaType="String" name="attendanceSourceId"/>
+            <arg column="source_business_key" javaType="String" name="sourceBusinessKey"/>
+            <arg column="source_version" javaType="String" name="sourceVersion"/>
+            <arg column="oa_attendance_document_id" javaType="String" name="oaAttendanceDocumentId"/>
+            <arg column="knowledge_at" javaType="java.time.Instant" name="knowledgeAt"/>
+            <arg column="reason" javaType="String" name="reason"/>
+            <arg column="created_by" javaType="String" name="createdBy"/>
+            <arg column="audit_reference" javaType="String" name="auditReference"/>
+            <arg column="user_confirmation_text" javaType="String" name="userConfirmationText"/>
+            <arg column="user_confirmation_sha256" javaType="String" name="userConfirmationSha256"/>
+            <arg column="evidence_sha256" javaType="String" name="evidenceSha256"/>
+            <arg column="request_id" javaType="String" name="requestId"/>
+            <arg column="reversed_at" javaType="java.time.Instant" name="reversedAt"/>
+            <arg column="reversed_by" javaType="String" name="reversedBy"/>
+            <arg column="reversal_reason" javaType="String" name="reversalReason"/>
+            <arg column="reversal_request_id" javaType="String" name="reversalRequestId"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findByRequest" resultMap="exclusionRowMap">
+        SELECT
+            exclusion_id, company_id, employee_id, attendance_source_id,
+            source_business_key, source_version, oa_attendance_document_id,
+            knowledge_at, reason, created_by, audit_reference,
+            user_confirmation_text, user_confirmation_sha256, evidence_sha256, request_id,
+            reversed_at, reversed_by, reversal_reason, reversal_request_id
+        FROM attendance_report_oa_evidence_exclusion
+        WHERE request_id = #{requestId}
+          AND oa_attendance_document_id = #{oaAttendanceDocumentId}
+    </select>
+
+    <select id="findById" resultMap="exclusionRowMap">
+        SELECT
+            exclusion_id, company_id, employee_id, attendance_source_id,
+            source_business_key, source_version, oa_attendance_document_id,
+            knowledge_at, reason, created_by, audit_reference,
+            user_confirmation_text, user_confirmation_sha256, evidence_sha256, request_id,
+            reversed_at, reversed_by, reversal_reason, reversal_request_id
+        FROM attendance_report_oa_evidence_exclusion
+        WHERE exclusion_id = #{exclusionId}
+    </select>
+
+    <select id="findDocumentGeometry"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.OaEvidenceExclusionWriteMapper$DocumentGeometryRow">
+        SELECT
+            oa.oa_attendance_document_id AS oaAttendanceDocumentId,
+            oa.document_type AS documentType,
+            oa.leave_type AS leaveType,
+            oa.source_status AS sourceStatus,
+            normalized.validation_status AS validationStatus,
+            normalized.interval_start AS intervalStart,
+            normalized.interval_end AS intervalEnd,
+            matched.match_status AS matchStatus,
+            matched.employee_id AS employeeId,
+            employee.company_id AS companyId,
+            employee.employee_number AS employeeNumber
+        FROM oa_attendance_document oa
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id = oa.normalized_attendance_record_id
+         AND normalized.validation_status = 'VALID'
+        JOIN raw_attendance_fact raw
+          ON raw.raw_attendance_fact_id = normalized.raw_attendance_fact_id
+        JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+         AND matched.match_status = 'MATCHED'
+        JOIN employee employee
+          ON employee.employee_id = matched.employee_id
+        WHERE oa.oa_attendance_document_id = #{oaAttendanceDocumentId}
+          AND oa.attendance_source_id = #{attendanceSourceId}
+          AND raw.source_business_key = #{sourceBusinessKey}
+          AND oa.source_version = #{sourceVersion}
+    </select>
+
+    <insert id="insertExclusion">
+        INSERT INTO attendance_report_oa_evidence_exclusion (
+            exclusion_id, company_id, employee_id, attendance_source_id,
+            source_business_key, source_version, oa_attendance_document_id,
+            knowledge_at, reversed_at, reason, created_by, audit_reference,
+            user_confirmation_text, user_confirmation_sha256, evidence_sha256, request_id,
+            reversed_by, reversal_reason, reversal_request_id
+        ) VALUES (
+            #{exclusionId}, #{companyId}, #{employeeId}, #{attendanceSourceId},
+            #{sourceBusinessKey}, #{sourceVersion}, #{oaAttendanceDocumentId},
+            #{knowledgeAt}, NULL, #{reason}, #{createdBy}, #{auditReference},
+            #{userConfirmationText}, #{userConfirmationSha256}, #{evidenceSha256}, #{requestId},
+            NULL, NULL, NULL
+        )
+    </insert>
+
+    <select id="lockActiveOaSource" resultType="string">
+        SELECT attendance_source_id
+        FROM attendance_source
+        WHERE attendance_source_id = #{sourceId}
+          AND source_type = 'OA_ATTENDANCE'
+          AND status = 'ACTIVE'
+        FOR UPDATE
+    </select>
+
+    <update id="reverseExclusion">
+        UPDATE attendance_report_oa_evidence_exclusion
+        SET reversed_at = #{reversedAt},
+            reversed_by = #{reversedBy},
+            reversal_reason = #{reversalReason},
+            reversal_request_id = #{reversalRequestId}
+        WHERE exclusion_id = #{exclusionId}
+          AND reversed_at IS NULL
+    </update>
+
+</mapper>

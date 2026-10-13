@@ -178,7 +178,7 @@ final class PeopleImportPrecheckService {
         for (Map.Entry<String, List<Map<String, Object>>> entry
                 : byEmployeeNumber.entrySet()) {
             EmployeeVersion employee = repository.findEmployeeByNumber(
-                    batch.legalEntityId(), entry.getKey()).orElse(null);
+                    batch.companyId(), entry.getKey()).orElse(null);
             if (employee == null) {
                 continue;
             }

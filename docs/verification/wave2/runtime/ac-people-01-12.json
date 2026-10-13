@@ -1,0 +1,221 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-26T03:08:27.475Z",
+  "runId": "ms17xm8i0bb61873",
+  "source": "docs/v1.9-rebaseline/09-acceptance-criteria.md",
+  "acceptanceCriteria": [
+    {
+      "id": "AC-PEOPLE-01",
+      "status": "PASS",
+      "summary": "版本化组织与员工模板可下载，预检阶段不写入正式主数据。",
+      "facts": {
+        "openApiTemplateCount": 4,
+        "formalTableWriteDeltaDuringPrecheck": 0
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-api.tsv",
+        "runtime-business-api.tsv",
+        "backend-package.log"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-02",
+      "status": "PASS",
+      "summary": "预检同时产生新增、修改、不变、冲突和错误，阻断问题禁止发布并可下载错误行报告。",
+      "facts": {
+        "categoryCounts": {
+          "ADDED": 1,
+          "UPDATED": 1,
+          "UNCHANGED": 1,
+          "CONFLICT": 1,
+          "ERROR": 1
+        },
+        "blockingIssueCount": 2,
+        "errorReportBytes": 4007,
+        "blockedPublishStatus": 409
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "screenshots/07-validation-failed-1440x900.png"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-03",
+      "status": "PASS",
+      "summary": "同一幂等键重复发布和同一文件哈希跨批次发布均返回原发布结果，不重复生成正式记录。",
+      "facts": {
+        "initialPublishDeduplicated": false,
+        "repeatedIdempotencyDeduplicated": true,
+        "fileHashDeduplicated": true,
+        "duplicatePointsToOriginalPublication": true
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "backend-package.log"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-04",
+      "status": "PASS",
+      "summary": "发布后的组织进入本地权威维护链路，生产源码中不存在持续、双向或手动组织同步入口。",
+      "facts": {
+        "localOrganizationVersions": 2,
+        "importedSourceAuthority": "INITIAL_EXCEL",
+        "localSourceAuthority": "LOCAL",
+        "sourceBatchReleasedAfterLocalEdit": true,
+        "sourceFileHashPreserved": true,
+        "publicationSnapshotDigestPreserved": true,
+        "organizationSyncDiscoverability": 0
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "static-verification.log",
+        "screenshots/02-people-organization-768x1024.png"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-05",
+      "status": "PASS",
+      "summary": "本地组织和员工维护追加新版本与审计事件，不覆盖导入来源文件或发布快照。",
+      "facts": {
+        "organizationVersions": 2,
+        "employeeVersions": 2,
+        "employeeAuditEvents": 7,
+        "organizationVersionAuditEvents": 2,
+        "auditCorrelationIdsPresent": true,
+        "organizationSourceFileHashPreserved": true,
+        "organizationPublicationSnapshotPreserved": true,
+        "employeeSourceFileHashPreserved": true,
+        "employeePublicationSnapshotPreserved": true
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "backend-package.log",
+        "screenshots/04-employee-detail-1366x768.png"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-06",
+      "status": "PASS",
+      "summary": "二次入职创建新的任职周期，首次任职周期仍作为独立历史记录保留。",
+      "facts": {
+        "employmentPeriodCount": 2,
+        "periodIdsDistinct": true,
+        "historyTotalWithoutAsOf": 2
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "backend-package.log",
+        "screenshots/06-employee-detail-1920x1080.png"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-07",
+      "status": "PASS",
+      "summary": "同一员工的重叠任职周期被 409 拒绝，离职空档查询返回零条而不猜测归属。",
+      "facts": {
+        "overlapStatus": 409,
+        "gapAssignments": 0
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "backend-package.log"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-08",
+      "status": "PASS",
+      "summary": "入职前累计工龄保存发生额、原因、操作者、时间与请求标识，重复重算结果可复现。",
+      "facts": {
+        "totalDays": 365,
+        "amountDays": 365,
+        "recordCount": 1,
+        "reasonPreserved": true,
+        "replayDigestStable": true,
+        "actorRecorded": true,
+        "occurredAtRecorded": true,
+        "requestIdRecorded": true
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "backend-package.log",
+        "screenshots/04-employee-detail-1366x768.png"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-09",
+      "status": "PASS",
+      "summary": "姓名与部门不会作为唯一员工匹配键，多人精确键命中进入错误报告。",
+      "facts": {
+        "sameDisplayNameEmployeeCount": 4,
+        "ambiguousCandidateCount": 2,
+        "issueCount": 2
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "backend-package.log",
+        "screenshots/07-validation-failed-1440x900.png"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-10",
+      "status": "PASS",
+      "summary": "旧组织同步能力已从两库授权目录退役，受限审计角色不能调用导入能力，且没有可发现的同步 route、button 或 job。",
+      "facts": {
+        "retiredSyncCapabilityRowsDev": 0,
+        "retiredSyncCapabilityRowsTest": 0,
+        "restrictedRole": "AUDITOR",
+        "restrictedCapabilityStatus": 403,
+        "organizationSyncDiscoverability": 0
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "mysql/wave2-local-mysql.log",
+        "static-verification.log",
+        "backend-package.log"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-11",
+      "status": "PASS",
+      "summary": "未发布草稿可作废，已发布批次无物理删除路由；满足条件时撤销生成恢复版本，存在后续版本时返回 409。",
+      "facts": {
+        "draftStatus": "VOIDED",
+        "publishedDeleteStatus": 405,
+        "organizationRollbackRestoredVersionCount": 1,
+        "laterVersionRollbackStatus": 409,
+        "laterVersionRollbackCode": "PEOPLE_IMPORT_ROLLBACK_NOT_LATEST"
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "backend-package.log"
+      ]
+    },
+    {
+      "id": "AC-PEOPLE-12",
+      "status": "PASS",
+      "summary": "任职期间统一使用半开区间，离职日仍可匹配，次日起不再匹配。",
+      "facts": {
+        "periodConvention": "[start_date,end_exclusive)",
+        "firstEndExclusive": "2021-01-01",
+        "terminationDayAssignments": 1,
+        "dayAfterTerminationAssignments": 0
+      },
+      "evidenceFiles": [
+        "runtime-api-business.json",
+        "runtime-business-api.tsv",
+        "backend-package.log"
+      ]
+    }
+  ]
+}

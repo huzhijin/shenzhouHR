@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.OaOvertimeRecognitionWriteMapper">
+
+    <resultMap id="recognitionRowMap"
+               type="com.szsemicon.hr.reporting.infrastructure.persistence.OaOvertimeRecognitionWriteMapper$RecognitionRow">
+        <constructor>
+            <arg column="recognition_id" javaType="String" name="recognitionId"/>
+            <arg column="company_id" javaType="String" name="companyId"/>
+            <arg column="employee_id" javaType="String" name="employeeId"/>
+            <arg column="attendance_source_id" javaType="String" name="attendanceSourceId"/>
+            <arg column="source_business_key" javaType="String" name="sourceBusinessKey"/>
+            <arg column="source_version" javaType="String" name="sourceVersion"/>
+            <arg column="oa_attendance_document_id" javaType="String" name="oaAttendanceDocumentId"/>
+            <arg column="business_date" javaType="java.time.LocalDate" name="businessDate"/>
+            <arg column="expected_interval_start" javaType="java.time.Instant" name="expectedIntervalStart"/>
+            <arg column="expected_interval_end" javaType="java.time.Instant" name="expectedIntervalEnd"/>
+            <arg column="overtime_type" javaType="String" name="overtimeType"/>
+            <arg column="recognized_minutes" javaType="_int" name="recognizedMinutes"/>
+            <arg column="knowledge_at" javaType="java.time.Instant" name="knowledgeAt"/>
+            <arg column="reason" javaType="String" name="reason"/>
+            <arg column="created_by" javaType="String" name="createdBy"/>
+            <arg column="audit_reference" javaType="String" name="auditReference"/>
+            <arg column="user_confirmation_text" javaType="String" name="userConfirmationText"/>
+            <arg column="user_confirmation_sha256" javaType="String" name="userConfirmationSha256"/>
+            <arg column="evidence_sha256" javaType="String" name="evidenceSha256"/>
+            <arg column="request_id" javaType="String" name="requestId"/>
+            <arg column="reversed_at" javaType="java.time.Instant" name="reversedAt"/>
+            <arg column="reversed_by" javaType="String" name="reversedBy"/>
+            <arg column="reversal_reason" javaType="String" name="reversalReason"/>
+            <arg column="reversal_request_id" javaType="String" name="reversalRequestId"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findByRequest" resultMap="recognitionRowMap">
+        SELECT
+            recognition_id, company_id, employee_id, attendance_source_id,
+            source_business_key, source_version, oa_attendance_document_id,
+            business_date, expected_interval_start, expected_interval_end,
+            overtime_type, recognized_minutes, knowledge_at, reason,
+            created_by, audit_reference, user_confirmation_text,
+            user_confirmation_sha256, evidence_sha256, request_id,
+            reversed_at, reversed_by, reversal_reason, reversal_request_id
+        FROM attendance_report_oa_overtime_recognition
+        WHERE request_id = #{requestId}
+          AND oa_attendance_document_id = #{oaAttendanceDocumentId}
+    </select>
+
+    <select id="findById" resultMap="recognitionRowMap">
+        SELECT
+            recognition_id, company_id, employee_id, attendance_source_id,
+            source_business_key, source_version, oa_attendance_document_id,
+            business_date, expected_interval_start, expected_interval_end,
+            overtime_type, recognized_minutes, knowledge_at, reason,
+            created_by, audit_reference, user_confirmation_text,
+            user_confirmation_sha256, evidence_sha256, request_id,
+            reversed_at, reversed_by, reversal_reason, reversal_request_id
+        FROM attendance_report_oa_overtime_recognition
+        WHERE recognition_id = #{recognitionId}
+    </select>
+
+    <select id="findValidatedOaDocument"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.OaOvertimeRecognitionWriteMapper$ValidatedOaDocumentRow">
+        SELECT
+            oa.oa_attendance_document_id AS oaAttendanceDocumentId,
+            oa.document_type AS documentType,
+            oa.source_status AS sourceStatus,
+            normalized.validation_status AS validationStatus,
+            normalized.interval_start AS intervalStart,
+            normalized.interval_end AS intervalEnd,
+            matched.match_status AS matchStatus,
+            matched.employee_id AS employeeId,
+            employee.company_id AS companyId,
+            employee.employee_number AS employeeNumber,
+            context.activation_decision AS activationDecision,
+            context.overtime_type AS overtimeType
+        FROM oa_attendance_document oa
+        JOIN normalized_attendance_record normalized
+          ON normalized.normalized_attendance_record_id = oa.normalized_attendance_record_id
+         AND normalized.validation_status = 'VALID'
+        JOIN raw_attendance_fact raw
+          ON raw.raw_attendance_fact_id = normalized.raw_attendance_fact_id
+        JOIN employee_match_decision matched
+          ON matched.normalized_attendance_record_id = normalized.normalized_attendance_record_id
+         AND matched.match_status = 'MATCHED'
+        JOIN employee employee
+          ON employee.employee_id = matched.employee_id
+        LEFT JOIN oa_attendance_document_context context
+          ON context.oa_attendance_document_id = oa.oa_attendance_document_id
+        WHERE oa.oa_attendance_document_id = #{oaAttendanceDocumentId}
+          AND oa.attendance_source_id = #{attendanceSourceId}
+          AND raw.source_business_key = #{sourceBusinessKey}
+          AND oa.source_version = #{sourceVersion}
+    </select>
+
+    <select id="hasActiveExclusion" resultType="boolean">
+        SELECT EXISTS(
+            SELECT 1
+            FROM attendance_report_oa_evidence_exclusion excl
+            WHERE excl.company_id = #{companyId}
+              AND excl.employee_id = #{employeeId}
+              AND excl.attendance_source_id = #{attendanceSourceId}
+              AND excl.source_business_key = #{sourceBusinessKey}
+              AND excl.source_version = #{sourceVersion}
+              AND excl.oa_attendance_document_id = #{oaAttendanceDocumentId}
+              AND excl.knowledge_at &lt;= #{asOf}
+              AND (excl.reversed_at IS NULL OR excl.reversed_at &gt; #{asOf})
+        )
+    </select>
+
+    <select id="hasExistingV75Overlap" resultType="boolean">
+        SELECT EXISTS(
+            SELECT 1
+            FROM attendance_report_oa_overtime_recognition recog
+            WHERE recog.company_id = #{companyId}
+              AND recog.employee_id = #{employeeId}
+              AND recog.attendance_source_id = #{attendanceSourceId}
+              AND recog.business_date = #{businessDate}
+              AND recog.expected_interval_start &lt; #{intervalEnd}
+              AND recog.expected_interval_end &gt; #{intervalStart}
+              AND recog.oa_attendance_document_id &lt;&gt; #{excludeDocId}
+              AND recog.knowledge_at &lt;= #{asOf}
+              AND (recog.reversed_at IS NULL OR recog.reversed_at &gt; #{asOf})
+        )
+    </select>
+
+    <select id="hasOtherConsumableOaOverlap" resultType="boolean">
+        WITH ranked_doc AS (
+            SELECT doc.oa_attendance_document_id,
+                   doc.attendance_source_id,
+                   doc.source_business_key,
+                   doc.source_version,
+                   doc.source_status,
+                   doc.document_type,
+                   doc.normalized_attendance_record_id,
+                   ROW_NUMBER() OVER (PARTITION BY doc.attendance_source_id, doc.source_business_key
+                                      ORDER BY doc.knowledge_rank DESC, doc.created_at DESC, doc.oa_attendance_document_id DESC) AS rk
+            FROM oa_attendance_document doc
+            WHERE doc.created_at &lt;= #{asOf}
+              AND doc.attendance_source_id = #{attendanceSourceId}
+        )
+        SELECT EXISTS(
+            SELECT 1
+            FROM ranked_doc doc
+            JOIN normalized_attendance_record norm ON norm.normalized_attendance_record_id = doc.normalized_attendance_record_id
+             AND norm.validation_status = 'VALID'
+            JOIN raw_attendance_fact raw ON raw.raw_attendance_fact_id = norm.raw_attendance_fact_id
+            JOIN employee_match_decision matched ON matched.normalized_attendance_record_id = norm.normalized_attendance_record_id
+             AND matched.match_status = 'MATCHED'
+            JOIN employee emp ON emp.employee_id = matched.employee_id
+            LEFT JOIN oa_attendance_document_context ctx ON ctx.oa_attendance_document_id = doc.oa_attendance_document_id
+            WHERE doc.rk = 1
+              AND doc.oa_attendance_document_id &lt;&gt; #{excludeDocId}
+              AND doc.source_business_key &lt;&gt; #{excludeKey}
+              AND matched.employee_id = #{employeeId}
+              AND emp.company_id = #{companyId}
+              AND doc.document_type = 'OVERTIME'
+              AND raw.source_business_key = doc.source_business_key
+              AND (
+                  doc.source_status IN ('APPROVED', 'MODIFIED', 'SUPPLEMENTED', 'PENDING')
+                  OR (doc.source_status = 'UNKNOWN' AND doc.source_version REGEXP '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]{1,9})?:state=0:Asia/Shanghai$')
+              )
+              AND ctx.activation_decision = 'ACTIVATED'
+              AND ctx.overtime_type IS NOT NULL
+              AND norm.interval_start &lt; #{intervalEnd}
+              AND norm.interval_end &gt; #{intervalStart}
+              AND NOT EXISTS(
+                  SELECT 1 FROM attendance_report_oa_evidence_exclusion ex
+                  WHERE ex.oa_attendance_document_id = doc.oa_attendance_document_id
+                    AND ex.company_id = #{companyId}
+                    AND ex.employee_id = #{employeeId}
+                    AND ex.attendance_source_id = doc.attendance_source_id
+                    AND ex.source_business_key = doc.source_business_key
+                    AND ex.source_version = doc.source_version
+                    AND ex.knowledge_at &lt;= #{asOf}
+                    AND (ex.reversed_at IS NULL OR ex.reversed_at &gt; #{asOf})
+              )
+        )
+    </select>
+
+    <insert id="insertRecognition">
+        INSERT INTO attendance_report_oa_overtime_recognition (
+            recognition_id, company_id, employee_id, attendance_source_id,
+            source_business_key, source_version, oa_attendance_document_id,
+            business_date, expected_interval_start, expected_interval_end,
+            overtime_type, recognized_minutes, knowledge_at, reversed_at,
+            reason, created_by, audit_reference, user_confirmation_text,
+            user_confirmation_sha256, evidence_sha256, request_id,
+            reversed_by, reversal_reason, reversal_request_id
+        ) VALUES (
+            #{recognitionId}, #{companyId}, #{employeeId}, #{attendanceSourceId},
+            #{sourceBusinessKey}, #{sourceVersion}, #{oaAttendanceDocumentId},
+            #{businessDate}, #{expectedIntervalStart}, #{expectedIntervalEnd},
+            #{overtimeType}, #{recognizedMinutes}, #{knowledgeAt}, NULL,
+            #{reason}, #{createdBy}, #{auditReference}, #{userConfirmationText},
+            #{userConfirmationSha256}, #{evidenceSha256}, #{requestId},
+            NULL, NULL, NULL
+        )
+    </insert>
+
+    <select id="lockActiveOaSource" resultType="string">
+        SELECT attendance_source_id
+        FROM attendance_source
+        WHERE attendance_source_id = #{sourceId}
+          AND source_type = 'OA_ATTENDANCE'
+          AND status = 'ACTIVE'
+        FOR UPDATE
+    </select>
+
+    <update id="reverseRecognition">
+        UPDATE attendance_report_oa_overtime_recognition
+        SET reversed_at = #{reversedAt},
+            reversed_by = #{reversedBy},
+            reversal_reason = #{reversalReason},
+            reversal_request_id = #{reversalRequestId}
+        WHERE recognition_id = #{recognitionId}
+          AND reversed_at IS NULL
+    </update>
+
+</mapper>

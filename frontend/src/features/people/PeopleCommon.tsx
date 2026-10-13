@@ -4,11 +4,12 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { listAuditEvents } from '../audit/auditApi';
-import { DataTable } from '../../shared/components/DataTable';
 import {
-  CorrelationIdDisplay,
-  StatusBadge,
-} from '../../shared/components/FeedbackComponents';
+  auditActionLabel,
+  auditActorLabel,
+} from '../audit/auditDisplayLabels';
+import { DataTable } from '../../shared/components/DataTable';
+import { StatusBadge } from '../../shared/components/FeedbackComponents';
 import { StatePanel } from '../../shared/components/StatePanel';
 import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import { ApiRequestError } from '../../shared/api/apiClient';
@@ -32,7 +33,7 @@ export function SourceAuthority({ authority }: { authority: 'INITIAL_EXCEL' | 'L
   const { t } = useTranslation();
   return (
     <span className={`source-authority source-authority--${authority.toLowerCase()}`}>
-      <IconDatabase aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
+      <IconDatabase aria-hidden="true" stroke={2} size={20} />
       {authority === 'LOCAL' ? t('people.source.local') : t('people.source.initialExcel')}
     </span>
   );
@@ -52,18 +53,16 @@ export function ApiErrorState({ error, onRetry }: {
           ? '404'
           : error.status === 409 || error.status === 412
             ? error.code === 'STALE_VERSION' ? 'stale' : 'conflict'
-            : error.status === 422
+              : error.status === 422
               ? 'validation-error'
               : 'error';
+  // Correlation metadata is retained on ApiRequestError for logs and support tooling only.
   return (
-    <div>
-      <StatePanel
-        state={state}
-        description={error.message}
-        onRetry={error.retryable ? onRetry : undefined}
-      />
-      <CorrelationIdDisplay correlationId={error.correlationId} />
-    </div>
+    <StatePanel
+      state={state}
+      description={error.message}
+      onRetry={error.retryable ? onRetry : undefined}
+    />
   );
 }
 
@@ -106,7 +105,7 @@ export function VersionAuditPanel({ versions, resourceType, resourceId, canReadA
           key: 'versions',
           label: (
             <span className="tab-label">
-              <IconHistory aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
+              <IconHistory aria-hidden="true" stroke={2} size={20} />
               {t('people.versions')}
             </span>
           ),
@@ -117,11 +116,10 @@ export function VersionAuditPanel({ versions, resourceType, resourceId, canReadA
               rows={versions}
               rowKey={(row) => `${row.rowVersion}-${row.createdAt}`}
               columns={[
-                { key: 'version', title: t('people.rowVersion'), render: (row) => <code>V{row.rowVersion}</code> },
                 { key: 'status', title: t('people.status'), render: (row) => row.status ? <StatusBadge status={row.status} /> : t('common.none') },
                 { key: 'effective', title: t('people.effectivePeriod'), render: (row) => `${formatDate(row.effectiveFrom)} — ${row.effectiveTo ? formatDate(row.effectiveTo) : t('people.longTerm')}` },
                 { key: 'reason', title: t('people.reason'), render: (row) => row.changeReason ?? t('common.none') },
-                { key: 'actor', title: t('people.actor'), render: (row) => <code>{row.createdBy}</code> },
+                { key: 'actor', title: t('people.actor'), render: (row) => auditActorLabel(row.createdBy) },
                 { key: 'time', title: t('people.changedAt'), render: (row) => formatDateTime(row.createdAt) },
               ]}
             />
@@ -131,7 +129,7 @@ export function VersionAuditPanel({ versions, resourceType, resourceId, canReadA
           key: 'audit',
           label: (
             <span className="tab-label">
-              <IconClock aria-hidden="true" stroke={2} size="var(--size-icon-md)" />
+              <IconClock aria-hidden="true" stroke={2} size={20} />
               {t('people.audit')}
             </span>
           ),
@@ -149,10 +147,11 @@ export function VersionAuditPanel({ versions, resourceType, resourceId, canReadA
                   rowKey={(row) => row.eventId}
                   columns={[
                     { key: 'time', title: t('people.changedAt'), render: (row) => formatDateTime(row.occurredAt) },
-                    { key: 'action', title: t('people.action'), render: (row) => row.action },
-                    { key: 'actor', title: t('people.actor'), render: (row) => row.actorDisplayName },
+                    { key: 'action', title: t('people.action'), render: (row) => auditActionLabel(row.action) },
+                    { key: 'actor', title: t('people.actor'), render: (row) => auditActorLabel(row.actorDisplayName) },
                     { key: 'result', title: t('people.result'), render: (row) => <StatusBadge status={row.result} /> },
-                    { key: 'correlation', title: t('common.correlation'), render: (row) => <code>{row.correlationId}</code> },
+                    // eventId/correlationId remain available to the audit query
+                    // and row key, but are not operator-facing business data.
                   ]}
                 />
               ) : null}
@@ -166,7 +165,7 @@ export function VersionAuditPanel({ versions, resourceType, resourceId, canReadA
 
 export function formatDate(value: string): string {
   const timestamp = Date.parse(`${value.slice(0, 10)}T00:00:00Z`);
-  if (!Number.isFinite(timestamp)) return value;
+  if (!Number.isFinite(timestamp)) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
     timeZone: 'Asia/Shanghai',
@@ -175,7 +174,7 @@ export function formatDate(value: string): string {
 
 export function formatDateTime(value: string): string {
   const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return value;
+  if (!Number.isFinite(timestamp)) return '—';
   return new Intl.DateTimeFormat('zh-CN', {
     dateStyle: 'medium',
     timeStyle: 'short',

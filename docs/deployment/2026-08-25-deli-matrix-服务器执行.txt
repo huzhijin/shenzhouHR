@@ -1,0 +1,21 @@
+把下面两个文件传到宝塔 /root：
+
+  release-candidates/shenzhouhr-release-20260825-deli-matrix.tar.gz
+  release-candidates/upgrade-deli-matrix.sh
+
+然后：
+
+chmod +x /root/upgrade-deli-matrix.sh
+nohup bash /root/upgrade-deli-matrix.sh >> /root/upgrade-deli-matrix.log 2>&1 &
+tail -f /root/upgrade-deli-matrix.log
+
+不要覆盖 start-prod.sh
+不要改得力 00:00/12:00 cron
+不要只点「重新计算」
+
+SHA256：
+5c196c558a95e41cdad9f85be72cfc70a932ea0d4717fef884e2767cdc2b4352
+
+本包含：
+- 得力全员雪花认人回放（修上次 HTTP 500）
+- 会话 01a03707 的月报：8:30 迟到、休息日两头卡、加班色按段、年假悬停小时、Excel 签到/签退

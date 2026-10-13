@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Assignment;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.AttendanceGroup;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.LifecycleStatus;
+import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Location;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.people.application.PeopleRepository;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
@@ -32,6 +33,10 @@ class AttendanceMutationIdempotencyServiceTest {
             "10000000-0000-0000-0000-000000000003";
     private static final String EMPLOYEE_ID =
             "10000000-0000-0000-0000-000000000004";
+    private static final String LOCATION_ID =
+            "10000000-0000-0000-0000-000000000005";
+    private static final String LOCATION_REVISION_ID =
+            "10000000-0000-0000-0000-000000000006";
     private static final Instant NOW =
             Instant.parse("2026-07-27T00:00:00Z");
 
@@ -54,7 +59,7 @@ class AttendanceMutationIdempotencyServiceTest {
                 NOW);
         AttendanceGroup group = new AttendanceGroup(
                 GROUP_ID,
-                "legal-entity-1",
+                "company-1",
                 "GROUP_A",
                 GROUP_REVISION_ID,
                 1,
@@ -130,13 +135,118 @@ class AttendanceMutationIdempotencyServiceTest {
         assertThat(result).isEqualTo("ok");
         assertThat(events).containsExactly(
                 "assignment-read",
-                "group-read",
                 "group-lock",
                 "group-read",
                 "group-revision-lock",
                 "employee-lock",
                 "assignment-timeline-lock",
                 "mutation");
+    }
+
+    @Test
+    void location_backed_family_creates_lock_location_before_dependency_insert() {
+        List<String> events = new ArrayList<>();
+        AttendanceGroupRepository groups =
+                mock(AttendanceGroupRepository.class);
+        PeopleRepository people = mock(PeopleRepository.class);
+        Location location = new Location(
+                LOCATION_ID,
+                "shared-location-1",
+                "company-1",
+                "YANGZHOU",
+                LOCATION_REVISION_ID,
+                1,
+                "扬州",
+                "Asia/Shanghai",
+                LifecycleStatus.ACTIVE,
+                LocalDate.parse("2026-01-01"),
+                null,
+                "digest",
+                0,
+                "test location",
+                "actor-1",
+                NOW,
+                "actor-1",
+                NOW);
+        doAnswer(invocation -> {
+            events.add("company-lock");
+            return null;
+        }).when(people).lockCompany("company-1");
+        doAnswer(invocation -> {
+            events.add("location-lock");
+            return null;
+        }).when(groups).lockLocation(LOCATION_ID);
+        when(groups.findLocation(LOCATION_ID)).thenAnswer(invocation -> {
+            events.add("location-read");
+            return Optional.of(location);
+        });
+        doAnswer(invocation -> {
+            events.add("location-revision-lock");
+            return null;
+        }).when(groups).lockLocationRevision(LOCATION_REVISION_ID);
+
+        CurrentPrincipalProvider principals =
+                mock(CurrentPrincipalProvider.class);
+        when(principals.currentPrincipalId()).thenReturn("actor-1");
+        AttendanceMutationIdempotencyService service =
+                new AttendanceMutationIdempotencyService(
+                        principals,
+                        mock(CurrentCapabilityService.class),
+                        people,
+                        groups,
+                        mock(ShiftRepository.class),
+                        mock(CalendarRepository.class),
+                        new ResourceLockCapturingIdempotencyService(),
+                        Clock.fixed(NOW, ZoneOffset.UTC));
+
+        service.execute(
+                "CREATE_SHIFT_TEMPLATE",
+                "ATTENDANCE_SHIFT_TEMPLATE",
+                "company-1",
+                "idempotency-key-shift",
+                new ShiftCommands.TemplateCommand(
+                        "company-1", LOCATION_ID, "DAY", "白班", "test"),
+                null,
+                201,
+                value -> value,
+                String.class,
+                () -> {
+                    events.add("shift-mutation");
+                    return "shift";
+                });
+
+        assertThat(events).containsExactly(
+                "company-lock",
+                "location-lock",
+                "location-read",
+                "location-revision-lock",
+                "shift-mutation");
+
+        events.clear();
+        service.execute(
+                "CREATE_WORK_CALENDAR",
+                "ATTENDANCE_WORK_CALENDAR",
+                "company-1",
+                "idempotency-key-calendar",
+                new CalendarCommands.CalendarCommand(
+                        "company-1", LOCATION_ID, "CAL_2026", "2026日历",
+                        2026, "Asia/Shanghai", LocalDate.parse("2026-01-01"),
+                        LocalDate.parse("2027-01-01"), "test"),
+                null,
+                201,
+                value -> value,
+                String.class,
+                () -> {
+                    events.add("calendar-mutation");
+                    return "calendar";
+                });
+
+        assertThat(events).containsExactly(
+                "company-lock",
+                "location-lock",
+                "location-read",
+                "location-revision-lock",
+                "calendar-mutation");
     }
 
     private static final class ResourceLockCapturingIdempotencyService

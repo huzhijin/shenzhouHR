@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiRequestError } from '../../shared/api/apiClient';
 import type { CurrentCapabilities } from './sessionApi';
-import { useSession } from './useSession';
+import { SESSION_TOUCH_INTERVAL_MS, useSession } from './useSession';
 
 const sessionApi = vi.hoisted(() => ({
   getCurrentSession: vi.fn(),
@@ -21,6 +21,7 @@ const readySession: CurrentCapabilities = {
 describe('useSession', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it('keeps the loading state until the capability request resolves', async () => {
@@ -64,6 +65,25 @@ describe('useSession', () => {
         retryable: false,
       },
     });
+  });
+
+  it('touches the session while the tab stays open', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    sessionApi.getCurrentSession.mockResolvedValue(readySession);
+    const { result, unmount } = renderHook(() => useSession());
+    await waitFor(() => expect(result.current.state.status).toBe('ready'));
+    expect(sessionApi.getCurrentSession).toHaveBeenCalledTimes(1);
+
+    const tick = setIntervalSpy.mock.calls.find(
+      (call) => call[1] === SESSION_TOUCH_INTERVAL_MS,
+    )?.[0];
+    expect(tick).toEqual(expect.any(Function));
+    await act(async () => {
+      (tick as () => void)();
+    });
+    expect(sessionApi.getCurrentSession).toHaveBeenCalledTimes(2);
+    unmount();
+    setIntervalSpy.mockRestore();
   });
 
   it('marks an unexpected API failure as retryable and reloads cleanly', async () => {

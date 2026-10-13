@@ -1,0 +1,3 @@
+DEGRADED FALLBACK — phase `frontend` ran while the base was offline/empty.
+This artifact is the OFFLINE PLACEHOLDER TEMPLATE, not real base output.
+Re-run this phase (/redo) once the base is reachable to replace it.

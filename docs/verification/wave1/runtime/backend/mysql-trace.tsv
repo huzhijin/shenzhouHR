@@ -1,0 +1,14 @@
+application_database_user	database_name	session_time_zone
+shenzhou_hr_dev_app@localhost	shenzhou_hr_dev	+00:00
+username	status	first_password_change_required	role_code
+synthetic.local.admin	ACTIVE	0	SYSTEM_ADMIN
+template_code	version_number	status	scope_type	scope_resource_id
+WAVE1_ATTENDANCE_APPROVAL	1	PUBLISHED	COMPANY	30000000-0000-0000-0000-000000000001
+WAVE1_ATTENDANCE_APPROVAL	2	INACTIVE	COMPANY	30000000-0000-0000-0000-000000000001
+WAVE1_ATTENDANCE_APPROVAL	3	VALIDATED	COMPANY	30000000-0000-0000-0000-000000000001
+WAVE1_ATTENDANCE_APPROVAL	4	PUBLISHED	COMPANY	30000000-0000-0000-0000-000000000001
+WAVE1_ATTENDANCE_APPROVAL	5	DRAFT	COMPANY	30000000-0000-0000-0000-000000000001
+action_code	result_code	correlation_id	request_id
+LOGIN_SUCCEEDED	SUCCESS	wave1-bootstrap-final	wave1-bootstrap-final
+LOGIN_SUCCEEDED	SUCCESS	wave1-runtime-login	wave1-runtime-login
+POLICY_VALIDATED	SUCCESS	wave1-real-chain-correlation	wave1-real-chain-correlation

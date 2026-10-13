@@ -1,0 +1,110 @@
+[
+  {
+    "label": "mobile-import",
+    "route": "/people/import",
+    "screenshot": "screenshots/01-people-import-390x844.png",
+    "metrics": {
+      "documentWidth": 390,
+      "heading": "组织与员工期初导入",
+      "horizontalOverflow": false,
+      "mainPresent": true,
+      "path": "/people/import",
+      "touchTargetViolations": [],
+      "unlabeledControlCount": 0,
+      "viewport": {
+        "height": 844,
+        "width": 390
+      }
+    }
+  },
+  {
+    "label": "tablet-organization",
+    "route": "/people/organization",
+    "screenshot": "screenshots/02-people-organization-768x1024.png",
+    "metrics": {
+      "documentWidth": 768,
+      "heading": "组织架构",
+      "horizontalOverflow": false,
+      "mainPresent": true,
+      "path": "/people/organization",
+      "touchTargetViolations": [],
+      "unlabeledControlCount": 0,
+      "viewport": {
+        "height": 1024,
+        "width": 768
+      }
+    }
+  },
+  {
+    "label": "landscape-employees",
+    "route": "/people/employees",
+    "screenshot": "screenshots/03-people-employees-1024x768.png",
+    "metrics": {
+      "documentWidth": 1024,
+      "heading": "人员主数据",
+      "horizontalOverflow": false,
+      "mainPresent": true,
+      "path": "/people/employees",
+      "touchTargetViolations": [],
+      "unlabeledControlCount": 0,
+      "viewport": {
+        "height": 768,
+        "width": 1024
+      }
+    }
+  },
+  {
+    "label": "desktop-employee-detail",
+    "route": "/people/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8",
+    "screenshot": "screenshots/04-employee-detail-1366x768.png",
+    "metrics": {
+      "documentWidth": 1366,
+      "heading": "WAVE-2 本地版本员工",
+      "horizontalOverflow": false,
+      "mainPresent": true,
+      "path": "/people/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8",
+      "touchTargetViolations": [],
+      "unlabeledControlCount": 0,
+      "viewport": {
+        "height": 768,
+        "width": 1366
+      }
+    }
+  },
+  {
+    "label": "desktop-import",
+    "route": "/people/import",
+    "screenshot": "screenshots/05-people-import-1440x900.png",
+    "metrics": {
+      "documentWidth": 1440,
+      "heading": "组织与员工期初导入",
+      "horizontalOverflow": false,
+      "mainPresent": true,
+      "path": "/people/import",
+      "touchTargetViolations": [],
+      "unlabeledControlCount": 0,
+      "viewport": {
+        "height": 900,
+        "width": 1440
+      }
+    }
+  },
+  {
+    "label": "wide-employee-detail",
+    "route": "/people/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8",
+    "screenshot": "screenshots/06-employee-detail-1920x1080.png",
+    "metrics": {
+      "documentWidth": 1920,
+      "heading": "WAVE-2 本地版本员工",
+      "horizontalOverflow": false,
+      "mainPresent": true,
+      "path": "/people/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8",
+      "touchTargetViolations": [],
+      "unlabeledControlCount": 0,
+      "viewport": {
+        "height": 1080,
+        "width": 1920
+      }
+    }
+  }
+]

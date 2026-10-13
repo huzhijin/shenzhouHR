@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiRequestError, apiResponseMetadata, requestJson } from './apiClient';
+import {
+  ApiRequestError,
+  apiResponseMetadata,
+  requestJson,
+  triggerBrowserDownload,
+} from './apiClient';
 
 describe('API network failure handling', () => {
   afterEach(() => {
@@ -11,6 +16,25 @@ describe('API network failure handling', () => {
     const error = new ApiRequestError(0, { code: 'NETWORK_REQUEST_FAILED' });
 
     expect(error.retryable).toBe(true);
+  });
+
+  it('classifies an abort timeout as a retryable request timeout, not a network outage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new DOMException('The operation was aborted.', 'TimeoutError')),
+    );
+
+    const request = requestJson('/api/v1/attendance-dashboards');
+
+    await expect(request).rejects.toBeInstanceOf(ApiRequestError);
+    await expect(request).rejects.toMatchObject({
+      status: 408,
+      code: 'REQUEST_TIMEOUT',
+      retryable: true,
+    });
+    const caught = await request.catch((error: unknown) => error);
+    expect((caught as Error).message).toContain('加载超时');
+    expect((caught as Error).message).not.toContain('网络连接不可用');
   });
 
   it('wraps a fetch network failure in a retryable ApiRequestError', async () => {
@@ -42,6 +66,94 @@ describe('API network failure handling', () => {
       code: 'INVALID_RESPONSE_BODY',
       retryable: true,
     });
+  });
+
+  it('does not expose server error messages or technical validation details', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        code: 'VALIDATION_FAILED',
+        correlationId: 'request-422-safe',
+        retryable: false,
+        message: '数据库约束 employee_id 失败，rowVersion=12',
+        fieldErrors: [
+          {
+            field: 'effectiveFrom',
+            code: 'FUTURE_REQUIRED',
+            message: '生效日必须在未来',
+          },
+          {
+            field: 'employeeId',
+            code: 'REFERENCE_INVALID',
+            message: 'employee_id=9b4ecb3d-2a44-48d5-9538-15f14b232691',
+          },
+        ],
+      }), {
+        status: 422,
+        headers: { 'Content-Type': 'application/json' },
+      })),
+    );
+
+    const caught = await requestJson('/api/v1/policy-templates')
+      .catch((error: unknown) => error);
+
+    expect(caught).toBeInstanceOf(ApiRequestError);
+    expect(caught).toMatchObject({
+      status: 422,
+      code: 'VALIDATION_FAILED',
+      correlationId: 'request-422-safe',
+      retryable: false,
+      message: '填写内容未通过校验，请检查后重试。',
+      fieldErrors: [
+        {
+          field: 'effectiveFrom',
+          code: 'FUTURE_REQUIRED',
+          message: '生效日必须在未来',
+        },
+        {
+          field: 'employeeId',
+          code: 'REFERENCE_INVALID',
+          message: '请检查相关填写内容。',
+        },
+      ],
+    });
+    expect(JSON.stringify(caught)).not.toContain('9b4ecb3d');
+    expect((caught as Error).message).not.toContain('数据库约束');
+  });
+
+  it('keeps attendance-report operator messages for known codes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        code: 'ATTENDANCE_REPORT_PIN_NOT_READY',
+        correlationId: 'pin-not-ready-1',
+        retryable: true,
+        message: '该月核算尚未完成',
+      }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      })),
+    );
+
+    const caught = await requestJson('/api/v1/attendance-reports?period=2026-08')
+      .catch((error: unknown) => error);
+
+    expect(caught).toMatchObject({
+      status: 409,
+      code: 'ATTENDANCE_REPORT_PIN_NOT_READY',
+      message: '该月核算尚未完成',
+      retryable: true,
+    });
+  });
+
+  it('keeps explicitly authored client-side messages unchanged', () => {
+    const error = new ApiRequestError(400, {
+      code: 'INVALID_SELECTION',
+      message: '请选择有效的公司后重试。',
+      retryable: false,
+    });
+
+    expect(error.message).toBe('请选择有效的公司后重试。');
   });
 
   it('captures the CSRF response header in memory and sends it on a write request', async () => {
@@ -148,5 +260,33 @@ describe('API network failure handling', () => {
       retryable: false,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('starts a browser download and only revokes the blob URL after a delay', () => {
+    vi.useFakeTimers();
+    const createObjectUrl = vi.fn(() => 'blob:report-file');
+    const revokeObjectUrl = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectUrl,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectUrl,
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      triggerBrowserDownload(new Blob(['xlsx']), '2026-08_考勤.xlsx');
+      expect(createObjectUrl).toHaveBeenCalledOnce();
+      expect(click).toHaveBeenCalledOnce();
+      expect(revokeObjectUrl).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1499);
+      expect(revokeObjectUrl).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(revokeObjectUrl).toHaveBeenCalledWith('blob:report-file');
+    } finally {
+      click.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

@@ -50,7 +50,7 @@ public class AuditPersistenceAdapter implements AuditPersistence {
                 event.resourceType(),
                 event.resourceId(),
                 event.result(),
-                truncate(event.reason(), 64),
+                truncate(event.reason(), "PUNCH_LOCATION_READ".equals(event.action()) ? 1000 : 64),
                 resourceVersion,
                 event.beforeDigest(),
                 event.afterDigest(),

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper">
+
+    <select id="listDayPunches"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper$DayPunchRow">
+        SELECT raw.raw_attendance_fact_id AS rawFactId,
+               event.point_instant AS punchedAt,
+               raw.verification_method AS method
+        FROM effective_attendance_event event
+        JOIN evidence_link link
+          ON link.effective_attendance_event_id =
+             event.effective_attendance_event_id
+        JOIN raw_attendance_fact raw
+          ON raw.raw_attendance_fact_id = link.raw_attendance_fact_id
+        WHERE event.company_id = #{companyId}
+          AND event.employee_id = #{employeeId}
+          AND event.point_instant &gt;= #{windowStart}
+          AND event.point_instant &lt; #{windowEnd}
+          AND (
+                SELECT lifecycle.lifecycle_type
+                FROM effective_event_lifecycle_fact lifecycle
+                WHERE lifecycle.effective_attendance_event_id =
+                      event.effective_attendance_event_id
+                ORDER BY lifecycle.knowledge_at DESC,
+                         lifecycle.effective_event_lifecycle_fact_id DESC
+                LIMIT 1
+          ) = 'ACTIVATED'
+        ORDER BY event.point_instant, raw.raw_attendance_fact_id
+    </select>
+
+    <select id="findLocation"
+            resultType="com.szsemicon.hr.reporting.infrastructure.persistence.PunchLocationMapper$LocationRow">
+        SELECT raw.raw_attendance_fact_id AS rawFactId,
+               raw.company_id AS companyId,
+               COALESCE(event.employee_id, matched.employee_id) AS employeeId,
+               COALESCE(event.point_instant, raw.source_instant) AS punchedAt,
+               raw.verification_method AS method,
+               raw.location_summary AS locationSummary,
+               raw.source_coordinate_system AS sourceCoordinateSystem,
+               raw.coordinate_validation_status AS coordinateValidationStatus,
+               raw.coordinate_conversion_status AS coordinateConversionStatus,
+               raw.map_longitude AS mapLongitude,
+               raw.map_latitude AS mapLatitude,
+               raw.map_coordinate_system AS mapCoordinateSystem
+        FROM raw_attendance_fact raw
+        JOIN evidence_link link
+          ON link.raw_attendance_fact_id = raw.raw_attendance_fact_id
+        JOIN effective_attendance_event event
+          ON event.effective_attendance_event_id =
+             link.effective_attendance_event_id
+        LEFT JOIN employee_match_decision matched
+          ON matched.employee_match_decision_id =
+             link.employee_match_decision_id
+        WHERE raw.raw_attendance_fact_id = #{rawFactId}
+          AND (
+                SELECT lifecycle.lifecycle_type
+                FROM effective_event_lifecycle_fact lifecycle
+                WHERE lifecycle.effective_attendance_event_id = event.effective_attendance_event_id
+                ORDER BY lifecycle.knowledge_at DESC,
+                         lifecycle.effective_event_lifecycle_fact_id DESC
+                LIMIT 1
+          ) = 'ACTIVATED'
+        ORDER BY CASE link.link_type WHEN 'PRIMARY' THEN 0 ELSE 1 END,
+                 link.evidence_link_id
+        LIMIT 1
+    </select>
+</mapper>

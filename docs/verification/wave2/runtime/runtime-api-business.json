@@ -1,0 +1,162 @@
+{
+  "runId": "ms17xm8i0bb61873",
+  "generatedAt": "2026-07-26T03:08:27.475Z",
+  "services": {
+    "backend": "http://127.0.0.1:8080",
+    "frontend": "http://127.0.0.1:5173",
+    "demoFrontend": "http://127.0.0.1:5174",
+    "database": "shenzhou_hr_dev"
+  },
+  "probes": {
+    "openapiTemplateCount": 4
+  },
+  "imports": {
+    "organizationRollback": {
+      "batchId": "eb733f46-02ee-49b7-8781-8c430d6b01e3",
+      "publicationId": "6df55f7f-02dd-4c35-86f7-b46534bfe82d",
+      "rollbackId": "3a55f970-04f9-497b-8ca5-6426b7f4061e",
+      "restoredVersionCount": 1
+    },
+    "organizationLocalMaintenance": {
+      "batchId": "70de3659-4174-4720-ae6a-51ca3e496b32",
+      "publicationId": "ee62f8f3-150d-4d42-a7dd-4e8f9a534ed5",
+      "organizationId": "c2836f51-c64c-4cdb-82ac-f6ef4d82a870",
+      "importedSourceAuthority": "INITIAL_EXCEL",
+      "importedSourceBatchId": "70de3659-4174-4720-ae6a-51ca3e496b32",
+      "localSourceAuthority": "LOCAL",
+      "localSourceBatchId": null,
+      "versionTotal": 2,
+      "versionAuditEventCount": 2,
+      "fileSha256BeforeLocalEdit": "c56cc181c2d3ed11fd44eff8b850e27d0bb8468d6a91c074380d0955b1797f9f",
+      "fileSha256AfterLocalEdit": "c56cc181c2d3ed11fd44eff8b850e27d0bb8468d6a91c074380d0955b1797f9f",
+      "publicationSnapshotDigestBeforeLocalEdit": "d5ce7bae87ea0d5df71a398b55b5ca51f66b567c33f180287ef14b7531db9207",
+      "publicationSnapshotDigestAfterLocalEdit": "d5ce7bae87ea0d5df71a398b55b5ca51f66b567c33f180287ef14b7531db9207",
+      "fileSha256Preserved": true,
+      "publicationSnapshotDigestPreserved": true
+    },
+    "employeePublish": {
+      "batchId": "c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e",
+      "publicationId": "9edb0dcc-fff6-4d7a-a328-bbc589499277",
+      "employeeId": "8511deda-5e9f-4fb3-ba63-68e64cf92ad6",
+      "importedSourceAuthority": "INITIAL_EXCEL",
+      "importedSourceBatchId": "c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e",
+      "localSourceAuthority": "LOCAL",
+      "localSourceBatchId": null,
+      "fileSha256BeforeLocalEdit": "b24532f021466f9c6749373bd52825e5dcae55818aab9ee8a2aec7a0e01c59a8",
+      "fileSha256AfterLocalEdit": "b24532f021466f9c6749373bd52825e5dcae55818aab9ee8a2aec7a0e01c59a8",
+      "publicationSnapshotDigestBeforeLocalEdit": "f8ed57cd664ffac9d643375f0049708cd47a85014c81463af08f99183896ac17",
+      "publicationSnapshotDigestAfterLocalEdit": "f8ed57cd664ffac9d643375f0049708cd47a85014c81463af08f99183896ac17",
+      "fileSha256Preserved": true,
+      "publicationSnapshotDigestPreserved": true,
+      "initialPublishDeduplicated": false,
+      "repeatedIdempotencyDeduplicated": true,
+      "fileHashDeduplicated": true,
+      "duplicateOfPublicationId": "9edb0dcc-fff6-4d7a-a328-bbc589499277",
+      "rollbackConflictStatus": 409,
+      "rollbackConflictCode": "PEOPLE_IMPORT_ROLLBACK_NOT_LATEST",
+      "physicalDeleteStatus": 405
+    },
+    "draftVoid": {
+      "batchId": "47ead423-02ee-49a8-bbd8-808e69dd3e3c",
+      "status": "VOIDED"
+    },
+    "fiveCategory": {
+      "batchId": "fd2b36c4-00be-416a-8c8b-aa07ab3840e4",
+      "status": "VALIDATION_FAILED",
+      "summary": {
+        "added": 1,
+        "updated": 1,
+        "unchanged": 1,
+        "conflict": 1,
+        "error": 1,
+        "blockingIssueCount": 2
+      },
+      "categoryCounts": {
+        "ADDED": 1,
+        "UPDATED": 1,
+        "UNCHANGED": 1,
+        "CONFLICT": 1,
+        "ERROR": 1
+      },
+      "issueCount": 2,
+      "ambiguousCandidateCount": 2,
+      "errorReportBytes": 4007,
+      "blockedPublishStatus": 409,
+      "blockedPublishCode": "PEOPLE_IMPORT_PRECHECK_REQUIRED"
+    }
+  },
+  "localMaintenance": {
+    "rootOrganizationId": "7fa6b537-9e00-49bc-87b1-c8e5aa1dde92",
+    "childOrganizationId": "8727f045-1b97-4fcc-81f8-8cc774f98af6",
+    "childOrganizationVersions": 2,
+    "employeeId": "c6d261dc-6198-4f37-9e7b-e55e165775c8",
+    "employeeVersions": 2,
+    "duplicateDisplayNameEmployeeIds": [
+      "c6d261dc-6198-4f37-9e7b-e55e165775c8",
+      "a678d565-15c5-4fb9-b896-c174f97f9f7d",
+      "634acb69-33a2-4d88-a9f6-576e266b10a6",
+      "4dc78e69-54d5-478e-9381-cb0365f204b0"
+    ]
+  },
+  "employment": {
+    "firstPeriodId": "400b8ede-c07d-4a3b-8293-fe28efbbe6e0",
+    "rehirePeriodId": "0b665ba0-839b-41b5-9ba8-21681c039360",
+    "distinctPeriodIds": true,
+    "historyTotalWithoutAsOf": 2,
+    "firstEndExclusive": "2021-01-01",
+    "rehireEndExclusive": "2026-07-26",
+    "overlapStatus": 409,
+    "gapAssignments": 0,
+    "terminationDayAssignments": 1,
+    "dayAfterTerminationAssignments": 0
+  },
+  "priorService": {
+    "recordId": "0f0c70b3-9708-422d-9eee-b8ff63b212bd",
+    "amountDays": 365,
+    "reason": "WAVE-2 累计工龄真实调整",
+    "reasonPreserved": true,
+    "totalDays": 365,
+    "recordCount": 1,
+    "replayDigest": "67a0ca9b7402e42ca51dd8531af4ea44854ca8f6278bbf29bdb5134b5239db40",
+    "actorRecorded": true,
+    "occurredAtRecorded": true,
+    "requestIdRecorded": true
+  },
+  "security": {
+    "unauthenticatedStatus": 401,
+    "csrfStatus": 403,
+    "capabilityStatus": 403,
+    "resourceNotAvailableStatus": 404,
+    "crossScopeStatus": 404,
+    "restrictedRoleCode": "AUDITOR"
+  },
+  "audit": {
+    "employeeId": "c6d261dc-6198-4f37-9e7b-e55e165775c8",
+    "total": 7,
+    "actions": [
+      "EMPLOYEE_VERSION_CREATED",
+      "EMPLOYMENT_PERIOD_CREATED",
+      "PRIOR_SERVICE_ADJUSTED",
+      "PRIOR_SERVICE_RECALCULATED"
+    ],
+    "correlationIdsPresent": true
+  },
+  "formalCounts": {
+    "beforePrecheck": {
+      "organization_current_projection": 22,
+      "organization_version": 37,
+      "employee_current_projection": 32,
+      "employee_version": 43,
+      "employment_assignment": 14,
+      "prior_service_record": 7
+    },
+    "afterPrecheck": {
+      "organization_current_projection": 22,
+      "organization_version": 37,
+      "employee_current_projection": 32,
+      "employee_version": 43,
+      "employment_assignment": 14,
+      "prior_service_record": 7
+    }
+  }
+}

@@ -29,7 +29,9 @@ public class MeController {
     }
 
     private List<MenuItemResponse> buildMenu(Set<String> capabilities) {
-        return AuthenticationController.menu(capabilities.stream().sorted().toList())
+        // MeController.capabilities endpoint is only accessible after authentication
+        // and returns active capabilities, which implies firstPasswordChangeRequired=false
+        return AuthenticationController.menu(false, capabilities.stream().sorted().toList())
                 .stream()
                 .map(item -> new MenuItemResponse(item.key(), item.label(), item.path()))
                 .toList();

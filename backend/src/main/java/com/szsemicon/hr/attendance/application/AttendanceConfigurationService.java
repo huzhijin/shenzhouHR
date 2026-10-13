@@ -76,6 +76,10 @@ public class AttendanceConfigurationService {
                 employeeId, businessDate, clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
+        if (groupRepository.hasAssignmentCompanyMismatch(
+                employeeId, businessDate, knowledgeAsOf)) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
         List<Assignment> assignments =
                 groupRepository.resolveAssignments(employeeId, businessDate, knowledgeAsOf);
         if (assignments.size() > 1) {
@@ -107,11 +111,11 @@ public class AttendanceConfigurationService {
                     "业务日必须恰好解析一个不可变考勤组版本");
         }
         AttendanceGroup group = groupRevisions.getFirst();
-        if (!group.legalEntityId().equals(employee.legalEntityId())
-                || !peopleRepository.canAccessLegalEntity(
+        if (!group.companyId().equals(employee.companyId())
+                || !peopleRepository.canAccessCompany(
                         principal,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
-                        group.legalEntityId(),
+                        group.companyId(),
                         clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -144,8 +148,8 @@ public class AttendanceConfigurationService {
                 ? locationCandidates.getFirst() : null;
         if (location == null
                 || location.status() != LifecycleStatus.ACTIVE
-                || !group.legalEntityId().equals(location.legalEntityId())
-                || !group.legalEntityId().equals(effectiveCalendar.legalEntityId())
+                || !group.companyId().equals(location.companyId())
+                || !group.companyId().equals(effectiveCalendar.companyId())
                 || !effectiveCalendar.locationId().equals(location.locationId())
                 || !effectiveCalendar.timeZone().equals(location.timeZone())
                 || effectiveCalendar.status() != CalendarStatus.PUBLISHED) {
@@ -202,7 +206,7 @@ public class AttendanceConfigurationService {
         if (shift != null) {
             var template = shiftRepository.findTemplate(shift.shiftId())
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-            if (!template.legalEntityId().equals(group.legalEntityId())
+            if (!template.companyId().equals(group.companyId())
                     || !template.locationId().equals(location.locationId())
                     || !shift.timeZone().equals(location.timeZone())) {
                 throw new ResourceNotAvailableAccessDeniedException();
@@ -213,7 +217,7 @@ public class AttendanceConfigurationService {
                 businessDate, knowledgeAsOf);
         String configurationDigest = tokenService.digest(String.join(
                 "|",
-                group.legalEntityId(),
+                group.companyId(),
                 group.snapshotDigest(),
                 location.snapshotDigest(),
                 effectiveCalendar.snapshotDigest(),

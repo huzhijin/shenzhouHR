@@ -1,18 +1,21 @@
 package com.szsemicon.hr.attendance.interfaces.rest;
 
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.ConfigurationSnapshot;
+import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.MatchedMealWindow;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.PunchDirection;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.Impact;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.PolicyBinding;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.PolicyKind;
 import com.szsemicon.hr.attendance.domain.AttendancePolicyModels.SimulationResult;
 import com.szsemicon.hr.attendance.domain.AttendanceGroupModels.Page;
+import com.szsemicon.hr.attendance.domain.MealDeductionPolicyResolver;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -46,7 +49,7 @@ final class AttendancePolicyDtos {
             String bindingId,
             String bindingRevisionId,
             int revisionNumber,
-            String legalEntityId,
+            String companyId,
             String policyKind,
             String policyVersionId,
             String groupId,
@@ -93,10 +96,21 @@ final class AttendancePolicyDtos {
             String usageProvenance,
             java.time.Instant usageKnowledgeTime,
             Integer deductionMinutes,
+            List<MatchedMealWindowView> matchedMealWindows,
             LocalDate correctionDeadline,
             String affectedSegment,
             String explanation,
             boolean writesFormalResult) {
+    }
+
+    record MatchedMealWindowView(
+            String windowId,
+            MealDeductionPolicyResolver.MealType mealType,
+            MealDeductionPolicyResolver.Source source,
+            LocalTime windowStart,
+            LocalTime windowEnd,
+            int deductionMinutes,
+            int triggerMinutes) {
     }
 
     record SimulationBatchView(
@@ -131,7 +145,7 @@ final class AttendancePolicyDtos {
     static BindingView binding(PolicyBinding value) {
         return new BindingView(
                 value.bindingId(), value.bindingRevisionId(),
-                value.revisionNumber(), value.legalEntityId(),
+                value.revisionNumber(), value.companyId(),
                 value.policyKind().name(),
                 value.policyVersionId(), value.groupId(),
                 value.groupRevisionId(),
@@ -157,8 +171,23 @@ final class AttendancePolicyDtos {
                 value.consumesAllowance(), value.rawLateMinutes(),
                 value.predictedMonthlyConsumption(), value.usageProvenance(),
                 value.usageKnowledgeTime(), value.deductionMinutes(),
+                value.matchedMealWindows().stream()
+                        .map(AttendancePolicyDtos::matchedMealWindow)
+                        .toList(),
                 value.correctionDeadline(), value.affectedSegment(),
                 value.explanation(), value.writesFormalResult());
+    }
+
+    private static MatchedMealWindowView matchedMealWindow(
+            MatchedMealWindow value) {
+        return new MatchedMealWindowView(
+                value.windowId(),
+                value.mealType(),
+                value.source(),
+                value.windowStart(),
+                value.windowEnd(),
+                value.deductionMinutes(),
+                value.triggerMinutes());
     }
 
     static ImpactView impact(Impact value) {

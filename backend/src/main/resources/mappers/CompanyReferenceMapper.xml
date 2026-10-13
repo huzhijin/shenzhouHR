@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.referencedata.infrastructure.persistence.CompanyReferenceMapper">
+    <select id="findVisibleActive"
+            resultType="com.szsemicon.hr.referencedata.infrastructure.persistence.CompanyReferenceRow">
+        SELECT company.company_id,
+               company.code,
+               company.name
+        FROM company company
+        WHERE company.status = 'ACTIVE'
+          AND EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN auth_principal_role_assignment assignment
+              ON assignment.principal_id = principal.principal_id
+            JOIN auth_data_scope scope
+              ON scope.scope_id = assignment.data_scope_id
+            LEFT JOIN organization_identity scoped_organization
+              ON scoped_organization.organization_id = scope.organization_id
+            LEFT JOIN employee scoped_employee
+              ON scoped_employee.employee_id = principal.employee_id
+            WHERE principal.principal_id = #{principalId}
+              AND principal.status = 'ACTIVE'
+              AND assignment.valid_from &lt;= #{at}
+              AND (assignment.valid_to IS NULL OR assignment.valid_to &gt; #{at})
+              AND scope.valid_from &lt;= #{at}
+              AND (scope.valid_to IS NULL OR scope.valid_to &gt; #{at})
+              AND (
+                (scope.scope_type = 'COMPANY' AND scope.company_id = company.company_id)
+                OR (
+                  scope.scope_type = 'ORGANIZATION'
+                  AND scoped_organization.identity_status = 'ACTIVE'
+                  AND scoped_organization.company_id = company.company_id
+                )
+                OR (
+                  scope.scope_type = 'SELF'
+                  AND scoped_employee.company_id = company.company_id
+                )
+              )
+          )
+        ORDER BY company.code, company.name, company.company_id
+    </select>
+</mapper>

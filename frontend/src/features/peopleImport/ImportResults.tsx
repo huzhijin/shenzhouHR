@@ -13,6 +13,11 @@ import {
   listPeopleImportDiff,
   listPeopleImportErrors,
 } from './peopleImportApi';
+import {
+  formatPeopleImportValues,
+  peopleImportFieldLabel,
+  peopleImportIssueDescription,
+} from './importDisplay';
 import type {
   PeopleImportDiffCategory,
   PeopleImportDiffPage,
@@ -123,9 +128,9 @@ export function ImportResults({ batchId, canDownloadReport }: {
               { key: 'row', title: t('peopleImport.rowNumber'), render: (row) => row.rowNumber },
               { key: 'entity', title: t('peopleImport.entityType'), render: (row) => t(`peopleImport.type.${row.entityType}`) },
               { key: 'category', title: t('peopleImport.diffCategory'), render: (row) => t(`peopleImport.category.${row.category}`) },
-              { key: 'source', title: t('peopleImport.sourceValues'), render: (row) => <code>{compactValues(row.sourceValues)}</code> },
-              { key: 'current', title: t('peopleImport.currentValues'), render: (row) => <code>{compactValues(row.currentValues)}</code> },
-              { key: 'proposed', title: t('peopleImport.proposedValues'), render: (row) => <code>{compactValues(row.proposedValues)}</code> },
+              { key: 'source', title: t('peopleImport.sourceValues'), render: (row) => formatPeopleImportValues(row.sourceValues) },
+              { key: 'current', title: t('peopleImport.currentValues'), render: (row) => formatPeopleImportValues(row.currentValues) },
+              { key: 'proposed', title: t('peopleImport.proposedValues'), render: (row) => formatPeopleImportValues(row.proposedValues) },
             ]}
           />
           <Pagination
@@ -146,10 +151,13 @@ export function ImportResults({ batchId, canDownloadReport }: {
             rowKey={(row) => row.issueId}
             columns={[
               { key: 'row', title: t('peopleImport.rowNumber'), render: (row) => row.rowNumber },
-              { key: 'field', title: t('peopleImport.field'), render: (row) => row.field ?? t('common.none') },
+              { key: 'field', title: t('peopleImport.field'), render: (row) => peopleImportFieldLabel(row.field) },
               { key: 'severity', title: t('peopleImport.severity'), render: (row) => t(`peopleImport.severity.${row.severity}`) },
-              { key: 'code', title: t('peopleImport.errorCode'), render: (row) => <code>{row.code}</code> },
-              { key: 'message', title: t('peopleImport.errorMessage'), render: (row) => row.message },
+              {
+                key: 'message',
+                title: t('peopleImport.errorMessage'),
+                render: (row) => peopleImportIssueDescription(row.code, row.message, row.field),
+              },
             ]}
           />
           <Pagination
@@ -164,12 +172,4 @@ export function ImportResults({ batchId, canDownloadReport }: {
       ) : null}
     </div>
   );
-}
-
-function compactValues(values?: Record<string, unknown>): string {
-  if (!values || Object.keys(values).length === 0) return '—';
-  return Array.from(
-    Object.entries(values),
-    ([key, value]) => `${key}=${String(value)}`,
-  ).join('; ');
 }

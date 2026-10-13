@@ -1,0 +1,11 @@
+probe	method	path	status	correlation_id
+health	GET	/actuator/health	200	9f2dad5f-f4db-4b23-8ec2-d4fe0afd0620
+unauthenticated	GET	/api/v1/me/capabilities	401	215359ab-b806-4c1c-becd-ad78edb14435
+login	POST	/api/v1/auth/login	200	9efd191a-53e8-41aa-bdab-74f1ea43ebbf
+session	GET	/api/v1/auth/session	200	54d63850-d38a-482c-a72a-b6c48c4e8e4b
+capabilities	GET	/api/v1/me/capabilities	200	bab7ec39-a0cf-4fe9-b24e-807603e42fd0
+templates	GET	/api/v1/people-imports/templates?page=0&size=20	200	d6e1a298-153b-4a35-af76-30ee79998a85
+template-download	GET	/api/v1/people-imports/templates/ORGANIZATION/versions/1.0.0	200	86fca664-633e-46c1-968f-a90c785561d5
+batches	GET	/api/v1/people-imports?page=0&size=20&sort=updatedAt	200	5d6b1237-4b91-40c7-b1e1-79538550f593
+organization	GET	/api/v1/organization-units?page=0&size=20	200	61fd34e3-4284-450b-9f37-c8aafc969c07
+employees	GET	/api/v1/employees?page=0&size=20	200	25fb8e67-d016-453d-85f1-6a93a5c93146

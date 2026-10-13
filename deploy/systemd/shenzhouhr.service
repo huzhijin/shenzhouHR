@@ -1,7 +1,9 @@
 [Unit]
 Description=Shenzhou HR Attendance and Payroll System
-After=network-online.target mysql.service
+After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=120s
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -9,24 +11,46 @@ User=shenzhouhr
 Group=shenzhouhr
 WorkingDirectory=/opt/shenzhouhr/app
 EnvironmentFile=/etc/shenzhouhr/shenzhouhr.env
+ExecStartPre=/usr/bin/test -r /opt/shenzhouhr/app/shenzhou-hr.jar
 ExecStart=/usr/bin/java -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -jar /opt/shenzhouhr/app/shenzhou-hr.jar
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=45s
+TimeoutStartSec=90s
 SuccessExitStatus=143
+RestartPreventExitStatus=78
+OOMPolicy=stop
 UMask=0077
+StateDirectory=shenzhouhr
+StateDirectoryMode=0700
+RuntimeDirectory=shenzhouhr
+RuntimeDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
 RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
-ReadWritePaths=/var/lib/shenzhouhr
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+LimitNOFILE=65536
+TasksMax=512
 
 [Install]
 WantedBy=multi-user.target
-

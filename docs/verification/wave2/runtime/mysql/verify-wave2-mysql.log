@@ -1,0 +1,10 @@
+[shenzhouhr-mysql] SHENZHOUHR_MYSQL_HOST_STATUS=available
+[shenzhouhr-mysql] SHENZHOUHR_MYSQL_PORT_STATUS=available
+[shenzhouhr-mysql] SHENZHOUHR_MYSQL_CLIENT_BIN_STATUS=available
+[shenzhouhr-mysql] SHENZHOUHR_FLYWAY_BIN_STATUS=available
+[shenzhouhr-mysql] SHENZHOUHR_TEST_FINAL_STATE_STATUS=available
+[shenzhouhr-mysql] SHENZHOUHR_MYSQL_ROOT_PASSWORD_STATUS=missing
+[shenzhouhr-mysql] SHENZHOUHR_FLYWAY_PASSWORD_STATUS=available
+[shenzhouhr-mysql] SHENZHOUHR_DEV_DB_PASSWORD_STATUS=available
+[shenzhouhr-mysql] SHENZHOUHR_TEST_DB_PASSWORD_STATUS=available
+[shenzhouhr-mysql] WAVE2_MYSQL_EVIDENCE=PASS path=/Users/huzhijin/Downloads/shenzhouHR/docs/verification/wave2/runtime/mysql

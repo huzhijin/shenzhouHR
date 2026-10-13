@@ -60,7 +60,7 @@ public class PeopleManagementController {
             @RequestHeader("Idempotency-Key") String idempotencyKey) {
         OrganizationVersion version = service.createOrganization(
                 new CreateOrganization(
-                        request.legalEntityId(), request.parentOrganizationId(),
+                        request.companyId(), request.parentOrganizationId(),
                         request.code(), request.name(), request.organizationType(),
                         request.effectiveFrom(), request.reason()),
                 IfMatchVersion.parse(ifMatch),
@@ -119,9 +119,11 @@ public class PeopleManagementController {
             @RequestHeader("Idempotency-Key") String idempotencyKey) {
         var detail = service.createEmployee(
                 new CreateEmployee(
-                        request.legalEntityId(), request.employeeNumber(),
+                        request.companyId(), request.employeeNumber(),
                         request.displayName(), request.externalEmployeeId(),
-                        request.effectiveFrom(), request.reason()),
+                        request.organizationId(),
+                        request.effectiveFrom(), request.reason(),
+                        request.attendanceGroupId()),
                 IfMatchVersion.parse(ifMatch),
                 idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -245,13 +247,13 @@ public class PeopleManagementController {
         var result = service.adjustPriorService(
                 employeeId,
                 new AdjustPriorService(
-                        request.amountDays(), request.businessDate(), request.reason()),
+                        request.amountDays(), request.businessDate(), request.reason(), request.amountYears()),
                 IfMatchVersion.parse(ifMatch),
                 idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .cacheControl(CacheControl.noStore())
                 .eTag(IfMatchVersion.etag(result.aggregateVersion()))
-                .body(PeopleManagementDtos.priorService(result.record()));
+                .body(PeopleManagementDtos.priorService(result.record(), null));
     }
 
     @PostMapping("/employees/{employeeId}/prior-service/recalculate")

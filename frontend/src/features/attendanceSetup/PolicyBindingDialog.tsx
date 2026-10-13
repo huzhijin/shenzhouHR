@@ -1,7 +1,10 @@
 import { Form, Input, Modal, Select } from 'antd';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { listReferenceAttendanceGroups } from '../referenceData/referenceDataApi';
 import type {
+  AttendanceGroupView,
   AttendancePolicyKind,
   PolicyBindingPreviewInput,
   PolicyTemplateDefinition,
@@ -11,6 +14,7 @@ export function PolicyBindingDialog({
   open,
   processing,
   catalog,
+  companyId,
   policyKind,
   policyVersionId,
   initialValues,
@@ -20,6 +24,7 @@ export function PolicyBindingDialog({
   open: boolean;
   processing: boolean;
   catalog: PolicyTemplateDefinition[];
+  companyId: string;
   policyKind: AttendancePolicyKind;
   policyVersionId: string;
   initialValues?: Partial<PolicyBindingPreviewInput>;
@@ -28,6 +33,33 @@ export function PolicyBindingDialog({
 }) {
   const { t } = useTranslation();
   const [form] = Form.useForm<PolicyBindingPreviewInput>();
+  const [groups, setGroups] = useState<AttendanceGroupView[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [groupsUnavailable, setGroupsUnavailable] = useState(false);
+  useEffect(() => {
+    let active = true;
+    if (!open) return () => {
+      active = false;
+    };
+    setGroupsLoading(true);
+    setGroupsUnavailable(false);
+    void listReferenceAttendanceGroups(undefined, companyId)
+      .then((items) => {
+        if (active) setGroups(items);
+      })
+      .catch(() => {
+        if (active) {
+          setGroups([]);
+          setGroupsUnavailable(true);
+        }
+      })
+      .finally(() => {
+        if (active) setGroupsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [companyId, open]);
   return (
     <Modal
       open={open}
@@ -57,22 +89,32 @@ export function PolicyBindingDialog({
             label: template.name,
           }))} />
         </Form.Item>
-        <Form.Item
-          label={t('attendanceSetup.policyVersionId')}
-          name="policyVersionId"
-          rules={[required()]}
-        >
-          <Input autoComplete="off" />
+        {/* The API needs immutable identifiers, but operators choose by business name. */}
+        <Form.Item name="policyVersionId" hidden rules={[required()]}>
+          <Input />
         </Form.Item>
-        <Form.Item label={t('attendanceSetup.groupId')} name="groupId" rules={[required()]}>
-          <Input autoComplete="off" />
+        <Form.Item label="考勤组" name="groupId" rules={[required()]}>
+          <Select
+            showSearch
+            optionFilterProp="label"
+            placeholder="请选择考勤组"
+            loading={groupsLoading}
+            notFoundContent={groupsUnavailable ? '考勤组目录暂不可用，请稍后重试' : undefined}
+            options={groups.map((group) => ({
+              value: group.groupId,
+              label: `${group.name}（${group.code}）· 修订 ${group.revisionNumber}`,
+            }))}
+            onChange={(groupId: string) => {
+              form.setFieldsValue({
+                groupId,
+                groupRevisionId: groups.find((group) => group.groupId === groupId)
+                  ?.groupRevisionId,
+              });
+            }}
+          />
         </Form.Item>
-        <Form.Item
-          label={t('attendanceSetup.groupRevisionId')}
-          name="groupRevisionId"
-          rules={[required()]}
-        >
-          <Input autoComplete="off" />
+        <Form.Item name="groupRevisionId" hidden rules={[required()]}>
+          <Input />
         </Form.Item>
         <div className="form-grid">
           <Form.Item label={t('attendanceSetup.effectiveFrom')} name="effectiveFrom" rules={[required()]}>

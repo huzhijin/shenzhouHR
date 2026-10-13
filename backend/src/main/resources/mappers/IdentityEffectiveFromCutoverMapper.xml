@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.people.application.IdentityEffectiveFromCutoverMapper">
+
+    <sql id="earliestEmployee">
+        SELECT employee_id AS owner_id,
+               employee_version_id AS object_id,
+               DATE(effective_from) AS current_from
+        FROM employee_version current_row
+        WHERE current_row.status = 'ACTIVE'
+          AND current_row.effective_from = (
+                SELECT MIN(other.effective_from)
+                FROM employee_version other
+                WHERE other.employee_id = current_row.employee_id
+                  AND other.status = 'ACTIVE')
+    </sql>
+
+    <sql id="earliestAssignment">
+        SELECT employee_id AS owner_id,
+               assignment_id AS object_id,
+               DATE(effective_from) AS current_from
+        FROM employment_assignment current_row
+        WHERE current_row.version_valid_to IS NULL
+          AND current_row.record_status = 'ACTIVE'
+          AND current_row.effective_from = (
+                SELECT MIN(other.effective_from)
+                FROM employment_assignment other
+                WHERE other.employee_id = current_row.employee_id
+                  AND other.version_valid_to IS NULL
+                  AND other.record_status = 'ACTIVE')
+    </sql>
+
+    <sql id="earliestOrganization">
+        SELECT organization_id AS owner_id,
+               organization_version_id AS object_id,
+               DATE(effective_from) AS current_from
+        FROM organization_version current_row
+        WHERE current_row.effective_from = (
+                SELECT MIN(other.effective_from)
+                FROM organization_version other
+                WHERE other.organization_id = current_row.organization_id)
+    </sql>
+
+    <sql id="earliestGroupAssignment">
+        SELECT employee_id AS owner_id,
+               attendance_group_assignment_id AS object_id,
+               effective_from AS current_from
+        FROM attendance_group_assignment current_row
+        WHERE current_row.effective_from = (
+                SELECT MIN(other.effective_from)
+                FROM attendance_group_assignment other
+                WHERE other.employee_id = current_row.employee_id)
+    </sql>
+
+    <sql id="earliestGroupRevision">
+        SELECT attendance_group_id AS owner_id,
+               attendance_group_revision_id AS object_id,
+               effective_from AS current_from
+        FROM attendance_group_revision current_row
+        WHERE current_row.effective_from = (
+                SELECT MIN(other.effective_from)
+                FROM attendance_group_revision other
+                WHERE other.attendance_group_id = current_row.attendance_group_id)
+    </sql>
+
+    <select id="listMovable"
+            resultType="com.szsemicon.hr.people.application.IdentityEffectiveFromCutoverModels$Candidate">
+        SELECT 'EMPLOYEE_VERSION' AS object_type, object_id, owner_id, current_from
+        FROM (<include refid="earliestEmployee"/>) candidate
+        WHERE current_from &gt; #{cutoff}
+        UNION ALL
+        SELECT 'EMPLOYMENT_ASSIGNMENT', object_id, owner_id, current_from
+        FROM (<include refid="earliestAssignment"/>) candidate
+        WHERE current_from &gt; #{cutoff}
+        UNION ALL
+        SELECT 'ORGANIZATION_VERSION', object_id, owner_id, current_from
+        FROM (<include refid="earliestOrganization"/>) candidate
+        WHERE current_from &gt; #{cutoff}
+        UNION ALL
+        SELECT 'ATTENDANCE_GROUP_ASSIGNMENT', object_id, owner_id, current_from
+        FROM (<include refid="earliestGroupAssignment"/>) candidate
+        WHERE current_from &gt; #{cutoff}
+        UNION ALL
+        SELECT 'ATTENDANCE_GROUP_REVISION', object_id, owner_id, current_from
+        FROM (<include refid="earliestGroupRevision"/>) candidate
+        WHERE current_from &gt; #{cutoff}
+        UNION ALL
+        SELECT 'WORK_CALENDAR_VERSION',
+               work_calendar_version_id,
+               work_calendar_id,
+               effective_from
+        FROM work_calendar_version
+        WHERE calendar_year = YEAR(#{cutoff})
+          AND effective_from &gt; #{cutoff}
+        UNION ALL
+        SELECT 'ATTENDANCE_POLICY_BINDING',
+               binding_revision_id,
+               binding_family_id,
+               effective_from
+        FROM attendance_policy_binding_revision
+        WHERE effective_from &gt; #{cutoff}
+          AND binding_revision_id = (
+                SELECT earliest.binding_revision_id
+                FROM attendance_policy_binding_revision earliest
+                WHERE earliest.binding_family_id =
+                      attendance_policy_binding_revision.binding_family_id
+                ORDER BY earliest.effective_from, earliest.binding_revision_id
+                LIMIT 1)
+    </select>
+
+    <select id="listAlreadyApplied"
+            resultType="com.szsemicon.hr.people.application.IdentityEffectiveFromCutoverModels$Candidate">
+        SELECT 'EMPLOYEE_VERSION' AS object_type, object_id, owner_id, current_from
+        FROM (<include refid="earliestEmployee"/>) candidate
+        WHERE current_from &lt;= #{cutoff}
+        UNION ALL
+        SELECT 'EMPLOYMENT_ASSIGNMENT', object_id, owner_id, current_from
+        FROM (<include refid="earliestAssignment"/>) candidate
+        WHERE current_from &lt;= #{cutoff}
+        UNION ALL
+        SELECT 'ORGANIZATION_VERSION', object_id, owner_id, current_from
+        FROM (<include refid="earliestOrganization"/>) candidate
+        WHERE current_from &lt;= #{cutoff}
+        UNION ALL
+        SELECT 'ATTENDANCE_GROUP_ASSIGNMENT', object_id, owner_id, current_from
+        FROM (<include refid="earliestGroupAssignment"/>) candidate
+        WHERE current_from &lt;= #{cutoff}
+        UNION ALL
+        SELECT 'ATTENDANCE_GROUP_REVISION', object_id, owner_id, current_from
+        FROM (<include refid="earliestGroupRevision"/>) candidate
+        WHERE current_from &lt;= #{cutoff}
+    </select>
+
+    <select id="listBlocked"
+            resultType="com.szsemicon.hr.people.application.IdentityEffectiveFromCutoverModels$Blocked">
+        SELECT 'ATTENDANCE_GROUP_REVISION' AS object_type,
+               later.attendance_group_revision_id AS object_id,
+               later.attendance_group_id AS owner_id,
+               'EFFECTIVE_FROM_COLLISION' AS reason
+        FROM attendance_group_revision later
+        JOIN attendance_group_revision earliest
+          ON earliest.attendance_group_id = later.attendance_group_id
+         AND earliest.effective_from = (
+                SELECT MIN(other.effective_from)
+                FROM attendance_group_revision other
+                WHERE other.attendance_group_id = later.attendance_group_id)
+         AND earliest.effective_from &gt; #{cutoff}
+         AND later.effective_from = #{cutoff}
+        UNION ALL
+        SELECT 'WORK_CALENDAR_DAY',
+               version.work_calendar_version_id,
+               version.work_calendar_id,
+               'CALENDAR_DAYS_MISSING_BEFORE_CUTOFF'
+        FROM work_calendar_version version
+        WHERE version.calendar_year = YEAR(#{cutoff})
+          AND NOT EXISTS (
+                SELECT 1
+                FROM work_calendar_day day
+                WHERE day.work_calendar_version_id = version.work_calendar_version_id
+                  AND day.business_date = #{cutoff})
+    </select>
+
+    <update id="moveEmployeeVersions">
+        UPDATE employee_version current_row
+        SET current_row.effective_from = #{cutoff},
+            current_row.row_version = current_row.row_version + 1,
+            current_row.change_reason = 'IDENTITY_EFFECTIVE_FROM_CUTOVER'
+        WHERE current_row.status = 'ACTIVE'
+          AND current_row.effective_from &gt; #{cutoff}
+          AND current_row.effective_from = (
+                SELECT earliest
+                FROM (
+                    SELECT MIN(other.effective_from) AS earliest
+                    FROM employee_version other
+                    WHERE other.employee_id = current_row.employee_id
+                      AND other.status = 'ACTIVE'
+                ) nested)
+    </update>
+
+    <update id="moveAssignments">
+        UPDATE employment_assignment current_row
+        SET current_row.effective_from = TIMESTAMP(#{cutoff})
+        WHERE current_row.version_valid_to IS NULL
+          AND current_row.record_status = 'ACTIVE'
+          AND DATE(current_row.effective_from) &gt; #{cutoff}
+          AND current_row.effective_from = (
+                SELECT earliest
+                FROM (
+                    SELECT MIN(other.effective_from) AS earliest
+                    FROM employment_assignment other
+                    WHERE other.employee_id = current_row.employee_id
+                      AND other.version_valid_to IS NULL
+                      AND other.record_status = 'ACTIVE'
+                ) nested)
+    </update>
+
+    <update id="moveOrganizationVersions">
+        UPDATE organization_version current_row
+        SET current_row.effective_from = TIMESTAMP(#{cutoff}),
+            current_row.row_version = current_row.row_version + 1
+        WHERE DATE(current_row.effective_from) &gt; #{cutoff}
+          AND current_row.effective_from = (
+                SELECT earliest
+                FROM (
+                    SELECT MIN(other.effective_from) AS earliest
+                    FROM organization_version other
+                    WHERE other.organization_id = current_row.organization_id
+                ) nested)
+    </update>
+
+    <update id="moveGroupAssignments">
+        UPDATE attendance_group_assignment current_row
+        SET current_row.effective_from = #{cutoff}
+        WHERE current_row.effective_from &gt; #{cutoff}
+          AND current_row.effective_from = (
+                SELECT earliest
+                FROM (
+                    SELECT MIN(other.effective_from) AS earliest
+                    FROM attendance_group_assignment other
+                    WHERE other.employee_id = current_row.employee_id
+                ) nested)
+    </update>
+
+    <update id="moveGroupRevisions">
+        UPDATE attendance_group_revision current_row
+        SET current_row.effective_from = #{cutoff}
+        WHERE current_row.effective_from &gt; #{cutoff}
+          AND current_row.effective_from = (
+                SELECT earliest
+                FROM (
+                    SELECT MIN(other.effective_from) AS earliest
+                    FROM attendance_group_revision other
+                    WHERE other.attendance_group_id = current_row.attendance_group_id
+                ) nested)
+          AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_group_revision collision
+                WHERE collision.attendance_group_id = current_row.attendance_group_id
+                  AND collision.effective_from = #{cutoff})
+    </update>
+
+    <update id="moveCalendarVersions">
+        UPDATE work_calendar_version
+        SET effective_from = #{cutoff}
+        WHERE calendar_year = YEAR(#{cutoff})
+          AND effective_from &gt; #{cutoff}
+    </update>
+
+    <update id="movePolicyBindings">
+        UPDATE attendance_policy_binding_revision current_row
+        SET current_row.effective_from = #{cutoff}
+        WHERE current_row.effective_from &gt; #{cutoff}
+          AND current_row.effective_from = (
+                SELECT earliest
+                FROM (
+                    SELECT MIN(other.effective_from) AS earliest
+                    FROM attendance_policy_binding_revision other
+                    WHERE other.binding_family_id = current_row.binding_family_id
+                ) nested)
+          AND NOT EXISTS (
+                SELECT 1
+                FROM attendance_policy_binding_revision collision
+                WHERE collision.binding_family_id = current_row.binding_family_id
+                  AND collision.effective_from = #{cutoff})
+    </update>
+
+    <insert id="insertRun">
+        INSERT INTO identity_effective_from_cutover_run (
+            run_id, request_id, actor_id, change_reason, cutoff_date,
+            status, updated_count, refused_count, created_at
+        ) VALUES (
+            #{runId}, #{requestId}, #{actorId}, #{reason}, #{cutoff},
+            #{status}, #{updatedCount}, #{refusedCount}, #{createdAt}
+        )
+    </insert>
+
+    <insert id="insertItem">
+        INSERT INTO identity_effective_from_cutover_item (
+            item_id, run_id, object_type, object_id, owner_id,
+            old_effective_from, new_effective_from
+        ) VALUES (
+            #{itemId}, #{runId}, #{objectType}, #{objectId}, #{ownerId},
+            #{oldFrom}, #{newFrom}
+        )
+    </insert>
+
+    <select id="findRunStatusByRequest" resultType="string">
+        SELECT status
+        FROM identity_effective_from_cutover_run
+        WHERE actor_id = #{actorId}
+          AND request_id = #{requestId}
+        ORDER BY created_at DESC
+        LIMIT 1
+    </select>
+</mapper>

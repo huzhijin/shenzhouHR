@@ -1,4 +1,4 @@
-import { CorrelationIdDisplay, OperationFeedback } from '../../shared/components/FeedbackComponents';
+import { OperationFeedback } from '../../shared/components/FeedbackComponents';
 import type { AttendanceSetupNotice as Notice } from './attendanceSetupFeedback';
 
 export function AttendanceSetupNotice({ notice }: { notice?: Notice }) {
@@ -10,7 +10,7 @@ export function AttendanceSetupNotice({ notice }: { notice?: Notice }) {
       aria-live={notice.kind === 'error' ? 'assertive' : 'polite'}
     >
       <OperationFeedback kind={notice.kind} message={notice.message} />
-      <CorrelationIdDisplay correlationId={notice.correlationId} />
+      {/* notice.correlationId is diagnostic metadata and is intentionally omitted from business UI. */}
     </div>
   );
 }

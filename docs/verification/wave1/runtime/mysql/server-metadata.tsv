@@ -1,0 +1,13 @@
+metric	value
+server_version	8.0.34
+server_hostname	huzhijindeMacBook-Pro.local
+server_port	3306
+current_database	<none>
+character_set_server	utf8mb4
+collation_server	utf8mb4_0900_ai_ci
+sql_mode	ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+session_time_zone	+00:00
+system_time_zone	CST
+default_storage_engine	InnoDB
+metric	value
+utf8mb4_0900_ai_ci_available	YES

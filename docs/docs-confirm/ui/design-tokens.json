@@ -1,0 +1,146 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "meta": {
+    "name": "Shenzhou HR Product Tokens",
+    "register": "product",
+    "iconLibrary": "Tabler Icons",
+    "iconStrokeWidth": 2,
+    "contrastStandard": "WCAG 2.2 AA"
+  },
+  "color": {
+    "brand": {
+      "primary": { "$value": "#25449A", "$type": "color" },
+      "on-primary": { "$value": "#FFFFFF", "$type": "color", "$extensions": { "contrast": "8.85:1" } },
+      "deep": { "$value": "#00265F", "$type": "color" },
+      "on-deep": { "$value": "#FFFFFF", "$type": "color", "$extensions": { "contrast": "14.56:1" } },
+      "support": { "$value": "#003C95", "$type": "color" },
+      "on-support": { "$value": "#FFFFFF", "$type": "color" },
+      "danger": { "$value": "#E60012", "$type": "color" },
+      "on-danger": { "$value": "#FFFFFF", "$type": "color", "$extensions": { "contrast": "4.80:1" } }
+    },
+    "surface": {
+      "canvas": { "$value": "#F6F9FD", "$type": "color" },
+      "on-canvas": { "$value": "#111827", "$type": "color", "$extensions": { "contrast": "16.80:1" } },
+      "default": { "$value": "#FFFFFF", "$type": "color" },
+      "on-default": { "$value": "#1F2937", "$type": "color", "$extensions": { "contrast": "14.68:1" } },
+      "subtle": { "$value": "#EEF2F7", "$type": "color" },
+      "on-subtle": { "$value": "#334155", "$type": "color", "$extensions": { "contrast": "9.21:1" } },
+      "inverse": { "$value": "#1F2937", "$type": "color" },
+      "on-inverse": { "$value": "#FFFFFF", "$type": "color", "$extensions": { "contrast": "14.68:1" } }
+    },
+    "status": {
+      "info-soft": { "$value": "#EAF0FB", "$type": "color" },
+      "on-info-soft": { "$value": "#16346F", "$type": "color", "$extensions": { "contrast": "10.46:1" } },
+      "success-soft": { "$value": "#E8F5EE", "$type": "color" },
+      "on-success-soft": { "$value": "#14532D", "$type": "color", "$extensions": { "contrast": "8.12:1" } },
+      "warning-soft": { "$value": "#FFF4E5", "$type": "color" },
+      "on-warning-soft": { "$value": "#713F12", "$type": "color", "$extensions": { "contrast": "7.98:1" } },
+      "danger-soft": { "$value": "#FDEBEC", "$type": "color" },
+      "on-danger-soft": { "$value": "#8A0010", "$type": "color", "$extensions": { "contrast": "8.75:1" } }
+    },
+    "border": {
+      "default": { "$value": "#CBD5E1", "$type": "color" },
+      "strong": { "$value": "#64748B", "$type": "color" },
+      "focus": { "$value": "#003C95", "$type": "color" },
+      "on-focus": { "$value": "#FFFFFF", "$type": "color", "$extensions": { "contrast": "10.09:1" } }
+    },
+    "text": {
+      "primary": { "$value": "#1F2937", "$type": "color" },
+      "on-primary": { "$value": "#FFFFFF", "$type": "color", "$extensions": { "contrast": "14.68:1" } },
+      "secondary": { "$value": "#475569", "$type": "color" },
+      "on-secondary": { "$value": "#FFFFFF", "$type": "color", "$extensions": { "contrast": "7.58:1" } },
+      "muted": { "$value": "#64748B", "$type": "color" },
+      "on-muted": { "$value": "#FFFFFF", "$type": "color", "$extensions": { "contrast": "4.76:1" } },
+      "disabled": { "$value": "#94A3B8", "$type": "color" },
+      "on-disabled": { "$value": "#111827", "$type": "color", "$extensions": { "contrast": "6.92:1" } }
+    }
+  },
+  "font": {
+    "family": { "ui": { "$value": "Inter, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif", "$type": "fontFamily" } },
+    "size": {
+      "xs": { "$value": "0.75rem", "$type": "dimension" },
+      "sm": { "$value": "0.875rem", "$type": "dimension" },
+      "base": { "$value": "1rem", "$type": "dimension" },
+      "md": { "$value": "1rem", "$type": "dimension" },
+      "lg": { "$value": "1.125rem", "$type": "dimension" },
+      "xl": { "$value": "1.3125rem", "$type": "dimension" },
+      "2xl": { "$value": "1.5rem", "$type": "dimension" },
+      "3xl": { "$value": "1.75rem", "$type": "dimension" }
+    },
+    "weight": {
+      "regular": { "$value": 400, "$type": "fontWeight" },
+      "medium": { "$value": 500, "$type": "fontWeight" },
+      "semibold": { "$value": 600, "$type": "fontWeight" }
+    },
+    "lineHeight": {
+      "tight": { "$value": 1.25, "$type": "number" },
+      "normal": { "$value": 1.5, "$type": "number" }
+    }
+  },
+  "space": {
+    "0": { "$value": "0", "$type": "dimension" },
+    "1": { "$value": "0.25rem", "$type": "dimension" },
+    "2": { "$value": "0.5rem", "$type": "dimension" },
+    "3": { "$value": "0.75rem", "$type": "dimension" },
+    "4": { "$value": "1rem", "$type": "dimension" },
+    "6": { "$value": "1.5rem", "$type": "dimension" },
+    "8": { "$value": "2rem", "$type": "dimension" },
+    "12": { "$value": "3rem", "$type": "dimension" }
+  },
+  "radius": {
+    "control": { "$value": "0.375rem", "$type": "dimension" },
+    "card": { "$value": "0.5rem", "$type": "dimension" },
+    "pill": { "$value": "999px", "$type": "dimension" }
+  },
+  "shadow": {
+    "raised": { "$value": "0 2px 8px rgba(15, 23, 42, 0.10)", "$type": "shadow" },
+    "overlay": { "$value": "0 12px 32px rgba(15, 23, 42, 0.16)", "$type": "shadow" }
+  },
+  "duration": {
+    "instant": { "$value": "0ms", "$type": "duration" },
+    "fast": { "$value": "100ms", "$type": "duration" },
+    "normal": { "$value": "150ms", "$type": "duration" },
+    "state": { "$value": "150ms", "$type": "duration" }
+  },
+  "easing": {
+    "standard": { "$value": [0.2, 0, 0.2, 1], "$type": "cubicBezier" }
+  },
+  "breakpoint": {
+    "phone-min": { "$value": "360px", "$type": "dimension" },
+    "phone-max": { "$value": "430px", "$type": "dimension" },
+    "tablet-min": { "$value": "768px", "$type": "dimension" },
+    "tablet-max": { "$value": "1024px", "$type": "dimension" },
+    "desktop": { "$value": "1366px", "$type": "dimension" },
+    "wide": { "$value": "1920px", "$type": "dimension" }
+  },
+  "size": {
+    "touchTarget": { "$value": "44px", "$type": "dimension" },
+    "control": { "$value": "36px", "$type": "dimension" },
+    "sidebarExpanded": { "$value": "240px", "$type": "dimension" },
+    "sidebarCollapsed": { "$value": "64px", "$type": "dimension" },
+    "topbar": { "$value": "56px", "$type": "dimension" },
+    "iconMd": { "$value": "20px", "$type": "dimension" },
+    "iconLg": { "$value": "32px", "$type": "dimension" },
+    "status": { "$value": "24px", "$type": "dimension" },
+    "stateMin": { "$value": "16rem", "$type": "dimension" },
+    "contentSurfaceMin": { "$value": "20rem", "$type": "dimension" },
+    "stateCopyMax": { "$value": "32rem", "$type": "dimension" }
+  },
+  "borderWidth": {
+    "default": { "$value": "1px", "$type": "dimension" },
+    "focus": { "$value": "2px", "$type": "dimension" }
+  },
+  "focus": {
+    "offset": { "$value": "2px", "$type": "dimension" }
+  },
+  "layout": {
+    "skipLinkHiddenTranslation": { "$value": "-200%", "$type": "string" }
+  },
+  "zIndex": {
+    "sticky": { "$value": 10, "$type": "number" },
+    "dropdown": { "$value": 100, "$type": "number" },
+    "drawer": { "$value": 300, "$type": "number" },
+    "modal": { "$value": 400, "$type": "number" },
+    "toast": { "$value": 500, "$type": "number" }
+  }
+}

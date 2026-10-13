@@ -12,7 +12,7 @@ final class AttendancePolicyRows {
             String attendancePolicyBindingId,
             String attendancePolicyBindingRevisionId,
             int revisionNumber,
-            String legalEntityId,
+            String companyId,
             String policyKind,
             String policyVersionId,
             String attendanceGroupId,

@@ -57,12 +57,13 @@ public class AttendancePolicyController {
 
     @GetMapping("/policy-bindings")
     ResponseEntity<BindingPage> listBindings(
+            @RequestParam(required = false) String companyId,
             @RequestParam(required = false) String groupId,
             @RequestParam(required = false) LocalDate asOf,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return noStore(AttendancePolicyDtos.bindings(
-                service.listBindings(groupId, asOf, page, size)));
+                service.listBindings(companyId, groupId, asOf, page, size)));
     }
 
     @PostMapping("/policy-bindings")

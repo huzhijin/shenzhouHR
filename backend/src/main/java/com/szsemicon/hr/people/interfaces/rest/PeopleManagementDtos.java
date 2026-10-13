@@ -13,6 +13,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -26,9 +27,9 @@ final class PeopleManagementDtos {
     }
 
     record OrganizationCreateRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             String parentOrganizationId,
-            @NotBlank @Size(max = 128) String code,
+            @Size(max = 128) String code,
             @NotBlank @Size(max = 200) String name,
             @NotBlank String organizationType,
             @NotNull LocalDate effectiveFrom,
@@ -47,12 +48,14 @@ final class PeopleManagementDtos {
     }
 
     record EmployeeCreateRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotBlank @Size(max = 128) String employeeNumber,
             @NotBlank @Size(max = 100) String displayName,
             @Size(max = 128) String externalEmployeeId,
+            @NotBlank String organizationId,
             @NotNull LocalDate effectiveFrom,
-            @NotBlank @Size(min = 2, max = 500) String reason) {
+            @NotBlank @Size(min = 2, max = 500) String reason,
+            @NotBlank String attendanceGroupId) {
     }
 
     record EmployeeUpdateRequest(
@@ -83,7 +86,8 @@ final class PeopleManagementDtos {
     record PriorServiceAdjustmentRequest(
             @Min(-36500) @Max(36500) int amountDays,
             @NotNull LocalDate businessDate,
-            @NotBlank @Size(min = 2, max = 500) String reason) {
+            @NotBlank @Size(min = 2, max = 500) String reason,
+            java.math.BigDecimal amountYears) {
     }
 
     record ReasonRequest(@NotBlank @Size(min = 2, max = 500) String reason) {
@@ -185,7 +189,11 @@ final class PeopleManagementDtos {
             int resultingTotalDays,
             String actorId,
             Instant occurredAt,
-            String requestId) {
+            String requestId,
+            BigDecimal amountYears,
+            String conversionBasis,
+            Integer conversionVersion,
+            BigDecimal resultingTotalYears) {
     }
 
     record PriorServiceRecordPage(
@@ -202,7 +210,9 @@ final class PeopleManagementDtos {
             int totalDays,
             int recordCount,
             String replayDigest,
-            Instant recalculatedAt) {
+            Instant recalculatedAt,
+            BigDecimal totalYears,
+            Integer completeMonths) {
     }
 
     static OrganizationView organization(OrganizationVersion version) {
@@ -264,25 +274,32 @@ final class PeopleManagementDtos {
                 page.total(), page.page(), page.size());
     }
 
-    static PriorServiceRecordView priorService(PriorServiceRecord record) {
+    static PriorServiceRecordView priorService(PriorServiceRecord record, BigDecimal cumulativeYears) {
         return new PriorServiceRecordView(
                 record.priorServiceRecordId(), record.employeeId(), record.recordType(),
                 record.amountDays(), record.reason(), record.businessDate(),
                 record.sourceBatchId(), record.reversalOfRecordId(),
                 record.resultingTotalDays(), record.actorId(),
-                record.occurredAt(), record.requestId());
+                record.occurredAt(), record.requestId(),
+                record.amountYears(), record.conversionBasis(), record.conversionVersion(),
+                cumulativeYears);
     }
 
     static PriorServiceRecordPage priorServicePage(PriorServicePage page) {
         return new PriorServiceRecordPage(
-                page.items().stream().map(PeopleManagementDtos::priorService).toList(),
+                page.items().stream()
+                        .map(record -> priorService(
+                                record,
+                                page.cumulativeYearsByRecordId().get(record.priorServiceRecordId())))
+                        .toList(),
                 page.totalDays(), page.replayDigest(), page.total(), page.page(), page.size());
     }
 
     static PriorServiceReplayView replay(PriorServiceReplay replay) {
         return new PriorServiceReplayView(
                 replay.employeeId(), replay.totalDays(), replay.recordCount(),
-                replay.replayDigest(), replay.recalculatedAt());
+                replay.replayDigest(), replay.recalculatedAt(),
+                replay.totalYears(), replay.completeMonths());
     }
 
     private static String actor(String value) {

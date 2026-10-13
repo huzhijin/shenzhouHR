@@ -22,7 +22,7 @@ public interface IdentityAccessRepository
             Instant lastLoginAt,
             long sessionEpoch,
             long rowVersion,
-            String legalEntityId) {
+            String companyId) {
     }
 
     record CredentialRecord(String accountId, String passwordHash, long rowVersion) {
@@ -65,6 +65,34 @@ public interface IdentityAccessRepository
             String roleId,
             String scopeType,
             String scopeResourceId,
+            boolean includeDescendants,
+            Instant validFrom,
+            Instant validTo) {
+
+        public RoleAssignmentInput(
+                String roleId,
+                String scopeType,
+                String scopeResourceId,
+                Instant validFrom,
+                Instant validTo) {
+            this(
+                    roleId,
+                    scopeType,
+                    scopeResourceId,
+                    !"SELF".equals(scopeType),
+                    validFrom,
+                    validTo);
+        }
+    }
+
+    /**
+     * A role assignment whose data scope has been resolved and authorized by the
+     * server in the current transaction. API input must never be converted to
+     * this type without the grant-scope checks in {@link AccountPersistence}.
+     */
+    record ResolvedRoleAssignmentInput(
+            String roleId,
+            String dataScopeId,
             Instant validFrom,
             Instant validTo) {
     }
@@ -76,6 +104,11 @@ public interface IdentityAccessRepository
             String roleName,
             String scopeType,
             String scopeResourceId,
+            String scopeCompanyId,
+            String scopeCompanyName,
+            String scopeResourceName,
+            String scopeResourcePath,
+            boolean includeDescendants,
             Instant validFrom,
             Instant validTo) {
     }

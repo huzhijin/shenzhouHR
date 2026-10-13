@@ -1,0 +1,92 @@
+{
+  "version": 2,
+  "framing": {
+    "field": "tag:utf8-byte-length:value",
+    "row": "R:table-utf8-byte-length:table:field-count:field-frames",
+    "snapshotLine": "L:row-utf8-byte-length:row:64:lowercase-row-sha256",
+    "finalHashInput": "ordered snapshotLine bytes without separators"
+  },
+  "fieldVectors": [
+    {"name":"null","type":"text?","input":null,"expected":"N:0:"},
+    {"name":"empty","type":"text","input":"","expected":"S:0:"},
+    {"name":"delimiter","type":"text","input":"|:=","expected":"S:3:|:="},
+    {"name":"unicode-nfc","type":"text","input":"é","expected":"S:2:é"},
+    {"name":"json-order-nfc","type":"json","input":{"text":"é","b":2,"a":1},"expected":"J:25:{\"a\":1,\"b\":2,\"text\":\"é\"}"},
+    {"name":"decimal-equivalent-a","type":"decimal","input":"1.2300","expected":"D:4:1.23"},
+    {"name":"decimal-equivalent-b","type":"decimal","input":"1.23","expected":"D:4:1.23"},
+    {"name":"decimal-ten","type":"decimal","input":"10","expected":"D:2:10"},
+    {"name":"decimal-thousand","type":"decimal","input":"1000","expected":"D:4:1000"},
+    {"name":"decimal-negative-ten","type":"decimal","input":"-10","expected":"D:3:-10"},
+    {"name":"date","type":"date","input":"1970-01-01","expected":"A:10:1970-01-01"},
+    {"name":"instant","type":"instant","input":"2026-07-26T12:34:56.123456+08:00","expected":"T:27:2026-07-26T04:34:56.123456Z"},
+    {"name":"boolean","type":"bool","input":true,"expected":"B:1:1"},
+    {"name":"binary","type":"binary","inputBase64":"AP8=","expected":"X:4:00ff"}
+  ],
+  "sourceRows": [
+    {
+      "table":"attendance_policy_scope",
+      "values":{
+        "scope_id":"25100000-0000-0000-0000-000000000002",
+        "policy_template_id":"25000000-0000-0000-0000-000000000002",
+        "legal_entity_id":"30000000-0000-0000-0000-000000000001",
+        "row_version":10,
+        "created_by":"10000000-0000-0000-0000-000000000001",
+        "created_at":"2026-07-26T12:34:56.123456+08:00"
+      }
+    },
+    {
+      "table":"attendance_policy_scope",
+      "values":{
+        "scope_id":"25100000-0000-0000-0000-000000000001",
+        "policy_template_id":"25000000-0000-0000-0000-000000000001",
+        "legal_entity_id":"30000000-0000-0000-0000-000000000001",
+        "row_version":1000,
+        "created_by":"10000000-0000-0000-0000-000000000001",
+        "created_at":"2026-07-26T04:34:56.123456Z"
+      }
+    },
+    {
+      "table":"attendance_policy_scoped_version",
+      "values":{
+        "scoped_version_id":"25200000-0000-0000-0000-000000000003",
+        "scope_id":"25100000-0000-0000-0000-000000000003",
+        "version_number":1,
+        "parameters_json":{"text":"é|:=","enabled":true,"amount":"1.2300"},
+        "effective_from":"1970-01-01",
+        "effective_to":null,
+        "validation_json":null,
+        "snapshot_json":{},
+        "snapshot_digest":"b0a533500852c464c7065812fd56519f0c571ebbf453834a8b189388e29f1a51",
+        "rollback_of_scoped_version_id":null,
+        "row_version":1,
+        "change_reason":"",
+        "created_by":"10000000-0000-0000-0000-000000000001",
+        "created_at":"2026-07-26T04:34:56.123456Z"
+      }
+    }
+  ],
+  "orderedRows": [
+    {
+      "table":"attendance_policy_scope",
+      "pk":["25100000-0000-0000-0000-000000000001"],
+      "row":"R:23:attendance_policy_scope6:S:36:25100000-0000-0000-0000-000000000001S:36:25000000-0000-0000-0000-000000000001S:36:30000000-0000-0000-0000-000000000001I:4:1000S:36:10000000-0000-0000-0000-000000000001T:27:2026-07-26T04:34:56.123456Z",
+      "rowHash":"9e951fe3fb7c6ff1bb3c0441ea6efe0d6da7386f217e431a7b6a4bfbd9270875",
+      "snapshotLine":"L:234:R:23:attendance_policy_scope6:S:36:25100000-0000-0000-0000-000000000001S:36:25000000-0000-0000-0000-000000000001S:36:30000000-0000-0000-0000-000000000001I:4:1000S:36:10000000-0000-0000-0000-000000000001T:27:2026-07-26T04:34:56.123456Z64:9e951fe3fb7c6ff1bb3c0441ea6efe0d6da7386f217e431a7b6a4bfbd9270875"
+    },
+    {
+      "table":"attendance_policy_scope",
+      "pk":["25100000-0000-0000-0000-000000000002"],
+      "row":"R:23:attendance_policy_scope6:S:36:25100000-0000-0000-0000-000000000002S:36:25000000-0000-0000-0000-000000000002S:36:30000000-0000-0000-0000-000000000001I:2:10S:36:10000000-0000-0000-0000-000000000001T:27:2026-07-26T04:34:56.123456Z",
+      "rowHash":"117419d81542422b5ac51835b9c0584973e6085778aa40761d133d93b07d9e01",
+      "snapshotLine":"L:232:R:23:attendance_policy_scope6:S:36:25100000-0000-0000-0000-000000000002S:36:25000000-0000-0000-0000-000000000002S:36:30000000-0000-0000-0000-000000000001I:2:10S:36:10000000-0000-0000-0000-000000000001T:27:2026-07-26T04:34:56.123456Z64:117419d81542422b5ac51835b9c0584973e6085778aa40761d133d93b07d9e01"
+    },
+    {
+      "table":"attendance_policy_scoped_version",
+      "pk":["25200000-0000-0000-0000-000000000003"],
+      "row":"R:32:attendance_policy_scoped_version14:S:36:25200000-0000-0000-0000-000000000003S:36:25100000-0000-0000-0000-000000000003I:1:1J:49:{\"amount\":\"1.2300\",\"enabled\":true,\"text\":\"é|:=\"}A:10:1970-01-01N:0:N:0:J:2:{}S:64:b0a533500852c464c7065812fd56519f0c571ebbf453834a8b189388e29f1a51N:0:I:1:1S:0:S:36:10000000-0000-0000-0000-000000000001T:27:2026-07-26T04:34:56.123456Z",
+      "rowHash":"3843544ee3eeea8e591cf22dd8748587679fe0a2c61eb21ff69d7fb72189992e",
+      "snapshotLine":"L:365:R:32:attendance_policy_scoped_version14:S:36:25200000-0000-0000-0000-000000000003S:36:25100000-0000-0000-0000-000000000003I:1:1J:49:{\"amount\":\"1.2300\",\"enabled\":true,\"text\":\"é|:=\"}A:10:1970-01-01N:0:N:0:J:2:{}S:64:b0a533500852c464c7065812fd56519f0c571ebbf453834a8b189388e29f1a51N:0:I:1:1S:0:S:36:10000000-0000-0000-0000-000000000001T:27:2026-07-26T04:34:56.123456Z64:3843544ee3eeea8e591cf22dd8748587679fe0a2c61eb21ff69d7fb72189992e"
+    }
+  ],
+  "finalHash":"dad9c1d4b0c7bc958d4e0d5c5dafc2d34ae353b53b5b635ab30b40b6b93e9fa4"
+}

@@ -10,7 +10,7 @@ final class CalendarRows {
 
     record CalendarRow(
             String workCalendarId,
-            String legalEntityId,
+            String companyId,
             String locationId,
             String calendarCode,
             String workCalendarVersionId,

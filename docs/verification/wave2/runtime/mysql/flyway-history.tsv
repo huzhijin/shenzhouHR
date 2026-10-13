@@ -1,0 +1,13 @@
+database_name	installed_rank	version	description	type	script	checksum	installed_on	execution_time	success
+shenzhou_hr_dev	1	1	identity organization authorization audit	SQL	V1__identity_organization_authorization_audit.sql	-517298571	2026-07-24 15:33:43	196	1
+shenzhou_hr_dev	2	2	baseline authorization catalog	SQL	V2__baseline_authorization_catalog.sql	-1339458194	2026-07-24 15:33:43	9	1
+shenzhou_hr_dev	3	3	local identity session	SQL	V3__local_identity_session.sql	-1266620108	2026-07-24 15:33:44	164	1
+shenzhou_hr_dev	4	4	versioned policy foundation	SQL	V4__versioned_policy_foundation.sql	712093963	2026-07-24 15:33:44	138	1
+shenzhou_hr_dev	5	5	people initial import and versioning	SQL	V5__people_initial_import_and_versioning.sql	-1637666734	2026-07-26 00:03:09	433	1
+shenzhou_hr_dev	6	6	system admin people read prerequisite	SQL	V6__system_admin_people_read_prerequisite.sql	557782197	2026-07-26 00:24:29	15	1
+shenzhou_hr_test	1	1	identity organization authorization audit	SQL	V1__identity_organization_authorization_audit.sql	-517298571	2026-07-26 10:21:36	229	1
+shenzhou_hr_test	2	2	baseline authorization catalog	SQL	V2__baseline_authorization_catalog.sql	-1339458194	2026-07-26 10:21:36	17	1
+shenzhou_hr_test	3	3	local identity session	SQL	V3__local_identity_session.sql	-1266620108	2026-07-26 10:21:36	414	1
+shenzhou_hr_test	4	4	versioned policy foundation	SQL	V4__versioned_policy_foundation.sql	712093963	2026-07-26 10:21:36	162	1
+shenzhou_hr_test	5	5	people initial import and versioning	SQL	V5__people_initial_import_and_versioning.sql	-1637666734	2026-07-26 10:21:42	424	1
+shenzhou_hr_test	6	6	system admin people read prerequisite	SQL	V6__system_admin_people_read_prerequisite.sql	557782197	2026-07-26 10:21:42	4	1

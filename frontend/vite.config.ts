@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     cacheDir: 'node_modules/.cache/vite',
+    publicDir: demoMode ? '../outputs/attendance-import-template-v1' : undefined,
     html: {
       cspNonce: '__CSP_NONCE__',
     },
@@ -27,7 +28,9 @@ export default defineConfig(({ mode }) => {
     }),
     test: {
       environment: 'jsdom',
+      fileParallelism: false,
       include: ['src/**/*.test.{ts,tsx}'],
+      maxWorkers: 1,
       setupFiles: ['src/test/setup.ts'],
       testTimeout: 15000,
       deps: {

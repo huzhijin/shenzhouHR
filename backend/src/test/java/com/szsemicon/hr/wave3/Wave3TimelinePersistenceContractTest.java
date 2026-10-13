@@ -14,7 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 class Wave3TimelinePersistenceContractTest {
 
     @Test
-    void mysqlAndH2ColumnsExactlyMatchTheFixedAllWave3Registry() {
+    void retainedMysqlAndLatestH2ColumnsMatchTheWave3Registry() {
         String migration = read(
                 "src/main/resources/db/migration/"
                         + "V7__attendance_setup_and_base_policies.sql");
@@ -30,9 +30,13 @@ class Wave3TimelinePersistenceContractTest {
             assertThat(tableColumnNames(migration, tableName))
                     .as("MySQL %s", tableName)
                     .containsExactlyElementsOf(expected);
+            List<String> latestExpected = expected.stream()
+                    .map(column -> column.equals("legal_entity_id")
+                            ? "company_id" : column)
+                    .toList();
             assertThat(tableColumnNames(schema, tableName))
                     .as("H2 %s", tableName)
-                    .containsExactlyElementsOf(expected);
+                    .containsExactlyElementsOf(latestExpected);
         }
     }
 
@@ -176,8 +180,8 @@ class Wave3TimelinePersistenceContractTest {
         assertBoundedList(
                 group,
                 "listLocationRevisions",
-                "revision.revision_number DESC",
-                "revision.location_revision_id");
+                "shared_revision.revision_number DESC",
+                "shared_revision.shared_location_revision_id");
         assertBoundedList(
                 group,
                 "listGroupRevisions",

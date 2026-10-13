@@ -4,8 +4,12 @@ import com.szsemicon.hr.audit.application.AuditService;
 import com.szsemicon.hr.authorization.application.CurrentCapabilityService;
 import com.szsemicon.hr.authorization.domain.CapabilityCodes;
 import com.szsemicon.hr.people.application.PeopleCommands.AdjustPriorService;
+import com.szsemicon.hr.attendance.application.AttendanceGroupCommands.AssignmentCommand;
+import com.szsemicon.hr.attendance.application.AttendanceGroupService;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateEmployee;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateEmployment;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import com.szsemicon.hr.people.application.PeopleCommands.CreateOrganization;
 import com.szsemicon.hr.people.application.PeopleCommands.UpdateEmployee;
 import com.szsemicon.hr.people.application.PeopleCommands.UpdateEmployment;
@@ -16,6 +20,7 @@ import com.szsemicon.hr.people.domain.PeopleModels.IdempotencyRecord;
 import com.szsemicon.hr.people.domain.PeopleModels.OrganizationVersion;
 import com.szsemicon.hr.people.domain.PeopleModels.PriorServiceRecord;
 import com.szsemicon.hr.people.domain.PeopleModels.PriorServiceReplay;
+import com.szsemicon.hr.people.domain.PriorServiceLedger;
 import com.szsemicon.hr.shared.domain.ExternalPreciseId;
 import com.szsemicon.hr.shared.security.CurrentPrincipalProvider;
 import com.szsemicon.hr.shared.security.ResourceNotAvailableAccessDeniedException;
@@ -28,6 +33,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +51,8 @@ public class PeopleManagementService {
     private final SecurityTokenService tokenService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final NewHireAttendanceRecovery newHireRecovery;
+    private final AttendanceGroupService attendanceGroups;
 
     public PeopleManagementService(
             CurrentCapabilityService capabilityService,
@@ -54,6 +62,50 @@ public class PeopleManagementService {
             SecurityTokenService tokenService,
             ObjectMapper objectMapper,
             Clock clock) {
+        this(
+                capabilityService,
+                principalProvider,
+                repository,
+                auditService,
+                tokenService,
+                objectMapper,
+                clock,
+                null,
+                null);
+    }
+
+    public PeopleManagementService(
+            CurrentCapabilityService capabilityService,
+            CurrentPrincipalProvider principalProvider,
+            PeopleRepository repository,
+            AuditService auditService,
+            SecurityTokenService tokenService,
+            ObjectMapper objectMapper,
+            Clock clock,
+            NewHireAttendanceRecovery newHireRecovery) {
+        this(
+                capabilityService,
+                principalProvider,
+                repository,
+                auditService,
+                tokenService,
+                objectMapper,
+                clock,
+                newHireRecovery,
+                null);
+    }
+
+    @Autowired
+    public PeopleManagementService(
+            CurrentCapabilityService capabilityService,
+            CurrentPrincipalProvider principalProvider,
+            PeopleRepository repository,
+            AuditService auditService,
+            SecurityTokenService tokenService,
+            ObjectMapper objectMapper,
+            Clock clock,
+            @Autowired(required = false) NewHireAttendanceRecovery newHireRecovery,
+            @Autowired(required = false) AttendanceGroupService attendanceGroups) {
         this.capabilityService = capabilityService;
         this.principalProvider = principalProvider;
         this.repository = repository;
@@ -61,17 +113,20 @@ public class PeopleManagementService {
         this.tokenService = tokenService;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.newHireRecovery = newHireRecovery;
+        this.attendanceGroups = attendanceGroups;
     }
 
     @Transactional
     public OrganizationVersion createOrganization(
             CreateOrganization command, long expectedVersion, String idempotencyKey) {
         requireExpected(expectedVersion, 0);
+        String resolvedCode = resolveOrganizationCode(command.companyId(), command.code());
         validateOrganization(
-                command.code(), command.name(), command.organizationType(),
+                resolvedCode, command.name(), command.organizationType(),
                 "ACTIVE", command.effectiveFrom(), null, command.reason());
         requireIdempotencyKey(idempotencyKey);
-        requireLegalEntity(CapabilityCodes.ORGANIZATION_CREATE, command.legalEntityId());
+        requireCompany(CapabilityCodes.ORGANIZATION_CREATE, command.companyId());
         String actor = principalProvider.currentPrincipalId();
         String requestDigest = digest(command);
         IdempotencyRecord existing = existing(
@@ -80,28 +135,34 @@ public class PeopleManagementService {
             return repository.findCurrentOrganization(existing.resourceId())
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         }
-        repository.lockLegalEntity(command.legalEntityId());
-        if (command.parentOrganizationId() != null) {
-            OrganizationVersion parent = requireOrganization(
-                    command.parentOrganizationId(), CapabilityCodes.ORGANIZATION_CREATE, null);
-            if (!parent.legalEntityId().equals(command.legalEntityId())) {
-                throw new ResourceNotAvailableAccessDeniedException();
+        repository.lockCompany(command.companyId());
+        if (command.parentOrganizationId() != null && !command.parentOrganizationId().isBlank()) {
+            OrganizationVersion parent = repository.findCurrentOrganization(
+                            command.parentOrganizationId())
+                    .orElseThrow(() -> invalid("上级部门不存在"));
+            if (!parent.companyId().equals(command.companyId())) {
+                throw new ApiProblemException(
+                        HttpStatus.BAD_REQUEST,
+                        "ORGANIZATION_PARENT_COMPANY_MISMATCH",
+                        "上级部门与所选公司不属于同一家公司");
             }
+            requireOrganization(
+                    command.parentOrganizationId(), CapabilityCodes.ORGANIZATION_CREATE, null);
         }
         if (repository.organizationCodeExists(
-                command.legalEntityId(), command.code().trim(), null)) {
+                command.companyId(), resolvedCode, null)) {
             throw conflict("ORGANIZATION_CODE_CONFLICT", "组织编码已经存在");
         }
         Instant now = clock.instant();
         String organizationId = UUID.randomUUID().toString();
         repository.createOrganizationIdentity(
-                organizationId, command.legalEntityId(), "ACTIVE", now);
+                organizationId, command.companyId(), "ACTIVE", now);
         OrganizationVersion version = new OrganizationVersion(
                 UUID.randomUUID().toString(),
                 organizationId,
-                command.legalEntityId(),
-                command.parentOrganizationId(),
-                command.code().trim(),
+                command.companyId(),
+                blankToNull(command.parentOrganizationId()),
+                resolvedCode,
                 command.name().trim(),
                 command.organizationType(),
                 "ACTIVE",
@@ -147,7 +208,7 @@ public class PeopleManagementService {
                     .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         }
         requireExpected(current.rowVersion(), expectedVersion);
-        repository.lockLegalEntity(current.legalEntityId());
+        repository.lockCompany(current.companyId());
         current = repository.findCurrentOrganization(organizationId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         requireExpected(current.rowVersion(), expectedVersion);
@@ -156,7 +217,7 @@ public class PeopleManagementService {
         if (command.parentOrganizationId() != null) {
             OrganizationVersion parent = requireOrganization(
                     command.parentOrganizationId(), CapabilityCodes.ORGANIZATION_EDIT, null);
-            if (!parent.legalEntityId().equals(current.legalEntityId())) {
+            if (!parent.companyId().equals(current.companyId())) {
                 throw new ResourceNotAvailableAccessDeniedException();
             }
         }
@@ -165,7 +226,7 @@ public class PeopleManagementService {
             throw conflict("ORGANIZATION_PARENT_CYCLE", "上级组织会形成环");
         }
         if (repository.organizationCodeExists(
-                current.legalEntityId(), command.code().trim(), organizationId)) {
+                current.companyId(), command.code().trim(), organizationId)) {
             throw conflict("ORGANIZATION_CODE_CONFLICT", "组织编码已经存在");
         }
         Instant now = clock.instant();
@@ -176,7 +237,7 @@ public class PeopleManagementService {
         OrganizationVersion version = new OrganizationVersion(
                 UUID.randomUUID().toString(),
                 organizationId,
-                current.legalEntityId(),
+                current.companyId(),
                 command.parentOrganizationId(),
                 command.code().trim(),
                 command.name().trim(),
@@ -229,7 +290,9 @@ public class PeopleManagementService {
                 command.employeeNumber(), command.displayName(), "ACTIVE",
                 command.effectiveFrom(), null, command.reason());
         requireIdempotencyKey(idempotencyKey);
-        requireLegalEntity(CapabilityCodes.EMPLOYEE_CREATE, command.legalEntityId());
+        requireCompany(CapabilityCodes.EMPLOYEE_CREATE, command.companyId());
+        OrganizationVersion organization = requireCreateEmploymentOrganization(
+                command.organizationId(), command.companyId());
         String actor = principalProvider.currentPrincipalId();
         String requestDigest = digest(command);
         IdempotencyRecord existing = existing(
@@ -241,9 +304,9 @@ public class PeopleManagementService {
                     null,
                     CapabilityCodes.EMPLOYEE_CREATE);
         }
-        repository.lockLegalEntity(command.legalEntityId());
+        repository.lockCompany(command.companyId());
         if (repository.employeeNumberExists(
-                command.legalEntityId(), command.employeeNumber().trim(), null)) {
+                command.companyId(), command.employeeNumber().trim(), null)) {
             throw conflict("EMPLOYEE_NUMBER_CONFLICT", "员工编号已经存在");
         }
         if (command.externalEmployeeId() != null) {
@@ -253,7 +316,7 @@ public class PeopleManagementService {
         String employeeId = UUID.randomUUID().toString();
         repository.createEmployeeIdentity(
                 employeeId,
-                command.legalEntityId(),
+                command.companyId(),
                 command.employeeNumber().trim(),
                 command.displayName().trim(),
                 "ACTIVE",
@@ -262,7 +325,7 @@ public class PeopleManagementService {
         EmployeeVersion version = new EmployeeVersion(
                 UUID.randomUUID().toString(),
                 employeeId,
-                command.legalEntityId(),
+                command.companyId(),
                 command.employeeNumber().trim(),
                 command.displayName().trim(),
                 "ACTIVE",
@@ -276,13 +339,52 @@ public class PeopleManagementService {
                 actor,
                 now);
         repository.saveEmployeeVersion(version);
+        EmploymentPeriod period = new EmploymentPeriod(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                employeeId,
+                organization.organizationId(),
+                null,
+                command.effectiveFrom(),
+                null,
+                null,
+                "ACTIVE",
+                null,
+                0,
+                command.reason().trim(),
+                actor,
+                now);
+        repository.saveEmploymentPeriodVersion(period, true);
         saveIdempotency(
                 actor, "EMPLOYEE_CREATE", idempotencyKey,
                 requestDigest, employeeId, now);
         auditService.record(
                 actor, "EMPLOYEE_VERSION_CREATED", "EMPLOYEE", employeeId,
                 "SUCCESS", command.reason(), null, digest(version));
+        auditService.record(
+                actor, "EMPLOYMENT_PERIOD_CREATED", "EMPLOYEE", employeeId,
+                "SUCCESS", command.reason(), null, digest(period));
+        assignOpeningGroup(employeeId, command, idempotencyKey);
+        NewHireRecoverySignals.afterCommit(newHireRecovery, command.effectiveFrom());
         return employeeDetail(version, null, CapabilityCodes.EMPLOYEE_CREATE);
+    }
+
+    private void assignOpeningGroup(
+            String employeeId, CreateEmployee command, String idempotencyKey) {
+        if (command.attendanceGroupId() == null || command.attendanceGroupId().isBlank()) {
+            return;
+        }
+        if (attendanceGroups == null) {
+            throw new IllegalStateException("attendance group assignment is unavailable");
+        }
+        attendanceGroups.createAssignment(
+                command.attendanceGroupId().trim(),
+                new AssignmentCommand(
+                        employeeId,
+                        command.effectiveFrom(),
+                        null,
+                        command.reason().trim()),
+                idempotencyKey + ":group");
     }
 
     @Transactional
@@ -309,20 +411,36 @@ public class PeopleManagementService {
                     CapabilityCodes.EMPLOYEE_EDIT);
         }
         requireExpected(current.rowVersion(), expectedVersion);
-        repository.lockLegalEntity(current.legalEntityId());
+        repository.lockCompany(current.companyId());
         repository.lockEmployee(employeeId);
         current = repository.findCurrentEmployee(employeeId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
         requireExpected(current.rowVersion(), expectedVersion);
-        requireNextVersionDate(
-                current.effectiveFrom(), current.effectiveTo(), command.effectiveFrom());
         if (repository.employeeNumberExists(
-                current.legalEntityId(), command.employeeNumber().trim(), employeeId)) {
+                current.companyId(), command.employeeNumber().trim(), employeeId)) {
             throw conflict("EMPLOYEE_NUMBER_CONFLICT", "员工编号已经存在");
         }
         Instant now = clock.instant();
-        repository.closeCurrentEmployeeVersion(
-                employeeId, command.effectiveFrom(), expectedVersion);
+        boolean sameDayCorrection = command.effectiveFrom().equals(current.effectiveFrom());
+        // 禁止status变更走sameDayCorrection：会原地覆盖旧版本status，导致ACTIVE历史消失
+        boolean statusChanged = !command.status().equals(current.status());
+        if (sameDayCorrection && !statusChanged) {
+            validatePeriod(command.effectiveFrom(), command.effectiveTo());
+            repository.correctCurrentEmployeeVersion(
+                    employeeId,
+                    command.employeeNumber().trim(),
+                    command.displayName().trim(),
+                    command.status(),
+                    command.effectiveTo(),
+                    command.reason().trim(),
+                    expectedVersion);
+        } else {
+            requireNextVersionDate(
+                    current.effectiveFrom(), current.effectiveTo(), command.effectiveFrom());
+            repository.closeCurrentEmployeeVersion(
+                    employeeId, command.effectiveFrom(), expectedVersion);
+            sameDayCorrection = false; // 强制走新版本创建分支
+        }
         repository.updateEmployeeIdentity(
                 employeeId,
                 command.employeeNumber().trim(),
@@ -330,29 +448,41 @@ public class PeopleManagementService {
                 command.status(),
                 expectedVersion,
                 now);
-        EmployeeVersion version = new EmployeeVersion(
-                UUID.randomUUID().toString(),
-                employeeId,
-                current.legalEntityId(),
-                command.employeeNumber().trim(),
-                command.displayName().trim(),
-                command.status(),
-                current.externalEmployeeId(),
-                command.effectiveFrom(),
-                command.effectiveTo(),
-                "LOCAL",
-                null,
-                expectedVersion + 1,
-                command.reason().trim(),
-                actor,
-                now);
-        repository.saveEmployeeVersion(version);
+        EmployeeVersion version;
+        if (sameDayCorrection) {
+            version = repository.findCurrentEmployee(employeeId)
+                    .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        } else {
+            version = new EmployeeVersion(
+                    UUID.randomUUID().toString(),
+                    employeeId,
+                    current.companyId(),
+                    command.employeeNumber().trim(),
+                    command.displayName().trim(),
+                    command.status(),
+                    current.externalEmployeeId(),
+                    command.effectiveFrom(),
+                    command.effectiveTo(),
+                    "LOCAL",
+                    null,
+                    expectedVersion + 1,
+                    command.reason().trim(),
+                    actor,
+                    now);
+            repository.saveEmployeeVersion(version);
+        }
         saveIdempotency(
                 actor, "EMPLOYEE_EDIT", idempotencyKey,
                 requestDigest, employeeId, now);
         auditService.record(
-                actor, "EMPLOYEE_VERSION_CREATED", "EMPLOYEE", employeeId,
-                "SUCCESS", command.reason(), digest(current), digest(version));
+                actor,
+                sameDayCorrection ? "EMPLOYEE_IDENTITY_CORRECTED" : "EMPLOYEE_VERSION_CREATED",
+                "EMPLOYEE",
+                employeeId,
+                "SUCCESS",
+                command.reason(),
+                digest(current),
+                digest(version));
         return employeeDetail(version, null, CapabilityCodes.EMPLOYEE_EDIT);
     }
 
@@ -415,7 +545,7 @@ public class PeopleManagementService {
                 employeeId, CapabilityCodes.EMPLOYMENT_CREATE);
         OrganizationVersion organization = requireOrganization(
                 command.organizationId(), CapabilityCodes.EMPLOYMENT_CREATE, null);
-        if (!organization.legalEntityId().equals(employee.legalEntityId())) {
+        if (!organization.companyId().equals(employee.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         String actor = principalProvider.currentPrincipalId();
@@ -431,10 +561,10 @@ public class PeopleManagementService {
         }
         requireExpected(employee.rowVersion(), expectedVersion);
         Instant now = clock.instant();
-        repository.lockLegalEntity(employee.legalEntityId());
+        repository.lockCompany(employee.companyId());
         repository.lockEmployee(employeeId);
-        assertActiveOrganizationInLegalEntity(
-                command.organizationId(), employee.legalEntityId());
+        assertActiveOrganizationInCompany(
+                command.organizationId(), employee.companyId());
         LocalDate endExclusive = command.terminationDate() == null
                 ? null
                 : command.terminationDate().plusDays(1);
@@ -483,7 +613,7 @@ public class PeopleManagementService {
                 requireEmployeeForHistory(employeeId, CapabilityCodes.EMPLOYMENT_EDIT);
         OrganizationVersion organization =
                 requireOrganization(command.organizationId(), CapabilityCodes.EMPLOYMENT_EDIT, null);
-        if (!organization.legalEntityId().equals(employee.legalEntityId())) {
+        if (!organization.companyId().equals(employee.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         EmploymentPeriod current = repository.findCurrentEmploymentPeriodVersion(
@@ -508,10 +638,10 @@ public class PeopleManagementService {
         LocalDate endExclusive = command.terminationDate() == null
                 ? null
                 : command.terminationDate().plusDays(1);
-        repository.lockLegalEntity(employee.legalEntityId());
+        repository.lockCompany(employee.companyId());
         repository.lockEmployee(employeeId);
-        assertActiveOrganizationInLegalEntity(
-                command.organizationId(), employee.legalEntityId());
+        assertActiveOrganizationInCompany(
+                command.organizationId(), employee.companyId());
         if (repository.hasEmploymentOverlap(
                 employeeId, command.startDate(), endExclusive, employmentPeriodId)) {
             throw conflict("EMPLOYMENT_PERIOD_OVERLAP", "任职周期与现有周期重叠");
@@ -551,13 +681,24 @@ public class PeopleManagementService {
         requireEmployeeForHistory(employeeId, CapabilityCodes.PRIOR_SERVICE_READ);
         List<PriorServiceRecord> all = repository.listAllPriorServiceRecords(employeeId);
         PriorServiceReplay replay = replay(employeeId, all);
+
+        // 构建recordId -> 累计精确年数的映射
+        java.util.Map<String, BigDecimal> cumulativeYearsMap = new java.util.HashMap<>();
+        PriorServiceLedger.ReplayResult ledgerReplay = PriorServiceLedger.replay(all);
+        for (var item : ledgerReplay.items()) {
+            BigDecimal cumulativeYears = BigDecimal.valueOf(item.cumulativeUnits())
+                    .divide(BigDecimal.valueOf(131400), 2, RoundingMode.HALF_UP);
+            cumulativeYearsMap.put(item.recordId(), cumulativeYears);
+        }
+
         return new PriorServicePage(
                 repository.listPriorServiceRecords(employeeId, size, page * size),
                 replay.totalDays(),
                 replay.replayDigest(),
                 repository.countPriorServiceRecords(employeeId),
                 page,
-                size);
+                size,
+                cumulativeYearsMap);
     }
 
     @Transactional
@@ -568,9 +709,42 @@ public class PeopleManagementService {
             String idempotencyKey) {
         requireReason(command.reason());
         requireIdempotencyKey(idempotencyKey);
+
+        // 计算天数：优先使用amountYears（365天/年），否则使用amountDays（向后兼容）
+        int amountDays;
+        java.math.BigDecimal amountYears;
+        String conversionBasis;
+        Integer conversionVersion;
+
+        if (command.amountYears() != null) {
+            // 新API：从年数计算天数（365天/年，按绝对值四舍五入后恢复符号）
+            amountYears = command.amountYears()
+                    .setScale(2, java.math.RoundingMode.HALF_UP);
+            if (amountYears.compareTo(java.math.BigDecimal.valueOf(-100.00)) < 0
+                    || amountYears.compareTo(java.math.BigDecimal.valueOf(100.00)) > 0) {
+                throw invalid("年数范围必须在 ±100.00 年之间");
+            }
+            java.math.BigDecimal absoluteYears = amountYears.abs();
+            java.math.BigDecimal absoluteDays = absoluteYears.multiply(java.math.BigDecimal.valueOf(365));
+            int roundedAbsoluteDays = absoluteDays.setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+            amountDays = amountYears.signum() * roundedAbsoluteDays;
+
+            if (amountDays == 0) {
+                throw invalid("调整量无效：不能为 0 年或折合 0 天");
+            }
+            conversionBasis = "DAYS_PER_YEAR_365";
+            conversionVersion = 1;
+        } else {
+            // 旧API：直接使用天数（新写入标记为ACTUAL_DAYS以区分历史）
+            amountDays = command.amountDays();
+            amountYears = null;
+            conversionBasis = "ACTUAL_DAYS";
+            conversionVersion = 1;
+        }
+
         if (command.businessDate() == null
-                || command.amountDays() < -36500
-                || command.amountDays() > 36500) {
+                || amountDays < -36500
+                || amountDays > 36500) {
             throw invalid("累计工龄发生额或业务日期无效");
         }
         EmployeeVersion employee = requireEmployeeForHistory(
@@ -589,6 +763,9 @@ public class PeopleManagementService {
         }
         requireExpected(employee.rowVersion(), expectedVersion);
         repository.lockEmployee(employeeId);
+        requireExpected(
+                repository.findEmployeeAggregateVersion(employeeId), expectedVersion);
+        Instant now = clock.instant();
         List<PriorServiceRecord> records = repository.listAllPriorServiceRecords(employeeId);
         if (!records.isEmpty()
                 && command.businessDate().isBefore(
@@ -597,20 +774,27 @@ public class PeopleManagementService {
                     "PRIOR_SERVICE_BUSINESS_DATE_OUT_OF_ORDER",
                     "累计工龄业务日期不得早于最新发生额");
         }
-        int previousTotal = records.isEmpty()
-                ? 0
-                : records.get(records.size() - 1).resultingTotalDays();
-        int resultingTotal = Math.addExact(previousTotal, command.amountDays());
-        if (resultingTotal < 0) {
+
+        // 使用共享ledger计算
+        PriorServiceLedger.ProjectionResult projection;
+        try {
+            projection = PriorServiceLedger.project(records, amountYears, amountDays);
+        } catch (IllegalStateException e) {
             throw invalid("累计工龄不能小于零");
         }
-        Instant now = clock.instant();
+        int resultingTotal = projection.resultingTotalDays();
+        int previousTotal = records.isEmpty() ? 0 : records.get(records.size() - 1).resultingTotalDays();
+
+        // 计算新记录的row_version：现有最大rowVersion + 1
+        long newRowVersion = records.isEmpty() ? 0 :
+                records.stream().mapToLong(PriorServiceRecord::rowVersion).max().orElse(0) + 1;
+
         String recordId = UUID.randomUUID().toString();
         PriorServiceRecord record = new PriorServiceRecord(
                 recordId,
                 employeeId,
                 "ADJUSTMENT",
-                command.amountDays(),
+                amountDays,
                 command.reason().trim(),
                 command.businessDate(),
                 null,
@@ -619,7 +803,10 @@ public class PeopleManagementService {
                 actor,
                 now,
                 idempotencyKey,
-                records.size());
+                newRowVersion,
+                amountYears,
+                conversionBasis,
+                conversionVersion);
         repository.savePriorServiceRecord(record);
         repository.touchEmployee(employeeId, expectedVersion, now);
         saveIdempotency(
@@ -680,11 +867,11 @@ public class PeopleManagementService {
         return organization;
     }
 
-    private void assertActiveOrganizationInLegalEntity(
-            String organizationId, String legalEntityId) {
+    private void assertActiveOrganizationInCompany(
+            String organizationId, String companyId) {
         OrganizationVersion current = repository.findCurrentOrganization(organizationId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        if (!current.legalEntityId().equals(legalEntityId)
+        if (!current.companyId().equals(companyId)
                 || !"ACTIVE".equals(current.status())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
@@ -697,10 +884,9 @@ public class PeopleManagementService {
                 ? repository.findCurrentEmployee(employeeId)
                 : repository.findEmployeeAsOf(employeeId, asOf))
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        LocalDate scopeDate = asOf == null ? LocalDate.now(clock) : asOf;
         if (!repository.canAccessEmployee(
                 principalProvider.currentPrincipalId(), capability, employeeId,
-                scopeDate, clock.instant())) {
+                LocalDate.now(clock), clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         return employee;
@@ -711,9 +897,9 @@ public class PeopleManagementService {
         capabilityService.require(capability);
         EmployeeVersion employee = repository.findCurrentEmployee(employeeId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        if (!repository.canAccessLegalEntity(
+        if (!repository.canAccessCompany(
                 principalProvider.currentPrincipalId(), capability,
-                employee.legalEntityId(), clock.instant())
+                employee.companyId(), clock.instant())
                 && !repository.canAccessEmployee(
                         principalProvider.currentPrincipalId(), capability, employeeId,
                         LocalDate.now(clock), clock.instant())) {
@@ -722,12 +908,12 @@ public class PeopleManagementService {
         return employee;
     }
 
-    private void requireLegalEntity(String capability, String legalEntityId) {
+    private void requireCompany(String capability, String companyId) {
         capabilityService.require(capability);
-        if (!repository.legalEntityExists(legalEntityId)
-                || !repository.canAccessLegalEntity(
+        if (!repository.companyExists(companyId)
+                || !repository.canAccessCompany(
                         principalProvider.currentPrincipalId(), capability,
-                        legalEntityId, clock.instant())) {
+                        companyId, clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
     }
@@ -751,26 +937,35 @@ public class PeopleManagementService {
 
     private PriorServiceReplay replay(
             String employeeId, List<PriorServiceRecord> records) {
-        int total = 0;
-        for (PriorServiceRecord record : records) {
-            total = Math.addExact(total, record.amountDays());
-            if (total < 0 || total != record.resultingTotalDays()) {
-                throw new IllegalStateException("prior service replay invariant violated");
-            }
-        }
+        // 使用共享ledger计算
+        PriorServiceLedger.ReplayResult result = PriorServiceLedger.replay(records);
+
+        // 保留两位小数的年数
+        java.math.BigDecimal totalYears = result.cumulativeYears()
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+
         return new PriorServiceReplay(
                 employeeId,
-                total,
+                result.totalDays(),
                 records.size(),
-                digest(records.stream().map(record -> List.of(
-                        record.priorServiceRecordId(),
-                        record.recordType(),
-                        record.amountDays(),
-                        record.businessDate(),
-                        record.resultingTotalDays(),
-                        record.actorId(),
-                        record.occurredAt())).toList()),
-                clock.instant());
+                digest(records.stream().map(record -> {
+                    // 固定字段位置，null字段使用空字符串占位
+                    var fields = new java.util.ArrayList<>();
+                    fields.add(record.priorServiceRecordId());
+                    fields.add(record.recordType());
+                    fields.add(record.amountDays());
+                    fields.add(record.businessDate());
+                    fields.add(record.resultingTotalDays());
+                    fields.add(record.actorId());
+                    fields.add(record.occurredAt());
+                    fields.add(record.amountYears() != null ? record.amountYears() : "");
+                    fields.add(record.conversionBasis() != null ? record.conversionBasis() : "");
+                    fields.add(record.conversionVersion() != null ? record.conversionVersion() : "");
+                    return fields;
+                }).toList()),
+                clock.instant(),
+                totalYears,
+                result.completeMonths());
     }
 
     private IdempotencyRecord existing(
@@ -790,6 +985,44 @@ public class PeopleManagementService {
         repository.saveIdempotency(
                 UUID.randomUUID().toString(), actor, action, key,
                 requestDigest, resourceId, null, at);
+    }
+
+    private String resolveOrganizationCode(String companyId, String code) {
+        if (code != null && !code.isBlank()) {
+            return code.trim();
+        }
+        for (int attempt = 0; attempt < 8; attempt++) {
+            String generated = "D-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+            if (!repository.organizationCodeExists(companyId, generated, null)) {
+                return generated;
+            }
+        }
+        throw invalid("无法生成唯一组织编码");
+    }
+
+    private OrganizationVersion requireCreateEmploymentOrganization(
+            String organizationId, String companyId) {
+        if (organizationId == null || organizationId.isBlank()) {
+            throw invalid("任职部门不能为空");
+        }
+        OrganizationVersion organization = repository.findCurrentOrganization(organizationId)
+                .orElseThrow(() -> invalid("任职部门不存在"));
+        if (!organization.companyId().equals(companyId)
+                || !"ACTIVE".equals(organization.status())) {
+            throw invalid("任职部门必须属于所选公司且为有效组织");
+        }
+        if (!repository.canAccessOrganization(
+                principalProvider.currentPrincipalId(),
+                CapabilityCodes.EMPLOYEE_CREATE,
+                organizationId,
+                clock.instant())) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
+        return organization;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static void validateOrganization(
@@ -838,7 +1071,7 @@ public class PeopleManagementService {
         if (!nextFrom.isAfter(currentFrom)
                 || currentTo != null && nextFrom.isBefore(currentTo)) {
             throw conflict(
-                    "STALE_VERSION",
+                    "EMPLOYEE_VERSION_DATE_INVALID",
                     "新版本生效日期必须晚于当前版本且不得消除既有版本空档");
         }
     }
@@ -916,6 +1149,7 @@ public class PeopleManagementService {
             String replayDigest,
             long total,
             int page,
-            int size) {
+            int size,
+            java.util.Map<String, BigDecimal> cumulativeYearsByRecordId) {
     }
 }

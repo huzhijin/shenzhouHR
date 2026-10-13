@@ -19,6 +19,8 @@ if [[ "$(cd "${SCRIPT_DIR}/../.." && pwd -P)" != "$EXPECTED_REPOSITORY_ROOT" ]];
 fi
 # shellcheck source=lib/mysql-safety.sh
 source "${SCRIPT_DIR}/lib/mysql-safety.sh"
+# shellcheck source=lib/company-dimension-cutover.sh
+source "${SCRIPT_DIR}/lib/company-dimension-cutover.sh"
 
 ENVIRONMENT_FILE=""
 EXECUTE="false"
@@ -283,7 +285,8 @@ verify_second_migrate_noop() {
     SELECT COUNT(*) FROM information_schema.TABLES
     WHERE TABLE_SCHEMA = '${database}' AND TABLE_TYPE = 'BASE TABLE';
   ")"
-  run_flyway "$database" migrate
+  company_cutover_verify_latest "$database" "$defaults_file"
+  run_flyway "$database" "-target=11" migrate
   after_history="$(mysql_scalar "$defaults_file" "$database" "
     SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;
   ")"
@@ -296,11 +299,128 @@ verify_second_migrate_noop() {
   log "SECOND_MIGRATE_NOOP=PASS database=${database} history=${after_history} tables=${after_tables}"
 }
 
+verify_company_cutover_preflight() {
+  local database="$1"
+  local defaults_file="$2"
+  company_cutover_verify_v10 "$database" "$defaults_file"
+}
+
+company_dimension_names() {
+  local defaults_file="$1"
+  local company_table_count
+  local legacy_table_count
+  company_table_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = '${DEV_DATABASE}'
+      AND TABLE_NAME = 'company'
+      AND TABLE_TYPE = 'BASE TABLE';
+  ")"
+  legacy_table_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = '${DEV_DATABASE}'
+      AND TABLE_NAME = 'legal_entity'
+      AND TABLE_TYPE = 'BASE TABLE';
+  ")"
+  if [[ "$company_table_count" == "1" && "$legacy_table_count" == "0" ]]; then
+    printf '%s\n' "company company_id"
+    return
+  fi
+  if [[ "$company_table_count" == "0" && "$legacy_table_count" == "1" ]]; then
+    printf '%s\n' "legal_entity legal_entity_id"
+    return
+  fi
+  fail "Dev schema has an ambiguous top-level boundary shape."
+}
+
+verify_company_dimension_contract() {
+  local database="$1"
+  local defaults_file="$2"
+  local company_table_count
+  local legacy_table_count
+  local company_column_count
+  local legacy_column_count
+  local invalid_scope_count
+  local legacy_scope_count
+  local company_scope_check_count
+  local v11_count
+  assert_exact_database "$database"
+  company_cutover_verify_latest "$database" "$defaults_file"
+
+  company_table_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = '${database}'
+      AND TABLE_NAME = 'company'
+      AND TABLE_TYPE = 'BASE TABLE';
+  ")"
+  legacy_table_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = '${database}'
+      AND TABLE_NAME = 'legal_entity';
+  ")"
+  company_column_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = '${database}'
+      AND COLUMN_NAME = 'company_id'
+      AND TABLE_NAME IN (
+        'company', 'employee', 'organization_identity', 'auth_data_scope',
+        'people_import_batch', 'people_import_publication', 'location',
+        'shift_template', 'work_calendar', 'attendance_group',
+        'attendance_policy_scope', 'attendance_source', 'source_device',
+        'device_person_binding', 'attendance_evidence_subject_lock',
+        'raw_attendance_fact', 'effective_attendance_event',
+        'duplicate_review_group', 'evidence_interval_slice',
+        'attendance_recalculation_intent', 'punch_mapping_profile',
+        'punch_import_batch', 'punch_import_file',
+        'attendance_report_projection', 'attendance_report_daily_fact',
+        'attendance_report_oa_fact', 'attendance_report_exception_fact',
+        'attendance_report_time_account_fact', 'attendance_report_export_job'
+      );
+  ")"
+  legacy_column_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = '${database}'
+      AND COLUMN_NAME = 'legal_entity_id';
+  ")"
+  invalid_scope_count="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*) FROM auth_data_scope
+    WHERE scope_type NOT IN ('COMPANY', 'ORGANIZATION', 'SELF');
+  ")"
+  legacy_scope_count="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*) FROM auth_data_scope
+    WHERE scope_type = 'LEGAL_ENTITY';
+  ")"
+  company_scope_check_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.CHECK_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = '${database}'
+      AND CONSTRAINT_NAME = 'ck_auth_scope_target'
+      AND UPPER(CHECK_CLAUSE) LIKE '%COMPANY%'
+      AND LOWER(CHECK_CLAUSE) LIKE '%company_id%';
+  ")"
+  v11_count="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*) FROM flyway_schema_history
+    WHERE version = '11' AND type = 'SQL' AND success = 1;
+  ")"
+
+  [[ "$company_table_count" == "1" && "$legacy_table_count" == "0" ]] \
+    || fail "Latest schema does not expose exactly one company table."
+  [[ "$company_column_count" == "29" && "$legacy_column_count" == "0" ]] \
+    || fail "Latest schema does not expose the complete company_id boundary."
+  [[ "$invalid_scope_count" == "0" && "$legacy_scope_count" == "0" ]] \
+    || fail "Latest schema contains a non-company authorization scope value."
+  [[ "$company_scope_check_count" == "1" ]] \
+    || fail "Latest company authorization scope check is missing."
+  [[ "$v11_count" == "1" ]] || fail "V11 company migration is not successful."
+  log "COMPANY_DIMENSION_CONTRACT=PASS database=${database} company_columns=${company_column_count} scopes=COMPANY,ORGANIZATION,SELF"
+}
+
 core_row_counts() {
   local defaults_file="$1"
+  local boundary_table
+  boundary_table="$(company_dimension_names "$defaults_file")"
+  boundary_table="${boundary_table%% *}"
   mysql_query "$defaults_file" "$DEV_DATABASE" "
     SELECT CONCAT(
-      (SELECT COUNT(*) FROM legal_entity), '|',
+      (SELECT COUNT(*) FROM ${boundary_table}), '|',
       (SELECT COUNT(*) FROM organization_identity), '|',
       (SELECT COUNT(*) FROM employee), '|',
       (SELECT COUNT(*) FROM employment_assignment), '|',
@@ -317,23 +437,27 @@ core_row_counts() {
 
 core_data_fingerprint() {
   local defaults_file="$1"
+  local boundary_table
+  local boundary_id_column
   local snapshot_file
+  read -r boundary_table boundary_id_column \
+    <<< "$(company_dimension_names "$defaults_file")"
   snapshot_file="$(make_private_temporary_file)"
   mysql_query "$defaults_file" "$DEV_DATABASE" "
     SELECT stable_row
     FROM (
-      SELECT CONCAT_WS('|', 'legal_entity', legal_entity_id, code, name, status, created_at)
+      SELECT CONCAT_WS('|', 'company', ${boundary_id_column}, code, name, status, created_at)
         AS stable_row
-      FROM legal_entity
+      FROM ${boundary_table}
       UNION ALL
       SELECT CONCAT_WS(
-        '|', 'employee', employee_id, legal_entity_id, display_name,
+        '|', 'employee', employee_id, ${boundary_id_column}, display_name,
         employment_status, COALESCE(CAST(onboard_date AS CHAR), '<NULL>'),
         created_at, updated_at)
       FROM employee
       UNION ALL
       SELECT CONCAT_WS(
-        '|', 'organization_identity', organization_id, legal_entity_id,
+        '|', 'organization_identity', organization_id, ${boundary_id_column},
         identity_status, created_at)
       FROM organization_identity
       UNION ALL
@@ -436,8 +560,9 @@ migrate_dev() {
   repair_failed_wave2_migration
   before="$(core_row_counts "$defaults_file")"
   before_fingerprint="$(core_data_fingerprint "$defaults_file")"
-  run_flyway "$DEV_DATABASE" migrate
+  company_cutover_migrate_to_v11 "$DEV_DATABASE" "$defaults_file"
   run_flyway "$DEV_DATABASE" validate
+  verify_company_dimension_contract "$DEV_DATABASE" "$defaults_file"
   after="$(core_row_counts "$defaults_file")"
   after_fingerprint="$(core_data_fingerprint "$defaults_file")"
   [[ "$before" == "$after" ]] || fail "WAVE-1 core row counts changed during dev migration."
@@ -452,9 +577,10 @@ migrate_fresh_test() {
   local minimum_version
   reset_test_tables
   assert_migration_source_checksums
-  run_flyway "$TEST_DATABASE" migrate
-  run_flyway "$TEST_DATABASE" validate
   defaults_file="$(migrator_defaults_file)"
+  company_cutover_migrate_to_v11 "$TEST_DATABASE" "$defaults_file"
+  run_flyway "$TEST_DATABASE" validate
+  verify_company_dimension_contract "$TEST_DATABASE" "$defaults_file"
   minimum_version="$(mysql_scalar "$defaults_file" "$TEST_DATABASE" "
     SELECT MIN(CAST(version AS UNSIGNED))
     FROM flyway_schema_history WHERE type = 'SQL' AND success = 1;
@@ -476,8 +602,9 @@ upgrade_v4_test() {
     FROM flyway_schema_history WHERE type = 'SQL' AND success = 1;
   ")"
   [[ "$checkpoint" == "4" ]] || fail "Upgrade checkpoint did not stop at V4."
-  run_flyway "$TEST_DATABASE" migrate
+  company_cutover_migrate_to_v11 "$TEST_DATABASE" "$defaults_file"
   run_flyway "$TEST_DATABASE" validate
+  verify_company_dimension_contract "$TEST_DATABASE" "$defaults_file"
   verify_second_migrate_noop "$TEST_DATABASE"
   log "V1_V4_TO_LATEST_UPGRADE=PASS"
 }
@@ -494,6 +621,7 @@ verify_contract_for_database() {
   assert_exact_database "$database"
   defaults_file="$(migrator_defaults_file)"
   assert_schema_exists "$database" "$defaults_file"
+  verify_company_dimension_contract "$database" "$defaults_file"
 
   table_count="$(mysql_scalar "$defaults_file" "" "
     SELECT COUNT(*) FROM information_schema.TABLES

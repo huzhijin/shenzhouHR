@@ -1,0 +1,50 @@
+spring:
+  datasource:
+    # sessionVariables sets time_zone at connection level (UTC).
+    # %3D = '=', %27 = single quote, %2B = '+' after URL-decoding by the JDBC driver.
+    url: "jdbc:mysql://127.0.0.1:13308/shenzhou_hr_mysql_isolation_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&sessionVariables=time_zone%3D%27%2B00%3A00%27"
+    username: shenzhouhr_test
+    password: ${SZENZHOU_MYSQL_TEST_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    url: "jdbc:mysql://127.0.0.1:13308/shenzhou_hr_mysql_isolation_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&sessionVariables=time_zone%3D%27%2B00%3A00%27"
+    user: shenzhouhr_test
+    password: ${SZENZHOU_MYSQL_TEST_PASSWORD}
+  sql:
+    init:
+      mode: never
+
+shenzhouhr:
+  development-principal:
+    enabled: true
+  security:
+    account-provisioning:
+      pepper: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      key-id: test-v1
+      recovery-window: PT1H
+  # Disable all background schedulers using the real property keys from source.
+  # OaAutoSyncJob: @ConditionalOnProperty(name={"oa.auto-sync-enabled","integrations.oa-mysql.enabled"})
+  oa:
+    auto-sync-enabled: false
+  # DeliAutoSyncJob and quarantine rematch
+  deli:
+    auto-sync-enabled: false
+    replay-enabled: false
+    quarantine-rematch-enabled: false
+  # Post-sync report auto-recalculation
+  report:
+    auto-recalculate-after-sync: false
+  # Leave account OA recalculation
+  leave-account:
+    oa-recalculate-enabled: false
+  integrations:
+    deli-eplus:
+      enabled: false
+    oa-mysql:
+      enabled: false
+  reporting:
+    export-worker-enabled: false

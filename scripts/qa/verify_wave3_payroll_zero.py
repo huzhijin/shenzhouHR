@@ -41,7 +41,7 @@ from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-EXPECTED_REPOSITORY_ROOT = Path("/Users/huzhijin/Downloads/shenzhouHR")
+EXPECTED_REPOSITORY_ROOT = REPOSITORY_ROOT
 EVIDENCE_ID = "W3-VER-PAYROLL-ZERO"
 PASS_MARKER = "W3_PAYROLL_ZERO_DISCOVERABILITY=PASS"
 CONTEXT_PREFIX = "W3_EVIDENCE_CONTEXT=PASS"
@@ -3769,9 +3769,16 @@ def collect_product_scope_files() -> dict[str, list[Path]]:
     frontend_source_all = walk_regular_files(
         frontend_source_root, "frontend source closure"
     )
-    frontend_public_all = walk_regular_files(
-        REPOSITORY_ROOT / "frontend/public", "frontend public assets"
-    )
+    frontend_public_root = REPOSITORY_ROOT / "frontend/public"
+    if frontend_public_root.exists() or frontend_public_root.is_symlink():
+        frontend_public_all = walk_regular_files(
+            frontend_public_root, "frontend public assets"
+        )
+    else:
+        # Git does not preserve empty directories. An absent public root is
+        # therefore the reproducible representation of the fixed empty public
+        # manifest; any future public file must still be declared explicitly.
+        frontend_public_all = []
     frontend_index = REPOSITORY_ROOT / "frontend/index.html"
     assert_regular_file_no_symlink(frontend_index, "frontend index")
     observed_frontend = {

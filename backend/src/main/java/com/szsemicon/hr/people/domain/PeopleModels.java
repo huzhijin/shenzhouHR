@@ -1,5 +1,6 @@
 package com.szsemicon.hr.people.domain;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -89,7 +90,7 @@ public final class PeopleModels {
 
     public record ImportBatch(
             String batchId,
-            String legalEntityId,
+            String companyId,
             TemplateType templateType,
             String templateVersion,
             BatchStatus status,
@@ -135,7 +136,7 @@ public final class PeopleModels {
     public record Publication(
             String publicationId,
             String batchId,
-            String legalEntityId,
+            String companyId,
             TemplateType templateType,
             String templateVersion,
             String fileSha256,
@@ -161,7 +162,7 @@ public final class PeopleModels {
     public record OrganizationVersion(
             String organizationVersionId,
             String organizationId,
-            String legalEntityId,
+            String companyId,
             String parentOrganizationId,
             String code,
             String name,
@@ -181,7 +182,7 @@ public final class PeopleModels {
     public record EmployeeVersion(
             String employeeVersionId,
             String employeeId,
-            String legalEntityId,
+            String companyId,
             String employeeNumber,
             String displayName,
             String status,
@@ -226,7 +227,10 @@ public final class PeopleModels {
             String actorId,
             Instant occurredAt,
             String requestId,
-            long rowVersion) {
+            long rowVersion,
+            java.math.BigDecimal amountYears,
+            String conversionBasis,
+            Integer conversionVersion) {
     }
 
     public record PriorServiceReplay(
@@ -234,7 +238,9 @@ public final class PeopleModels {
             int totalDays,
             int recordCount,
             String replayDigest,
-            Instant recalculatedAt) {
+            Instant recalculatedAt,
+            BigDecimal totalYears,
+            Integer completeMonths) {
     }
 
     public record IdempotencyRecord(

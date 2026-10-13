@@ -1,0 +1,99 @@
+# 宝塔终端整段粘贴。发布包先传到 /root/shenzhouhr-release-20260821-pin-ot-roster.tar.gz
+# MySQL root 仅用于备份和花名册切换脚本。不要覆盖 /opt/shenzhouhr/start-prod.sh
+
+set -euo pipefail
+cd /root
+test -f /root/shenzhouhr-release-20260821-pin-ot-roster.tar.gz
+
+export COPYFILE_DISABLE=1
+tar --no-same-owner -xzf /root/shenzhouhr-release-20260821-pin-ot-roster.tar.gz
+test -f /root/shenzhouhr-release-20260821-pin-ot-roster/backend/shenzhou-hr.jar
+test -f /root/shenzhouhr-release-20260821-pin-ot-roster/web/index.html
+test -f /root/shenzhouhr-release-20260821-pin-ot-roster/db/roster-org-sync-cutover.sql
+
+mkdir -p /opt/shenzhouhr/backups /opt/shenzhouhr/logs
+TS=$(date +%Y%m%d%H%M%S)
+
+echo '==== 1. 备份数据库 ===='
+mysqldump -uroot -p'e0e17f3df673a9f8' --single-transaction --routines --triggers \
+  shenzhou_hr > /opt/shenzhouhr/backups/shenzhou_hr-before-20260821-$TS.sql
+ls -lh /opt/shenzhouhr/backups/shenzhou_hr-before-20260821-$TS.sql
+test -s /opt/shenzhouhr/backups/shenzhou_hr-before-20260821-$TS.sql
+
+echo '==== 2. 备份现网 jar / 前端 ===='
+cp -a /opt/shenzhouhr/app/shenzhou-hr.jar \
+  /opt/shenzhouhr/backups/shenzhou-hr.jar.before-20260821-$TS
+tar -czf /opt/shenzhouhr/backups/web-192.168.160.226-$TS.tar.gz \
+  -C /www/wwwroot 192.168.160.226
+
+echo '==== 3. 停后端 ===='
+pkill -15 -f 'shenzhou-hr.jar' || true
+sleep 3
+pkill -9 -f 'shenzhou-hr.jar' || true
+sleep 1
+if pgrep -f 'shenzhou-hr.jar' >/dev/null; then
+  echo '失败：进程仍在'
+  pgrep -af 'shenzhou-hr.jar'
+  exit 1
+fi
+ss -lptn | grep 9090 || echo '9090 已空闲'
+
+echo '==== 4. 覆盖 jar 和前端 ===='
+cp -f /root/shenzhouhr-release-20260821-pin-ot-roster/backend/shenzhou-hr.jar \
+  /opt/shenzhouhr/app/shenzhou-hr.jar
+rsync -a --delete /root/shenzhouhr-release-20260821-pin-ot-roster/web/ \
+  /www/wwwroot/192.168.160.226/
+ls -lh /opt/shenzhouhr/app/shenzhou-hr.jar
+test -f /www/wwwroot/192.168.160.226/index.html
+
+echo '==== 5. 启动（让 Flyway 跑 V53-V55） ===='
+LOG=/opt/shenzhouhr/logs/shenzhouhr.log
+touch "$LOG"
+START_LINE=$(wc -l < "$LOG")
+if [[ -x /opt/shenzhouhr/start-prod.sh ]]; then
+  /opt/shenzhouhr/start-prod.sh
+else
+  /opt/shenzhouhr/conf/start-prod.sh
+fi
+
+echo '==== 6. 等待启动 ===='
+for i in $(seq 1 24); do
+  NEW=$(sed -n "$((START_LINE+1)),\$p" "$LOG" || true)
+  if printf '%s\n' "$NEW" | grep -a 'Started ShenzhouHrApplication' >/dev/null; then
+    echo "已启动，约 $((i*5))s"
+    break
+  fi
+  if printf '%s\n' "$NEW" | grep -a 'APPLICATION FAILED TO START' >/dev/null; then
+    echo '失败：应用启动失败'
+    printf '%s\n' "$NEW" | grep -a -E 'APPLICATION FAILED TO START|Caused by:' | tail -n 20
+    exit 1
+  fi
+  echo "等待启动… $((i*5))s"
+  sleep 5
+done
+pgrep -af 'shenzhou-hr.jar' | head
+ss -lptn | grep 9090 || true
+sed -n "$((START_LINE+1)),\$p" "$LOG" | grep -a -E 'Started ShenzhouHrApplication|Migrating schema to version|APPLICATION FAILED' | tail -n 40
+
+echo '==== 7. 核对 Flyway ===='
+mysql -uroot -p'e0e17f3df673a9f8' -N -e "
+SELECT version, success, installed_on
+FROM shenzhou_hr.flyway_schema_history
+WHERE version IN ('52','53','54','55')
+ORDER BY installed_rank;
+"
+
+echo '==== 8. 花名册组织树 / 免打卡切换 ===='
+mysql -uroot -p'e0e17f3df673a9f8' shenzhou_hr \
+  < /root/shenzhouhr-release-20260821-pin-ot-roster/db/roster-org-sync-cutover.sql
+
+echo '==== 9. 抽查 ===='
+mysql -uroot -p'e0e17f3df673a9f8' -e "
+SHOW TABLES FROM shenzhou_hr LIKE 'punch_exemption_assignment';
+SELECT COUNT(*) AS standing_exempt FROM shenzhou_hr.punch_exemption_assignment
+  WHERE source='STANDING_LIST' AND valid_to IS NULL;
+SELECT organization_id, name FROM shenzhou_hr.organization_version
+  WHERE effective_to IS NULL AND name IN ('工程一部','MATCH组','MATCH1组');
+"
+
+echo 'PASS：文件已覆盖、Flyway 与花名册切换已执行。浏览器 Ctrl+F5；HR 管理员打开 2026-08 报表并点「重新计算」。'

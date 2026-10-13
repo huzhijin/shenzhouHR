@@ -19,6 +19,8 @@ if [[ "$(cd "${SCRIPT_DIR}/../.." && pwd -P)" != "$EXPECTED_REPOSITORY_ROOT" ]];
 fi
 # shellcheck source=lib/mysql-safety.sh
 source "${SCRIPT_DIR}/lib/mysql-safety.sh"
+# shellcheck source=lib/company-dimension-cutover.sh
+source "${SCRIPT_DIR}/lib/company-dimension-cutover.sh"
 
 ENVIRONMENT_FILE=""
 EXECUTE="false"
@@ -363,6 +365,12 @@ migration_checksum_report() {
   done < <(find "$MIGRATION_DIR" -maxdepth 1 -type f -name 'V*__*.sql' | sort)
 }
 
+verify_company_cutover_preflight() {
+  local database="$1"
+  local defaults_file="$2"
+  company_cutover_verify_v10 "$database" "$defaults_file"
+}
+
 validate_test_database() {
   require_flyway_client
   run_flyway "$TEST_DATABASE" validate
@@ -389,7 +397,8 @@ verify_migrate_noop() {
     WHERE TABLE_SCHEMA = '${database}' AND TABLE_TYPE = 'BASE TABLE';
   ")"
 
-  run_flyway "$database" migrate
+  company_cutover_verify_latest "$database" "$migrator_defaults"
+  run_flyway "$database" "-target=11" migrate
 
   after_history="$(mysql_scalar "$migrator_defaults" "$database" "
     SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1;
@@ -407,15 +416,97 @@ verify_migrate_noop() {
   log "SECOND_MIGRATE_NOOP=PASS database=${database} history=${after_history} tables=${after_tables}"
 }
 
+verify_company_dimension_contract() {
+  local database="$1"
+  local defaults_file="$2"
+  local company_table_count
+  local legacy_table_count
+  local company_column_count
+  local legacy_column_count
+  local invalid_scope_count
+  local legacy_scope_count
+  local company_scope_check_count
+  local v11_count
+  assert_exact_database "$database"
+  company_cutover_verify_latest "$database" "$defaults_file"
+
+  company_table_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = '${database}'
+      AND TABLE_NAME = 'company'
+      AND TABLE_TYPE = 'BASE TABLE';
+  ")"
+  legacy_table_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = '${database}'
+      AND TABLE_NAME = 'legal_entity';
+  ")"
+  company_column_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = '${database}'
+      AND COLUMN_NAME = 'company_id'
+      AND TABLE_NAME IN (
+        'company', 'employee', 'organization_identity', 'auth_data_scope',
+        'people_import_batch', 'people_import_publication', 'location',
+        'shift_template', 'work_calendar', 'attendance_group',
+        'attendance_policy_scope', 'attendance_source', 'source_device',
+        'device_person_binding', 'attendance_evidence_subject_lock',
+        'raw_attendance_fact', 'effective_attendance_event',
+        'duplicate_review_group', 'evidence_interval_slice',
+        'attendance_recalculation_intent', 'punch_mapping_profile',
+        'punch_import_batch', 'punch_import_file',
+        'attendance_report_projection', 'attendance_report_daily_fact',
+        'attendance_report_oa_fact', 'attendance_report_exception_fact',
+        'attendance_report_time_account_fact', 'attendance_report_export_job'
+      );
+  ")"
+  legacy_column_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = '${database}'
+      AND COLUMN_NAME = 'legal_entity_id';
+  ")"
+  invalid_scope_count="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*) FROM auth_data_scope
+    WHERE scope_type NOT IN ('COMPANY', 'ORGANIZATION', 'SELF');
+  ")"
+  legacy_scope_count="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*) FROM auth_data_scope
+    WHERE scope_type = 'LEGAL_ENTITY';
+  ")"
+  company_scope_check_count="$(mysql_scalar "$defaults_file" "" "
+    SELECT COUNT(*) FROM information_schema.CHECK_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = '${database}'
+      AND CONSTRAINT_NAME = 'ck_auth_scope_target'
+      AND UPPER(CHECK_CLAUSE) LIKE '%COMPANY%'
+      AND LOWER(CHECK_CLAUSE) LIKE '%company_id%';
+  ")"
+  v11_count="$(mysql_scalar "$defaults_file" "$database" "
+    SELECT COUNT(*) FROM flyway_schema_history
+    WHERE version = '11' AND type = 'SQL' AND success = 1;
+  ")"
+
+  [[ "$company_table_count" == "1" && "$legacy_table_count" == "0" ]] \
+    || fail "Latest schema does not expose exactly one company table."
+  [[ "$company_column_count" == "29" && "$legacy_column_count" == "0" ]] \
+    || fail "Latest schema does not expose the complete company_id boundary."
+  [[ "$invalid_scope_count" == "0" && "$legacy_scope_count" == "0" ]] \
+    || fail "Latest schema contains a non-company authorization scope value."
+  [[ "$company_scope_check_count" == "1" ]] \
+    || fail "Latest company authorization scope check is missing."
+  [[ "$v11_count" == "1" ]] || fail "V11 company migration is not successful."
+  log "COMPANY_DIMENSION_CONTRACT=PASS database=${database} company_columns=${company_column_count} scopes=COMPANY,ORGANIZATION,SELF"
+}
+
 migrate_fresh_test_database() {
   local migrator_defaults
   local minimum_version
   require_flyway_client
   reset_test_database
   migration_checksum_report
-  run_flyway "$TEST_DATABASE" migrate
-  run_flyway "$TEST_DATABASE" validate
   migrator_defaults="$(migrator_defaults_file)"
+  company_cutover_migrate_to_v11 "$TEST_DATABASE" "$migrator_defaults"
+  run_flyway "$TEST_DATABASE" validate
+  verify_company_dimension_contract "$TEST_DATABASE" "$migrator_defaults"
   minimum_version="$(mysql_scalar "$migrator_defaults" "$TEST_DATABASE" "
     SELECT MIN(CAST(version AS UNSIGNED))
     FROM flyway_schema_history
@@ -470,8 +561,9 @@ upgrade_v2_test_database() {
     || fail "The V1/V2 checkpoint did not stop at V2."
   assert_v2_baseline_rows "$migrator_defaults"
 
-  run_flyway "$TEST_DATABASE" migrate
+  company_cutover_migrate_to_v11 "$TEST_DATABASE" "$migrator_defaults"
   run_flyway "$TEST_DATABASE" validate
+  verify_company_dimension_contract "$TEST_DATABASE" "$migrator_defaults"
   assert_v2_baseline_rows "$migrator_defaults"
   verify_migrate_noop "$TEST_DATABASE"
   log "V2_TO_LATEST_UPGRADE=PASS"
@@ -479,9 +571,12 @@ upgrade_v2_test_database() {
 }
 
 migrate_dev_database() {
+  local migrator_defaults
   require_flyway_client
-  run_flyway "$DEV_DATABASE" migrate
+  migrator_defaults="$(migrator_defaults_file)"
+  company_cutover_migrate_to_v11 "$DEV_DATABASE" "$migrator_defaults"
   run_flyway "$DEV_DATABASE" validate
+  verify_company_dimension_contract "$DEV_DATABASE" "$migrator_defaults"
   verify_migrate_noop "$DEV_DATABASE"
   log "DEV_V1_TO_LATEST_MIGRATION=PASS"
 }

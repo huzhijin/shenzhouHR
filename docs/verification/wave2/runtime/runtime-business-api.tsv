@@ -1,0 +1,103 @@
+probe	method	path	status	code	correlation_id
+admin-login	POST	/api/v1/auth/login	200		bbfacc20-ffb1-4c86-a492-782b96d3e1ca
+unauthenticated-people	GET	/api/v1/people-imports	401	AUTHENTICATION_REQUIRED	dc2bb304-711a-4a42-a0f8-6df38964c15f
+unknown-employee	GET	/api/v1/employees/00000000-0000-0000-0000-000000000099	404	RESOURCE_NOT_AVAILABLE	84f60410-bc03-4c7b-b8d5-cf844ad007d1
+cross-scope-batch-create	POST	/api/v1/people-imports	404	RESOURCE_NOT_AVAILABLE	e5ef7fa7-ded1-489f-91d3-30051ab9eeef
+csrf-rejected	POST	/api/v1/people-imports	403	CSRF_VALIDATION_FAILED	07d65ad7-1058-479d-9313-74583a7fba14
+roles-for-restricted-user	GET	/api/v1/access/roles	200		e985461e-0a24-440e-8ab9-10db21f54b0d
+restricted-account-create	POST	/api/v1/access/accounts	201		b6c8c735-2295-424c-a22a-d7803bd111f3
+restricted-login	POST	/api/v1/auth/login	200		0ffb30ab-b0c5-4af0-8386-90f53d4ece53
+capability-denied	GET	/api/v1/people-imports	403	ACCESS_DENIED	d07d5f76-0f07-4143-b58e-7876c47842a3
+template-catalog	GET	/api/v1/people-imports/templates?page=0&size=20	200		3fb09927-a21a-45d9-9a19-e800d6d9a5f4
+local-root-organization-create	POST	/api/v1/organization-units	201	W2ROOTXM8I0BB61873	373df1c0-3c8b-41c5-928f-19cec970d32c
+local-child-organization-create	POST	/api/v1/organization-units	201	W2DEPTXM8I0BB61873	8caee507-f0d3-43f0-ab8b-1b6ef7dc5c7f
+local-child-organization-update	PATCH	/api/v1/organization-units/8727f045-1b97-4fcc-81f8-8cc774f98af6	200	W2DEPTXM8I0BB61873	1ac26cc1-476e-4724-8b29-c87472023b8a
+local-child-organization-stale	PATCH	/api/v1/organization-units/8727f045-1b97-4fcc-81f8-8cc774f98af6	409	STALE_VERSION	066dcd6d-8c2a-4d5b-9525-3a43d9051d4c
+local-child-organization-versions	GET	/api/v1/organization-units/8727f045-1b97-4fcc-81f8-8cc774f98af6/versions?page=0&size=20	200		0c588f2d-243f-4e3c-9ac6-65b94b7d04de
+local-employee-under_test-create	POST	/api/v1/employees	201		99fe4b24-7fdb-48ad-9bc2-e628fdd66586
+local-employee-unchanged-create	POST	/api/v1/employees	201		aae4d8d1-ddb9-47ac-97ba-5525c1b7829d
+local-employee-conflict_a-create	POST	/api/v1/employees	201		85b7d3ab-e3d1-4c55-ae10-966546708281
+local-employee-conflict_b-create	POST	/api/v1/employees	201		3539545e-c4c7-46d8-b6d6-b89de350a4c9
+local-employee-update	PATCH	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8	200		ddf4c9fe-020d-469e-bdcd-3bd0412d5818
+local-employee-versions	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/versions?page=0&size=20	200		d26e6d97-4de4-4937-b3de-0e65ca89bc36
+employee-before-first-period	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8	200		e70095c6-ff21-42c1-b16d-178aac9101b7
+employment-first-period	POST	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/employment-periods	201		77f4fd53-b07e-4991-bee0-602acd4cbc0e
+employee-before-rehire	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8	200		41aad942-dce7-4787-bf70-ae4fdddce6ba
+employment-rehire-period	POST	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/employment-periods	201		75291618-4dfe-42e0-9f9c-739c13f2e0ad
+employee-before-overlap	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8	200		50059b8c-7a23-43bd-82a0-65656358648a
+employment-overlap-rejected	POST	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/employment-periods	409	EMPLOYMENT_PERIOD_OVERLAP	cd8ea978-9f97-4b29-803c-f73067d1cad2
+employment-history-query	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/employment-periods?page=0&size=20	200		99922eaf-7102-4c1f-9c41-b4e831c9fed9
+employment-gap-query	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/employment-periods?asOf=2021-01-15&page=0&size=20	200		0289de6a-8bdd-44ba-ba5f-d6c71c2d580c
+employment-termination-day-query	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/employment-periods?asOf=2026-07-25&page=0&size=20	200		03898890-f310-47c0-ac11-0b8a2c4cb098
+employment-day-after-query	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/employment-periods?asOf=2026-07-26&page=0&size=20	200		f158a5ee-c890-4e43-8186-cd330ebbd7a4
+employee-before-prior-service	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8	200		b579185c-48ac-4a76-b6f0-f163f7d41fda
+prior-service-adjustment	POST	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/prior-service-adjustments	201		7c9e85e3-084c-4e60-b56a-6e069fa7530d
+employee-before-recalculate	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8	200		00ad5573-558e-4360-a5a0-23951a39d40a
+prior-service-recalculate-one	POST	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/prior-service/recalculate	200		d62f01bc-806b-4aa2-bac3-1d6e2a64d686
+employee-before-second-recalculate	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8	200		e96a9cdb-8b4c-4357-ab1a-492d1ae152de
+prior-service-recalculate-two	POST	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/prior-service/recalculate	200		9fa5fd38-3d57-4caa-8776-8ba7b3f22845
+prior-service-records	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8/prior-service-records?page=0&size=20	200		4fdc59a4-f145-476a-a9a6-b98953d08923
+download-organization-template	GET	/api/v1/people-imports/templates/ORGANIZATION/versions/1.0.0	200		e9fa165a-d164-424c-9317-0c48a5a7ba32
+organization-rollback-batch-create	POST	/api/v1/people-imports	201		8af3f590-014d-4267-87ec-772cd2f08c62
+organization-rollback-upload	PUT	/api/v1/people-imports/eb733f46-02ee-49b7-8781-8c430d6b01e3/file	200		6858e9a3-50fc-478a-8aa3-a3601c6dd1e8
+organization-rollback-after-upload	GET	/api/v1/people-imports/eb733f46-02ee-49b7-8781-8c430d6b01e3	200		f515f13e-a835-4f67-b5e8-a68ce1df43f7
+organization-rollback-mapping	PUT	/api/v1/people-imports/eb733f46-02ee-49b7-8781-8c430d6b01e3/mapping	200		da8c0961-89c7-488b-b18e-50a3f13c6a39
+organization-rollback-precheck	POST	/api/v1/people-imports/eb733f46-02ee-49b7-8781-8c430d6b01e3/precheck	202		ad006158-3b85-457d-9ba7-e2e0cccf8bc5
+publish-eb733f46-02ee-49b7-8781-8c430d6b01e3-0bb61873	POST	/api/v1/people-imports/eb733f46-02ee-49b7-8781-8c430d6b01e3/publish	200		ca413a7f-b906-4791-971f-d6f73587a151
+organization-published-batch	GET	/api/v1/people-imports/eb733f46-02ee-49b7-8781-8c430d6b01e3	200		4828a717-6438-432f-88b7-481f689e83e0
+organization-import-rollback	POST	/api/v1/people-imports/eb733f46-02ee-49b7-8781-8c430d6b01e3/rollback	201		366460ab-df26-4af4-9062-7d830f2b392f
+organization-local-maintenance-batch-create	POST	/api/v1/people-imports	201		b9f23e19-b888-4f13-b1b7-c4db55db7db2
+organization-local-maintenance-upload	PUT	/api/v1/people-imports/70de3659-4174-4720-ae6a-51ca3e496b32/file	200		033069c1-8d6e-40dc-bdc1-9f96cbaabc78
+organization-local-maintenance-after-upload	GET	/api/v1/people-imports/70de3659-4174-4720-ae6a-51ca3e496b32	200		35018ea1-2d40-450e-8246-5d3c53c52563
+organization-local-maintenance-mapping	PUT	/api/v1/people-imports/70de3659-4174-4720-ae6a-51ca3e496b32/mapping	200		7fed546d-1080-48ed-9507-e212402c93a4
+organization-local-maintenance-precheck	POST	/api/v1/people-imports/70de3659-4174-4720-ae6a-51ca3e496b32/precheck	202		7762e029-819f-45bc-82cd-12262086377f
+publish-70de3659-4174-4720-ae6a-51ca3e496b32-0bb61873	POST	/api/v1/people-imports/70de3659-4174-4720-ae6a-51ca3e496b32/publish	200		a30c6c76-b682-4996-8b17-b9ae44201412
+organization-maintenance-published-batch-before-local-edit	GET	/api/v1/people-imports/70de3659-4174-4720-ae6a-51ca3e496b32	200		5195c7f5-d99e-4144-b0b6-7979f9286c3f
+imported-organization-query-by-code	GET	/api/v1/organization-units?includeInactive=true	200		4ad9cbf8-cb9d-4e5d-9e2f-c5b60302c534
+imported-organization-detail	GET	/api/v1/organization-units/c2836f51-c64c-4cdb-82ac-f6ef4d82a870	200	W2IMPMAINTXM8I0BB61873	6312e89a-a4c0-4204-a2fb-4d0cc14d9571
+imported-organization-local-update	PATCH	/api/v1/organization-units/c2836f51-c64c-4cdb-82ac-f6ef4d82a870	200	W2IMPMAINTXM8I0BB61873	0ec694c8-5296-4a50-b6bf-a9f549960b55
+imported-organization-versions	GET	/api/v1/organization-units/c2836f51-c64c-4cdb-82ac-f6ef4d82a870/versions?page=0&size=20	200		dab3049b-82d4-4bbb-a6d9-ec28eef3d05b
+imported-organization-audit-events	GET	/api/v1/access/audit-events?resourceType=ORGANIZATION&resourceId=c2836f51-c64c-4cdb-82ac-f6ef4d82a870&page=0&size=100	200		9048dfba-c646-44c1-93a9-52789bf774d3
+organization-maintenance-published-batch-after-local-edit	GET	/api/v1/people-imports/70de3659-4174-4720-ae6a-51ca3e496b32	200		19b2548f-ee78-4fe4-8217-9e88485eea2d
+download-employee-template	GET	/api/v1/people-imports/templates/EMPLOYEE/versions/1.0.0	200		4d5111f5-2fb4-4307-abb7-059389a230a9
+employee-clean-first-batch-create	POST	/api/v1/people-imports	201		b7f8161a-65dc-4885-9c60-64e54030ab16
+employee-clean-first-upload	PUT	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e/file	200		0151cc28-476f-40b0-bcb9-c1e68407c9fc
+employee-clean-first-after-upload	GET	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e	200		419be488-7286-47a7-abe0-f2b56cabda7c
+employee-clean-first-mapping	PUT	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e/mapping	200		d0c82a8c-0e40-49ee-9864-6c0cd653b9d4
+employee-clean-first-precheck	POST	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e/precheck	202		f1faae30-165d-410e-84c5-f85f20b98a41
+publish-c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e-0bb61873	POST	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e/publish	200		89a4a217-cbb4-491e-ae53-d4c6deea1e7e
+publish-c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e-0bb61873	POST	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e/publish	200		60a64b32-9f42-4dc3-a51c-402e6a0be24b
+employee-clean-second-batch-create	POST	/api/v1/people-imports	201		3e7ea0cf-1820-401b-8930-f716f5d05c22
+employee-clean-second-upload	PUT	/api/v1/people-imports/1d9958c4-10c2-401a-af1c-f4148c539bd0/file	200		d7d6b0dd-9197-40cd-9777-89c2b961a64c
+employee-clean-second-after-upload	GET	/api/v1/people-imports/1d9958c4-10c2-401a-af1c-f4148c539bd0	200		0a63b89f-fee5-45a8-9dd6-86478bcc5000
+employee-clean-second-mapping	PUT	/api/v1/people-imports/1d9958c4-10c2-401a-af1c-f4148c539bd0/mapping	200		1e51fab9-ddcc-4746-a189-618cfa8655d3
+employee-clean-second-precheck	POST	/api/v1/people-imports/1d9958c4-10c2-401a-af1c-f4148c539bd0/precheck	202		94f978d3-6e77-4fca-87e7-b98160ed8b7d
+publish-1d9958c4-10c2-401a-af1c-f4148c539bd0-0bb61873	POST	/api/v1/people-imports/1d9958c4-10c2-401a-af1c-f4148c539bd0/publish	200		b1b19847-2deb-480a-acee-7471deab5678
+imported-employee-search	GET	/api/v1/employees?page=0&size=20&query=W2IMPEMPXM8I0BB61873	200		43b7ded8-ef28-431e-8850-854602eb8093
+imported-employee-detail	GET	/api/v1/employees/8511deda-5e9f-4fb3-ba63-68e64cf92ad6	200		f5d9bd10-14c9-45b3-93e2-28950a838929
+employee-published-batch-before-local-edit	GET	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e	200		d4153b00-10a8-4ebc-8ce4-14310dc2415f
+imported-employee-local-update	PATCH	/api/v1/employees/8511deda-5e9f-4fb3-ba63-68e64cf92ad6	200		2258e08b-9e47-4897-9b19-e376ffb6937d
+employee-published-batch-after-local-edit	GET	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e	200		e83f66b1-3dee-45a0-acfd-189005c8e6a0
+employee-import-rollback-later-version	POST	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e/rollback	409	PEOPLE_IMPORT_ROLLBACK_NOT_LATEST	802eff2f-6e59-49e7-9b57-6c75d2f6dff1
+published-batch-delete-rejected	DELETE	/api/v1/people-imports/c9ea8b9e-a42e-45d5-88be-5c0e21db6f4e	405		ce87ca1f-39a0-4462-b71a-f1bece83cbe9
+draft-void-batch-create	POST	/api/v1/people-imports	201		94dea95b-a56d-423b-8916-0a5add6d64c9
+draft-batch-void	POST	/api/v1/people-imports/47ead423-02ee-49a8-bbd8-808e69dd3e3c/void	200		9a79c00a-f731-4c8e-a0d9-2f9d50e415d3
+voided-batch-still-readable	GET	/api/v1/people-imports/47ead423-02ee-49a8-bbd8-808e69dd3e3c	200		3e41e6f1-8298-40d0-b7b4-2bca370b9cba
+five-category-current-employee	GET	/api/v1/employees/c6d261dc-6198-4f37-9e7b-e55e165775c8	200		2e583dad-6318-44ac-ad97-c42d28844043
+five-category-unchanged-employee	GET	/api/v1/employees/a678d565-15c5-4fb9-b896-c174f97f9f7d	200		ef2920e8-9e62-4085-bf83-e1839dabbd6b
+five-category-conflict-a	GET	/api/v1/employees/634acb69-33a2-4d88-a9f6-576e266b10a6	200		bfa8a26d-b189-4bb1-b911-5dab6f8335e2
+five-category-conflict-b	GET	/api/v1/employees/4dc78e69-54d5-478e-9381-cb0365f204b0	200		5ed37661-2627-42bd-9a88-d0ad2bdba805
+employee-five-category-batch-create	POST	/api/v1/people-imports	201		70c4aa64-7387-4fc9-9a6a-59e68c45d865
+employee-five-category-upload	PUT	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/file	200		5d6a79e4-53dd-47de-a2e5-d743970b87fc
+employee-five-category-after-upload	GET	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4	200		934e3fad-b1b4-466d-84c8-29cf1c92a39a
+employee-five-category-mapping	PUT	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/mapping	200		4842fff3-f234-42ea-b82f-9f5ebbf1221f
+employee-five-category-precheck	POST	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/precheck	202		73745578-45c9-4885-9431-c1327e33ae95
+five-category-diff-added	GET	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/diff?page=0&size=20&category=ADDED	200		77780a0b-7061-4da3-9074-070fc5dcc361
+five-category-diff-updated	GET	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/diff?page=0&size=20&category=UPDATED	200		10a0461b-65f5-4d92-a966-f0997f81dc3c
+five-category-diff-unchanged	GET	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/diff?page=0&size=20&category=UNCHANGED	200		b188733c-1f24-41f4-b6aa-8b04bb6e47c4
+five-category-diff-conflict	GET	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/diff?page=0&size=20&category=CONFLICT	200		151b2fc8-76a5-4a82-a946-a2712355a013
+five-category-diff-error	GET	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/diff?page=0&size=20&category=ERROR	200		ae0f4ced-7ae4-4a02-86bc-78e10b8be4a1
+five-category-issues	GET	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/errors?page=0&size=20	200		45487931-d2fe-4b44-93d4-e4b70e91cc83
+five-category-error-report	GET	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/error-report	200		fd35cc2c-f70a-4cf6-9f46-43a0413db0c8
+five-category-publish-blocked	POST	/api/v1/people-imports/fd2b36c4-00be-416a-8c8b-aa07ab3840e4/publish	409	PEOPLE_IMPORT_PRECHECK_REQUIRED	243cdb50-126d-4c6b-9c1b-8aa99d0d1c18
+employee-audit-events	GET	/api/v1/access/audit-events?resourceType=EMPLOYEE&resourceId=c6d261dc-6198-4f37-9e7b-e55e165775c8&page=0&size=100	200		38a960ff-5d22-4dd7-ad8f-27588757e81a

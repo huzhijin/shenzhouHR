@@ -8,7 +8,7 @@
                account.normalized_username, account.display_name, account.status,
                account.first_password_change_required, account.locked_until,
                account.last_login_at, account.session_epoch, account.row_version,
-               employee.legal_entity_id
+               employee.company_id
         FROM local_account account
         JOIN auth_principal principal ON principal.principal_id = account.principal_id
         LEFT JOIN employee ON employee.employee_id = principal.employee_id
@@ -20,10 +20,24 @@
         WHERE account.normalized_username = #{normalizedUsername}
     </select>
 
+    <select id="lockAccountByNormalizedUsername"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.AccountRow">
+        <include refid="accountColumns"/>
+        WHERE account.normalized_username = #{normalizedUsername}
+        FOR UPDATE
+    </select>
+
     <select id="findAccountById"
             resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.AccountRow">
         <include refid="accountColumns"/>
         WHERE account.account_id = #{accountId}
+    </select>
+
+    <select id="lockAccountById"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.AccountRow">
+        <include refid="accountColumns"/>
+        WHERE account.account_id = #{accountId}
+        FOR UPDATE
     </select>
 
     <select id="findAccountByPrincipalId"
@@ -37,6 +51,14 @@
         SELECT account_id, password_hash, row_version
         FROM password_credential
         WHERE account_id = #{accountId}
+    </select>
+
+    <select id="lockCredential"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.CredentialRow">
+        SELECT account_id, password_hash, row_version
+        FROM password_credential
+        WHERE account_id = #{accountId}
+        FOR UPDATE
     </select>
 
     <select id="findFailure"
@@ -74,5 +96,15 @@
         WHERE token_digest = #{digest}
           AND used_at IS NULL
           AND expires_at &gt; #{at}
+    </select>
+
+    <select id="lockActiveResetGrant"
+            resultType="com.szsemicon.hr.identityaccess.infrastructure.persistence.ResetGrantRow">
+        SELECT grant_id, account_id, expires_at, used_at, row_version
+        FROM password_reset_grant
+        WHERE token_digest = #{digest}
+          AND used_at IS NULL
+          AND expires_at &gt; #{at}
+        FOR UPDATE
     </select>
 </mapper>

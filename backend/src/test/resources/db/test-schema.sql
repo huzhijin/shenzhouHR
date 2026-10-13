@@ -1,5 +1,5 @@
-CREATE TABLE legal_entity (
-    legal_entity_id VARCHAR(36) PRIMARY KEY,
+CREATE TABLE company (
+    company_id VARCHAR(36) PRIMARY KEY,
     code VARCHAR(64) NOT NULL UNIQUE,
     name VARCHAR(200) NOT NULL,
     status VARCHAR(32) NOT NULL,
@@ -34,16 +34,26 @@ CREATE TABLE auth_capability (
 CREATE TABLE auth_data_scope (
     scope_id VARCHAR(36) PRIMARY KEY,
     scope_type VARCHAR(32) NOT NULL,
-    legal_entity_id VARCHAR(36),
+    company_id VARCHAR(36),
     organization_id VARCHAR(36),
     include_descendants BOOLEAN NOT NULL,
     valid_from TIMESTAMP NOT NULL,
-    valid_to TIMESTAMP
+    valid_to TIMESTAMP,
+    CONSTRAINT fk_test_auth_scope_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT ck_test_auth_scope_target CHECK (
+        (scope_type = 'COMPANY' AND company_id IS NOT NULL
+            AND organization_id IS NULL)
+        OR (scope_type = 'ORGANIZATION' AND company_id IS NULL
+            AND organization_id IS NOT NULL)
+        OR (scope_type = 'SELF' AND company_id IS NULL
+            AND organization_id IS NULL)
+    )
 );
 
 CREATE TABLE organization_identity (
     organization_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     identity_status VARCHAR(32) NOT NULL
 );
 ALTER TABLE organization_identity ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL;
@@ -85,9 +95,19 @@ CREATE TABLE organization_source_binding (
 
 CREATE TABLE employee (
     employee_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     display_name VARCHAR(100) NOT NULL,
     employment_status VARCHAR(32) NOT NULL
+);
+
+CREATE TABLE punch_exemption_assignment (
+    exemption_id VARCHAR(36) PRIMARY KEY,
+    employee_id VARCHAR(36) NOT NULL,
+    listed_employee_number VARCHAR(64) NOT NULL,
+    source VARCHAR(32) NOT NULL,
+    valid_from TIMESTAMP NOT NULL,
+    valid_to TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE employment_assignment (
@@ -109,6 +129,8 @@ CREATE TABLE employee_source_binding (
 -- WAVE-1 tests keep their schema explicit so H2 remains a fast contract test,
 -- while the separately required MySQL suite verifies the real Flyway DDL.
 ALTER TABLE auth_principal ADD COLUMN employee_id VARCHAR(36);
+CREATE UNIQUE INDEX uq_test_auth_principal_employee
+    ON auth_principal (employee_id);
 ALTER TABLE auth_principal ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL;
 ALTER TABLE auth_principal ADD COLUMN row_version BIGINT DEFAULT 0 NOT NULL;
 
@@ -229,7 +251,7 @@ CREATE TABLE audit_event (
     scope_digest CHAR(64),
     purpose_code VARCHAR(64),
     result_code VARCHAR(32) NOT NULL,
-    reason_code VARCHAR(64),
+    reason_code VARCHAR(1000),
     policy_version VARCHAR(64),
     before_digest CHAR(64),
     after_digest CHAR(64),
@@ -376,9 +398,17 @@ ALTER TABLE employment_assignment ADD COLUMN created_at TIMESTAMP DEFAULT CURREN
 ALTER TABLE employment_assignment ADD COLUMN version_valid_to TIMESTAMP;
 ALTER TABLE employment_assignment ADD COLUMN record_status VARCHAR(32) DEFAULT 'ACTIVE' NOT NULL;
 
+CREATE TABLE employment_period_identity (
+    employment_period_id VARCHAR(36) PRIMARY KEY,
+    employee_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (employment_period_id, employee_id, company_id)
+);
+
 CREATE TABLE people_import_batch (
     batch_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     template_type VARCHAR(32) NOT NULL,
     template_version VARCHAR(32) NOT NULL,
     status VARCHAR(32) NOT NULL,
@@ -440,7 +470,7 @@ CREATE TABLE people_import_issue (
 CREATE TABLE people_import_publication (
     publication_id VARCHAR(36) PRIMARY KEY,
     batch_id VARCHAR(36) NOT NULL UNIQUE,
-    legal_entity_id VARCHAR(36),
+    company_id VARCHAR(36),
     template_type VARCHAR(32),
     template_version VARCHAR(32),
     file_sha256 CHAR(64) NOT NULL,
@@ -451,7 +481,7 @@ CREATE TABLE people_import_publication (
     published_by VARCHAR(36) NOT NULL,
     published_at TIMESTAMP NOT NULL,
     UNIQUE (published_by, idempotency_key),
-    UNIQUE (legal_entity_id, template_type, template_version, file_sha256)
+    UNIQUE (company_id, template_type, template_version, file_sha256)
 );
 
 CREATE TABLE people_import_rollback (
@@ -516,20 +546,25 @@ CREATE TABLE prior_service_record (
     occurred_at TIMESTAMP NOT NULL,
     request_id VARCHAR(128) NOT NULL,
     row_version BIGINT DEFAULT 0 NOT NULL,
+    amount_years DECIMAL(7,2),
+    conversion_basis VARCHAR(20),
+    conversion_version INTEGER,
     UNIQUE (employee_id, request_id),
     UNIQUE (employee_id, row_version)
 );
 
 CREATE TABLE location (
     location_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_code VARCHAR(64) NOT NULL,
     row_version BIGINT DEFAULT 0 NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, location_code),
-    CONSTRAINT fk_test_location_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, location_code),
+    UNIQUE (company_id, location_id),
+    UNIQUE (company_id, location_id, location_code),
+    CONSTRAINT fk_test_location_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_location_created_by
         FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
 );
@@ -559,16 +594,89 @@ CREATE TABLE location_revision (
     CONSTRAINT ck_test_location_revision_number CHECK (revision_number > 0)
 );
 
+CREATE TABLE shared_location (
+    shared_location_id VARCHAR(36) PRIMARY KEY,
+    location_code VARCHAR(64) NOT NULL UNIQUE,
+    row_version BIGINT DEFAULT 0 NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (shared_location_id, location_code),
+    CONSTRAINT fk_test_shared_location_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
+);
+
+CREATE TABLE shared_location_revision (
+    shared_location_revision_id VARCHAR(36) PRIMARY KEY,
+    shared_location_id VARCHAR(36) NOT NULL,
+    revision_number INTEGER NOT NULL,
+    location_name VARCHAR(100) NOT NULL,
+    time_zone VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    effective_from DATE NOT NULL,
+    effective_to DATE,
+    supersedes_shared_location_revision_id VARCHAR(36),
+    snapshot_digest CHAR(64) NOT NULL,
+    change_reason VARCHAR(500) NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (shared_location_id, revision_number),
+    UNIQUE (shared_location_id, effective_from),
+    UNIQUE (supersedes_shared_location_revision_id),
+    CONSTRAINT fk_test_shared_location_revision_location
+        FOREIGN KEY (shared_location_id)
+        REFERENCES shared_location (shared_location_id),
+    CONSTRAINT fk_test_shared_location_revision_predecessor
+        FOREIGN KEY (supersedes_shared_location_revision_id)
+        REFERENCES shared_location_revision (shared_location_revision_id),
+    CONSTRAINT fk_test_shared_location_revision_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id),
+    CONSTRAINT ck_test_shared_location_revision_number
+        CHECK (revision_number > 0),
+    CONSTRAINT ck_test_shared_location_revision_status
+        CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    CONSTRAINT ck_test_shared_location_revision_period
+        CHECK (effective_to IS NULL OR effective_to > effective_from)
+);
+
+CREATE TABLE company_location_availability (
+    company_location_availability_id VARCHAR(36) PRIMARY KEY,
+    shared_location_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    location_id VARCHAR(36) NOT NULL,
+    location_code VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    effective_from DATE NOT NULL,
+    effective_to DATE,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    UNIQUE (company_id, shared_location_id),
+    UNIQUE (location_id),
+    CONSTRAINT fk_test_company_location_shared_code
+        FOREIGN KEY (shared_location_id, location_code)
+        REFERENCES shared_location (shared_location_id, location_code),
+    CONSTRAINT fk_test_company_location_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT fk_test_company_location_projection_company
+        FOREIGN KEY (company_id, location_id, location_code)
+        REFERENCES location (company_id, location_id, location_code),
+    CONSTRAINT fk_test_company_location_created_by
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id),
+    CONSTRAINT ck_test_company_location_status
+        CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    CONSTRAINT ck_test_company_location_period
+        CHECK (effective_to IS NULL OR effective_to > effective_from)
+);
+
 CREATE TABLE shift_template (
     shift_template_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_id VARCHAR(36) NOT NULL,
     template_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, template_code),
-    CONSTRAINT fk_test_shift_template_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, template_code),
+    CONSTRAINT fk_test_shift_template_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_shift_template_location
         FOREIGN KEY (location_id) REFERENCES location (location_id),
     CONSTRAINT fk_test_shift_template_created_by
@@ -601,14 +709,14 @@ CREATE TABLE shift_version (
 
 CREATE TABLE work_calendar (
     work_calendar_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     location_id VARCHAR(36) NOT NULL,
     calendar_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, calendar_code),
-    CONSTRAINT fk_test_work_calendar_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, calendar_code),
+    CONSTRAINT fk_test_work_calendar_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_work_calendar_location
         FOREIGN KEY (location_id) REFERENCES location (location_id),
     CONSTRAINT fk_test_work_calendar_created_by
@@ -668,13 +776,13 @@ CREATE TABLE work_calendar_day (
 
 CREATE TABLE attendance_group (
     attendance_group_id VARCHAR(36) PRIMARY KEY,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     group_code VARCHAR(64) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (legal_entity_id, group_code),
-    CONSTRAINT fk_test_attendance_group_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id),
+    UNIQUE (company_id, group_code),
+    CONSTRAINT fk_test_attendance_group_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
     CONSTRAINT fk_test_attendance_group_created_by
         FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
 );
@@ -902,23 +1010,25 @@ CREATE TABLE attendance_policy_template (
         CHECK (template_code IN (
             'MEAL_DEDUCTION',
             'LATE_GRACE',
-            'MONTHLY_LATE_EXEMPTION'
+            'MONTHLY_LATE_EXEMPTION',
+            'PUNCH_WINDOW',
+            'PERIOD_CLOSE'
         ))
 );
 
 CREATE TABLE attendance_policy_scope (
     scope_id VARCHAR(36) PRIMARY KEY,
     policy_template_id VARCHAR(36) NOT NULL,
-    legal_entity_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
     row_version BIGINT DEFAULT 0 NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     created_at TIMESTAMP NOT NULL,
-    UNIQUE (policy_template_id, legal_entity_id),
+    UNIQUE (policy_template_id, company_id),
     CONSTRAINT fk_test_attendance_policy_scope_template
         FOREIGN KEY (policy_template_id)
         REFERENCES attendance_policy_template (policy_template_id),
-    CONSTRAINT fk_test_attendance_policy_scope_legal_entity
-        FOREIGN KEY (legal_entity_id) REFERENCES legal_entity (legal_entity_id)
+    CONSTRAINT fk_test_attendance_policy_scope_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id)
 );
 
 CREATE TABLE attendance_policy_scoped_version (
@@ -1051,3 +1161,428 @@ CREATE TABLE attendance_setup_idempotency (
 );
 CREATE INDEX ix_test_attendance_setup_idempotency_state
     ON attendance_setup_idempotency (state, created_at);
+
+-- V76: punch_exemption_repair_receipt for H2 tests
+CREATE TABLE punch_exemption_repair_receipt (
+    receipt_id VARCHAR(64) NOT NULL,
+    request_id VARCHAR(64) NOT NULL,
+    exemption_id VARCHAR(64) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    employee_id VARCHAR(36) NOT NULL,
+    operation VARCHAR(32) NOT NULL,
+    original_valid_from TIMESTAMP(6) NOT NULL,
+    repaired_valid_from TIMESTAMP(6) NOT NULL,
+    approval_evidence_digest VARCHAR(128) NOT NULL,
+    payload_digest VARCHAR(128) NOT NULL,
+    repaired_at TIMESTAMP(6) NOT NULL,
+    repaired_by VARCHAR(64) NOT NULL,
+    before_digest VARCHAR(128) NOT NULL,
+    after_digest VARCHAR(128) NOT NULL,
+    PRIMARY KEY (receipt_id),
+    UNIQUE (request_id),
+    UNIQUE (exemption_id, operation)
+);
+CREATE INDEX ix_test_repair_receipt_repaired_at
+    ON punch_exemption_repair_receipt (repaired_at);
+CREATE INDEX ix_test_repair_receipt_employee_id
+    ON punch_exemption_repair_receipt (employee_id);
+
+-- OA evidence chain for V74/V75 H2 tests (simplified from V8/V11/V19/V48/V49)
+CREATE TABLE attendance_source (
+    attendance_source_id VARCHAR(36) PRIMARY KEY,
+    company_id VARCHAR(36) NOT NULL,
+    source_code VARCHAR(64) NOT NULL,
+    source_type VARCHAR(32) NOT NULL,
+    display_name VARCHAR(100) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    UNIQUE (company_id, source_code),
+    CONSTRAINT fk_test_att_source_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT ck_test_att_source_type
+        CHECK (source_type IN ('DELI_CLOUD', 'OA_ATTENDANCE', 'DEVICE_EXCEL', 'STANDARD_XLSX')),
+    CONSTRAINT ck_test_att_source_status
+        CHECK (status IN ('ACTIVE', 'INACTIVE'))
+);
+
+CREATE TABLE raw_attendance_fact (
+    raw_attendance_fact_id VARCHAR(36) PRIMARY KEY,
+    attendance_source_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    fact_kind VARCHAR(32) NOT NULL,
+    source_business_key VARCHAR(191) NULL,
+    source_version VARCHAR(128) NULL,
+    source_instant TIMESTAMP(6) NULL,
+    interval_start TIMESTAMP(6) NULL,
+    interval_end TIMESTAMP(6) NULL,
+    canonical_payload_digest CHAR(64) NOT NULL,
+    received_at TIMESTAMP(6) NOT NULL,
+    UNIQUE (attendance_source_id, source_business_key, source_version),
+    CONSTRAINT fk_test_raw_fact_source
+        FOREIGN KEY (attendance_source_id) REFERENCES attendance_source (attendance_source_id),
+    CONSTRAINT ck_test_raw_fact_kind
+        CHECK (fact_kind IN ('PUNCH_POINT', 'OA_DOCUMENT', 'REVERSAL')),
+    CONSTRAINT ck_test_raw_fact_temporal CHECK (
+        (source_instant IS NOT NULL AND interval_start IS NULL AND interval_end IS NULL)
+        OR (source_instant IS NULL AND interval_start IS NOT NULL AND interval_end IS NOT NULL)
+    )
+);
+
+CREATE TABLE normalized_attendance_record (
+    normalized_attendance_record_id VARCHAR(36) PRIMARY KEY,
+    raw_attendance_fact_id VARCHAR(36) NOT NULL,
+    normalization_revision INT NOT NULL,
+    schema_version VARCHAR(32) NOT NULL DEFAULT 'V1',
+    record_kind VARCHAR(32) NOT NULL DEFAULT 'OA_INTERVAL',
+    validation_status VARCHAR(32) NOT NULL,
+    interval_start TIMESTAMP(6) NULL,
+    interval_end TIMESTAMP(6) NULL,
+    canonical_digest CHAR(64) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    UNIQUE (raw_attendance_fact_id, normalization_revision),
+    CONSTRAINT fk_test_normalized_raw
+        FOREIGN KEY (raw_attendance_fact_id) REFERENCES raw_attendance_fact (raw_attendance_fact_id),
+    CONSTRAINT ck_test_normalized_revision CHECK (normalization_revision > 0),
+    CONSTRAINT ck_test_normalized_status
+        CHECK (validation_status IN ('VALID', 'INVALID', 'QUARANTINED')),
+    CONSTRAINT ck_test_normalized_kind
+        CHECK (record_kind IN ('PUNCH_POINT', 'OA_INTERVAL', 'REVERSAL'))
+);
+
+CREATE TABLE employee_match_decision (
+    employee_match_decision_id VARCHAR(36) DEFAULT RANDOM_UUID() PRIMARY KEY,
+    normalized_attendance_record_id VARCHAR(36) NOT NULL UNIQUE,
+    match_status VARCHAR(32) NOT NULL,
+    employee_id VARCHAR(36) NULL,
+    employment_period_id VARCHAR(36) NULL,
+    resolver_snapshot_digest CHAR(64) NOT NULL,
+    created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6) NOT NULL,
+    CONSTRAINT fk_test_employee_match_normalized
+        FOREIGN KEY (normalized_attendance_record_id)
+        REFERENCES normalized_attendance_record (normalized_attendance_record_id),
+    CONSTRAINT fk_test_employee_match_employee
+        FOREIGN KEY (employee_id) REFERENCES employee (employee_id),
+    CONSTRAINT ck_test_employee_match_status
+        CHECK (match_status IN ('MATCHED', 'UNMATCHED', 'AMBIGUOUS'))
+);
+
+CREATE TABLE oa_attendance_document (
+    oa_attendance_document_id VARCHAR(36) PRIMARY KEY,
+    attendance_source_id VARCHAR(36) NOT NULL,
+    source_business_key VARCHAR(191) NOT NULL,
+    source_version VARCHAR(128) NOT NULL,
+    document_type VARCHAR(32) NOT NULL,
+    source_status VARCHAR(32) NOT NULL,
+    normalized_attendance_record_id VARCHAR(36) NOT NULL UNIQUE,
+    knowledge_rank BIGINT NOT NULL,
+    leave_type VARCHAR(32) NULL,
+    leave_serial VARCHAR(64) NULL,
+    original_leave_serial VARCHAR(64) NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    UNIQUE (attendance_source_id, source_business_key, source_version),
+    CONSTRAINT fk_test_oa_document_source
+        FOREIGN KEY (attendance_source_id) REFERENCES attendance_source (attendance_source_id),
+    CONSTRAINT fk_test_oa_document_normalized
+        FOREIGN KEY (normalized_attendance_record_id)
+        REFERENCES normalized_attendance_record (normalized_attendance_record_id),
+    CONSTRAINT ck_test_oa_document_type CHECK (
+        document_type IN (
+            'LEAVE', 'LEAVE_REVOCATION', 'OVERTIME', 'TRIP', 'OUTING',
+            'PUNCH_CORRECTION', 'TIME_OFF', 'EXEMPT_PUNCH'
+        )
+    ),
+    CONSTRAINT ck_test_oa_document_status CHECK (
+        source_status IN (
+            'APPROVED', 'DRAFT', 'REJECTED', 'UNKNOWN',
+            'MODIFIED', 'SUPPLEMENTED', 'REVOKED'
+        )
+    ),
+    CONSTRAINT ck_test_oa_document_leave_type CHECK (
+        leave_type IS NULL OR leave_type IN (
+            'ANNUAL', 'SICK', 'MARRIAGE', 'MATERNITY', 'PATERNITY',
+            'BEREAVEMENT', 'WORK_INJURY', 'PRENATAL_NURSING',
+            'PERSONAL', 'COMPENSATORY'
+        )
+    )
+);
+
+CREATE TABLE oa_attendance_document_context (
+    oa_attendance_document_context_id VARCHAR(36) DEFAULT RANDOM_UUID() PRIMARY KEY,
+    oa_attendance_document_id VARCHAR(36) NOT NULL UNIQUE,
+    activation_decision VARCHAR(64) NOT NULL,
+    overtime_type VARCHAR(20) NULL,
+    overtime_treatment VARCHAR(32) NOT NULL DEFAULT 'DUTY_UNPAID',
+    recognized_work_minutes INT NOT NULL DEFAULT 0,
+    payroll_credit_minutes INT NOT NULL DEFAULT 0,
+    time_off_credit_minutes INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6) NOT NULL,
+    CONSTRAINT fk_test_oa_document_context_document
+        FOREIGN KEY (oa_attendance_document_id)
+        REFERENCES oa_attendance_document (oa_attendance_document_id),
+    CONSTRAINT ck_test_oa_context_decision CHECK (
+        activation_decision IN ('ACTIVATED', 'DEACTIVATED', 'NOT_APPLICABLE', 'PENDING')
+    ),
+    CONSTRAINT ck_test_oa_context_overtime_type CHECK (
+        overtime_type IS NULL OR overtime_type IN ('PAID', 'COMPENSATORY', 'VOLUNTARY')
+    ),
+    CONSTRAINT ck_test_oa_context_overtime_treatment CHECK (
+        overtime_treatment IN ('PAID', 'COMPENSATORY', 'VOLUNTARY', 'DUTY_UNPAID')
+    )
+);
+
+-- V75: attendance_report_oa_overtime_recognition (H2 simplified)
+CREATE TABLE attendance_report_oa_overtime_recognition (
+    recognition_id VARCHAR(36) PRIMARY KEY,
+    company_id VARCHAR(36) NOT NULL,
+    employee_id VARCHAR(36) NOT NULL,
+    attendance_source_id VARCHAR(36) NOT NULL,
+    source_business_key VARCHAR(191) NOT NULL,
+    source_version VARCHAR(128) NOT NULL,
+    oa_attendance_document_id VARCHAR(36) NOT NULL,
+    business_date DATE NOT NULL,
+    expected_interval_start TIMESTAMP(6) NOT NULL,
+    expected_interval_end TIMESTAMP(6) NOT NULL,
+    overtime_type VARCHAR(32) NOT NULL,
+    recognized_minutes INT NOT NULL,
+    knowledge_at TIMESTAMP(6) NOT NULL,
+    reversed_at TIMESTAMP(6) NULL,
+    reason VARCHAR(1000) NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    audit_reference VARCHAR(255) NOT NULL,
+    user_confirmation_text CLOB NOT NULL,
+    user_confirmation_sha256 CHAR(64) NOT NULL,
+    evidence_sha256 CHAR(64) NOT NULL,
+    request_id VARCHAR(36) NOT NULL,
+    reversed_by VARCHAR(36) NULL,
+    reversal_reason VARCHAR(1000) NULL,
+    reversal_request_id VARCHAR(36) NULL,
+    UNIQUE (company_id, employee_id, attendance_source_id, source_business_key,
+            source_version, oa_attendance_document_id),
+    UNIQUE (request_id, oa_attendance_document_id),
+    CONSTRAINT fk_test_oa_ot_recognition_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT fk_test_oa_ot_recognition_employee
+        FOREIGN KEY (employee_id) REFERENCES employee (employee_id),
+    CONSTRAINT fk_test_oa_ot_recognition_source
+        FOREIGN KEY (attendance_source_id) REFERENCES attendance_source (attendance_source_id),
+    CONSTRAINT fk_test_oa_ot_recognition_document
+        FOREIGN KEY (oa_attendance_document_id)
+        REFERENCES oa_attendance_document (oa_attendance_document_id),
+    CONSTRAINT fk_test_oa_ot_recognition_actor
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id),
+    CONSTRAINT ck_test_oa_ot_recognition_interval
+        CHECK (expected_interval_end > expected_interval_start),
+    CONSTRAINT ck_test_oa_ot_recognition_minutes
+        CHECK (recognized_minutes > 0 AND recognized_minutes <= 1440),
+    CONSTRAINT ck_test_oa_ot_recognition_type
+        CHECK (overtime_type IN ('PAID', 'COMPENSATORY', 'VOLUNTARY'))
+);
+
+-- V74: attendance_report_oa_evidence_exclusion (H2 simplified)
+CREATE TABLE attendance_report_oa_evidence_exclusion (
+    exclusion_id VARCHAR(36) PRIMARY KEY,
+    company_id VARCHAR(36) NOT NULL,
+    employee_id VARCHAR(36) NOT NULL,
+    attendance_source_id VARCHAR(36) NOT NULL,
+    source_business_key VARCHAR(191) NOT NULL,
+    source_version VARCHAR(128) NOT NULL,
+    oa_attendance_document_id VARCHAR(36) NOT NULL,
+    knowledge_at TIMESTAMP(6) NOT NULL,
+    reversed_at TIMESTAMP(6) NULL,
+    reason VARCHAR(1000) NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    audit_reference VARCHAR(255) NOT NULL,
+    user_confirmation_text CLOB NOT NULL,
+    user_confirmation_sha256 CHAR(64) NOT NULL,
+    evidence_sha256 CHAR(64) NOT NULL,
+    request_id VARCHAR(36) NOT NULL,
+    reversed_by VARCHAR(36) NULL,
+    reversal_reason VARCHAR(1000) NULL,
+    reversal_request_id VARCHAR(36) NULL,
+    UNIQUE (company_id, employee_id, attendance_source_id, source_business_key,
+            source_version, oa_attendance_document_id),
+    UNIQUE (request_id, oa_attendance_document_id),
+    CONSTRAINT fk_test_oa_report_exclusion_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT fk_test_oa_report_exclusion_employee
+        FOREIGN KEY (employee_id) REFERENCES employee (employee_id),
+    CONSTRAINT fk_test_oa_report_exclusion_source
+        FOREIGN KEY (attendance_source_id) REFERENCES attendance_source (attendance_source_id),
+    CONSTRAINT fk_test_oa_report_exclusion_document
+        FOREIGN KEY (oa_attendance_document_id)
+        REFERENCES oa_attendance_document (oa_attendance_document_id),
+    CONSTRAINT fk_test_oa_report_exclusion_actor
+        FOREIGN KEY (created_by) REFERENCES auth_principal (principal_id)
+);
+
+-- H2 alias for MySQL FORMAT(value, decimals) used in negative-balance queries.
+CREATE ALIAS IF NOT EXISTS FORMAT FOR "com.szsemicon.hr.shared.H2MysqlFunctions.format";
+
+-- V71: dedicated lock tables (H2 test equivalent, no ENGINE/CHARSET)
+CREATE TABLE attendance_report_publication_lock (
+    company_id   VARCHAR(36) NOT NULL,
+    period_start DATE        NOT NULL,
+    PRIMARY KEY (company_id, period_start),
+    CONSTRAINT fk_test_arpl_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id)
+);
+
+CREATE TABLE company_people_write_lock (
+    company_id VARCHAR(36) NOT NULL,
+    PRIMARY KEY (company_id),
+    CONSTRAINT fk_test_cpwl_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id)
+);
+
+-- V5 derived current-version marker; use generated column, not a constant.
+ALTER TABLE employment_assignment ADD COLUMN current_version_marker TINYINT
+    GENERATED ALWAYS AS (CASE WHEN version_valid_to IS NULL THEN 1 ELSE NULL END);
+
+-- V17 time_account + V57 negative-balance fix (no non-negative constraint).
+ALTER TABLE employee ADD CONSTRAINT uq_test_time_account_employee_company
+    UNIQUE (employee_id, company_id);
+
+CREATE TABLE time_account (
+    time_account_id VARCHAR(36) PRIMARY KEY,
+    employee_id VARCHAR(36) NOT NULL,
+    employment_period_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    account_type VARCHAR(32) NOT NULL,
+    account_year SMALLINT NOT NULL,
+    balance_hours DECIMAL(12,2) NOT NULL DEFAULT 0,
+    policy_version_id VARCHAR(96) NOT NULL,
+    row_version BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP(6) NOT NULL,
+    updated_at TIMESTAMP(6) NOT NULL,
+    CONSTRAINT uq_test_time_account_identity_reference
+        UNIQUE (time_account_id, employee_id, employment_period_id, company_id),
+    CONSTRAINT uq_test_time_account_employee_year
+        UNIQUE (employee_id, employment_period_id, account_type, account_year),
+    CONSTRAINT fk_test_time_account_employee_company
+        FOREIGN KEY (employee_id, company_id) REFERENCES employee (employee_id, company_id),
+    CONSTRAINT fk_test_time_account_employment_identity
+        FOREIGN KEY (employment_period_id, employee_id, company_id)
+        REFERENCES employment_period_identity (employment_period_id, employee_id, company_id),
+    CONSTRAINT ck_test_time_account_type
+        CHECK (account_type IN ('ANNUAL_LEAVE', 'TIME_OFF', 'WORK_HOURS'))
+);
+CREATE INDEX ix_test_time_account_company_year
+    ON time_account (company_id, account_year, account_type);
+
+-- V58 scheduler slot table (empty seed sufficient).
+CREATE TABLE attendance_report_auto_recalc_slot (
+    slot_id VARCHAR(36) PRIMARY KEY,
+    slot_start TIMESTAMP(6) NOT NULL,
+    deli_succeeded_at TIMESTAMP(6),
+    oa_succeeded_at TIMESTAMP(6),
+    recalc_due_at TIMESTAMP(6),
+    recalc_completed_at TIMESTAMP(6),
+    status VARCHAR(32) NOT NULL,
+    last_error VARCHAR(500),
+    CONSTRAINT uq_test_att_report_auto_recalc_slot UNIQUE (slot_start),
+    CONSTRAINT ck_test_att_report_auto_recalc_status CHECK (status IN (
+        'WAITING_SOURCES', 'SCHEDULED', 'RUNNING', 'COMPLETED', 'SKIPPED', 'FAILED'))
+);
+
+-- HR paper source tables (V78)
+CREATE TABLE attendance_hr_punch_adjustment (
+    adjustment_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    employee_id VARCHAR(36) NOT NULL,
+    business_date DATE NOT NULL,
+    on_duty_at TIMESTAMP(6) NULL,
+    off_duty_at TIMESTAMP(6) NULL,
+    day_types VARCHAR(256) NULL,
+    overtime_minutes_override INT NULL,
+    cleared_exception_types VARCHAR(256) NULL,
+    reason VARCHAR(500) NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    reversed_at TIMESTAMP(6) NULL,
+    reversed_by VARCHAR(36) NULL,
+    PRIMARY KEY (adjustment_id),
+    CONSTRAINT fk_test_hr_punch_adj_company
+        FOREIGN KEY (company_id) REFERENCES company (company_id),
+    CONSTRAINT fk_test_hr_punch_adj_employee
+        FOREIGN KEY (employee_id) REFERENCES employee (employee_id),
+    CONSTRAINT ck_test_hr_punch_adj_payload CHECK (
+        on_duty_at IS NOT NULL
+        OR off_duty_at IS NOT NULL
+        OR overtime_minutes_override IS NOT NULL
+        OR (cleared_exception_types IS NOT NULL AND cleared_exception_types <> '')
+        OR (day_types IS NOT NULL AND day_types <> '')
+    )
+);
+CREATE INDEX ix_test_hr_punch_adj_employee ON attendance_hr_punch_adjustment (employee_id, business_date, created_at);
+CREATE INDEX ix_test_hr_punch_adj_company ON attendance_hr_punch_adjustment (company_id, business_date);
+
+CREATE TABLE attendance_report_hr_paper_fact (
+    attendance_report_hr_paper_fact_id VARCHAR(36) NOT NULL,
+    attendance_report_projection_id VARCHAR(36) NOT NULL,
+    company_id VARCHAR(36) NOT NULL,
+    hr_adjustment_id VARCHAR(36) NOT NULL,
+    hr_source_kind VARCHAR(40) NOT NULL,
+    source_document_key VARCHAR(36) NOT NULL,
+    employee_id VARCHAR(36) NOT NULL,
+    employee_version_id VARCHAR(36) NOT NULL,
+    employment_period_id VARCHAR(36) NOT NULL,
+    organization_id VARCHAR(36) NOT NULL,
+    organization_version_id VARCHAR(36) NOT NULL,
+    document_type VARCHAR(32) NOT NULL,
+    leave_type_code VARCHAR(64) NULL,
+    temporal_shape VARCHAR(16) NOT NULL,
+    point_instant TIMESTAMP(6) NULL,
+    interval_start TIMESTAMP(6) NULL,
+    interval_end TIMESTAMP(6) NULL,
+    recognized_minutes INT NOT NULL,
+    recognized_minutes_by_date_json VARCHAR(4096) NULL,
+    source_status VARCHAR(32) NOT NULL,
+    source_version VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    PRIMARY KEY (attendance_report_hr_paper_fact_id),
+    CONSTRAINT uq_test_att_report_hr_paper_source
+        UNIQUE (attendance_report_projection_id, hr_adjustment_id, hr_source_kind),
+    CONSTRAINT uq_test_att_report_hr_paper_key
+        UNIQUE (attendance_report_projection_id, source_document_key),
+    CONSTRAINT fk_test_att_report_hr_paper_adjustment
+        FOREIGN KEY (hr_adjustment_id)
+        REFERENCES attendance_hr_punch_adjustment (adjustment_id),
+    CONSTRAINT fk_test_att_report_hr_paper_employee
+        FOREIGN KEY (employee_id) REFERENCES employee (employee_id),
+    CONSTRAINT fk_test_att_report_hr_paper_employee_version
+        FOREIGN KEY (employee_version_id)
+        REFERENCES employee_version (employee_version_id),
+    CONSTRAINT fk_test_att_report_hr_paper_employment
+        FOREIGN KEY (employment_period_id)
+        REFERENCES employment_assignment (assignment_id),
+    CONSTRAINT fk_test_att_report_hr_paper_organization
+        FOREIGN KEY (organization_id)
+        REFERENCES organization_identity (organization_id),
+    CONSTRAINT fk_test_att_report_hr_paper_org_version
+        FOREIGN KEY (organization_version_id)
+        REFERENCES organization_version (organization_version_id),
+    CONSTRAINT ck_test_att_report_hr_paper_kind
+        CHECK (
+            hr_source_kind IS NOT NULL
+            AND (
+                (hr_source_kind IN ('ENTRY', 'EXIT')
+                    AND document_type = 'PUNCH_CORRECTION'
+                    AND temporal_shape = 'POINT'
+                    AND point_instant IS NOT NULL
+                    AND interval_start IS NULL
+                    AND interval_end IS NULL)
+                OR (hr_source_kind LIKE 'DAY_TYPE:%'
+                    AND document_type IN ('LEAVE', 'TIME_OFF', 'OUTING', 'TRIP')
+                    AND temporal_shape = 'INTERVAL'
+                    AND point_instant IS NULL
+                    AND interval_start IS NOT NULL
+                    AND interval_end IS NOT NULL
+                    AND interval_start < interval_end)
+            )
+        ),
+    CONSTRAINT ck_test_att_report_hr_paper_status
+        CHECK (source_status = 'APPROVED' AND recognized_minutes = 0)
+);
+CREATE INDEX ix_test_att_report_hr_paper_scope
+    ON attendance_report_hr_paper_fact (attendance_report_projection_id, employee_id, interval_start);

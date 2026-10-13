@@ -6,7 +6,7 @@ import {
   IconRotate,
   IconShieldCheck,
 } from '@tabler/icons-react';
-import { Alert, Button, Input, Segmented, Space } from 'antd';
+import { Alert, Button, Input, Segmented, Select, Space } from 'antd';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
@@ -19,6 +19,7 @@ import { useAsyncResource } from '../../shared/hooks/useAsyncResource';
 import {
   PolicyEditor,
   PolicyResultTabs,
+  policyResultText,
   ScopeSelector,
 } from './PolicyComponents';
 import {
@@ -26,6 +27,7 @@ import {
   deactivatePolicy,
   getPolicyTemplate,
   getPolicyVersion,
+  listPolicyVersions,
   previewPolicyImpact,
   publishPolicy,
   rollbackPolicy,
@@ -48,8 +50,10 @@ export function PolicyVersionPage({ capabilities }: { capabilities: string[] }) 
   const { templateId = '', versionId = '' } = useParams();
   const versionLoader = useMemo(() => () => getPolicyVersion(templateId, versionId), [templateId, versionId]);
   const templateLoader = useMemo(() => () => getPolicyTemplate(templateId), [templateId]);
+  const versionsLoader = useMemo(() => () => listPolicyVersions(templateId), [templateId]);
   const versionResource = useAsyncResource(versionLoader, () => false, [templateId, versionId]);
   const templateResource = useAsyncResource(templateLoader, () => false, [templateId]);
+  const versionsResource = useAsyncResource(versionsLoader, () => false, [templateId]);
   const [draft, setDraft] = useState<PolicyVersionDetail>();
   const [activeTab, setActiveTab] = useState<ResultTab>('validation');
   const [validation, setValidation] = useState<PolicyValidationResult>();
@@ -87,6 +91,8 @@ export function PolicyVersionPage({ capabilities }: { capabilities: string[] }) 
     setProcessing(true);
     setConflictFeedback(undefined);
     try {
+      // rowVersion is an API concurrency token only. Keep it out of labels,
+      // tables and confirmations so policy owners work with business versions.
       const saved = await updateDraft(templateId, versionId, {
         effectiveFrom: currentVersion.effectiveFrom,
         effectiveTo: currentVersion.effectiveTo,
@@ -128,8 +134,8 @@ export function PolicyVersionPage({ capabilities }: { capabilities: string[] }) 
   };
 
   if (versionResource.resource.status === 'loading' || templateResource.resource.status === 'loading') return <StatePanel state="loading" />;
-  if ('error' in versionResource.resource) return <StatePanel state={versionResource.resource.status} description={versionResource.resource.error.message} onRetry={versionResource.reload} />;
-  if ('error' in templateResource.resource) return <StatePanel state={templateResource.resource.status} description={templateResource.resource.error.message} onRetry={templateResource.reload} />;
+  if ('error' in versionResource.resource) return <StatePanel state={versionResource.resource.status} description={policyResultText(versionResource.resource.error.message)} onRetry={versionResource.reload} />;
+  if ('error' in templateResource.resource) return <StatePanel state={templateResource.resource.status} description={policyResultText(templateResource.resource.error.message)} onRetry={templateResource.reload} />;
   if (versionResource.resource.status !== 'ready' || templateResource.resource.status !== 'ready' || !currentVersion) return <StatePanel state="404" />;
   const template = templateResource.resource.data;
   const editable = currentVersion.status === 'DRAFT' && capabilities.includes('POLICY:EDIT');
@@ -190,7 +196,14 @@ export function PolicyVersionPage({ capabilities }: { capabilities: string[] }) 
             { label: t('policy.simulationAction'), value: 'simulation' },
           ]}
         />
-        <PolicyResultTabs active={activeTab} validation={validation} conflicts={conflicts} impact={impact} simulation={simulation} />
+        <PolicyResultTabs
+          active={activeTab}
+          validation={validation}
+          conflicts={conflicts}
+          impact={impact}
+          simulation={simulation}
+          fieldDefinitions={template.fieldDefinitions}
+        />
       </section>
       <section className="content-surface section-spaced">
         <h2>{t('policy.versionActions')}</h2>
@@ -206,7 +219,29 @@ export function PolicyVersionPage({ capabilities }: { capabilities: string[] }) 
         title={t('policy.confirmOperation', { operation: operationLabel(operation, t) })}
         description={<>
           <p>{t('policy.operationHistoryNotice')}</p>
-          {operation === 'rollback' ? <Input aria-label={t('policy.targetVersion')} value={targetVersionId} placeholder={t('policy.targetVersionPlaceholder')} onChange={(event) => setTargetVersionId(event.target.value)} /> : null}
+          {operation === 'rollback' ? (
+            <Select
+              aria-label="恢复到历史版本"
+              value={targetVersionId || undefined}
+              placeholder="请选择历史版本"
+              loading={versionsResource.resource.status === 'loading'
+                || versionsResource.resource.status === 'partial-loading'}
+              options={versionsResource.resource.status === 'ready'
+                ? versionsResource.resource.data.items
+                  .filter((version) => (
+                    version.versionId !== currentVersion.versionId
+                    && ['PUBLISHED', 'INACTIVE'].includes(version.status)
+                  ))
+                  .map((version) => ({
+                    value: version.versionId,
+                    label: `V${version.versionNumber} · ${version.effectiveFrom} · ${
+                      version.status === 'PUBLISHED' ? '已发布' : '已停用'
+                    }`,
+                  }))
+                : []}
+              onChange={setTargetVersionId}
+            />
+          ) : null}
           <Input.TextArea aria-label={t('policy.operationReason')} value={reason} placeholder={t('policy.operationReasonPlaceholder')} onChange={(event) => setReason(event.target.value)} />
         </>}
         confirmText={t('policy.confirmOperation', { operation: operationLabel(operation, t) })}

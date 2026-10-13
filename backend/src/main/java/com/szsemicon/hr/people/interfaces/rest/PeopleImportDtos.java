@@ -27,7 +27,7 @@ final class PeopleImportDtos {
     }
 
     record CreateRequest(
-            @NotBlank String legalEntityId,
+            @NotBlank String companyId,
             @NotNull com.szsemicon.hr.people.domain.PeopleModels.TemplateType templateType,
             @NotBlank String templateVersion,
             @NotBlank @Size(min = 2, max = 500) String reason) {
@@ -112,7 +112,7 @@ final class PeopleImportDtos {
 
     record BatchView(
             String batchId,
-            String legalEntityId,
+            String companyId,
             String templateType,
             String templateVersion,
             String status,
@@ -200,7 +200,7 @@ final class PeopleImportDtos {
     static BatchView batch(ImportBatch batch, Publication publication) {
         return new BatchView(
                 batch.batchId(),
-                batch.legalEntityId(),
+                batch.companyId(),
                 batch.templateType().name(),
                 batch.templateVersion(),
                 batch.status().name(),

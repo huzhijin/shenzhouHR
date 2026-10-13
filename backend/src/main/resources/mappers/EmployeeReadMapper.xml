@@ -59,11 +59,24 @@
               AND data_scope.valid_from &lt;= #{at}
               AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
               AND (
-                  (data_scope.scope_type = 'LEGAL_ENTITY'
-                   AND data_scope.legal_entity_id = employee.legal_entity_id)
+                  (data_scope.scope_type = 'COMPANY'
+                   AND data_scope.company_id = employee.company_id)
                   OR
                   (data_scope.scope_type = 'ORGANIZATION'
                    AND current_assignment.organization_id IS NOT NULL
+                   AND EXISTS (
+                       SELECT 1
+                       FROM organization_identity scoped_organization
+                       JOIN organization_identity assigned_organization
+                         ON assigned_organization.organization_id =
+                                current_assignment.organization_id
+                        AND assigned_organization.company_id =
+                                scoped_organization.company_id
+                       WHERE scoped_organization.organization_id =
+                                data_scope.organization_id
+                         AND scoped_organization.company_id =
+                                employee.company_id
+                   )
                    AND (
                        current_assignment.organization_id = data_scope.organization_id
                        OR (data_scope.include_descendants = TRUE AND EXISTS (
@@ -84,10 +97,50 @@
                     CONCAT('%', LOWER(#{query}), '%')
                 OR LOWER(employee_at.display_name) LIKE
                     CONCAT('%', LOWER(#{query}), '%')
+                OR EXISTS (
+                    SELECT 1
+                    FROM organization_current_projection query_projection
+                    JOIN organization_version query_organization
+                      ON query_organization.organization_version_id =
+                            query_projection.current_version_id
+                     AND query_organization.organization_id =
+                            current_assignment.organization_id
+                    WHERE query_projection.organization_id =
+                            current_assignment.organization_id
+                      AND (
+                        LOWER(query_organization.name) LIKE
+                            CONCAT('%', LOWER(#{query}), '%')
+                        OR LOWER(query_organization.code) LIKE
+                            CONCAT('%', LOWER(#{query}), '%')
+                      )
+                )
             )
         </if>
         <if test="organizationId != null">
-            AND current_assignment.organization_id = #{organizationId}
+            AND (
+                current_assignment.organization_id = #{organizationId}
+                OR (
+                    #{includeDescendants} = TRUE
+                    AND EXISTS (
+                        SELECT 1
+                        FROM organization_current_closure filter_closure
+                        JOIN organization_identity selected_filter_organization
+                          ON selected_filter_organization.organization_id =
+                                filter_closure.ancestor_organization_id
+                         AND selected_filter_organization.company_id = employee.company_id
+                        JOIN organization_identity assigned_filter_organization
+                          ON assigned_filter_organization.organization_id =
+                                filter_closure.descendant_organization_id
+                         AND assigned_filter_organization.company_id = employee.company_id
+                        WHERE filter_closure.ancestor_organization_id = #{organizationId}
+                          AND filter_closure.descendant_organization_id =
+                                current_assignment.organization_id
+                    )
+                )
+            )
+        </if>
+        <if test="companyId != null">
+            AND employee.company_id = #{companyId}
         </if>
         <if test="status != null">
             AND employee_at.status = #{status}
@@ -156,5 +209,16 @@
         </choose>,
         employee.employee_id
         LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="canAccessEmployee" resultType="boolean">
+        <include refid="peopleAsOfCte"/>
+        SELECT CASE WHEN COUNT(*) &gt; 0 THEN TRUE ELSE FALSE END
+        FROM employee employee
+        JOIN employee_at ON employee_at.employee_id = employee.employee_id
+        LEFT JOIN current_assignment
+          ON current_assignment.employee_id = employee.employee_id
+        WHERE employee.employee_id = #{employeeId}
+          AND <include refid="visibilityPredicate"/>
     </select>
 </mapper>

@@ -13,14 +13,30 @@ public interface ShiftRepository {
 
     Optional<ShiftTemplate> findTemplateByIdempotency(String actorId, String idempotencyKey);
 
-    List<ShiftTemplate> listTemplates(
+    default List<ShiftTemplate> listTemplates(
             String principalId,
             String capability,
             int limit,
             int offset,
+            Instant at) {
+        return listTemplates(principalId, capability, null, limit, offset, at);
+    }
+
+    List<ShiftTemplate> listTemplates(
+            String principalId,
+            String capability,
+            String companyId,
+            int limit,
+            int offset,
             Instant at);
 
-    long countTemplates(String principalId, String capability, Instant at);
+    default long countTemplates(
+            String principalId, String capability, Instant at) {
+        return countTemplates(principalId, capability, null, at);
+    }
+
+    long countTemplates(
+            String principalId, String capability, String companyId, Instant at);
 
     void insertTemplate(ShiftTemplate template, String idempotencyKey);
 

@@ -1,0 +1,364 @@
+{
+  "createdAt": "2026-10-13T06:33:16.566504+00:00",
+  "releaseName": "shenzhouhr-release-20261013004730",
+  "sourceCommit": "4fe99a6803853b8971faa93647667824d9bba9ca",
+  "preSecondBatchSourceCommit": "a89fc2d2fb26ec4ed4e5eda7aa079a2970a80150",
+  "fileCount": 70,
+  "updatedFiles": 44,
+  "newFiles": 26,
+  "forwardPatchSha256": "80081e161ab815a11cd41a555a21f704776992fe500f536557755bcc1eb384ed",
+  "rollbackPatchSha256": "9e8b16eaafbd936038cd8562dace30c601f2bfa012e7e30fa1296862a089f8e2",
+  "rollbackRehearsalPassed": true,
+  "files": [
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/authorization/interfaces/rest/MeController.java",
+      "beforeSha256": "0109eeef4b076b782984ebeba8222357a9e515fc6dd6eda042ac76a8c349d844",
+      "afterSha256": "701a355d9b1b03a033861a326a10b02523f662c0e25f5a9987c71b4fbd771ce3"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/developmentlog/application/DevelopmentLogQueryService.java",
+      "beforeSha256": null,
+      "afterSha256": "5e1f5df78bd4bb28a1f373e14370e638842e0d26b8693c852e4da8b6bcd3b996"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/developmentlog/interfaces/rest/DevelopmentLogController.java",
+      "beforeSha256": null,
+      "afterSha256": "c818791f8d5277176987ca047b783de26128bde85b2d701ba9f80e66fb920c7f"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/identityaccess/interfaces/rest/AuthenticationController.java",
+      "beforeSha256": "4c7fe448ccd642a6c52c334e209f1f06d530dbc24b4ed4101c7620787b228617",
+      "afterSha256": "0a5648a03f6765a0d418770646f56eb180f1d317a4b6ac125bcbf0f9b2131325"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/application/PeopleCommands.java",
+      "beforeSha256": "f22d1ae8556090b23082131eb89c26014c18deacba8eeb6d1c28d4c88d721196",
+      "afterSha256": "e5fba67fbfb904fad198854193db713666d8440cc8410bb784a5022555c20545"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/application/PeopleImportService.java",
+      "beforeSha256": "c0e07cb33be655b47bdec6225d4c3580d45eea9d8a9b992bd9e6b42f7a059d07",
+      "afterSha256": "837d63bdb75eb043d019c0f54b5a20a908fe8294df1cc0150c86a4526eb37faa"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/application/PeopleManagementService.java",
+      "beforeSha256": "f940058cb281154437bda88b0e31bc9e631aa937ec19885838115e44c230a74e",
+      "afterSha256": "ebfff7307cc2d4f28859be583deb53714adb28928e45e6bd7a6688f62fabe146"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/application/PeopleRepository.java",
+      "beforeSha256": "cf4b2048b70be8d1c0e943e80d3b026019c0046a360638bc0994c43be370406f",
+      "afterSha256": "01c8a5ec8b44cd5a822d357e2a462596d7c75e07374b56c4e7e5f51d1029ea6b"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/domain/PeopleModels.java",
+      "beforeSha256": "ed878958afed839446e4b286fb80e995eaf2b4ae8d587025913f263bf4c6df12",
+      "afterSha256": "772ddd681fd380aeb3f1595bd9549113ffcf1dffbc1bb67f1f0438924edc9188"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/domain/PriorServiceLedger.java",
+      "beforeSha256": null,
+      "afterSha256": "74240e0d8fe59444d1afcd4ae9c981a98d80067025dbc9a6c205ac93e238c12e"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/infrastructure/persistence/MyBatisPeopleRepository.java",
+      "beforeSha256": "00043201043a982fc895077f49f44ab20323894b7db92eb2a0c464922b12aaa7",
+      "afterSha256": "24fa1820949eda6aa612b0fc98aa792671f5548de42f1d05e4d12cc1a69262c4"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/infrastructure/persistence/PeopleMapper.java",
+      "beforeSha256": "fefeb5fff058ef6141d51aee877b4569aeebb64ca2b691cfc62cfa0dcd6f868c",
+      "afterSha256": "e27bad4a0f61eb3fc6715d1944da2cbd1be0e8dda36523c18a806a53ed1bc1c7"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/infrastructure/persistence/PeopleRows.java",
+      "beforeSha256": "b363ccbbabdeeefe1af21b3967f8e076f1ba2230d98ee2bc3721f62f885c6899",
+      "afterSha256": "7862acaf004c27ad689d3b89fdf0a6784674e6d26d4038ca25a123510feb48cd"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/interfaces/rest/PeopleManagementController.java",
+      "beforeSha256": "81f1f5a53172da96dbd3d704836e78cababb7f8b683ce3dfdc0266570934ba9b",
+      "afterSha256": "ee7c8c7b5545f0d244d14cfa2ac46e342bf1bcdf02474f4fbff3b675c8e3e8d1"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/people/interfaces/rest/PeopleManagementDtos.java",
+      "beforeSha256": "19e30d370ad511af1b0bf61cdcd0289277ed5898410076802f6c826deac36810",
+      "afterSha256": "f6c2f38442d16c8d523989d16732eff4775778ce570f256f590fee1d74ee7e50"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/application/AttendanceReportQueryPageService.java",
+      "beforeSha256": "276934e6b984c3feb337c7a9d719c69306467c790d7a66c687e0ea131f64e1d0",
+      "afterSha256": "61c6b3aa28468b3e89cbc6d3f2230f315301c1508321698fd2735179817f2ee8"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/application/AttendanceReportSourceRepository.java",
+      "beforeSha256": "af0b350c7655bed094c194f2f9605ac045309db48ae7e6f14a06a04252feddc6",
+      "afterSha256": "a2390bf7b84f955eef33b41922f1560b6cbde37f59dc255cf0a9330645e2d60d"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/application/LeaveStatAssembler.java",
+      "beforeSha256": "9f081299bde3c004740da27eae4ff93461cf5094f47185d7ae0b4eda37f72d12",
+      "afterSha256": "a20f27c7e125cbdf68c7d84bbe5c5059c593d13574f81fb9fd91f6e3aa81ea37"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/application/QueryPageReadPort.java",
+      "beforeSha256": "f39ad5b2dacca31d0d3d0f594dda8acef0b9e655ced6aa874a2e611878b33187",
+      "afterSha256": "d5e9f7a8ede0cb20513de41ec2bd0190dc6366e46f5797f3bc1c005bac8c1527"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/application/QueryPageRows.java",
+      "beforeSha256": "c02460446b329329a5126b7a03e185afcadd00e165719e91bc8f82341788e426",
+      "afterSha256": "3d29a4b93edb46df9e3062b284eff68a7b2f57d510bc75c87625bf4c1c783677"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/application/RealtimeAttendanceReportSnapshotService.java",
+      "beforeSha256": "340ceb7f2a84454c02ae822d24b08ac68cc20a7d20b67b092beab9920165eb42",
+      "afterSha256": "b02a35ec75095ff0853105263214bfab2a37d4ac4522bf659a97de618f74b929"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/infrastructure/persistence/AttendanceReportMapper.java",
+      "beforeSha256": "f934cd7ca9f42b80c71d4d2da186b4045e6eb54aa80cb8ef2b5d94cbf1282d00",
+      "afterSha256": "e6d3704446fb2b9ed47a52016f885cec83e781debc78ed2bec4dc3e38bb81d1b"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/infrastructure/persistence/AttendanceReportQueryPageMapper.java",
+      "beforeSha256": "c531e2e4c28fbe6877bd4c8bfbd4e154e534f6ceddf5bb0306b435448b4a4f00",
+      "afterSha256": "36fec1d9f3102286f9e96d8cc41091e4eba4dd09409622fe6e9f0d372cc22a6f"
+    },
+    {
+      "path": "backend/src/main/java/com/szsemicon/hr/reporting/infrastructure/persistence/MyBatisAttendanceReportSourceRepository.java",
+      "beforeSha256": "ceed4bcd93639f7b06b3362c72841d3e27b4229573995aa897fe2365a84faaaa",
+      "afterSha256": "e1c9cc31b6e94d2b56e7435d15f5a45a932aa34ae38212c6ff5a9aced27c51ef"
+    },
+    {
+      "path": "backend/src/main/resources/application.yml",
+      "beforeSha256": "71835425092cb49e986cb7aa7d850b718722f169e1bb86d0718bae8a2d4027ee",
+      "afterSha256": "86a2b46e788a020547722395640037bbd466fbe89c56ba0a4e5a2716c5d1638e"
+    },
+    {
+      "path": "backend/src/main/resources/db/migration/V79__prior_service_years_precision.sql",
+      "beforeSha256": null,
+      "afterSha256": "f3d6201e0c7ac7c2d1625597f7621d76e3e9864f69caadbdf4b748bd83e43b30"
+    },
+    {
+      "path": "backend/src/main/resources/mappers/AttendanceReportMapper.xml",
+      "beforeSha256": "a681391c66b666142880a348992d7f886a4817c57a37d928940f58f18f44fc72",
+      "afterSha256": "0a3f08a4e3e7784c27d242c276c3bde2670743a019ba6ee606b03d650a199c2f"
+    },
+    {
+      "path": "backend/src/main/resources/mappers/AttendanceReportQueryPageMapper.xml",
+      "beforeSha256": "a2b49be389f873a5094b832ce90ab319682b7003ee30b3cbef042bdc119d22b0",
+      "afterSha256": "a564f4362e52b037c95d7ba04166541bab4aa53dff8070beeb8f1dba95690be9"
+    },
+    {
+      "path": "backend/src/main/resources/mappers/PeopleMapper.xml",
+      "beforeSha256": "83ca78b640847103c74e1fdacd235f8def4b89b53fe8ae597667d31f8df705e0",
+      "afterSha256": "e54dc18e0f2186e94f7b530ab456ba4638964bf46a312f7e5d40dbc9a772d8af"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/developmentlog/application/DevelopmentLogQueryServiceStrictMetadataTest.java",
+      "beforeSha256": null,
+      "afterSha256": "8da1f1850afdf7c758eb65aa5e70fde57878be7a1b10dd935de0f461aa0e14dc"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/developmentlog/application/DevelopmentLogQueryServiceSyntheticTest.java",
+      "beforeSha256": null,
+      "afterSha256": "a9aa2069f7fadd4a533afd725b87802c5bd6bd77a41b289ea73c42f75b228a30"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/developmentlog/application/DevelopmentLogQueryServiceTest.java",
+      "beforeSha256": null,
+      "afterSha256": "459c9647e56dc34ea22c2d566b4366271c8c699b38dc6e2f960174ad66bd086c"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/developmentlog/interfaces/rest/DevelopmentLogControllerTest.java",
+      "beforeSha256": null,
+      "afterSha256": "85148dc0d892685c2047ee8f355ff67c386c2e8e8773281f9ce74db37ccc1786"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/identityaccess/interfaces/rest/AuthenticationControllerMenuTest.java",
+      "beforeSha256": null,
+      "afterSha256": "f789538373265c37fcfa1673159d7ed77eee6b656fd858eaba662f1ec12d498c"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/identityaccess/interfaces/rest/AuthenticationMenuTest.java",
+      "beforeSha256": "340133713987fb46515685a9d3d72b3c45d1d4028983dbcdc6c8d216ba178ba5",
+      "afterSha256": "486a779df04fb91ef71abedf090ce2f22452ac14c713a2cd27ffd73c4ec972ce"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/people/application/PriorServiceRollbackServiceTest.java",
+      "beforeSha256": null,
+      "afterSha256": "0e2558ccdd8a7ef051b028cd42acf72f8cbf371f22b224b7af9afa5ee18069b4"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/application/AttendanceReportHistoricalAuthorizationIntegrationTest.java",
+      "beforeSha256": null,
+      "afterSha256": "0a3d959b293c547d651eaa8cfb7dcc26200171b32301f74ffeb7071979c69b8d"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/application/AttendanceReportMultiScopePersistenceIntegrationTest.java",
+      "beforeSha256": "daf1cecf2c3371e9c353b0b58202a727ffe08a7fb77aba240d40300182fefa69",
+      "afterSha256": "f6855aaf2b2116afd51294280975ef3c033b8389a48a5ec561b85f892abf6e3c"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/application/AttendanceReportQueryPageServiceTest.java",
+      "beforeSha256": "ea5462b1f422aca2a489eff983dac6b3e0cb4d508496ad2cf0f0ef066eb20477",
+      "afterSha256": "413a4863006a9e7ecfb99e1d4ce58c7670bc03f6675d219e1f0d090ac88618f0"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/application/LeaveStatAssemblerTest.java",
+      "beforeSha256": "1551686437562e94dc9a880976906fad3041c900c043c1661b29b5f09734e668",
+      "afterSha256": "e57f2ea25c4fa9025ebe1640fadc6587aac46566f71051dce3bfac2e232bf85f"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/application/RealtimeAttendanceReportSnapshotServiceTest.java",
+      "beforeSha256": "3b1de1a0f1afac44bb33b78c93e1fdb9bc0729e5867905cd007016f5cbc2e772",
+      "afterSha256": "a15536c85229cdf0fa1ef141029be0c79ea53038b94efa7942f34a58029a4de2"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/infrastructure/orchestrator/KernelFailurePublicationTest.java",
+      "beforeSha256": "28e85a8ae8bf0dd4b6c0541d776fbe493c5bd8a2786d4a46abdbd5cea29d525c",
+      "afterSha256": "ee6f2b315a31065931e1d8d490395ef90de71c34ad504199f2809bf926170c1d"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/infrastructure/persistence/AttendanceReportDataScopeSqlContractTest.java",
+      "beforeSha256": "5172ba71028292d5ea2c044ba1d6fe2025c5cdfd0a25527b98bde279c3925799",
+      "afterSha256": "0213940c57b3f0da6055fbf6dcc61c9152656ff0544a32a05380dfacd0625bc6"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/infrastructure/persistence/AttendanceReportHistoricalDirectoryIntegrationTest.java",
+      "beforeSha256": null,
+      "afterSha256": "304cbbcc02ad908150ddefa5ee917adf0a11bff023fee7633950a8fc73b47c48"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/reporting/infrastructure/persistence/AttendanceReportQueryPageEmployeeNumberFilterTest.java",
+      "beforeSha256": null,
+      "afterSha256": "a82de39c01cb8efc0e3d3ab1a13566398676eaeae33ae9f65697c87963a87810"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/wave1/PeopleEmployeeStatusIntegrationTest.java",
+      "beforeSha256": null,
+      "afterSha256": "eb84a49a6d194edbcfb58c8def15e8a201173af64ac78284e9c9008dbac4a4c6"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/wave1/PriorService365RealIntegrationTest.java",
+      "beforeSha256": null,
+      "afterSha256": "139f978a25b6630a32a5459667fea43dd84f7141d7d0e49442d2f928220a1f7a"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/wave1/PriorServiceBatchQueryIntegrationTest.java",
+      "beforeSha256": null,
+      "afterSha256": "bb04ef19d36875141fff0b919758785309e815619c678291de4fd6c96852ab27"
+    },
+    {
+      "path": "backend/src/test/java/com/szsemicon/hr/wave1/Wave1AuthenticationSecurityIntegrationTest.java",
+      "beforeSha256": "6108381df71c118fb848e69ba0101cbe3a1e20d4907cb9311d5c67f459bce318",
+      "afterSha256": "2a220b303a1ddbf7b21a0df891c72fc80f687fcd4c32e208d5f57714cade8975"
+    },
+    {
+      "path": "backend/src/test/resources/db/test-schema.sql",
+      "beforeSha256": "0c4297edcc4df61ee572147195ce7a7fa3237c77a369ca983953d973d427a2de",
+      "afterSha256": "bfde7b4cfc408e16df73da10dbafd2793b34e6c58bc7e0e9896443a51720cf6c"
+    },
+    {
+      "path": "backend/src/test/resources/fixtures/deployment-history/README.md",
+      "beforeSha256": null,
+      "afterSha256": "ac89d6558072a29c8ff07e97ea46ff124f450b3e79cb6cf4b280daa95db6c143"
+    },
+    {
+      "path": "backend/src/test/resources/fixtures/deployment-history/production-evidence-desensitized.json",
+      "beforeSha256": null,
+      "afterSha256": "b52eb0d5d7fc907946519d739225b1291d9989b49e08c2419590fdce6c13ca61"
+    },
+    {
+      "path": "backend/src/test/resources/fixtures/deployment-history/register-proof-generated.json",
+      "beforeSha256": null,
+      "afterSha256": "9c81f3c0d128a2b0c5f5498ab29b59faa08f4d98cc2df2d5e0397870a6d4f1f2"
+    },
+    {
+      "path": "frontend/package-lock.json",
+      "beforeSha256": "ac3da28779d07c00d61a61cf861aa712eee388d6975fc2488e7d5ae5c9ce4895",
+      "afterSha256": "6410f6ea8495a523f4e50a4c2116cfda5f3a4db27a4a86d452abd3679981b38b"
+    },
+    {
+      "path": "frontend/package.json",
+      "beforeSha256": "d589bdce0f60e8136e933453e4a93edef86491905c7ca0d953471b6116566111",
+      "afterSha256": "3daaf6c55335d65d7f349e82e94d965e76a5f3fd3c9bcc53e14037840168d88a"
+    },
+    {
+      "path": "frontend/src/app/App.tsx",
+      "beforeSha256": "745328e0bad69262e369139df1176da0645e1b143e7e4d3b542bbd9fe4f8c664",
+      "afterSha256": "092497ffc81ced7b063d930c29afd776c1135d5f72275674e2be9973aa1cde7c"
+    },
+    {
+      "path": "frontend/src/app/routeAuthorization.ts",
+      "beforeSha256": "c8be4dcdfa498346ca1286d9319358ac979aa488c94de94743c1548240e5edd0",
+      "afterSha256": "b2a7eae9dfe4f1fd57f610821cfc1c5e35d1306d7e3502ffbea840e8d2bb2bbc"
+    },
+    {
+      "path": "frontend/src/features/access/DevelopmentLogPage.css",
+      "beforeSha256": null,
+      "afterSha256": "9d94f4c2d9d013d69202cdb0c2ef150b337c96bd1d76e19478e43be05a6dd678"
+    },
+    {
+      "path": "frontend/src/features/access/DevelopmentLogPage.test.tsx",
+      "beforeSha256": null,
+      "afterSha256": "54ca95107bbd7badcb51e209788e3f4cd1515980b9962c2662ccb8a7d05f1d48"
+    },
+    {
+      "path": "frontend/src/features/access/DevelopmentLogPage.tsx",
+      "beforeSha256": null,
+      "afterSha256": "5b8ed6ec83f50de52baa6bad1c55675d91e47e4bd46cdfd27061c614bd32d509"
+    },
+    {
+      "path": "frontend/src/features/attendanceSetup/AttendanceSetupPages.test.tsx",
+      "beforeSha256": "c2cef7ed1c36da72a662fa3bfc8008ececf9aca96d02dcdedab0677ceed495bd",
+      "afterSha256": "fb02b9ab8f1e49a0205ab1215a2438ef23f42a561f067305b95ce379ac45bffd"
+    },
+    {
+      "path": "frontend/src/features/employee/EmployeeDetailPage.test.tsx",
+      "beforeSha256": null,
+      "afterSha256": "e5595c23daad49819760d196422d8b3b240e119309e47f31b8a72fb408f10360"
+    },
+    {
+      "path": "frontend/src/features/employee/EmployeeDetailPage.tsx",
+      "beforeSha256": "b57001a36f0f25a59228a03bfc460c401a13457da936aeeb36674ffa93055b1a",
+      "afterSha256": "f16dc7509000dfff85e86b153d277f190e3440d65f50498fa65e766abb133e9e"
+    },
+    {
+      "path": "frontend/src/features/employee/demoEmployees.ts",
+      "beforeSha256": "c129cc7dbc99ec310fd2c32ab4f915f5a5e3e89c56ff685919d027aa5ded4907",
+      "afterSha256": "682f15f5bd477f04e137e440085dfb1c5290a18a15fd3e96fd34a3f9c6c70b7a"
+    },
+    {
+      "path": "frontend/src/features/employee/employeeApi.ts",
+      "beforeSha256": "b88af9208f6fdd54d164e9736813203761b958a25a06f60a7e5ce60f823d011c",
+      "afterSha256": "9bd4fc5bc09adb5c2cc1295d99e7e614322b14a0d3d513f21f118b028435014f"
+    },
+    {
+      "path": "frontend/src/features/session/demoSession.ts",
+      "beforeSha256": "7bfe0c00c758f3e1187e89eba19406d44421edd92b7a8fed66fe64aa09b0be16",
+      "afterSha256": "edbad68d9ba6d57cb8b065761899aed76011ebcdea265c6cffd85c960848e484"
+    },
+    {
+      "path": "frontend/src/test/wave2SourceContract.test.ts",
+      "beforeSha256": "6096728f747104fea9a9eb54984aca31a1099f4ebc0c92123332f04e34cd2341",
+      "afterSha256": "d6813bbb6b21771c9ad33775f298cd2168e3fd76a342e3b58de0e63e45638e0f"
+    },
+    {
+      "path": "register-deployment.py",
+      "beforeSha256": null,
+      "afterSha256": "45b109689a336ad1831ae8b77d2c65f564b61fd3bdcaf8aef296fdc0f43d0401"
+    },
+    {
+      "path": "test_register_deployment.py",
+      "beforeSha256": null,
+      "afterSha256": "8bdebbaf048acc9290cc6f00fd6f88f1c5f0a7b1aed2d70f2f7e712235c1843f"
+    },
+    {
+      "path": "test_register_deployment_fixes.py",
+      "beforeSha256": null,
+      "afterSha256": "02efb16b9c757cbf23ef25f88fb3acae99543997ea049eeb3ebf40458e1e4fc2"
+    }
+  ]
+}

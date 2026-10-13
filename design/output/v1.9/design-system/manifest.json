@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "od-design-system-project/v1",
+  "id": "shenzhou-hr",
+  "name": "神州 HR · 精密制造控制台",
+  "category": "Professional & Corporate",
+  "description": "面向企业考勤、组织人员、假期与规则配置的高密度、可信、克制、精确、可追溯产品设计系统。",
+  "source": {
+    "type": "local",
+    "path": "/Users/huzhijin/Library/Application Support/Open Design/namespaces/release-stable-intel/data/projects/0fe91b6e-559e-473e-9cf0-aa9a35c533ee/design/open-design/v1.9/design-system",
+    "importedAt": "2026-07-22T13:20:00+08:00"
+  },
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "designTokens": "design-tokens.json"
+  },
+  "importMode": "normalized",
+  "craft": {
+    "applies": [
+      "color",
+      "typography",
+      "layout",
+      "accessibility-baseline"
+    ],
+    "suggested": [],
+    "exemptions": []
+  }
+}

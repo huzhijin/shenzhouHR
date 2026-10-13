@@ -2,14 +2,18 @@ package com.szsemicon.hr.architecture;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.Test;
 
 class LayerDependencyTest {
 
     @Test
     void domainDoesNotDependOnOuterLayers() {
-        var classes = new ClassFileImporter().importPackages("com.szsemicon.hr");
+        var classes = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.szsemicon.hr");
 
         noClasses()
                 .that().resideInAPackage("..domain..")
@@ -22,7 +26,9 @@ class LayerDependencyTest {
 
     @Test
     void applicationDoesNotDependOnAdapters() {
-        var classes = new ClassFileImporter().importPackages("com.szsemicon.hr");
+        var classes = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.szsemicon.hr");
 
         noClasses()
                 .that().resideInAPackage("..application..")

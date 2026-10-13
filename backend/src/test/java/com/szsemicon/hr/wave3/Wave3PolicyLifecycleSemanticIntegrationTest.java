@@ -48,7 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
 class Wave3PolicyLifecycleSemanticIntegrationTest
         extends Wave1IntegrationTestSupport {
 
-    private static final String LEGAL_ENTITY =
+    private static final String COMPANY =
             "30000000-0000-0000-0000-000000000001";
     private static final String TEMPLATE_ID =
             "a6000000-0000-0000-0000-000000000001";
@@ -95,11 +95,11 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
         jdbc.update(
                 """
                 INSERT INTO attendance_policy_scope (
-                    scope_id, policy_template_id, legal_entity_id,
+                    scope_id, policy_template_id, company_id,
                     row_version, created_by, created_at
                 ) VALUES (?, ?, ?, 0, ?, ?)
                 """,
-                SCOPE_ID, TEMPLATE_ID, LEGAL_ENTITY,
+                SCOPE_ID, TEMPLATE_ID, COMPANY,
                 ADMIN_PRINCIPAL, recordedAt);
         jdbc.update(
                 """
@@ -135,7 +135,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
         jdbc.update(
                 """
                 INSERT INTO attendance_policy_scope (
-                    scope_id, policy_template_id, legal_entity_id,
+                    scope_id, policy_template_id, company_id,
                     row_version, created_by, created_at
                 ) VALUES (
                     ?, ?, '30000000-0000-0000-0000-000000000002',
@@ -204,7 +204,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                 .andExpect(jsonPath("$.scopedVersionId")
                         .value(BASELINE_VERSION_ID))
                 .andExpect(jsonPath("$.templateId").value(TEMPLATE_ID))
-                .andExpect(jsonPath("$.legalEntityId").value(LEGAL_ENTITY))
+                .andExpect(jsonPath("$.companyId").value(COMPANY))
                 .andExpect(jsonPath("$.policyKind").value("LATE_GRACE"))
                 .andExpect(jsonPath("$.status").value("PUBLISHED"));
         mockMvc.perform(get(
@@ -234,7 +234,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                 post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         TEMPLATE_ID)
-                        .queryParam("legalEntityId", LEGAL_ENTITY),
+                        .queryParam("companyId", COMPANY),
                 "policy-draft-exact-replay",
                 draftReason,
                 draftBody)
@@ -256,7 +256,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                 post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         TEMPLATE_ID)
-                        .queryParam("legalEntityId", LEGAL_ENTITY),
+                        .queryParam("companyId", COMPANY),
                 "policy-draft-exact-replay",
                 draftReason,
                 draftBody)
@@ -273,7 +273,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                 post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         TEMPLATE_ID)
-                        .queryParam("legalEntityId", LEGAL_ENTITY),
+                        .queryParam("companyId", COMPANY),
                 "policy-draft-exact-replay",
                 changedReason,
                 draftBody.replace(draftReason, changedReason))
@@ -299,7 +299,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}",
                         TEMPLATE_ID,
                         originalDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"0\""),
                 "policy-draft-edit-winner",
                 updateReason,
@@ -314,7 +314,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}",
                         TEMPLATE_ID,
                         originalDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"0\""),
                 "policy-draft-edit-winner",
                 updateReason,
@@ -329,7 +329,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}",
                         TEMPLATE_ID,
                         originalDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"0\""),
                 "policy-draft-edit-loser",
                 updateReason,
@@ -344,7 +344,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"0\""),
                 "policy-validate-exact-replay",
                 validateReason,
@@ -359,7 +359,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"0\""),
                 "policy-validate-exact-replay",
                 validateReason,
@@ -379,7 +379,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/publish",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"0\""),
                 "policy-publish-stale",
                 publishReason,
@@ -391,7 +391,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/publish",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"1\""),
                 "policy-publish-exact-replay",
                 publishReason,
@@ -406,7 +406,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/publish",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"1\""),
                 "policy-publish-exact-replay",
                 publishReason,
@@ -443,7 +443,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/rollback",
                         TEMPLATE_ID,
                         BASELINE_VERSION_ID)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"1\""),
                 "policy-historical-source-rollback",
                 historicalSourceReason,
@@ -473,7 +473,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"1\""),
                 "policy-validate-published-stale",
                 validateReason,
@@ -496,7 +496,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/deactivate",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"2\""),
                 "policy-deactivate-failed-then-retry",
                 deactivateReason,
@@ -516,7 +516,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/deactivate",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"2\""),
                 "policy-deactivate-failed-then-retry",
                 deactivateReason,
@@ -534,7 +534,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/deactivate",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"2\""),
                 "policy-deactivate-failed-then-retry",
                 deactivateReason,
@@ -549,35 +549,35 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
         LocalDate lifecycleExclusiveEnd = LocalDate.parse("2026-07-29");
         LocalDate beyondLifecycleEnd = LocalDate.parse("2026-07-30");
         assertThat(policyRepository.publishedVersionMatchesKind(
-                LEGAL_ENTITY,
+                COMPANY,
                 editedDraftId,
                 PolicyKind.LATE_GRACE,
                 policyPeriodStart,
                 lifecycleExclusiveEnd)).isTrue();
         assertThat(policyRepository.findPublishedVersionIdsByKind(
-                LEGAL_ENTITY,
+                COMPANY,
                 PolicyKind.LATE_GRACE,
                 policyPeriodStart,
                 lifecycleExclusiveEnd)).containsExactly(editedDraftId);
         assertThat(policyRepository.publishedVersionMatchesKind(
-                LEGAL_ENTITY,
+                COMPANY,
                 editedDraftId,
                 PolicyKind.LATE_GRACE,
                 policyPeriodStart,
                 beyondLifecycleEnd)).isFalse();
         assertThat(policyRepository.findPublishedVersionIdsByKind(
-                LEGAL_ENTITY,
+                COMPANY,
                 PolicyKind.LATE_GRACE,
                 policyPeriodStart,
                 beyondLifecycleEnd)).isEmpty();
         assertThat(policyRepository.publishedVersionMatchesKind(
-                LEGAL_ENTITY,
+                COMPANY,
                 editedDraftId,
                 PolicyKind.LATE_GRACE,
                 policyPeriodStart,
                 null)).isFalse();
         assertThat(policyRepository.findPublishedVersionIdsByKind(
-                LEGAL_ENTITY,
+                COMPANY,
                 PolicyKind.LATE_GRACE,
                 policyPeriodStart,
                 null)).isEmpty();
@@ -595,7 +595,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/rollback",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"3\""),
                 "policy-rollback-exact-replay",
                 rollbackReason,
@@ -613,7 +613,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/rollback",
                         TEMPLATE_ID,
                         editedDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"3\""),
                 "policy-rollback-exact-replay",
                 rollbackReason,
@@ -628,7 +628,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                 SCOPE_ID, LocalDate.parse("2026-07-30")))
                 .containsExactly(rollbackVersionId);
         assertThat(policyRepository.publishedVersionMatchesKind(
-                LEGAL_ENTITY,
+                COMPANY,
                 rollbackVersionId,
                 PolicyKind.LATE_GRACE,
                 LocalDate.parse("2026-07-30"),
@@ -686,7 +686,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                 SCOPE_ID, LocalDate.parse("2026-07-31")))
                 .containsExactly(raceWinnerVersionId);
         assertThat(policyRepository.publishedVersionMatchesKind(
-                LEGAL_ENTITY,
+                COMPANY,
                 raceWinnerVersionId,
                 PolicyKind.LATE_GRACE,
                 LocalDate.parse("2026-07-31"),
@@ -701,7 +701,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                 post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         TEMPLATE_ID)
-                        .queryParam("legalEntityId", LEGAL_ENTITY),
+                        .queryParam("companyId", COMPANY),
                 "policy-backfill-draft",
                 backfillDraftReason,
                 """
@@ -721,7 +721,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/validate",
                         TEMPLATE_ID,
                         backfillDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"0\""),
                 "policy-backfill-validate",
                 backfillValidationReason,
@@ -740,7 +740,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/publish",
                         TEMPLATE_ID,
                         backfillDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"1\""),
                 "policy-backfill-publish",
                 backfillPublishReason,
@@ -774,7 +774,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                 post(
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions",
                         TEMPLATE_ID)
-                        .queryParam("legalEntityId", LEGAL_ENTITY),
+                        .queryParam("companyId", COMPANY),
                 "policy-duplicate-draft",
                 duplicateDraftReason,
                 """
@@ -800,7 +800,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}",
                         TEMPLATE_ID,
                         duplicateDraftId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH, "\"0\""),
                 "policy-duplicate-parameter",
                 duplicateReason,
@@ -852,7 +852,7 @@ class Wave3PolicyLifecycleSemanticIntegrationTest
                         "/api/v1/attendance-setup/policy-lifecycle/{templateId}/versions/{versionId}/rollback",
                         TEMPLATE_ID,
                         sourceVersionId)
-                        .queryParam("legalEntityId", LEGAL_ENTITY)
+                        .queryParam("companyId", COMPANY)
                         .header(HttpHeaders.IF_MATCH,
                                 "\"" + expectedVersion + "\""),
                 idempotencyKey,

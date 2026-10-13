@@ -1,0 +1,28 @@
+{
+  "skipFocus": {
+    "className": "skip-link",
+    "id": "",
+    "outlineStyle": "solid",
+    "outlineWidth": "3px",
+    "tag": "A",
+    "text": "跳到主要内容",
+    "visible": true
+  },
+  "skipActivation": {
+    "id": "main-content",
+    "mainFocused": true,
+    "tag": "MAIN"
+  },
+  "drawerOpen": {
+    "activeLabel": "",
+    "activeTag": "DIV",
+    "activeText": "导入批次全部状态批次 ID导入类型批次状态发生时间9e18b566-3c40-4a04-81e2-83e92be3e6bc员工预检失败2026年7月26日 10:019f834b5f-447f-4d18-99b5-0915f29fb815员",
+    "drawerOpen": true
+  },
+  "drawerClose": {
+    "activeLabel": "",
+    "activeTag": "BUTTON",
+    "activeText": "导入批次",
+    "drawerOpen": false
+  }
+}

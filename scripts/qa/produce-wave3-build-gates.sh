@@ -6,8 +6,8 @@ if [[ "$-" == *x* ]]; then
   exit 1
 fi
 
-readonly EXPECTED_REPOSITORY_ROOT="/Users/huzhijin/Downloads/shenzhouHR"
 readonly SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+readonly EXPECTED_REPOSITORY_ROOT="$SCRIPT_ROOT"
 
 if [[ "$(pwd -P)" != "$EXPECTED_REPOSITORY_ROOT" \
   || "$SCRIPT_ROOT" != "$EXPECTED_REPOSITORY_ROOT" ]]; then

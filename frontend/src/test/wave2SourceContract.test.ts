@@ -106,12 +106,10 @@ describe('WAVE-2 people production source contract', () => {
   });
 
   it('keeps drawers within the responsive design token instead of a fixed large width', () => {
-    const peopleImport = read(join(sourceRoot, 'features/peopleImport/PeopleImportPage.tsx'));
     const feedback = read(join(sourceRoot, 'shared/components/FeedbackComponents.tsx'));
 
-    expect(peopleImport).toContain('size="var(--size-drawer)"');
     expect(feedback).toContain('size="var(--size-drawer)"');
-    expect(`${peopleImport}\n${feedback}`).not.toContain('size="large"');
+    expect(feedback).not.toContain('size="large"');
   });
 
   it('keeps people form limits aligned with the OpenAPI contract', () => {
@@ -121,7 +119,8 @@ describe('WAVE-2 people production source contract', () => {
     expect(employeeDetail).toContain("name=\"displayName\"");
     expect(employeeDetail).toMatch(/name="displayName"[^]*?max:\s*100/);
     expect(employees).toMatch(/name="displayName"[^]*?max:\s*100/);
-    expect(employeeDetail).toMatch(/name="amountDays"[^]*?min:\s*-36500[^]*?max:\s*36500/);
+    // 工龄调整字段：界面按年输入(-100.00 至 100.00 年，保留2位小数)，后端接口为整数天数(按365天/年换算)
+    expect(employeeDetail).toMatch(/name="amountYears"[^]*?min:\s*-100\.00[^]*?max:\s*100\.00/);
   });
 
   it('validates import file type and size at both the UI and API boundary', () => {
@@ -133,16 +132,14 @@ describe('WAVE-2 people production source contract', () => {
       sourceRoot,
       'shared/files/peopleImportFilePolicy.ts',
     ));
-    const api = read(join(sourceRoot, 'features/peopleImport/peopleImportApi.ts'));
-    const wizard = read(join(sourceRoot, 'features/peopleImport/ImportWizard.tsx'));
+    const api = read(join(sourceRoot, 'features/peopleImport/rosterImportApi.ts'));
 
     expect(validationBoundary).toContain('peopleImportFilePolicy.allowedExtensions');
     expect(validationBoundary).toContain('peopleImportFilePolicy.allowedTypes');
     expect(validationBoundary).toContain('file.size > 0');
     expect(validationBoundary).toContain('peopleImportFilePolicy.maxSizeBytes');
     expect(sharedPolicy).toContain('maxSizeBytes: 20 * 1024 * 1024');
-    expect(api).toContain('peopleImportFileValidator.validate(file)');
-    expect(wizard).toContain('validatePeopleImportFile(selectedFile)');
+    expect(api).toContain('validatePeopleImportFile(file)');
   });
 });
 

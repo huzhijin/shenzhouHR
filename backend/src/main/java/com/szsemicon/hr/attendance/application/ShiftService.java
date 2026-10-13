@@ -72,6 +72,12 @@ public class ShiftService {
 
     @Transactional(readOnly = true)
     public Page<ShiftTemplate> listTemplates(int page, int size) {
+        return listTemplates(null, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ShiftTemplate> listTemplates(
+            String companyId, int page, int size) {
         AttendanceSetupRules.page(page, size);
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_READ);
         String principalId = principalProvider.currentPrincipalId();
@@ -80,12 +86,14 @@ public class ShiftService {
                 repository.listTemplates(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         size,
                         page * size,
                         at),
                 repository.countTemplates(
                         principalId,
                         CapabilityCodes.ATTENDANCE_SETUP_READ,
+                        companyId,
                         at),
                 page,
                 size);
@@ -101,12 +109,17 @@ public class ShiftService {
             TemplateCommand command, String idempotencyKey) {
         capabilityService.require(CapabilityCodes.ATTENDANCE_SETUP_MANAGE_SHIFT);
         TemplateCommand normalized = normalize(command);
-        requireLegalEntity(
-                normalized.legalEntityId(), CapabilityCodes.ATTENDANCE_SETUP_MANAGE_SHIFT);
+        requireCompany(
+                normalized.companyId(), CapabilityCodes.ATTENDANCE_SETUP_MANAGE_SHIFT);
         var location = groupRepository.findLocation(normalized.locationId())
-                .filter(value -> value.legalEntityId().equals(normalized.legalEntityId()))
+                .filter(value -> value.companyId().equals(normalized.companyId()))
                 .filter(value -> value.status() == LifecycleStatus.ACTIVE)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        if (!groupRepository.isLocationAvailable(
+                location.locationId(), normalized.companyId(),
+                LocalDate.now(clock))) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
         String actor = principalProvider.currentPrincipalId();
         String key = AttendanceSetupRules.idempotencyKey(idempotencyKey);
         ShiftTemplate replay =
@@ -121,7 +134,7 @@ public class ShiftService {
         }
         Instant now = clock.instant();
         ShiftTemplate created = new ShiftTemplate(
-                UUID.randomUUID().toString(), normalized.legalEntityId(),
+                UUID.randomUUID().toString(), normalized.companyId(),
                 location.locationId(), normalized.code(), normalized.name(),
                 LifecycleStatus.ACTIVE, 0, normalized.reason(), actor, now, actor, now);
         repository.insertTemplate(created, key);
@@ -139,7 +152,7 @@ public class ShiftService {
         repository.lockTemplate(shiftId);
         ShiftTemplate current = requireTemplate(
                 shiftId, CapabilityCodes.ATTENDANCE_SETUP_MANAGE_SHIFT);
-        if (!current.legalEntityId().equals(normalized.legalEntityId())) {
+        if (!current.companyId().equals(normalized.companyId())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
         if (!current.locationId().equals(normalized.locationId())
@@ -149,14 +162,19 @@ public class ShiftService {
                     "班次 family 的地点和编码不可原地修改");
         }
         var location = groupRepository.findLocation(normalized.locationId())
-                .filter(value -> value.legalEntityId().equals(current.legalEntityId()))
+                .filter(value -> value.companyId().equals(current.companyId()))
                 .filter(value -> value.status() == LifecycleStatus.ACTIVE)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
+        if (!groupRepository.isLocationAvailable(
+                location.locationId(), current.companyId(),
+                LocalDate.now(clock))) {
+            throw new ResourceNotAvailableAccessDeniedException();
+        }
         requireVersion(current.rowVersion(), expectedVersion);
         String actor = principalProvider.currentPrincipalId();
         Instant now = clock.instant();
         ShiftTemplate updated = new ShiftTemplate(
-                current.shiftId(), current.legalEntityId(), location.locationId(),
+                current.shiftId(), current.companyId(), location.locationId(),
                 normalized.code(), normalized.name(), current.status(),
                 current.rowVersion() + 1, normalized.reason(), current.createdBy(),
                 current.createdAt(), actor, now);
@@ -186,7 +204,7 @@ public class ShiftService {
         String actor = principalProvider.currentPrincipalId();
         Instant now = clock.instant();
         ShiftTemplate updated = new ShiftTemplate(
-                current.shiftId(), current.legalEntityId(), current.locationId(),
+                current.shiftId(), current.companyId(), current.locationId(),
                 current.code(), current.name(), target, current.rowVersion() + 1,
                 normalizedReason, current.createdBy(), current.createdAt(), actor, now);
         if (!repository.updateTemplate(updated, expectedVersion)) {
@@ -482,7 +500,7 @@ public class ShiftService {
         capabilityService.require(capability);
         ShiftTemplate template = repository.findTemplate(shiftId)
                 .orElseThrow(ResourceNotAvailableAccessDeniedException::new);
-        requireLegalEntity(template.legalEntityId(), capability);
+        requireCompany(template.companyId(), capability);
         return template;
     }
 
@@ -520,17 +538,17 @@ public class ShiftService {
         }
     }
 
-    private void requireLegalEntity(String legalEntityId, String capability) {
-        if (!peopleRepository.canAccessLegalEntity(
+    private void requireCompany(String companyId, String capability) {
+        if (!peopleRepository.canAccessCompany(
                 principalProvider.currentPrincipalId(), capability,
-                legalEntityId, clock.instant())) {
+                companyId, clock.instant())) {
             throw new ResourceNotAvailableAccessDeniedException();
         }
     }
 
     private TemplateCommand normalize(TemplateCommand command) {
         return new TemplateCommand(
-                Objects.requireNonNull(command.legalEntityId()),
+                Objects.requireNonNull(command.companyId()),
                 Objects.requireNonNull(command.locationId()),
                 AttendanceSetupRules.code(command.code()),
                 AttendanceSetupRules.name(command.name()),
@@ -643,7 +661,7 @@ public class ShiftService {
     }
 
     private boolean same(ShiftTemplate template, TemplateCommand command) {
-        return template.legalEntityId().equals(command.legalEntityId())
+        return template.companyId().equals(command.companyId())
                 && template.locationId().equals(command.locationId())
                 && template.code().equals(command.code())
                 && template.name().equals(command.name());

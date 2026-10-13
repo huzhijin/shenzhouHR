@@ -28,16 +28,37 @@ public interface CalendarRepository {
     Optional<WorkCalendar> findVersionByIdempotency(
             String actorId, String idempotencyKey);
 
-    List<WorkCalendar> listCalendars(
+    default List<WorkCalendar> listCalendars(
             String principalId,
             String capability,
             Integer year,
             int limit,
             int offset,
+            Instant at) {
+        return listCalendars(
+                principalId, capability, null, year, limit, offset, at);
+    }
+
+    List<WorkCalendar> listCalendars(
+            String principalId,
+            String capability,
+            String companyId,
+            Integer year,
+            int limit,
+            int offset,
             Instant at);
 
+    default long countCalendars(
+            String principalId, String capability, Integer year, Instant at) {
+        return countCalendars(principalId, capability, null, year, at);
+    }
+
     long countCalendars(
-            String principalId, String capability, Integer year, Instant at);
+            String principalId,
+            String capability,
+            String companyId,
+            Integer year,
+            Instant at);
 
     void insertCalendar(WorkCalendar calendar, String idempotencyKey);
 

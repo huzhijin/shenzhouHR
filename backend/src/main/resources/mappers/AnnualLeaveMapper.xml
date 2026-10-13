@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.szsemicon.hr.leavetimeaccount.infrastructure.persistence.AnnualLeaveMapper">
+
+    <select id="findCurrentEmployments"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$CurrentEmploymentRow">
+        SELECT ea.employee_id          AS employeeId,
+               ea.employment_period_id AS employmentPeriodId,
+               employee.company_id     AS companyId
+        FROM employment_assignment ea
+        JOIN employee employee
+          ON employee.employee_id = ea.employee_id
+        WHERE ea.employee_id = #{employeeId}
+          AND ea.current_version_marker = 1
+          AND ea.record_status = 'ACTIVE'
+          AND employee.employment_status = 'ACTIVE'
+          AND ea.effective_from &lt;= #{at}
+          AND (ea.effective_to IS NULL OR ea.effective_to &gt; #{at})
+    </select>
+
+    <select id="findPublishedPolicyVersionId" resultType="string">
+        SELECT alpv.annual_leave_policy_version_id
+        FROM annual_leave_policy_version alpv
+        WHERE alpv.company_id = #{companyId}
+          AND alpv.status = 'PUBLISHED'
+        ORDER BY alpv.version_number DESC
+        LIMIT 1
+    </select>
+
+    <select id="findTimeAccount"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$TimeAccountRow">
+        SELECT ta.time_account_id   AS accountId,
+               ta.employee_id       AS employeeId,
+               ta.employment_period_id AS employmentPeriodId,
+               ta.company_id        AS companyId,
+               ta.account_year      AS year,
+               ta.balance_hours     AS balanceHours,
+               ta.policy_version_id AS policyVersionId,
+               ta.row_version       AS rowVersion
+        FROM time_account ta
+        WHERE ta.employee_id   = #{employeeId}
+          AND ta.employment_period_id = #{employmentPeriodId}
+          AND ta.account_type  = #{accountType}
+          AND ta.account_year  = #{year}
+    </select>
+
+    <select id="lockTimeAccount"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$TimeAccountRow">
+        SELECT ta.time_account_id   AS accountId,
+               ta.employee_id       AS employeeId,
+               ta.employment_period_id AS employmentPeriodId,
+               ta.company_id        AS companyId,
+               ta.account_year      AS year,
+               ta.balance_hours     AS balanceHours,
+               ta.policy_version_id AS policyVersionId,
+               ta.row_version       AS rowVersion
+        FROM time_account ta
+        WHERE ta.employee_id = #{employeeId}
+          AND ta.employment_period_id = #{employmentPeriodId}
+          AND ta.account_type = #{accountType}
+          AND ta.account_year = #{year}
+        FOR UPDATE
+    </select>
+
+    <insert id="createTimeAccountIfAbsent">
+        INSERT IGNORE INTO time_account (
+            time_account_id, employee_id, employment_period_id,
+            company_id, account_type, account_year,
+            balance_hours, policy_version_id,
+            row_version, created_at, updated_at
+        ) VALUES (
+            #{accountId}, #{employeeId}, #{employmentPeriodId},
+            #{companyId}, #{accountType}, #{year},
+            0.00, #{policyVersionId},
+            0, #{now}, #{now}
+        )
+    </insert>
+
+    <update id="updateBalance">
+        UPDATE time_account
+        SET balance_hours = #{newBalance},
+            row_version   = row_version + 1,
+            updated_at    = NOW(6)
+        WHERE time_account_id = #{accountId}
+          AND row_version     = #{expectedRowVersion}
+    </update>
+
+    <select id="nextSequenceNo" resultType="int">
+        SELECT COALESCE(MAX(sequence_no), 0) + 1
+        FROM time_account_ledger_entry
+        WHERE time_account_id = #{accountId}
+    </select>
+
+    <select id="sumLedgerAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(amount_hours), 0.00)
+        FROM time_account_ledger_entry
+        WHERE time_account_id = #{accountId}
+    </select>
+
+    <select id="sumActiveReservations" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(reserved_hours), 0.00)
+        FROM oa_time_account_reservation
+        WHERE time_account_id = #{accountId}
+          AND reservation_status IN ('RESERVED', 'CONFIRMED')
+    </select>
+
+    <select id="summarizeOpeningImport"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$OpeningImportSummary">
+        SELECT COUNT(*) AS entryCount,
+               COALESCE(SUM(amount_hours), 0.00) AS totalHours
+        FROM time_account_ledger_entry
+        WHERE time_account_id = #{accountId}
+          AND source_type = 'HR_OPENING_IMPORT'
+    </select>
+
+    <insert id="insertLedgerEntry">
+        INSERT INTO time_account_ledger_entry (
+            time_account_ledger_entry_id,
+            time_account_id,
+            sequence_no,
+            entry_type,
+            amount_hours,
+            source_type,
+            source_id,
+            business_date,
+            effective_from,
+            expires_on,
+            policy_version_id,
+            period_version_id,
+            close_snapshot_id,
+            request_id,
+            reversal_of_entry_id,
+            actor_id,
+            occurred_at
+        ) VALUES (
+            #{entryId},
+            #{accountId},
+            #{sequenceNo},
+            #{entryType},
+            #{amountHours},
+            #{sourceType},
+            #{sourceId},
+            #{businessDate},
+            #{effectiveFrom},
+            #{expiresOn},
+            #{policyVersionId},
+            NULL,
+            NULL,
+            #{requestId},
+            NULL,
+            #{actorId},
+            #{occurredAt}
+        )
+    </insert>
+
+    <select id="listLedgerEntries"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$LedgerEntryRow">
+        SELECT
+            e.time_account_ledger_entry_id AS entryId,
+            e.time_account_id              AS accountId,
+            e.sequence_no                  AS sequenceNo,
+            e.entry_type                   AS entryType,
+            e.amount_hours                 AS amountHours,
+            e.source_type                  AS sourceType,
+            e.source_id                    AS sourceId,
+            e.business_date                AS businessDate,
+            e.effective_from               AS effectiveFrom,
+            e.expires_on                   AS expiresOn,
+            e.policy_version_id            AS policyVersionId,
+            e.request_id                   AS requestId,
+            e.actor_id                     AS actorId,
+            e.occurred_at                  AS occurredAt
+        FROM time_account_ledger_entry e
+        WHERE e.time_account_id = #{accountId}
+        ORDER BY e.sequence_no DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countLedgerEntries" resultType="long">
+        SELECT COUNT(*)
+        FROM time_account_ledger_entry
+        WHERE time_account_id = #{accountId}
+    </select>
+
+    <insert id="claimBalanceIdempotency">
+        INSERT INTO annual_leave_balance_idempotency_record (
+            annual_leave_balance_idempotency_record_id,
+            principal_id,
+            idempotency_key,
+            operation,
+            request_digest,
+            claim_token,
+            time_account_id,
+            record_status,
+            resulting_ledger_entry_id,
+            resulting_balance_hours,
+            resulting_row_version,
+            created_at,
+            completed_at
+        ) VALUES (
+            #{recordId},
+            #{principalId},
+            #{idempotencyKey},
+            #{operation},
+            #{requestDigest},
+            #{claimToken},
+            #{accountId},
+            'PROCESSING',
+            NULL,
+            NULL,
+            NULL,
+            #{createdAt},
+            NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            annual_leave_balance_idempotency_record_id =
+                annual_leave_balance_idempotency_record_id
+    </insert>
+
+    <select id="lockBalanceIdempotency"
+            resultType="com.szsemicon.hr.leavetimeaccount.application.AnnualLeaveManagementRepository$BalanceIdempotencyRow">
+        SELECT
+            annual_leave_balance_idempotency_record_id AS recordId,
+            principal_id AS principalId,
+            idempotency_key AS idempotencyKey,
+            operation,
+            request_digest AS requestDigest,
+            claim_token AS claimToken,
+            time_account_id AS accountId,
+            record_status AS recordStatus,
+            resulting_ledger_entry_id AS resultingLedgerEntryId,
+            resulting_balance_hours AS resultingBalanceHours,
+            resulting_row_version AS resultingRowVersion,
+            created_at AS createdAt,
+            completed_at AS completedAt
+        FROM annual_leave_balance_idempotency_record
+        WHERE principal_id = #{principalId}
+          AND idempotency_key = #{idempotencyKey}
+        FOR UPDATE
+    </select>
+
+    <update id="completeBalanceIdempotency">
+        UPDATE annual_leave_balance_idempotency_record
+        SET record_status = 'COMPLETED',
+            resulting_ledger_entry_id = #{resultingLedgerEntryId},
+            resulting_balance_hours = #{resultingBalanceHours},
+            resulting_row_version = #{resultingRowVersion},
+            completed_at = #{completedAt}
+        WHERE principal_id = #{principalId}
+          AND idempotency_key = #{idempotencyKey}
+          AND claim_token = #{claimToken}
+          AND record_status = 'PROCESSING'
+    </update>
+
+    <select id="canAccessEmployee" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM auth_principal principal
+            JOIN auth_principal_role_assignment role_assignment
+              ON role_assignment.principal_id = principal.principal_id
+            JOIN auth_role_capability role_capability
+              ON role_capability.role_id = role_assignment.role_id
+            JOIN auth_capability granted_capability
+              ON granted_capability.capability_id = role_capability.capability_id
+             AND granted_capability.capability_code = #{capability}
+            JOIN auth_data_scope data_scope
+              ON data_scope.scope_id = role_assignment.data_scope_id
+            JOIN employee emp
+              ON (data_scope.scope_type = 'COMPANY'
+                  AND data_scope.company_id = emp.company_id)
+              OR (data_scope.scope_type = 'ORGANIZATION'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM employment_assignment ea2
+                      WHERE ea2.employee_id = emp.employee_id
+                        AND ea2.organization_id = data_scope.organization_id
+                        AND ea2.current_version_marker = 1
+                  ))
+              OR (data_scope.scope_type = 'SELF'
+                  AND principal.employee_id = emp.employee_id
+                  AND (
+                        data_scope.company_id IS NULL
+                        OR data_scope.company_id = emp.company_id
+                  ))
+            WHERE principal.principal_id = #{principalId}
+              AND principal.status = 'ACTIVE'
+              AND emp.employee_id = #{employeeId}
+              AND role_assignment.valid_from &lt;= #{at}
+              AND (role_assignment.valid_to IS NULL OR role_assignment.valid_to &gt; #{at})
+              AND data_scope.valid_from &lt;= #{at}
+              AND (data_scope.valid_to IS NULL OR data_scope.valid_to &gt; #{at})
+        )
+    </select>
+
+    <select id="findPrincipalEmployeeId" resultType="string">
+        SELECT principal.employee_id
+        FROM auth_principal principal
+        WHERE principal.principal_id = #{principalId}
+          AND principal.status = 'ACTIVE'
+          AND principal.employee_id IS NOT NULL
+    </select>
+
+</mapper>

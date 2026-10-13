@@ -1,0 +1,64 @@
+{
+  "schema_version": "shenzhouhr.w9.performance-scenarios/v1",
+  "capacity": {
+    "active_employees": null,
+    "daily_peak_punches": null,
+    "month_end_concurrency": null,
+    "existing_database_bytes": null,
+    "accumulation_months": 36,
+    "mysql_version": null,
+    "flyway_version": null,
+    "integrated_commit": null,
+    "dataset_sha256": null
+  },
+  "scenarios": [
+    {
+      "id": "common-list",
+      "method": "GET",
+      "path": "/api/v1/attendance-reports?reportType=ATTENDANCE_DETAIL&page=0&size=50",
+      "concurrency": 50,
+      "total_requests": 1000,
+      "timeout_seconds": 10,
+      "minimum_success_rate": 0.99,
+      "p95_limit_ms": 2000,
+      "local_execution_supported": true,
+      "description": "V1.9 common list P95 <= 2 seconds"
+    },
+    {
+      "id": "personal-department-dashboard",
+      "method": "GET",
+      "path": "/api/v1/attendance-reports?reportType=ATTENDANCE_RATE&page=0&size=50",
+      "concurrency": 50,
+      "total_requests": 1000,
+      "timeout_seconds": 10,
+      "minimum_success_rate": 0.99,
+      "p95_limit_ms": 3000,
+      "local_execution_supported": true,
+      "description": "V1.9 personal/department dashboard P95 <= 3 seconds"
+    },
+    {
+      "id": "single-detail",
+      "method": "GET",
+      "path": "/api/v1/attendance-reports?reportType=ATTENDANCE_DETAIL&page=0&size=1",
+      "concurrency": 50,
+      "total_requests": 1000,
+      "timeout_seconds": 10,
+      "minimum_success_rate": 0.99,
+      "p95_limit_ms": 1000,
+      "local_execution_supported": true,
+      "description": "V1.9 single-row formal report projection P95 <= 1 second"
+    },
+    {
+      "id": "export-50000",
+      "method": "POST",
+      "path": "/api/v1/attendance-reports/exports",
+      "concurrency": 1,
+      "total_requests": 1,
+      "timeout_seconds": 65,
+      "minimum_success_rate": 1.0,
+      "p95_limit_ms": 60000,
+      "local_execution_supported": false,
+      "description": "V1.9 authenticated create/status/download export flow <= 50,000 rows within 60 seconds; formal external producer required"
+    }
+  ]
+}

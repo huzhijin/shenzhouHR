@@ -23,7 +23,7 @@ public final class CalendarModels {
 
     public record WorkCalendar(
             String calendarId,
-            String legalEntityId,
+            String companyId,
             String locationId,
             String code,
             String calendarVersionId,

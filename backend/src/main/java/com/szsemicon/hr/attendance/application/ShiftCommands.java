@@ -10,7 +10,7 @@ public final class ShiftCommands {
     }
 
     public record TemplateCommand(
-            String legalEntityId,
+            String companyId,
             String locationId,
             String code,
             String name,

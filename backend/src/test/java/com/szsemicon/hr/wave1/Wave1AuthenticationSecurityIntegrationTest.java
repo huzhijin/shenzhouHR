@@ -137,7 +137,9 @@ class Wave1AuthenticationSecurityIntegrationTest extends Wave1IntegrationTestSup
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.firstPasswordChangeRequired").value(true))
                 .andExpect(jsonPath("$.capabilities").isEmpty())
-                .andExpect(jsonPath("$.menu").isEmpty());
+                .andExpect(jsonPath("$.menu.length()").value(1))
+                .andExpect(jsonPath("$.menu[0].key").value("first-password-change"))
+                .andExpect(jsonPath("$.menu[0].path").value("/access/first-password-change"));
         mockMvc.perform(withSessionWithoutCsrf(get("/api/v1/me/capabilities"), bootstrap))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
